@@ -8,17 +8,32 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+from marivo._grouping import Grouping
 from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_method_facts import FrameRatioMethod
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+
+
+def _contribution(
+    current: AnalysisFrame,
+    baseline: AnalysisFrame,
+    *,
+    by: tuple[Deferred | Grouping, ...] | Population,
+) -> AnalysisFrame:
+    compared = current.compare({"base": baseline})
+    selected = compared.select(
+        {name: compared[f"base.absolute.{name}"] for name in current.output_names}
+    )
+    return selected.attribute(by=by)
 
 
 @pytest.fixture
@@ -64,8 +79,8 @@ def _columns(frame: AnalysisFrame) -> dict[str, DataColumn]:
 
 
 def _present(rows: pd.DataFrame) -> None:
-    assert rows[("presence", "left_present")].tolist() == [True] * len(rows)
-    assert rows[("presence", "right_present")].tolist() == [True] * len(rows)
+    assert rows[("presence", "detail.current.present.q")].tolist() == [True] * len(rows)
+    assert rows[("presence", "detail.baseline.present.q")].tolist() == [True] * len(rows)
 
 
 @pytest.fixture
@@ -108,17 +123,15 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.sum().divide(weight.sum())
-    global_result = session.attribute(
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+    global_result = _contribution(
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
         by=(region, channel),
-        contribution=True,
     ).compute()
-    local_result = session.attribute(
-        attribute_endpoint({"q": metric}, where=(phase == "current") & (region == "B")),
-        attribute_endpoint({"q": metric}, where=(phase == "base") & (region == "B")),
+    local_result = _contribution(
+        session.observe({"q": metric}, where=(phase == "current") & (region == "B")),
+        session.observe({"q": metric}, where=(phase == "base") & (region == "B")),
         by=(channel,),
-        contribution=True,
     ).compute()
     global_rows = global_result.to_pandas()
     local_rows = local_result.to_pandas()
@@ -144,13 +157,13 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
         (global_result, global_rows, 0),
         (local_result, local_rows, 1),
     ):
-        assert rows[("value", "left.q")].tolist() == pytest.approx(
+        assert rows[("value", "detail.current.q")].tolist() == pytest.approx(
             [float(value) for value in original_left[start:]]
         )
-        assert rows[("value", "right.q")].tolist() == pytest.approx(
+        assert rows[("value", "detail.baseline.q")].tolist() == pytest.approx(
             [float(value) for value in original_right[start:]]
         )
-        assert rows[("value", "absolute.q")].tolist() == pytest.approx(
+        assert rows[("value", "detail.absolute.q")].tolist() == pytest.approx(
             [
                 float(left - right)
                 for left, right in zip(original_left[start:], original_right[start:], strict=True)
@@ -158,21 +171,23 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
         )
         columns = _columns(frame)
         assert frame.output_names == (
-            "left.q",
-            "right.q",
-            "absolute.q",
             "contribution.q",
+            "total.q",
+            "observed_total.q",
             "contribution_share.q",
-            "numerator_left.q",
-            "numerator_right.q",
-            "denominator_left.q",
-            "denominator_right.q",
+            "detail.current.q",
+            "detail.baseline.q",
+            "detail.absolute.q",
+            "component.current.numerator.q",
+            "component.current.denominator.q",
+            "component.baseline.numerator.q",
+            "component.baseline.denominator.q",
         )
         for path, expected, unit in (
-            ("numerator_left.q", [2, 3, 5], "USD"),
-            ("numerator_right.q", [1, 4, 5], "USD"),
-            ("denominator_left.q", [10, 90, 100], "1"),
-            ("denominator_right.q", [10, 40, 50], "1"),
+            ("component.current.numerator.q", [2, 3, 5], "USD"),
+            ("component.baseline.numerator.q", [1, 4, 5], "USD"),
+            ("component.current.denominator.q", [10, 90, 100], "1"),
+            ("component.baseline.denominator.q", [10, 40, 50], "1"),
         ):
             assert rows[("value", path)].tolist() == expected[start:]
             assert columns[path].dtype == DecimalDataType(38, 0)
@@ -224,21 +239,20 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
     phase = session.catalog.fields.get("sales.facts.phase")
     region = session.catalog.fields.get("sales.facts.region")
     metric = gross.sum() - 2 * cost.sum()
-    result = session.attribute(
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+    result = _contribution(
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
         by=(region,),
-        contribution=True,
     ).compute()
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["G1", "G2"]
-    assert rows[("value", "left.q")].tolist() == [value for _, value in native]
-    assert rows[("value", "right.q")].tolist() == [Decimal("0.00"), Decimal("0.00")]
-    for path in ("left.q", "right.q", "absolute.q", "contribution.q"):
+    assert rows[("value", "detail.current.q")].tolist() == [value for _, value in native]
+    assert rows[("value", "detail.baseline.q")].tolist() == [Decimal("0.00"), Decimal("0.00")]
+    for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
         assert all(type(value) is Decimal for value in rows[("value", path)])
         assert isinstance(_columns(result)[path].dtype, DecimalDataType)
         assert _columns(result)[path].unit == "USD"
-    assert rows[("value", "absolute.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
+    assert rows[("value", "detail.absolute.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
     assert rows[("value", "contribution.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
     assert sum(rows[("value", "contribution.q")]) == root_change[0]
     assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
@@ -280,21 +294,20 @@ def test_disjoint_counted_identities_allow_exact_contributions(
     phase = session.catalog.fields.get("sales.facts.phase")
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.count_distinct() if distinct else value.count()
-    result = session.attribute(
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+    result = _contribution(
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
         by=(region,),
-        contribution=True,
     ).compute()
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "B"]
-    assert rows[("value", "left.q")].tolist() == ([3, 1] if distinct else [3, 3])
-    assert rows[("value", "right.q")].tolist() == ([1, 2] if distinct else [2, 2])
+    assert rows[("value", "detail.current.q")].tolist() == ([3, 1] if distinct else [3, 3])
+    assert rows[("value", "detail.baseline.q")].tolist() == ([1, 2] if distinct else [2, 2])
     expected = [2, -1] if distinct else [1, 1]
-    assert rows[("value", "absolute.q")].tolist() == expected
+    assert rows[("value", "detail.absolute.q")].tolist() == expected
     assert rows[("value", "contribution.q")].tolist() == expected
     assert rows[("value", "contribution_share.q")].tolist() == ([2, -1] if distinct else [0.5, 0.5])
-    for path in ("left.q", "right.q", "absolute.q", "contribution.q"):
+    for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
         assert _columns(result)[path].dtype == ScalarDataType("int64")
         assert _columns(result)[path].unit == "1"
     assert _columns(result)["contribution_share.q"].unit == "1"
@@ -321,30 +334,29 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
     phase = session.catalog.fields.get("sales.facts.phase")
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.weighted_mean(weight=weight)
-    result = session.attribute(
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+    result = _contribution(
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
         by=(region,),
-        contribution=True,
     ).compute()
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["G"]
-    assert rows[("value", "left.q")].tolist() == [10.0]
-    assert rows[("value", "right.q")].tolist() == [5.0]
-    assert rows[("value", "absolute.q")].tolist() == [5.0]
+    assert rows[("value", "detail.current.q")].tolist() == [10.0]
+    assert rows[("value", "detail.baseline.q")].tolist() == [5.0]
+    assert rows[("value", "detail.absolute.q")].tolist() == [5.0]
     assert rows[("value", "contribution.q")].tolist() == [5.0]
     assert rows[("value", "contribution_share.q")].tolist() == [1.0]
     columns = _columns(result)
     for path, expected, unit in (
-        ("numerator_left.q", 10, "USD"),
-        ("numerator_right.q", 5, "USD"),
-        ("denominator_left.q", 1, "1"),
-        ("denominator_right.q", 1, "1"),
+        ("component.current.numerator.q", 10, "USD"),
+        ("component.baseline.numerator.q", 5, "USD"),
+        ("component.current.denominator.q", 1, "1"),
+        ("component.baseline.denominator.q", 1, "1"),
     ):
         assert rows[("value", path)].tolist() == [expected]
         assert columns[path].dtype == DecimalDataType(38, 2)
         assert columns[path].unit == unit
-    assert columns["left.q"].dtype == ScalarDataType("float64")
+    assert columns["detail.current.q"].dtype == ScalarDataType("float64")
     assert columns["contribution.q"].unit == "USD"
     assert columns["contribution_share.q"].unit == "1"
     _present(rows)

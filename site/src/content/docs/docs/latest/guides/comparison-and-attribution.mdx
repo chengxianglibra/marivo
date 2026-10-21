@@ -62,53 +62,38 @@ difference.show()
 
 ## Ask for new source facts explicitly
 
-`session.attribute` takes explicit current and baseline endpoints. Continuing the
-tutorial's physical DuckDB table and resolved inputs, the default request needs
-no contribution proof. Each `AttributeEndpoint` copies its named Metric mapping;
-optional `where` is a native Deferred predicate and `memberships` supplies explicit
-Grouping allocation rules. Endpoint `during` retains its independent time scope:
+New observations declare fresh source facts with governed Metrics, dimensions and
+periods. Compare those observations explicitly for an investigation without a
+contribution rule:
 
 {/* example: attribute-default-investigation */}
 
 ```python
-pending = session.attribute(
-    mv.attribute_endpoint({"revenue": revenue}, during=august),
-    mv.attribute_endpoint({"revenue": revenue}, during=july),
-    by=(region,),
-)
-pending.show(n=0)
-investigation = pending.compute()
-assert investigation.to_pandas()[("value", "absolute.revenue")].tolist() == [-100, -100]
+fresh_current = session.observe({"revenue": revenue}, by=(august, region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+investigation = fresh_current.compare(
+    {"reference": fresh_baseline},
+    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
 ```
 
-Left is current and right is baseline. Values are left/right/absolute groups,
-with independent left/right presence. Unlike compare, Attribute adds no relative
-column. Fine keys use the complete outer union and canonical order; missing or
-NA values stay NA. Omitted parents mean one overall parent; an explicitly empty
-parent selection stays empty. Ordinary parent axes need complete dual `parent_on`
-bindings; `parent_how` exact/outer controls parents, not zero filling. Calendar and
-paired-calendar parent axes retain their explicit binding rules. Interval and
-paired-interval Frame parent axes refuse before reads; reduce the interval axis before
-selecting parents, or use an explicit CalendarAxis parent and endpoint scopes. Endpoint `during=TimeScope` remains
-supported.
+## Explain selected targets with a new breakdown
 
-## Request exact contribution explicitly
-
-The tutorial uses the qualified physical DuckDB table route. The same endpoints
-can explicitly request contribution; datasource access alone does not qualify
-file or remote routes. Unsupported rules or missing component proof fail rather
-than silently falling back. An explicit default investigation remains a separate
-request when the original observation is valid.
+For qualified native DuckDB physical-table inputs, attribute follows a retained
+source declaration. Select the direct Metric or one comparison output to explain;
+its current complete rows fix the parent domain. Each target keeps its own baseline.
 
 {/* example: attribute-contribution-facts */}
 
 ```python
-explained = session.attribute(
-    mv.attribute_endpoint({"revenue": revenue}, during=august),
-    mv.attribute_endpoint({"revenue": revenue}, during=july),
-    by=(region,),
-    contribution=True,
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": overall_baseline}, match={"reference": mv.ordinal()},
 ).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
 assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
 facts = explained.method_facts
 facts[0].show(n=0)
@@ -119,42 +104,41 @@ decline_rows = reopened_declines.to_pandas()
 original_explanation = reopened_declines.method_facts
 ```
 
-The overall change is -200, with contribution -100 and share 0.5 for each region.
-Share uses the original parent change; selecting rows does not change that
-denominator or certify a new decomposition. Zero parent change leaves contributions
-defined and only share undefined. Direct ratio results also expose their numerator/
-denominator endpoint groups. Actual completed numeric types, units and NA are
-preserved; no universal Decimal precision or source-read count is promised.
+The independently reread parent change is -200, with contribution -100 and
+share .5 for each region. The interval parent remains present. `total.revenue`
+is the fresh parent target; `observed_total.revenue` is the fixed receiver value.
+`detail.current.revenue`, `detail.baseline.revenue` and `detail.absolute.revenue`
+preserve original fine formulas, NA and presence. Ratio/native-mean methods also
+retain their actual components and effective counts. Strict parent and fine
+formula checks survive report projection or Top-0. Shares remain signed; a
+defined zero total retains contributions and gives NA shares.
 
-`method_facts` explicitly reads complete original explanations. On stored Frames
-it validates owned method files without primary rows, Catalog or source access;
-the subsequent fact show is in-memory. Pending access requires compute/persist.
-Frame cards show count, bounded origins and this read pointer. `to_pandas()` reads
-current data only; stored compute and evaluated derivatives consume current data
-and method facts. The saved derivative owns its payload even if the original
-Artifact is removed. Facts never recover a Metric or source authority. Use
-`marivo.help("analysis.analysis_frame.method_facts")` and
-`marivo.help("analysis.frame_method_facts")` for exact fields and reading effects.
+Filtering the report preserves its original totals and method facts. Stored
+method facts are complete source-free explanations; they do not restore executable
+declarations. Same-process compute/persist retain the instance declaration;
+independent reopen requires explicit source reconstruction before another attribute.
+Only direct projections/renames, admitted compare outputs and the restricted align
+endpoint difference retain explainable target recipes. Define ratios and linear
+Metrics before observe; ordinary Column arithmetic does not become a source Metric.
 
-A nonlinear formula such as `revenue * revenue` rejects
-`contribution=True` with `unsupported_expression`. This does not invalidate its
-ordinary observation. Request default investigation explicitly instead of
-changing the formula or relying on a fallback:
+A nonlinear or quantile target can remain a valid ordinary source investigation
+without a contribution rule. Use explicit observe and compare rather than a fallback:
 
 {/* example: attribute-explicit-default-after-refusal */}
 
 ```python
 nonlinear = revenue * revenue
-nonlinear_investigation = session.attribute(
-    mv.attribute_endpoint({"squared": nonlinear}, during=august),
-    mv.attribute_endpoint({"squared": nonlinear}, during=july),
-    by=(region,),
-    contribution=False,
+fine_current = session.observe({"squared": nonlinear}, by=(august, region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+nonlinear_investigation = fine_current.compare(
+    {"reference": fine_baseline},
+    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
+    match={"reference": mv.ordinal()},
 ).compute()
 ```
 
-These are grouped nonlinear observations, not an assertion that summing them
-reconstructs the original overall formula or provides exact contributions.
+These are grouped nonlinear observations. Their differences do not claim exact
+contribution or certify that summing them reconstructs an original overall formula.
 
 ## Fix a parent selection before a new request
 

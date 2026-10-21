@@ -103,17 +103,30 @@ class SavedFrameMethodFacts:
     coordinate_row_count: int
     facts_digest: str
     payload: SavedAttachment
-    targets: tuple[FrameMethodTarget, ...] = ()
+    parent_schema: DataSchema
+    targets: tuple[FrameMethodTarget, ...]
 
     def __post_init__(self) -> None:
         require_data_text(self.origin_result_id, "artifact.method.origin")
-        if type(self.targets) is not tuple or any(
-            type(target) is not FrameMethodTarget for target in self.targets
+        if (
+            type(self.targets) is not tuple
+            or not self.targets
+            or any(type(target) is not FrameMethodTarget for target in self.targets)
         ):
             reject(
                 "immutable closed original target directory",
                 type(self.targets).__name__,
                 "Preserve the complete target mapping.",
+                "artifact.method",
+            )
+        if (
+            type(self.parent_schema) is not DataSchema
+            or self.parent_schema.axes != self.output_schema.axes[: self.parent_axis_count]
+        ):
+            reject(
+                "the original complete parent schema",
+                self.origin_result_id,
+                "Preserve the captured parent coordinate layout.",
                 "artifact.method",
             )
         counts = (
@@ -139,12 +152,21 @@ class SavedFrameMethodFacts:
                 "artifact.method",
             )
         require_complete_structure(self.output_schema)
+        require_complete_structure(self.parent_schema)
         from marivo.analysis.core.frozen_calendar import coordinate_attachment_schemas
 
         if (
             self.parent_axis_count > len(self.output_schema.axes)
             or (self.parent_axis_count == 0 and self.parent_count > 1)
-            or self.coordinate_count != len(coordinate_attachment_schemas(self.output_schema))
+            or self.coordinate_count
+            != len(
+                dict(
+                    (
+                        *coordinate_attachment_schemas(self.output_schema),
+                        *coordinate_attachment_schemas(self.parent_schema),
+                    )
+                )
+            )
             or (self.coordinate_count == 0 and self.coordinate_row_count != 0)
             or self.payload.schema != METHOD_PAYLOAD_SCHEMA
             or self.payload.rows.receipt.realized_row_count

@@ -24,10 +24,16 @@ if TYPE_CHECKING:
                             method.numerator_left.value,
                             bool | int | float | str | date | Decimal | None,
                         )
-                    elif method.kind == "linear":
+                    elif method.kind == "linear" or method.kind == "level_linear":
                         assert_type(method.terms[0].coefficient, int | float | Decimal)
                     else:
-                        assert_type(method.kind, Literal["additive"])
+                        if method.kind == "level_ratio_component":
+                            assert_type(
+                                method.denominator.value,
+                                bool | int | float | str | date | Decimal | None,
+                            )
+                        else:
+                            assert_type(method.kind, Literal["additive", "level_additive"])
 
     def ordinary_observation(metric: Deferred, region: Deferred) -> mv.AnalysisFrame:
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
@@ -162,3 +168,12 @@ if TYPE_CHECKING:
         return query
 
     assert_type(session.time_scope(start="2026-08-01", end="2026-09-01").end, mv.InstantAnchor)
+
+
+if TYPE_CHECKING:
+
+    def explain_targets(
+        frame: mv.AnalysisFrame, field: Deferred, population: mv.Population
+    ) -> None:
+        assert_type(frame.attribute(by=(field,)), mv.AnalysisFrame)
+        assert_type(frame.attribute(by=population), mv.AnalysisFrame)

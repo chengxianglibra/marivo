@@ -17,7 +17,6 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.dsl.attribute import AttributeEndpoint, attribute_endpoint
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
@@ -35,119 +34,6 @@ READ_TYPES: tuple[type[object], ...] = (
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    descriptors.extend(
-        (
-            value_type(
-                "attribute_endpoint",
-                AttributeEndpoint,
-                summary="Immutable explicit Metrics and observation scope for one Attribute endpoint.",
-                acquisition="Construct mv.attribute_endpoint(metrics, during=scope); metrics are copied in declaration order. Direct construction and extension are unsupported.",
-                producers=("attribute_endpoint.define",),
-                consumers=("session.attribute",),
-                constraints=(
-                    "metrics is a nonempty ordered mapping of resolved Metrics; during uses the existing time authority; where is a native Deferred predicate and memberships supplies explicit Grouping allocation rules. Construction performs no business reads or publication.",
-                    "This input record is not a source handle and cannot recover historical Metric definitions.",
-                ),
-            ),
-            operation(
-                "attribute_endpoint.define",
-                "mv.attribute_endpoint",
-                attribute_endpoint,
-                summary="Capture one immutable explicit Attribute endpoint without a Session or source reads.",
-                parameters=(
-                    P(
-                        "metrics",
-                        "Nonempty ordered named resolved Metric mapping; copied without replacing its values.",
-                    ),
-                    P("during", "Explicit TimeScope, CalendarAxis or None; retained unchanged."),
-                    P("where", "Native Deferred predicate or None; retained unchanged."),
-                    P(
-                        "memberships",
-                        "Tuple of explicit Grouping allocation rules; retained unchanged.",
-                    ),
-                ),
-                output="AttributeEndpoint",
-                constraints=(
-                    "Direct AttributeEndpoint construction is unsupported. Session.attribute validates Metrics, ownership, binding and contribution eligibility.",
-                ),
-                effects="Capture only: no Session opening, Catalog loading or schema/business read.",
-                failures=(
-                    "AnalysisError: supply a nonempty named Metric mapping; resolve Metrics before capture.",
-                ),
-                example=ExampleInput(
-                    "result = mv.attribute_endpoint({'revenue': revenue})",
-                    ("revenue",),
-                    "result",
-                    "AttributeEndpoint",
-                ),
-                discovery_group="methods.attribute",
-            ),
-            operation(
-                "session.attribute",
-                "session.attribute",
-                Session.attribute,
-                bindings=(bind(Session.attribute, Session),),
-                summary="Investigate two explicit source endpoints by complete joint groups, with optional exact contribution.",
-                parameters=(
-                    P(
-                        "left",
-                        "Current endpoint: named resolved Metrics and independent during/where/memberships scope.",
-                        ("attribute_endpoint",),
-                    ),
-                    P(
-                        "right",
-                        "Baseline endpoint with the same nonempty metric-name set; left declaration order controls output.",
-                        ("attribute_endpoint",),
-                    ),
-                    P(
-                        "by",
-                        "Nonempty tuple of new resolved classifications, or one Population with new axes; never mix a Population into the tuple.",
-                    ),
-                    P(
-                        "parents",
-                        "None means one overall parent; Population or same-Session Frame selects complete parent keys, including an empty domain.",
-                    ),
-                    P(
-                        "parent_on",
-                        "For Frame parents, bind each ordinary complete axis once as (axis, left_target, right_target); Population/None require ().",
-                    ),
-                    P(
-                        "parent_how",
-                        "exact requires fresh complete parent correspondence; outer retains their union. Fine groups always use the outer union.",
-                    ),
-                    P(
-                        "contribution",
-                        "Strict bool, default False. True adds exact contribution/share and original method facts; never auto-falls back.",
-                    ),
-                ),
-                output="AnalysisFrame",
-                constraints=(
-                    "Outputs left.q/right.q/absolute.q in left metric order plus separate left_present/right_present. Canonical full-key order; no relative column, subtotal or Others.",
-                    "Default preserves original formulas, types, units, NA and errors without decomposition proof. Construction/show never execute sources. Fixed parent keys remain fixed while fresh values may change.",
-                    "Frame parents support ordinary, calendar and paired-calendar axes with their explicit binding contracts. Interval and paired-interval parent axes refuse before reads; reduce the interval axis before selecting parents, or use an explicit CalendarAxis parent and endpoint scopes.",
-                    "True requires matching additive/ratio/linear rules and complete disjoint coverage/components from one actual input per endpoint/root. Currently qualified only for native DuckDB physical tables; files/remote providers refuse.",
-                    "True adds contribution.q/contribution_share.q; direct ratios add group numerator_left/right.q and denominator_left/right.q. Zero parent change makes only share null; filtering never changes the denominator.",
-                    "Fixed local additive windows require exact captured fibers; nested/nonadditive windows and unproved per reductions refuse. No same-path version equality requirement or automatic source recovery.",
-                ),
-                effects="Capture only; compute evaluates the explicit parent selection/endpoints in one checked Frame schedule. Persist publishes the completed ordinary Frame.",
-                failures=(
-                    "AnalysisError: follow expected/received/location/repair. Unsupported expressions, overlap, missing_component_proof, undefined_input, root_denominator_zero and unqualified_contribution_route fail the whole contribution request; original source/numeric errors retain their owner.",
-                ),
-                example=ExampleInput(
-                    "result = session.attribute(\n    mv.attribute_endpoint({'revenue': revenue}, during=current_period),\n    mv.attribute_endpoint({'revenue': revenue}, during=baseline_period),\n    by=(region,),\n)",
-                    ("session", "revenue", "current_period", "baseline_period", "region"),
-                    "result",
-                    "AnalysisFrame",
-                ),
-                discovery_group="methods.attribute",
-                related=("analysis_frame.compute", "analysis_frame.method_facts"),
-            ),
-        )
-    )
-    exports.append(ExportInput("AttributeEndpoint", AttributeEndpoint, "attribute_endpoint"))
-    exports.append(
-        ExportInput("attribute_endpoint", attribute_endpoint, "attribute_endpoint.define")
-    )
     acquisitions = {
         "ArtifactDigest": (
             "Call artifact.evidence_digest(); .items contains all saved output facts.",

@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.compiler.graph_plan import SourceRead, require_reduction
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
@@ -71,6 +70,18 @@ weight = ms.measure_column(name='weight', entity=facts, column='weight', unit='1
     return mv.session.create("temporal", timezone="UTC")
 
 
+def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.AnalysisFrame:
+    """Build a fixed absolute target from actual captured observed endpoints."""
+    temporal = any(axis.role in ("calendar", "interval") for axis in current.axes)
+    compared = current.compare(
+        {"base": baseline},
+        on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"base": mv.ordinal()} if temporal else None,
+        how="outer",
+    )
+    return compared.select({"q": compared["base.absolute.q"]}).compute()
+
+
 def test_plain_calendar_complete_parent_order_one_statement(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,9 +94,11 @@ def test_plain_calendar_complete_parent_order_one_statement(
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
-    parent = session.frame(
-        mv.product(mv.coordinates(by=(region,), keys=(("east",),)), calendar)
-    ).compute()
+    domain = mv.product(mv.coordinates(by=(region,), keys=(("east",),)), calendar)
+    selected = _change(
+        session.observe({"q": metric}, by=domain, where=phase == "current"),
+        session.observe({"q": metric}, by=domain, where=phase == "base"),
+    )
     reads: list[object] = []
     original = SourceSession.execute
 
@@ -94,23 +107,12 @@ def test_plain_calendar_complete_parent_order_one_statement(
         return original(self, issued)
 
     monkeypatch.setattr(SourceSession, "execute", execute)
-    result = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
-            parents=parent,
-            parent_on=((parent.axes[0], region, region),),
-            by=(channel,),
-            contribution=True,
-        )
-        .compute()
-        .to_pandas()
-    )
+    result = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(reads) == 2
     assert result[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
     assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
-    assert result[("presence", "left_present")].all()
-    assert result[("presence", "right_present")].all()
+    assert result[("presence", "detail.current.present.q")].all()
+    assert result[("presence", "detail.baseline.present.q")].all()
 
 
 def test_cross_period_paired_calendar_parent(
@@ -127,14 +129,15 @@ def test_cross_period_paired_calendar_parent(
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
-    left = session.observe({"q": metric}, by=(current, region))
-    right = session.observe({"q": metric}, by=(baseline, region))
+    left = session.observe({"q": metric}, by=(current, region), where=phase == "current")
+    right = session.observe({"q": metric}, by=(baseline, region), where=phase == "base")
     paired = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
         how="outer",
     ).compute()
+    selected = paired.select({"q": paired["left.q"] - paired["right.q"]}).compute()
     calls: list[object] = []
     original = SourceSession.execute
 
@@ -143,21 +146,10 @@ def test_cross_period_paired_calendar_parent(
         return original(self, issued)
 
     monkeypatch.setattr(SourceSession, "execute", execute)
-    rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=current, where=phase == "current"),
-            attribute_endpoint({"q": metric}, during=baseline, where=phase == "base"),
-            parents=paired,
-            parent_on=((paired.axes[1], region, region),),
-            by=(channel,),
-            contribution=True,
-        )
-        .compute()
-        .to_pandas()
-    )
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(calls) == 2
-    assert rows[("value", "left.q")].tolist() == [160, 80, 160, 80]
-    assert rows[("value", "right.q")].tolist() == [100, 100, 100, 100]
+    assert rows[("value", "detail.current.q")].tolist() == [160, 80, 160, 80]
+    assert rows[("value", "detail.baseline.q")].tolist() == [100, 100, 100, 100]
     assert rows[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
     assert rows[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
 
@@ -180,7 +172,10 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
-    parent = session.observe({"q": metric}, by=(calendar,)).compute()
+    selected = _change(
+        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
+        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
+    )
     expected: list[tuple[int, int, int, float]] = []
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         for endpoint in ("2026-08-02", "2026-08-03"):
@@ -216,13 +211,7 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
         return output
 
     monkeypatch.setattr(execution, "read_stage", read)
-    pending = session.attribute(
-        attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
-        attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
-        parents=parent,
-        by=(channel,),
-        contribution=True,
-    )
+    pending = selected.attribute(by=(channel,))
     pending.show(n=0)
     assert calls == []
     rows = pending.compute().to_pandas()
@@ -253,8 +242,8 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
     assert (
         list(
             zip(
-                rows[("value", "left.q")],
-                rows[("value", "right.q")],
+                rows[("value", "detail.current.q")],
+                rows[("value", "detail.baseline.q")],
                 rows[("value", "contribution.q")],
                 rows[("value", "contribution_share.q")],
                 strict=True,
@@ -287,14 +276,12 @@ def test_window_partition_context_is_scoped_before_classification(
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
-    parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    endpoint = attribute_endpoint(
+    endpoint = session.observe(
         {"q": metric},
-        during=calendar,
+        by=(calendar,),
         where=identifier == (2 if missing else 1),
-        memberships=(membership,),
-    )
-    pending = session.attribute(endpoint, endpoint, parents=parent, by=(label,), contribution=True)
+    ).compute()
+    pending = _change(endpoint, endpoint).attribute(by=(membership,))
     with pytest.raises(AttributeInputError) as actual:
         pending.top(0, by=pending["contribution.q"]).compute()
     assert actual.value.reason == ("undefined_input" if missing else "overlapping_groups")
@@ -327,6 +314,15 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
         connection.execute("UPDATE facts SET amount=0")
+    amount = session.catalog.fields.get("sales.facts.amount")
+    day = session.catalog.fields.get("sales.facts.day")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    metric = amount.sum(time=day)
+    observed = session.observe({"q": metric}, by=(calendar,), where=phase == "current").compute()
+    selected = _change(observed, observed)
+    with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=? WHERE id=1", [1e308])
         connection.execute(
             "UPDATE facts SET amount=? WHERE id=2", [1e308 if scope == "parent" else -(1e308)]
@@ -335,14 +331,6 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
             connection.execute(
                 "INSERT INTO facts VALUES (15,'current','east','A',?,1,'2026-08-01')", [1e308]
             )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
-    metric = amount.sum(time=day)
-    parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
-    endpoint = attribute_endpoint({"q": metric}, during=calendar, where=phase == "current")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe(
             {"q": metric},
@@ -350,9 +338,7 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
             by=(calendar, *(() if scope == "parent" else (channel,))),
         ).compute()
     with pytest.raises(MaterializationError) as actual:
-        session.attribute(
-            endpoint, endpoint, by=(channel,), parents=parent, contribution=True
-        ).compute()
+        selected.attribute(by=(channel,)).compute()
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
     assert actual.value.repair is not None and ordinary.value.repair is not None
@@ -392,13 +378,8 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
         .compute()
     )
     with pytest.raises(AttributeInputError) as actual:
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=current),
-            attribute_endpoint({"q": metric}, during=baseline),
-            by=(channel,),
-            parents=parent,
-            parent_how="outer",
-            contribution=True,
+        parent.select({"q": parent["left.q"] - parent["right.q"]}).attribute(
+            by=(channel,)
         ).compute()
     assert actual.value.reason == "undefined_input"
     assert actual.value.attribute_context is not None
@@ -421,23 +402,16 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.weighted_mean(weight=weight, time=day) if weighted else amount.mean(time=day)
-    parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
-    rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
-            by=(channel,),
-            parents=parent,
-            contribution=True,
-        )
-        .compute()
-        .to_pandas()
+    selected = _change(
+        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
+        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
     )
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert rows[("value", "contribution.q")].tolist() == [110, -50]
     assert rows[("value", "contribution_share.q")].tolist() == pytest.approx([11 / 6, -5 / 6])
-    assert rows[("value", "left.q")].iloc[0] == 160
-    assert pd.isna(rows[("value", "left.q")].iloc[1])
-    assert rows[("presence", "left_present")].all()
+    assert rows[("value", "detail.current.q")].iloc[0] == 160
+    assert pd.isna(rows[("value", "detail.current.q")].iloc[1])
+    assert rows[("presence", "detail.current.present.q")].all()
 
 
 @pytest.mark.parametrize("corruption", ("mapping", "partial_directory"))
@@ -505,12 +479,8 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
         AnalysisError,
         match="complete actual coverage" if corruption == "partial_directory" else "endpoint",
     ):
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=current),
-            attribute_endpoint({"q": metric}, during=baseline),
-            by=(channel,),
-            parents=parent,
-            contribution=True,
+        parent.select({"q": parent["left.q"] - parent["right.q"]}).attribute(
+            by=(channel,)
         ).compute()
     assert calls == []
 
@@ -526,22 +496,15 @@ def test_calendar_original_nullable_integer_stays_exact(session: Session, tmp_pa
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day)
-    parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
-    rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
-            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
-            by=(channel,),
-            parents=parent,
-            contribution=True,
-        )
-        .compute()
-        .to_pandas()
+    selected = _change(
+        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
+        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
     )
-    assert int(rows[("value", "left.q")].iloc[0]) == exact
-    assert int(rows[("value", "right.q")].iloc[0]) == exact - 60
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
+    assert int(rows[("value", "detail.current.q")].iloc[0]) == exact
+    assert int(rows[("value", "detail.baseline.q")].iloc[0]) == exact - 60
     assert rows[("value", "contribution.q")].tolist() == [60, -20]
-    assert str(rows[("value", "left.q")].dtype) == "decimal128(38, 0)[pyarrow]"
+    assert str(rows[("value", "detail.current.q")].dtype) == "decimal128(38, 0)[pyarrow]"
 
 
 def test_calendar_pre_predicate_check_keeps_real_failure_scope(
@@ -555,16 +518,13 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day)
-    parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
+    parent = session.observe({"q": metric}, by=(calendar,), where=channel == "A").compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id=2")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, where=channel == "A", by=(calendar, channel)).compute()
-    endpoint = attribute_endpoint({"q": metric}, during=calendar, where=channel == "A")
     with pytest.raises(MaterializationError) as actual:
-        session.attribute(
-            endpoint, endpoint, by=(channel,), parents=parent, contribution=True
-        ).compute()
+        parent.attribute(by=(channel,)).compute()
     assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
     assert actual.value.expected == ordinary.value.expected
     assert actual.value.repair is not None and ordinary.value.repair is not None
@@ -591,20 +551,17 @@ def test_calendar_duplicate_root_is_checked_before_classification(
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
-    endpoint = attribute_endpoint({"q": metric}, during=calendar)
     with pytest.raises(
         MaterializationError, match="duplicate complete contribution identity"
     ) as actual:
-        session.attribute(
-            endpoint, endpoint, by=(channel,), parents=parent, contribution=True
-        ).compute()
+        parent.attribute(by=(channel,)).compute()
     context = actual.value.attribute_context
     assert context is not None and isinstance(context.witness, AttributeCoverageWitness)
     assert context.witness.identity[0][1] == 1
 
 
 def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: Session) -> None:
-    from marivo.analysis.binding.attribute import attribute_input_request
+    from marivo.analysis.binding.frame_attribute import source_inputs
     from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -613,9 +570,10 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     parents = mv.product(mv.coordinates(by=(region,), keys=(("east",), ("absent",))), calendar)
-    endpoint = attribute_endpoint({"q": amount.count(time=day)}, during=calendar)
+    parent = session.observe({"q": amount.count(time=day)}, by=parents).compute()
+    assert parent._derivation is not None
     prepared = evaluate_attribute_inputs(
-        attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
+        source_inputs(parent, parent._derivation.outputs[0], (channel,))
     )
     for root in prepared.attribute_inputs:
         leaf = root.layout.leaves[0]
@@ -650,23 +608,14 @@ def test_paired_source_failure_retains_original_full_parent(
     identifier = session.catalog.fields.get("sales.facts.id")
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
-    original = amount.sum(time=day)
-    left = session.observe({"q": original}, by=(current, region))
-    right = session.observe({"q": original}, by=(baseline, region))
-    parent = left.align(
-        right,
-        on=tuple(zip(left.axes, right.axes, strict=True)),
-        match=CalendarCorrespondence("ordinal"),
-        how="outer",
-    ).compute()
+    original = (
+        amount.sum(time=day, nulls="error")
+        if failure == "native"
+        else amount.sum(time=day).window(mv.all_history())
+    )
     if failure == "native":
-        with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
-            connection.execute("UPDATE facts SET amount=NULL WHERE id IN (9,10)")
-        original = amount.sum(time=day, nulls="error")
-        left_endpoint = attribute_endpoint(
-            {"q": original}, during=current, where=phase == "current"
-        )
-        right_endpoint = attribute_endpoint({"q": original}, during=baseline, where=phase == "base")
+        left = session.observe({"q": original}, by=(current, region), where=phase == "current")
+        right = session.observe({"q": original}, by=(baseline, region), where=phase == "base")
         by = (channel,)
     else:
         label = session.catalog.fields.get("sales.tags.label")
@@ -675,22 +624,20 @@ def test_paired_source_failure_retains_original_full_parent(
             session.catalog.relationships.get("sales.link_tags"),
         )
         membership = mv.membership(label, via=(path,), unmatched="exclude")
-        by = (label,)
-        metric = original.window(mv.all_history())
-        left_endpoint = attribute_endpoint(
-            {"q": metric}, during=current, where=identifier == 1, memberships=(membership,)
-        )
-        right_endpoint = attribute_endpoint(
-            {"q": metric}, during=baseline, where=identifier == 1, memberships=(membership,)
-        )
-    pending = session.attribute(
-        left_endpoint,
-        right_endpoint,
-        parents=parent,
-        parent_on=((parent.axes[1], region, region),),
-        by=by,
-        contribution=True,
+        left = session.observe({"q": original}, by=(current, region), where=identifier == 1)
+        right = session.observe({"q": original}, by=(baseline, region), where=identifier == 1)
+        by = (membership,)
+    aligned = left.align(
+        right,
+        on=tuple(zip(left.axes, right.axes, strict=True)),
+        match=CalendarCorrespondence("ordinal"),
+        how="outer",
     )
+    parent = aligned.select({"q": aligned["left.q"] - aligned["right.q"]}).compute()
+    if failure == "native":
+        with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
+            connection.execute("UPDATE facts SET amount=NULL WHERE id IN (9,10)")
+    pending = parent.attribute(by=by)
     with pytest.raises(
         MaterializationError if failure == "native" else AttributeInputError
     ) as actual:
@@ -769,9 +716,15 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.weighted_mean(weight=weight)
-    left = attribute_endpoint({"q": metric}, where=phase == "current")
-    right = attribute_endpoint({"q": metric}, where=phase == "base")
-    ordinary = session.attribute(left, right, by=(channel,)).compute().to_pandas()
+    left = session.observe({"q": metric}, where=phase == "current")
+    right = session.observe({"q": metric}, where=phase == "base")
+    selected = _change(left, right)
+    fine_current = session.observe({"q": metric}, by=(channel,), where=phase == "current")
+    fine_baseline = session.observe({"q": metric}, by=(channel,), where=phase == "base")
+    fine_compared = fine_current.compare(
+        {"base": fine_baseline}, on={"base": ((fine_current.axes[0], fine_baseline.axes[0]),)}
+    )
+    ordinary = fine_compared.compute().to_pandas()
     parent_values = [
         session.observe({"q": metric}, where=phase == endpoint)
         .compute()
@@ -802,13 +755,17 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
         return output
 
     monkeypatch.setattr(execution, "read_stage", read)
-    rows = session.attribute(left, right, by=(channel,), contribution=True).compute().to_pandas()
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(calls) == len(captured) == 2
     assert rows.iloc[:, 0].tolist() == ["A", "B"]
-    for name in ("left.q", "right.q", "absolute.q"):
-        assert rows[("value", name)].tolist() == ordinary[("value", name)].tolist()
-    assert rows[("presence", "left_present")].all()
-    assert rows[("presence", "right_present")].all()
+    for name, raw in (
+        ("detail.current.q", "q"),
+        ("detail.baseline.q", "base.baseline.q"),
+        ("detail.absolute.q", "base.absolute.q"),
+    ):
+        assert rows[("value", name)].tolist() == ordinary[("value", raw)].tolist()
+    assert rows[("presence", "detail.current.present.q")].all()
+    assert rows[("presence", "detail.baseline.present.q")].all()
     assert rows[("value", "contribution.q")].tolist() == expected_contributions
     native_change = parent_values[0] - parent_values[1]
     assert rows[("value", "contribution_share.q")].tolist() == [
@@ -831,10 +788,22 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
             assert all(isinstance(value, Decimal) for value in root.fine[roles[role].slot_id])
     for side in ("left", "right"):
         assert all(
-            isinstance(value, Decimal) for value in rows[("value", "numerator_" + side + ".q")]
+            isinstance(value, Decimal)
+            for value in rows[
+                (
+                    "value",
+                    "component." + ("current" if side == "left" else "baseline") + ".numerator.q",
+                )
+            ]
         )
         assert all(
-            isinstance(value, Decimal) for value in rows[("value", "denominator_" + side + ".q")]
+            isinstance(value, Decimal)
+            for value in rows[
+                (
+                    "value",
+                    "component." + ("current" if side == "left" else "baseline") + ".denominator.q",
+                )
+            ]
         )
 
 
@@ -858,12 +827,10 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, where=phase == "current").compute()
     with pytest.raises(MaterializationError) as actual:
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
-            by=(channel,),
-            contribution=True,
-        ).compute()
+        _change(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
+        ).attribute(by=(channel,)).compute()
     assert actual.value.location == ordinary.value.location == "dataset.source_execution"
     assert (
         actual.value.expected
@@ -888,26 +855,39 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
     metric = amount.sum(time=day)
     current = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
-    result = session.attribute(
-        attribute_endpoint({"q": metric}, during=current, where=phase == "current"),
-        attribute_endpoint({"q": metric}, during=baseline, where=phase == "base"),
-        by=(channel,),
-        contribution=contribution,
-    ).compute()
+    if contribution:
+        selected = _change(
+            session.observe({"q": metric}, by=(current,), where=phase == "current"),
+            session.observe({"q": metric}, by=(baseline,), where=phase == "base"),
+        )
+        result = selected.attribute(by=(channel,)).compute()
+    else:
+        left = session.observe({"q": metric}, by=(current, channel), where=phase == "current")
+        right = session.observe({"q": metric}, by=(baseline, channel), where=phase == "base")
+        result = left.compare(
+            {"base": right},
+            on={"base": tuple(zip(left.axes, right.axes, strict=True))},
+            match={"base": mv.ordinal()},
+        ).compute()
     rows = result.to_pandas()
-    assert len(result.axes) == 1
-    assert rows[("value", "left.q")].tolist() == [320, 160]
-    assert rows[("value", "right.q")].tolist() == [200, 200]
-    assert rows[("value", "absolute.q")].tolist() == [120, -40]
+    assert len(result.axes) == 2
+    assert rows[("value", "detail.current.q" if contribution else "q")].tolist() == [320, 160]
+    assert rows[("value", "detail.baseline.q" if contribution else "base.baseline.q")].tolist() == [
+        200,
+        200,
+    ]
+    assert rows[("value", "detail.absolute.q" if contribution else "base.absolute.q")].tolist() == [
+        120,
+        -40,
+    ]
     if contribution:
         assert rows[("value", "contribution.q")].tolist() == [120, -40]
 
 
 @pytest.mark.parametrize("paired", (False, True))
-def test_interval_parent_rejects_before_source_read(
+def test_interval_parent_builds_without_source_read(
     session: Session, monkeypatch: pytest.MonkeyPatch, paired: bool
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
 
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -923,7 +903,78 @@ def test_interval_parent_rejects_before_source_read(
         raise AssertionError("Interval parent rejection read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    endpoint = attribute_endpoint({"q": metric}, during=scope)
-    with pytest.raises(AnalysisError, match="interval or paired-interval parent axis") as actual:
-        session.attribute(endpoint, endpoint, parents=parent, by=(channel,))
-    assert "Reduce the interval axis" in str(actual.value)
+    selected = parent.select({"q": parent["left.q"] - parent["right.q"]}) if paired else parent
+    pending = selected.attribute(by=(channel,))
+    pending.show(n=0)
+
+
+@pytest.mark.parametrize("shape", ("compare", "paired", "right_level"))
+def test_captured_interval_parent_keeps_original_endpoint_scopes(
+    session: Session, shape: str
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    day = session.catalog.fields.get("sales.facts.day")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    current = session.observe(
+        {"q": amount.sum(time=day)},
+        by=(session.time_scope(start="2026-08-01", end="2026-08-03"), region),
+        where=phase == "current",
+    )
+    baseline = session.observe(
+        {"q": amount.sum(time=day)},
+        by=(session.time_scope(start="2026-07-01", end="2026-07-03"), region),
+        where=phase == "base",
+    )
+    pairs = tuple(zip(current.axes, baseline.axes, strict=True))
+    if shape == "compare":
+        compared = current.compare(
+            {"base": baseline}, on={"base": pairs}, match={"base": mv.ordinal()}
+        )
+        selected = compared.select({"q": compared["base.absolute.q"]}).compute()
+    else:
+        paired = current.align(baseline, on=pairs, match=mv.ordinal())
+        selected = paired.select(
+            {
+                "q": paired["right.q"]
+                if shape == "right_level"
+                else paired["left.q"] - paired["right.q"]
+            }
+        ).compute()
+    report = selected.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert len(report.axes) == 3
+    assert rows[("value", "contribution.q")].tolist() == (
+        [200, 200] if shape == "right_level" else [120, -40]
+    )
+    assert rows[("value", "total.q")].tolist() == (
+        [400, 400] if shape == "right_level" else [80, 80]
+    )
+    assert rows[("value", "observed_total.q")].tolist() == rows[("value", "total.q")].tolist()
+
+
+def test_captured_selected_calendar_parent_uses_saved_comparison_map(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    day = session.catalog.fields.get("sales.facts.day")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    current_calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    baseline_calendar = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    current = session.observe(
+        {"q": amount.sum(time=day)}, by=(current_calendar,), where=phase == "current"
+    )
+    baseline = session.observe(
+        {"q": amount.sum(time=day)}, by=(baseline_calendar,), where=phase == "base"
+    )
+    comparison = current.compare(
+        {"base": baseline},
+        on={"base": ((current.axes[0], baseline.axes[0]),)},
+        match={"base": mv.ordinal()},
+    )
+    selected = comparison.select({"q": comparison["base.absolute.q"]}).compute()
+    selected = selected.top(1, by=selected["q"]).compute()
+    report = selected.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == [60, -20]
+    assert rows[("value", "total.q")].tolist() == [40, 40]

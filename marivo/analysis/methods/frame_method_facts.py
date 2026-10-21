@@ -196,10 +196,7 @@ def validate_method_facts(facts: FrameMethodFacts) -> None:
     try:
         for parent in facts.parents:
             for metric in parent.metrics:
-                if isinstance(metric, FrameAttributeMetric):
-                    _target(metric)
-                else:
-                    _method(metric.method)
+                _target(metric)
     except (
         SemanticExpressionError,
         pa.ArrowException,

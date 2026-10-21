@@ -45,25 +45,25 @@ def test_attribute_intent_and_complete_fact_navigation_have_exact_owners() -> No
         "analysis",
         "analysis.methods",
         "analysis.methods.attribute",
-        "analysis.session.attribute",
+        "analysis.analysis_frame.attribute",
     )
     for current, following in pairwise(path):
         assert following in rendered_help(current)
-    descriptor = REGISTRY.by_canonical_id("session.attribute")
+    descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
     assert (
         isinstance(descriptor, CallableInput) and descriptor.discovery_group == "methods.attribute"
     )
     owners = [
         value.canonical_id
         for value in REGISTRY.descriptors
-        if isinstance(value, NavigationInput) and "session.attribute" in value.members
+        if isinstance(value, NavigationInput) and "analysis_frame.attribute" in value.members
     ]
     assert owners == ["methods.attribute"]
     assert "analysis.analysis_frame.method_facts" in rendered_help("analysis.analysis_frame")
     assert "analysis.frame_method_facts" in rendered_help("analysis.analysis_frame.method_facts")
     assert "analysis.frame_method_parent" in rendered_help("analysis.frame_method_facts")
-    assert "analysis.frame_method_metric" in rendered_help("analysis.frame_method_parent")
-    assert "analysis.frame_ratio_method" in rendered_help("analysis.frame_method_metric")
+    assert "analysis.frame_attribute_metric" in rendered_help("analysis.frame_method_parent")
+    assert "analysis.frame_ratio_method" in rendered_help("analysis.frame_attribute_metric")
     assert "analysis.frame_method_value" in rendered_help("analysis.frame_ratio_method")
 
 
@@ -185,7 +185,7 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
     }
     assert first_round <= seen
     assert "session.members" in seen
-    assert "session.attribute" in seen and "frame_method_facts" in seen
+    assert "analysis_frame.attribute" in seen and "frame_method_facts" in seen
     assert "frame_method_facts.show" in seen
     for target in (*sorted(first_round), "session.members"):
         route = route_help_target("analysis." + target)

@@ -25,6 +25,7 @@ from marivo.analysis.core.data_schema import (
     DataAxis,
     DataColumn,
     DataSchema,
+    IntervalDataAxis,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
@@ -216,19 +217,19 @@ class AttributeInputError(CoreRuleError):
             "unqualified_contribution_route": "Use qualified native DuckDB physical tables with the captured complete parent parameter dependencies.",
             "missing_component_proof": "Retain the exact component, complete parent mapping and qualified sample/window proof before requesting contribution.",
             "undefined_input": "Cover every scoped root identity with a complete joint classification; restrict the endpoint with where or members when needed.",
-            "overlapping_groups": "Provide one joint classification tuple per counted identity inside each selected parent, or submit a new contribution=False investigation.",
-            "root_denominator_zero": "Provide nonzero complete-parent denominators for both endpoints, or submit contribution=False to inspect the original nullable Metric.",
+            "overlapping_groups": "Provide one joint classification tuple per counted identity inside each selected parent, or submit a new explicit finer observation.",
+            "root_denominator_zero": "Provide nonzero complete-parent denominators for both endpoints, or build a finer observation to inspect the original nullable Metric.",
         }
         super().__init__(
             expected=f"{reason}: a qualified complete common Attribute input",
             received=received,
             repair=repairs[reason],
-            location="session.attribute",
+            location="frame.attribute",
         )
 
 
 @dataclass(frozen=True, slots=True)
-class AttributeProgram:
+class AttributeDomainProgram:
     operation: AttributeFrameValues
     left_schema: DataSchema
     right_schema: DataSchema
@@ -275,6 +276,7 @@ class AttributeMethodPayload:
     parents: tuple[FrameMethodParent, ...]
     coordinates: tuple[FrameMethodCoordinate, ...]
     targets: tuple[FrameMethodTarget, ...] = ()
+    parent_schema: DataSchema | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,7 +323,7 @@ def attribute_schema(
             "equal nonempty metric names",
             repr((left.value_paths, right.value_paths)),
             "Provide the same named Metrics on both endpoints.",
-            "session.attribute",
+            "frame.attribute",
         )
     fine = tuple(axis for i, axis in enumerate(left.axes) if i not in operation.left_parents)
     right_fine = tuple(
@@ -332,7 +334,7 @@ def attribute_schema(
             "the same ordered fine classification",
             repr((fine, right_fine)),
             "Use one shared by declaration.",
-            "session.attribute",
+            "frame.attribute",
         )
     for left_axis, right_axis in zip(fine, right_fine, strict=True):
         if axis_role(left_axis) != axis_role(right_axis) or len(left_axis.columns) != len(
@@ -342,7 +344,7 @@ def attribute_schema(
                 "matching complete fine-axis roles",
                 repr((left_axis, right_axis)),
                 "Provide compatible shared classifications.",
-                "session.attribute",
+                "frame.attribute",
             )
         for x, y in zip(left_axis.columns, right_axis.columns, strict=True):
             if isinstance(x, DataColumn) and isinstance(y, DataColumn) and x.dtype != y.dtype:
@@ -350,7 +352,7 @@ def attribute_schema(
                     "equal actual fine-key physical types",
                     repr((x.dtype, y.dtype)),
                     "Use compatible classifications on both endpoints.",
-                    "session.attribute",
+                    "frame.attribute",
                 )
     pending = any(isinstance(schema, PendingDataSchema) for schema in (left, right, parent))
     axes: list[PendingFrameAxis | DataAxis] = []
@@ -393,7 +395,7 @@ def attribute_schema(
                 "comparable numeric Metrics with equal units",
                 repr((a, b)),
                 "Provide compatible named endpoint Metrics.",
-                "session.attribute",
+                "frame.attribute",
             )
         dtype = (
             _compare_type(a.dtype, b.dtype)
@@ -439,7 +441,9 @@ def attribute_schema(
                     )
                 )
             else:
-                assert isinstance(axis, (PendingDataAxis, CalendarDataAxis, PairedDataAxis))
+                assert isinstance(
+                    axis, (PendingDataAxis, CalendarDataAxis, IntervalDataAxis, PairedDataAxis)
+                )
                 pending_axes.append(axis)
         return PendingDataSchema(
             tuple(pending_axes),
@@ -507,6 +511,20 @@ def pending_contribution_schema(
                         name=f"{prefix}.{name}",
                     )
                 )
+        if isinstance(rule.operation, NativeWeightedMean):
+            for side in ("left", "right"):
+                prefix = "valid_count_" + side
+                original = originals[0]
+                counted = replace(
+                    original,
+                    slot_id=f"attribute.result.{len(values)}",
+                    name=prefix + "." + name,
+                    unit="1",
+                )
+                if isinstance(counted, DataColumn):
+                    counted = replace(counted, dtype=ScalarDataType("int64"))
+                values.append(counted)
+                paths.append((prefix, name))
     if isinstance(base, PendingDataSchema):
         assert all(isinstance(c, PendingDataColumn) for c in values)
         return replace(
@@ -553,6 +571,29 @@ def contribution_schema(
                 position = result.value_paths.index((prefix, name))
                 values[position] = replace(
                     column, slot_id=values[position].slot_id, name=prefix + "." + name
+                )
+        if isinstance(left_rule.operation, NativeWeightedMean):
+            for side, rule in (
+                (("left", left_rule),)
+                if operation.single_endpoint
+                else (("left", left_rule), ("right", right_rule))
+            ):
+                assert isinstance(rule.operation, NativeWeightedMean)
+                source = rule.operation.source
+                component = next(
+                    m.target
+                    for m in program.matrix
+                    if m.side == side
+                    and m.scope == "fine"
+                    and m.occurrence == _logical(source)
+                    and m.role == "pair_count"
+                )
+                position = result.value_paths.index(("valid_count_" + side, name))
+                values[position] = replace(
+                    component,
+                    slot_id=values[position].slot_id,
+                    name="valid_count_" + side + "." + name,
+                    unit="1",
                 )
     return replace(result, values=tuple(values))
 
@@ -691,7 +732,7 @@ def report_schema(
     for side, role in (
         (("left", "value"),) if level else (("left", "current"), ("right", "baseline"))
     ):
-        for component in ("numerator", "denominator"):
+        for component in ("numerator", "denominator", "valid_count"):
             column = directory.get((component + "_" + side, "target"))
             if column is not None:
                 entries.append((("component", role, component, *path), column))
@@ -700,9 +741,13 @@ def report_schema(
             column = _pending_column(column)
         if target.mode == "relative" and output_path[0] in ("contribution", "total"):
             original = column
-            column = replace(column, unit="1")
+            column = replace(column, unit=parent.values[target.observed].unit)
             if isinstance(column, DataColumn) and isinstance(original, DataColumn):
                 column = replace(column, dtype=_type("div", original, original))
+        if target.mode == "relative" and output_path[0] == "contribution_share":
+            column = replace(
+                column, unit=None if parent.values[target.observed].unit is None else "1"
+            )
         column = replace(
             column, slot_id=f"attribute.report.{len(values)}", name=".".join(output_path)
         )
@@ -733,4 +778,29 @@ def report_schema(
         value_paths=tuple(paths),
         presence=tuple(c for c in presence if isinstance(c, DataColumn)),
         presence_paths=presence_paths,
+    )
+
+
+@overload
+def select_attribute_source_schema(schema: DataSchema, index: int) -> DataSchema: ...
+@overload
+def select_attribute_source_schema(
+    schema: DataSchema | PendingDataSchema, index: int
+) -> DataSchema | PendingDataSchema: ...
+def select_attribute_source_schema(
+    schema: DataSchema | PendingDataSchema, index: int
+) -> DataSchema | PendingDataSchema:
+    """View one selected source output without changing its exact source slot."""
+    if isinstance(schema, PendingDataSchema):
+        return replace(
+            schema,
+            values=(replace(schema.values[index], name="target"),),
+            value_paths=(("target",),),
+            comparisons=(),
+        )
+    return replace(
+        schema,
+        values=(replace(schema.values[index], name="target"),),
+        value_paths=(("target",),),
+        comparisons=(),
     )

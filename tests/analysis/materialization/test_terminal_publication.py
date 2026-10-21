@@ -1367,6 +1367,8 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
         "coordinate_row_count",
         "facts_digest",
         "payload",
+        "parent_schema",
+        "targets",
     }
     assert "parents" not in method and "coordinates" not in method
     # ExportRead validates even the legitimate zero-row method file.

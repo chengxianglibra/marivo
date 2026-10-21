@@ -18,8 +18,10 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
 )
@@ -37,6 +39,7 @@ from marivo.analysis.core.frozen_calendar import (
     coordinate_attachment_schemas,
     frozen_key_rows,
     read_calendar_directory,
+    read_comparison_mapping,
     read_interval_directory,
     validate_paired_mapping,
 )
@@ -141,7 +144,12 @@ class _FactRecord:
                     if isinstance(child, _FactRecord):
                         yield from child._lines()
             else:
-                yield f"{item.name}={_short(repr(value), 200)}"
+                shown = (
+                    _coefficient_text(value)
+                    if type(value) in (int, float, Decimal)
+                    else repr(value)
+                )
+                yield f"{item.name}={_short(shown, 200)}"
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({_short(self._summary(), 120)}; .show())"
@@ -315,14 +323,6 @@ def _method(value: _Method) -> None:
         _fail("a closed additive, ratio_component or linear method", type(value).__name__)
 
 
-def _method_supports(method: _Method) -> Iterator[FrameMethodSupport]:
-    if isinstance(method, FrameLinearMethod):
-        for term in method.terms:
-            yield from _method_supports(term.method)
-    else:
-        yield from method.support
-
-
 def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
     """Compare complete typed payloads, including preserved scalar representations."""
 
@@ -360,12 +360,9 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
             for key in parent.key:
                 yield repr(key.value)
             for metric in parent.metrics:
-                if isinstance(metric, FrameAttributeMetric):
-                    yield repr(metric.observed_total.value)
-                    yield repr(metric.total.value)
-                    yield from target_values(metric.method)
-                else:
-                    yield from method_values(metric.method)
+                yield repr(metric.observed_total.value)
+                yield repr(metric.total.value)
+                yield from target_values(metric.method)
         for coordinate in facts.coordinates:
             for row in coordinate.rows:
                 for value in row:
@@ -521,32 +518,6 @@ class FrameLinearMethod(_FactRecord):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class FrameMethodMetric(_FactRecord):
-    """Explain one named total. Args: name, method, share_state.
-
-    Returns a frozen metric; e.g. ``FrameMethodMetric('revenue', rule, 'defined')``.
-    The zero-change flag uses the saved exact value, without display rounding.
-    """
-
-    name: str
-    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod
-    share_state: Literal["defined", "zero_total_change"]
-
-    def __post_init__(self) -> None:
-        _text(self.name)
-        _method(self.method)
-        expected = "zero_total_change" if self.method.change.value == 0 else "defined"
-        if type(self.share_state) is not str or self.share_state != expected:
-            _fail("share_state matching exact zero/nonzero change", repr(self.share_state))
-
-    def _summary(self) -> str:
-        return f"kind=metric, name={_short(self.name)!r}, method={self.method.kind}, share_state={self.share_state}"
-
-    def _lines(self) -> Iterator[str]:
-        yield from _method_lines(self.method)
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class FrameLevelSupport(_FactRecord):
     """Captured support for one endpoint, with no synthetic baseline."""
 
@@ -574,6 +545,9 @@ class FrameLevelSupport(_FactRecord):
         ):
             _fail("exact nonnegative endpoint support counts", repr(self.input_count))
 
+    def _summary(self) -> str:
+        return f"kind=level_support, root={_short(self.root_id)!r}, policy={self.policy}"
+
 
 def _level_support(support: tuple[FrameLevelSupport, ...]) -> None:
     if (
@@ -599,6 +573,9 @@ class FrameLevelAdditiveMethod(_FactRecord):
         _total(self.value)
         _level_support(self.support)
 
+    def _summary(self) -> str:
+        return f"kind=level_additive, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameLevelRatioMethod(_FactRecord):
@@ -623,6 +600,9 @@ class FrameLevelRatioMethod(_FactRecord):
             _fail("nonzero denominator and matching ratio units", self.value.column.name)
         _level_support(self.support)
 
+    def _summary(self) -> str:
+        return f"kind=level_ratio_component, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
+
 
 _LevelMethod: TypeAlias = (
     "FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod"
@@ -643,7 +623,7 @@ class FrameLevelLinearTerm(_FactRecord):
     """An original ordered coefficient and one-endpoint child rule."""
 
     coefficient: int | float | Decimal
-    method: _LevelMethod
+    method: FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod
 
     def __post_init__(self) -> None:
         if (
@@ -653,6 +633,9 @@ class FrameLevelLinearTerm(_FactRecord):
         ):
             _fail("a finite original coefficient", repr(self.coefficient))
         _level_method(self.method)
+
+    def _summary(self) -> str:
+        return f"kind=level_linear_term, child={self.method.kind}, column={_short(self.method.value.column.name)!r}"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -675,6 +658,11 @@ class FrameLevelLinearMethod(_FactRecord):
             _fail("nonempty exact ordered level terms", repr(self.terms))
         if any(term.method.value.column.unit != self.value.column.unit for term in self.terms):
             _fail("linear child units matching parent", self.value.column.name)
+
+    def _summary(self) -> str:
+        return (
+            f"kind=level_linear, column={_short(self.value.column.name)!r}, terms={len(self.terms)}"
+        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -736,6 +724,9 @@ class FrameMethodOutput(_FactRecord):
         ):
             _fail("a complete nonempty output path", repr(self.path))
 
+    def _summary(self) -> str:
+        return f"kind=output, role={self.role}, path={_short(repr(self.path), 60)}"
+
 
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameMethodTarget(_FactRecord):
@@ -765,6 +756,11 @@ class FrameMethodTarget(_FactRecord):
             or len({item.path for item in self.outputs}) != len(self.outputs)
         ):
             _fail("four ordered main roles and unique diagnostics", repr(self.target))
+
+    def _summary(self) -> str:
+        return (
+            f"kind={self.kind}, target={_short(repr(self.target), 60)}, outputs={len(self.outputs)}"
+        )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -850,7 +846,10 @@ class FrameAttributeMetric(_FactRecord):
             or self.observed_total.column.dtype != self.total.column.dtype
             or self.observed_total.column.unit != self.total.column.unit
         ):
-            _fail("observed total with the exact report carrier and unit", self.name)
+            _fail(
+                "observed total with the exact report carrier and unit",
+                f"{self.name}: observed={self.observed_total.column.dtype!r}/{self.observed_total.column.unit!r}, total={self.total.column.dtype!r}/{self.total.column.unit!r}",
+            )
         if type(self.outputs) is not tuple or any(
             type(item) is not FrameMethodOutput for item in self.outputs
         ):
@@ -883,7 +882,7 @@ class FrameMethodParent(_FactRecord):
     """
 
     key: tuple[FrameMethodValue, ...]
-    metrics: tuple[FrameMethodMetric | FrameAttributeMetric, ...]
+    metrics: tuple[FrameAttributeMetric, ...]
 
     def __post_init__(self) -> None:
         if type(self.key) is not tuple or any(type(v) is not FrameMethodValue for v in self.key):
@@ -891,19 +890,11 @@ class FrameMethodParent(_FactRecord):
         if (
             type(self.metrics) is not tuple
             or not self.metrics
-            or any(type(m) not in (FrameMethodMetric, FrameAttributeMetric) for m in self.metrics)
+            or any(type(m) is not FrameAttributeMetric for m in self.metrics)
         ):
             _fail("a nonempty immutable ordered metric tuple", type(self.metrics).__name__)
         if len({m.name for m in self.metrics}) != len(self.metrics):
             _fail("unique parent metric names", "duplicate metric")
-        roots: dict[str, FrameMethodSupport] = {}
-        for metric in self.metrics:
-            for support in (
-                () if isinstance(metric, FrameAttributeMetric) else _method_supports(metric.method)
-            ):
-                if support.root_id in roots and roots[support.root_id] != support:
-                    _fail("consistent facts for each shared local sample root", support.root_id)
-                roots[support.root_id] = support
 
     def __repr__(self) -> str:
         key = ", ".join(_cell(value.value) for value in self.key[:2])
@@ -955,8 +946,13 @@ def _coordinates(
     coordinates: tuple[FrameMethodCoordinate, ...],
     parents: tuple[FrameMethodParent, ...],
     parent_axis_count: int,
+    parent_schema: DataSchema,
 ) -> None:
     expected = dict(coordinate_attachment_schemas(schema))
+    for name, attachment_schema in coordinate_attachment_schemas(parent_schema):
+        if name in expected and expected[name] != attachment_schema:
+            _fail("consistent original parent/output coordinate schemas", name)
+        expected[name] = attachment_schema
     names = tuple(c.name for c in coordinates)
     if names != tuple(sorted(expected)):
         _fail("exact required coordinate snapshots in canonical name order", repr(names))
@@ -999,6 +995,18 @@ def _coordinates(
             if any(key not in domain for key in keys):
                 _fail("parent keys resolving in their original coordinate snapshot", axis.token)
 
+    for comparison in parent_schema.comparisons:
+        binding = comparison.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            current = next(
+                axis for axis in parent_schema.axes if axis.token == binding.current_axis_token
+            )
+            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
+            table = tables[binding.mapping_name]
+            read_comparison_mapping(
+                binding, table.schema, table.rows, directory(current), directory(binding.baseline)
+            )
+
 
 def _key_order(parent: FrameMethodParent) -> tuple[tuple[bool, _MethodScalar], ...]:
     # Every key position has one fixed physical type. Nulls sort last, as Frame rows do.
@@ -1025,7 +1033,12 @@ class FrameMethodFacts(_FactRecord):
     coordinates: tuple[FrameMethodCoordinate, ...]
     parent_axis_count: int
     parents: tuple[FrameMethodParent, ...]
-    targets: tuple[FrameMethodTarget, ...] = ()
+    parent_schema: DataSchema = field(
+        metadata={
+            "meaning": "Read facts.parent_schema for the original receiver layout and frozen endpoint correspondence. This descriptive schema retains no original value table, source declaration or execution authority."
+        }
+    )
+    targets: tuple[FrameMethodTarget, ...]
 
     def __post_init__(self) -> None:
         if type(self.kind) is not str or self.kind != "attribute":
@@ -1050,91 +1063,23 @@ class FrameMethodFacts(_FactRecord):
         columns = tuple(
             c for axis in self.output_schema.axes[: self.parent_axis_count] for c in axis.columns
         )
-        paths = self.output_schema.value_paths
-        if type(self.targets) is not tuple or any(
-            type(target) is not FrameMethodTarget for target in self.targets
+        if (
+            type(self.parent_schema) is not DataSchema
+            or self.parent_schema.axes != self.output_schema.axes[: self.parent_axis_count]
         ):
-            _fail("immutable closed target directory", type(self.targets).__name__)
-        if self.targets:
-            self._attribute_targets(columns)
-            return
-        names = tuple(path[1] for path in paths if len(path) == 2 and path[0] == "left")
-        if not names or len(set(names)) != len(names):
-            _fail("an original ordered Attribute metric directory", repr(paths))
-        expected_paths: list[tuple[str, ...]] = []
-        for name in names:
-            roles = ("left", "right", "absolute", "contribution", "contribution_share")
-            expected_paths.extend((role, name) for role in roles)
-            if ("numerator_left", name) in paths:
-                expected_paths.extend(
-                    (role, name)
-                    for role in (
-                        "numerator_left",
-                        "numerator_right",
-                        "denominator_left",
-                        "denominator_right",
-                    )
-                )
-        if paths != tuple(expected_paths):
-            _fail("the complete ordered contribution output directory", repr(paths))
-        directory = dict(zip(paths, self.output_schema.values, strict=True))
-        if self.output_schema.presence_paths != (("left_present",), ("right_present",)):
-            _fail("the original left_present/right_present directory", "invalid presence paths")
-        for name in names:
-            left, right, change, contribution, share = (
-                directory[(role, name)]
-                for role in ("left", "right", "absolute", "contribution", "contribution_share")
+            _fail(
+                "the exact original parent schema with complete parent axes",
+                type(self.parent_schema).__name__,
             )
-            if not left.unit == right.unit == change.unit == contribution.unit:
-                _fail("matching original metric, change and contribution units", name)
-            if share.unit != (None if change.unit is None else "1"):
-                _fail("a dimensionless contribution share unit", name)
-            for column in (left, right, change, contribution, share):
-                if not (
-                    isinstance(column.dtype, (DecimalDataType, DurationDataType))
-                    or column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-                ):
-                    _fail("numeric or Duration contribution columns", column.name)
-            if isinstance(share.dtype, DurationDataType):
-                _fail("a numeric contribution share type", share.name)
-        for parent in self.parents:
-            if tuple(v.column for v in parent.key) != columns:
-                _fail(
-                    "the complete original parent columns in axis order",
-                    "parent key columns differ",
-                )
-            if tuple(metric.name for metric in parent.metrics) != names:
-                _fail(
-                    "all original metrics in declaration order", "parent metric directory differs"
-                )
-            for metric in parent.metrics:
-                if not isinstance(metric, FrameMethodMetric):
-                    _fail("one closed legacy metric directory", "mixed target records")
-                method = metric.method
-                for role, value in (
-                    ("left", method.left),
-                    ("right", method.right),
-                    ("absolute", method.change),
-                ):
-                    if value.column != directory[(role, metric.name)]:
-                        _fail("parent totals carrying exact original output columns", metric.name)
-                ratio = ("numerator_left", metric.name) in directory
-                if ratio != isinstance(method, FrameRatioMethod):
-                    _fail("ratio components exactly for a direct ratio method", metric.name)
-                if isinstance(method, FrameRatioMethod):
-                    for role, value in (
-                        ("numerator_left", method.numerator_left),
-                        ("numerator_right", method.numerator_right),
-                        ("denominator_left", method.denominator_left),
-                        ("denominator_right", method.denominator_right),
-                    ):
-                        if value.column != directory[(role, metric.name)]:
-                            _fail("exact original ratio component columns", metric.name)
-        if len({parent.key for parent in self.parents}) != len(self.parents):
-            _fail("unique complete parent keys", "duplicate parent key")
-        if tuple(sorted(self.parents, key=_key_order)) != self.parents:
-            _fail("canonical complete parent key order", "unsorted parent keys")
-        _coordinates(self.output_schema, self.coordinates, self.parents, self.parent_axis_count)
+        if (
+            type(self.targets) is not tuple
+            or not self.targets
+            or any(type(target) is not FrameMethodTarget for target in self.targets)
+        ):
+            _fail(
+                "a nonempty immutable closed original target directory", type(self.targets).__name__
+            )
+        self._attribute_targets(columns)
 
     def _attribute_targets(self, columns: tuple[DataColumn, ...]) -> None:
         directory = dict(
@@ -1198,11 +1143,7 @@ class FrameMethodFacts(_FactRecord):
         for parent in self.parents:
             if tuple(value.column for value in parent.key) != columns:
                 _fail("complete original parent key columns", "parent key columns differ")
-            if any(type(metric) is not FrameAttributeMetric for metric in parent.metrics):
-                _fail("one closed target facts shape", "mixed legacy and target records")
-            metrics = tuple(
-                metric for metric in parent.metrics if isinstance(metric, FrameAttributeMetric)
-            )
+            metrics = parent.metrics
             current = tuple(metric.target for metric in metrics)
             paths = tuple(metric.outputs for metric in metrics)
             if (
@@ -1252,6 +1193,7 @@ class FrameMethodFacts(_FactRecord):
                         diagnostic is None
                         or diagnostic.dtype != column.dtype
                         or diagnostic.unit != column.unit
+                        or diagnostic.nullable != column.nullable
                     ):
                         _fail(
                             "diagnostic columns matching exact captured rule carriers and units",
@@ -1272,7 +1214,13 @@ class FrameMethodFacts(_FactRecord):
             or tuple(sorted(self.parents, key=_key_order)) != self.parents
         ):
             _fail("unique canonically ordered complete parent keys", "invalid parent ordering")
-        _coordinates(self.output_schema, self.coordinates, self.parents, self.parent_axis_count)
+        _coordinates(
+            self.output_schema,
+            self.coordinates,
+            self.parents,
+            self.parent_axis_count,
+            self.parent_schema,
+        )
 
     def _summary(self) -> str:
         return f"kind=attribute, origin={_short(self.origin_result_id)!r}, parents={len(self.parents)}, coordinates={len(self.coordinates)}, parent_axes={self.parent_axis_count}"

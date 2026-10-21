@@ -125,15 +125,16 @@ Presence does not implicitly filter those pairs. Constant endpoints or fewer
 than two pairs produce NA coefficient while preserving the count. Saved group
 coefficients/counts cannot reconstruct pooled correlation.
 
-## Investigate explicit endpoints and preserve original explanations
+## Explain retained source targets and preserve original facts
 
 ```python
-left = mv.attribute_endpoint({"revenue": revenue}, during=august)
-right = mv.attribute_endpoint({"revenue": revenue}, during=july)
-investigation = session.attribute(left, right, by=(region,)).compute()
-assert investigation.method_facts == ()
-
-explained = session.attribute(left, right, by=(region,), contribution=True).persist()
+source_current = session.observe({"revenue": revenue}, by=(august,))
+source_baseline = session.observe({"revenue": revenue}, by=(july,))
+comparison = source_current.compare(
+    {"reference": source_baseline}, match={"reference": mv.ordinal()},
+).compute()
+target = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).persist()
 explained.show()
 facts = explained.method_facts
 assert len(facts) == 1
@@ -143,10 +144,11 @@ assert negative.method_facts == facts
 ```
 
 The local physical DuckDB table and additive revenue satisfy this contribution
-example's qualified route. Default investigation needs no contribution proof and
-creates no new facts. Contribution failure is not an automatic retry as default.
-Filtering preserves the original explanation/denominator, without certifying a
-new decomposition. The complete getter is independent of current-row export.
+route. Fresh total and observed_total are independent parent references. Fine
+original values/components/presence remain in data; method_facts explains the
+original full decomposition, including after filtering and independent cold read.
+Reopened data has no executable declaration. Unsupported contribution targets
+can continue via explicit new observations and governed fixed-parent key bridges.
 
 ## Reopen and continue fixed data
 

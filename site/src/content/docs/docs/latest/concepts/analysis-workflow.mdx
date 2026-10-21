@@ -7,7 +7,7 @@ Use `mv.*` for explicit descriptions/composition, `session.*` when introducing
 Catalog, Store, execution ownership or the frozen default timezone, and receiver
 methods/properties for existing context. Public types support inspection and
 annotations; obtain values through their producers. `mv.session.*` owns lifecycle
-discovery. Capture an endpoint with `mv.attribute_endpoint(...)`.
+discovery. Retained source targets can continue with `frame.attribute(by=...)`.
 
 ## Read guidance for the next decision
 
@@ -35,8 +35,8 @@ All data constructors return immutable AnalysisFrame. observe binds resolved
 Metrics and explicit by/where. TimeScope and CalendarAxis belong in by. read binds nonempty fields to one
 complete Entity identity domain. values declares literal coordinates/values;
 frame binds a general Population key domain, including zero axes/no named values.
-attribute binds explicit current/baseline `AttributeEndpoint` inputs, parent
-correspondence and new classifications; optional contribution is an explicit choice.
+attribute follows the receiver's retained direct source/comparison targets and
+complete selected parent coordinates, adding new governed classifications.
 Construction and inspection read no business rows/schema and do not publish results.
 Resolve unknown inputs through bounded Catalog discovery; known names use exact
 lookup. There is no top-level execution Session alias.
@@ -154,12 +154,13 @@ cannot bridge. by=Population selects output keys; in_population selects fact con
 Original overall mean/distinct, new attributes, windows or grain need explicit
 source construction. Frame reduce over current rows is not original rollup.
 
-For two-endpoint investigation, use `session.attribute` with those explicit
-Metric/scopes. Default returns left/right/absolute values without contribution
-proof or new method facts. `contribution=True` adds contribution/share only on a
-qualified source/rule route; it does not fall back automatically. The current
-contribution route is a qualified physical DuckDB table, not files or remote
-providers. See the runnable [comparison and investigation guide](/docs/latest/guides/comparison-and-attribution/).
+For contribution, directly select the source Metric or comparison targets and
+call `frame.attribute(by=...)`. Current complete rows fix the parent keys; each
+target keeps its own baseline. Same-process compute/persist retain declarations,
+while independent reopen needs explicit source rebuilding using saved joint keys.
+The qualified route remains native DuckDB physical tables. Unsupported targets
+can continue ordinary explicit observe and compare/align investigations.
+See the [comparison and investigation guide](/docs/latest/guides/comparison-and-attribution/).
 
 ## Keep source contribution and time meaning
 

@@ -16,8 +16,8 @@ Pure memory reading/computation does not require the persistent destination writ
 
 Session methods introduce Catalog, Store, execution ownership or frozen default
 timezone. Even source-free `session.values(...)` needs the receiving Frame's
-execution and persistence owner. Explicit descriptions such as
-`mv.attribute_endpoint(...)` introduce no Session; composition such as
+execution and persistence owner. Explicit descriptions introduce no Session;
+composition such as
 `mv.product(P, Q)` inherits its unique input owner and rejects conflicts.
 Receiver methods derive from existing context; public result types are acquired
 values, not supported constructors.
@@ -101,6 +101,12 @@ Store 16 is under `<project_root>/.marivo/analysis/generations/v16/`. One closed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
+
+Closed method facts distinguish level, absolute and relative targets, retaining
+their explicit output paths and observed versus newly evaluated parent totals.
+The process-local source declaration is not serialized. A persist return can retain
+its caller's declaration reference; independently reopening the same Artifact
+returns fixed data and method facts without that executable capability.
 
 Actual row order is data: writers/readers do not reconstruct it by key sorting or
 a second display-order field. Top order and left-first/right-only combination

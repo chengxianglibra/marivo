@@ -401,23 +401,33 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
 
         trace = capture_source(monkeypatch)
         assert terminal_runs(session) == ()
-        left = mv.attribute_endpoint({"q": metric}, during=current)
-        right = mv.attribute_endpoint({"q": metric}, during=baseline)
-        pending = session.attribute(
-            left,
-            right,
-            by=(category,),
-            parents=parents,
-            parent_on=((parents.axes[0], tenant, tenant),),
-            parent_how="exact",
+        keys = session.population_from(parents, on=((parents.axes[0], tenant),))
+        left = session.observe(
+            {"q": metric}, by=(current, tenant, category), where=mv.in_population(keys)
         )
-        assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
+        right = session.observe(
+            {"q": metric}, by=(baseline, tenant, category), where=mv.in_population(keys)
+        )
+        compared = left.compare(
+            {"reference": right},
+            on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+            match={"reference": mv.ordinal()},
+            how="outer",
+        )
+        pending = compared.select(
+            {
+                "left.q": compared["q"],
+                "right.q": compared["reference.baseline.q"],
+                "absolute.q": compared["reference.absolute.q"],
+            }
+        )
+        assert not trace.native_sql and not trace.returned_rows and not trace.uploaded_key_rows
         assert terminal_runs(session) == ()
         pending.show(n=0)
-        assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
+        assert not trace.native_sql and not trace.returned_rows and not trace.uploaded_key_rows
         assert terminal_runs(session) == ()
         assert pending.output_names == ("left.q", "right.q", "absolute.q")
-        assert pending.presence_names == ("left_present", "right_present")
+        assert pending.presence_names == ("current.present", "reference.present")
 
         fixed = pending.compute()
         assert isinstance(fixed, mv.AnalysisFrame)
@@ -429,7 +439,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert fixed.method_facts == ()
         actual = [
             tuple(None if pd.isna(value) else value for value in row)
-            for row in rows.itertuples(index=False, name=None)
+            for row in rows.iloc[:, 1:].itertuples(index=False, name=None)
         ]
         assert actual == native == expected
         for name in fixed.output_names:
@@ -462,15 +472,8 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             assert (column["dtype"], column["nullable"]) == ({"name": "boolean"}, False)
 
         with pytest.raises(AnalysisError) as caught:
-            session.attribute(
-                left,
-                right,
-                by=(category,),
-                parents=parents,
-                parent_on=((parents.axes[0], tenant, tenant),),
-                parent_how="exact",
-                contribution=True,
-            ).compute()
+            target = compared.select({"q": compared["reference.absolute.q"]})
+            target.attribute(by=(category,)).compute()
         assert isinstance(caught.value, AttributeInputError)
         assert caught.value.reason == "unqualified_contribution_route"
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads

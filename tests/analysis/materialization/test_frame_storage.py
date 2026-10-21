@@ -2261,17 +2261,18 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
 def attribute_request(
     session: Session, *, axis: str = "channel", parents: Population | None = None
 ) -> AnalysisFrame:
-    from marivo.analysis.dsl.attribute import attribute_endpoint
+    from marivo.analysis.binding.frame_attribute import attribute
 
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
-    return session.attribute(
-        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
-        by=(session.catalog.fields.get("sales.facts." + axis),),
-        parents=parents,
-        contribution=True,
+    parent_axes = () if parents is None else parents
+    current = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "current")
+    baseline = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "base")
+    compared = current.compare(
+        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
     )
+    selected = compared.select({"q": compared["base.absolute.q"]})
+    return attribute(selected, by=(session.catalog.fields.get("sales.facts." + axis),))
 
 
 def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
@@ -2465,42 +2466,20 @@ def explained_calendar(
 ) -> AnalysisFrame:
     """Seed only the downstream historical-coordinate storage contract."""
     from marivo.analysis.core.frame_method_facts import (
-        FrameAdditiveMethod,
         FrameMethodCoordinate,
         FrameMethodFacts,
-        FrameMethodMetric,
         FrameMethodParent,
-        FrameMethodSupport,
         FrameMethodValue,
     )
+    from tests.analysis.materialization.terminal_recovery_worker import method_result
 
     current = interval(local, 1, 4) if interval_axis else calendar(local, count)
-    columns = tuple(
-        DataColumn(
-            role,
-            role + ".q",
-            ScalarDataType("int64") if role != "contribution_share" else ScalarDataType("float64"),
-            False,
-            "1" if role == "contribution_share" else "USD",
-        )
-        for role in ("left", "right", "absolute", "contribution", "contribution_share")
-    )
-    presence = tuple(
-        DataColumn(role, role, ScalarDataType("boolean"), False)
-        for role in ("left_present", "right_present")
-    )
-    schema = DataSchema(
-        _complete_schema(current).axes,
-        columns,
-        presence,
-        value_paths=tuple(
-            (role, "q")
-            for role in ("left", "right", "absolute", "contribution", "contribution_share")
-        ),
-        presence_paths=(("left_present",), ("right_present",)),
-    )
+    seed = method_result(current=240, baseline=200, unit="USD")
+    columns = seed.data.schema.values
+    presence = seed.data.schema.presence
+    schema = replace(seed.data.schema, axes=_complete_schema(current).axes)
     rows = _memory_backing(current).data.copy_rows().drop(columns=["amount"])
-    for column, value in zip(columns, (240, 200, 40, 40, 1.0), strict=True):
+    for column, value in zip(columns, (40, 40, 40, 1.0, 240, 200, 40), strict=True):
         rows[column.slot_id] = pd.Series(
             [value] * count,
             dtype="double[pyarrow]" if column.slot_id == "contribution_share" else "int64[pyarrow]",
@@ -2515,21 +2494,23 @@ def explained_calendar(
             array = array.cast(pa.int64())
         arrays.append(array.to_pylist())
     snapshot = FrameMethodCoordinate(part.name, part.schema, tuple(zip(*arrays, strict=True)))
-    method = FrameAdditiveMethod(
-        "additive",
-        FrameMethodValue(columns[0], 240),
-        FrameMethodValue(columns[1], 200),
-        FrameMethodValue(columns[2], 40),
-        (FrameMethodSupport("r", "rows", 2, 2, 2, 2),),
-    )
     key_column = schema.axes[0].columns[0]
     parents = tuple(
         FrameMethodParent(
-            (FrameMethodValue(key_column, key),), (FrameMethodMetric("q", method, "defined"),)
+            (FrameMethodValue(key_column, key),), seed.method_facts[0].parents[0].metrics
         )
         for key in sorted(rows[key_column.slot_id].tolist())
     )
-    facts = FrameMethodFacts("attribute", "calendar-original", schema, (snapshot,), 1, parents)
+    facts = FrameMethodFacts(
+        "attribute",
+        "calendar-original",
+        schema,
+        (snapshot,),
+        1,
+        parents,
+        DataSchema(schema.axes[:1], ()),
+        seed.method_facts[0].targets,
+    )
     return AnalysisFrame._from_memory(
         local,
         CompletedFrameResult(
@@ -2672,3 +2653,66 @@ def test_equal_origin_digest_does_not_skip_consumed_input_receipts(
     assert len(second.to_pandas()) == 2
     with pytest.raises(AnalysisError):
         first.align(second, on=((first.axes[0], second.axes[0]),)).compute()
+
+
+def test_source_report_and_observed_parent_reopen_without_declarations(
+    attribute_session: Session,
+) -> None:
+    """The real producer's facts survive process exit while source qualification does not."""
+    import subprocess
+    import sys
+
+    session = attribute_session
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    observed = session.observe({"q": amount.sum()}).compute().persist()
+    report = observed.attribute(by=(channel,)).compute().persist()
+    assert observed._derivation is not None
+    assert report.method_facts[0].parents[0].metrics[0].kind == "level"
+    script = """
+import os, sys
+from unittest.mock import patch
+import marivo.analysis as mv
+from marivo.analysis.session.core import Session
+from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold report attempted source/semantic loading')
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(SemanticProject, 'load', forbidden):
+    session = mv.session.resume(sys.argv[2])
+    observed = session.persisted_frame(sys.argv[3])
+    report = session.persisted_frame(sys.argv[4])
+    assert observed._derivation is None
+    assert observed.compute()._derivation is None
+    try:
+        from ibis import _
+        observed.attribute(by=(_.channel,))
+    except AnalysisError as error:
+        assert 'retained source declaration' in error.expected
+    else:
+        raise AssertionError('reopened parent recovered source qualification')
+    target = report.method_facts[0].parents[0].metrics[0]
+    assert target.kind == 'level'
+    assert target.total.value == target.observed_total.value == 440
+    assert len(report.to_pandas()) == 2
+    copied = report.select({'twice': report['contribution.q'] * 2}).compute().persist()
+    assert copied.method_facts == report.method_facts
+    assert copied.to_pandas()[('value','twice')].sum() == 880
+"""
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(session._runtime.store.project_root),
+            session.id,
+            observed.artifact.id,
+            report.artifact.id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert process.returncode == 0, process.stdout + process.stderr

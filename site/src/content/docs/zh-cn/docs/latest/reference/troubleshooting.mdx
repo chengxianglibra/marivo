@@ -55,22 +55,20 @@ ordinal 仍要求完整桶，过滤不压缩原始序号。
 未实际求值的源端算术不保证报溢出。
 缺少执行路线不授权改算法、来源或精度。
 
-## 显式 Attribute 与完整解释读取
+## 贡献目标与完整解释读取
 
-AttributeEndpoint 要求已解析来源 Metric 和显式范围；Frame/Column/Artifact 不能恢复来源
-权限。普通父轴必须从精确接收者完整双向 `parent_on` 绑定；`by` 必须增加业务分类。
-`contribution` 严格要求 boolean，不接受仅具有真值的标记。
+阅读 `marivo.help("analysis.analysis_frame.attribute")`。接收者拥有已选完整父键和直接
+来源/比较目标；by 引入新的受治理业务分类或完整 Population。ratio 和线性 Metric 应在
+observe 前组合，Column 算术不获得来源配方。独立 reopen 没有声明：通过 population_from
+显式映射普通父轴，使用 in_population 与新 observe 重建问题；多时间父域必须保留逐期联合键。
 
-`unsupported_expression` 表示所需精确分解没有准入规则，`missing_component_proof` 表示
-所需样本/分区/组件未被证明；`unqualified_contribution_route` 表示来源超出合格物理 DuckDB
-表路线。原来源与数值失败仍按其自身错误修复。不改精度、不虚构证明、不静默降级；原观察
-合法时，显式请求 `contribution=False` 做调查。精确调用见
-`marivo.help("analysis.session.attribute")`。
+`unsupported_expression` 表示没有合法贡献规则。组件缺失、未知输入、重叠或未准入来源
+应按各自错误修复；原来源与数值错误保留所属 owner。普通调查通过显式来源观察与
+compare/align 继续，不制造贡献或自动降级。
 
-pending `method_facts` 访问需先 compute/persist。存储 getter 校验完整 owned 方法文件，
-不读主表或来源。卡片、打开、预览和 `to_pandas()` 不验证方法载荷，stored compute 与
-派生求值会消费它；坏方法文件可使当前行仍可导出而完整消费失败。保留原文件，按错误修复
-报告的 owned 载荷，不用当前来源重建。见 `marivo.help("analysis.analysis_frame.method_facts")`。
+pending method_facts 需先 compute/persist。存储 getter 完整校验拥有的方法文件，不读主表
+或来源；preview/to_pandas 读取当前数据。筛选后事实仍解释原目标，比较 total 与
+observed_total 可识别本次重读变化。
 
 ## 精确数据恢复与重新提交
 

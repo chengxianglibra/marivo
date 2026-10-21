@@ -108,6 +108,7 @@ class AttributeInputsValues:
     """Private preparation matrix, never a successful contribution result."""
 
     mapping: AttributeFrameValues
+    source_indices: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +126,11 @@ class AttributeContributionValues:
     rules: tuple[tuple[tuple[str, AttributeRule], ...], tuple[tuple[str, AttributeRule], ...]]
     target: FrameAttributeTarget | None = None
     single_endpoint: bool = False
+    source_rules: (
+        tuple[tuple[tuple[str, AttributeRule], ...], tuple[tuple[str, AttributeRule], ...]] | None
+    ) = None
+    source_indices: tuple[int, int] | None = None
+    source_sides: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,13 +142,13 @@ class AttributeProjectValues:
     calendar: int | None
     target_calendar: CalendarCoordinate | IntervalCoordinate | None = None
     how: Literal["exact", "outer"] = "exact"
+    comparison_alias: str | None = None
 
 
 FrameOperationKind: TypeAlias = (
     FrameUnaryOperationKind
     | AlignFrameValues
     | CompareFrameValues
-    | AttributeFrameValues
     | AttributeInputsValues
     | AttributeContributionValues
     | AttributeProjectValues

@@ -62,4 +62,6 @@ def merge_attribute_data(
                     "frame.attribute",
                 )
             attachments.setdefault(attachment.name, attachment)
-    return result, tuple(attachments.values())
+    return result.loc[:, [column.slot_id for column in program.output_schema.columns]], tuple(
+        attachments.values()
+    )

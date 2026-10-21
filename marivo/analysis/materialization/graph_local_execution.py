@@ -55,11 +55,9 @@ def run_local(
             AttributeContributionProgram,
             AttributeInputProgram,
             AttributeMethodPayload,
-            AttributeProgram,
             AttributeProjectProgram,
         )
         from marivo.analysis.methods.frame_attribute import (
-            attribute_frame_data,
             attribute_input_frame_data,
             project_attribute_parents,
         )
@@ -116,8 +114,6 @@ def run_local(
                     for root in endpoint.attribute_inputs
                 }.values()
             )
-        elif isinstance(stage.program, AttributeProgram):
-            frame, attachments = attribute_frame_data(stage.program, inputs)
         elif isinstance(stage.program, FrameCompareProgram):
             frame, attachments, resolved_schema = compare_frame_data(
                 stage.program,

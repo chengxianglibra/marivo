@@ -60,8 +60,6 @@ SEMANTIC_PUBLIC = {
 ANALYSIS_PUBLIC = (
     "AnalysisFrame",
     "FrameAxis",
-    "AttributeEndpoint",
-    "attribute_endpoint",
     "FrameMethodFacts",
     "Column",
     "Grouping",

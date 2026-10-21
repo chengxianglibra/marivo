@@ -17,49 +17,81 @@ from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.session.core import Session
 
 
-def method_result(*, empty: bool = False) -> CompletedFrameResult:
+def method_result(
+    *, empty: bool = False, current: int = 160, baseline: int = 100, unit: str = "CNY"
+) -> CompletedFrameResult:
     """Small complete downstream fixture shared by publication and worker checks."""
     from marivo.analysis.core.artifact_data import DataColumn, DataSchema, ScalarDataType
     from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
     from marivo.analysis.core.frame_method_facts import (
         FrameAdditiveMethod,
+        FrameAttributeMetric,
         FrameMethodFacts,
-        FrameMethodMetric,
+        FrameMethodOutput,
         FrameMethodParent,
         FrameMethodSupport,
+        FrameMethodTarget,
         FrameMethodValue,
     )
 
-    roles = ("left", "right", "absolute", "contribution", "contribution_share")
+    roles = (
+        "contribution",
+        "total",
+        "observed_total",
+        "contribution_share",
+        "detail.current",
+        "detail.baseline",
+        "detail.absolute",
+    )
     values = tuple(
         DataColumn(
             role,
             role + ".q",
             ScalarDataType("float64" if role == "contribution_share" else "int64"),
             False,
-            "1" if role == "contribution_share" else "CNY",
+            "1" if role == "contribution_share" else unit,
         )
         for role in roles
     )
     presence = tuple(
         DataColumn(role, role, ScalarDataType("boolean"), False)
-        for role in ("left_present", "right_present")
+        for role in ("detail.current.present.q", "detail.baseline.present.q")
     )
     schema = DataSchema(
         (),
         values,
         presence,
-        value_paths=tuple((role, "q") for role in roles),
-        presence_paths=(("left_present",), ("right_present",)),
+        value_paths=tuple((*role.split("."), "q") for role in roles),
+        presence_paths=tuple(tuple(column.name.split(".")) for column in presence),
     )
     support = FrameMethodSupport("root.0", "rows", 1, 1, 1, 1)
     method = FrameAdditiveMethod(
         "additive",
-        FrameMethodValue(values[0], 160),
-        FrameMethodValue(values[1], 100),
-        FrameMethodValue(values[2], 60),
+        FrameMethodValue(values[4], current),
+        FrameMethodValue(values[5], baseline),
+        FrameMethodValue(values[6], current - baseline),
         (support,),
+    )
+    outputs = (
+        FrameMethodOutput("contribution", ("contribution", "q")),
+        FrameMethodOutput("total", ("total", "q")),
+        FrameMethodOutput("observed_total", ("observed_total", "q")),
+        FrameMethodOutput("share", ("contribution_share", "q")),
+        FrameMethodOutput("current", ("detail", "current", "q")),
+        FrameMethodOutput("baseline", ("detail", "baseline", "q")),
+        FrameMethodOutput("absolute", ("detail", "absolute", "q")),
+        FrameMethodOutput("current_present", ("detail", "current", "present", "q")),
+        FrameMethodOutput("baseline_present", ("detail", "baseline", "present", "q")),
+    )
+    metric = FrameAttributeMetric(
+        ("q",),
+        "absolute",
+        method,
+        FrameMethodValue(values[2], current - baseline),
+        FrameMethodValue(values[1], current - baseline),
+        outputs,
+        "zero_total" if current == baseline else "defined",
     )
     facts = FrameMethodFacts(
         kind="attribute",
@@ -67,9 +99,9 @@ def method_result(*, empty: bool = False) -> CompletedFrameResult:
         output_schema=schema,
         coordinates=(),
         parent_axis_count=0,
-        parents=()
-        if empty
-        else (FrameMethodParent((), (FrameMethodMetric("q", method, "defined"),)),),
+        parents=() if empty else (FrameMethodParent((), (metric,)),),
+        targets=(FrameMethodTarget(metric.target, metric.kind, metric.outputs),),
+        parent_schema=DataSchema((), ()),
     )
     rows = pd.DataFrame(
         {
@@ -82,7 +114,19 @@ def method_result(*, empty: bool = False) -> CompletedFrameResult:
                 else "int64[pyarrow]",
             )
             for column, value in zip(
-                schema.columns, (160, 100, 60, 60, 1.0, True, True), strict=True
+                schema.columns,
+                (
+                    current - baseline,
+                    current - baseline,
+                    current - baseline,
+                    1.0,
+                    current,
+                    baseline,
+                    current - baseline,
+                    True,
+                    True,
+                ),
+                strict=True,
             )
         }
     )

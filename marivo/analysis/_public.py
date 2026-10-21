@@ -9,8 +9,6 @@ from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
 from marivo.analysis.dsl.artifact import Artifact as Artifact
-from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
-from marivo.analysis.dsl.attribute import attribute_endpoint as attribute_endpoint
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
 from marivo.analysis.dsl.correspondence import offset as offset
@@ -38,8 +36,6 @@ from marivo.analysis.session.core import Session as Session
 __all__ = [  # noqa: RUF022 - public order is contractual
     "AnalysisFrame",
     "FrameAxis",
-    "AttributeEndpoint",
-    "attribute_endpoint",
     "FrameMethodFacts",
     "Column",
     "Grouping",

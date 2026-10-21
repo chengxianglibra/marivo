@@ -68,7 +68,7 @@ def prepare_condition_memberships(
                             "an explicit contribution time role for the parent calendar",
                             repr(contribution.root),
                             "Provide time-bound endpoint Metrics.",
-                            "session.attribute",
+                            "frame.attribute",
                         )
                     read = FieldRead(
                         contribution.time.field,

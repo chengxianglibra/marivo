@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from ibis.common.deferred import Deferred
 
     from marivo._grouping import Grouping
-    from marivo.analysis.dsl.attribute import AttributeEndpoint
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
     from marivo.analysis.dsl.population import Population
@@ -323,71 +322,6 @@ class Session:
             memberships=memberships,
             timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
-        )
-
-    def attribute(
-        self,
-        left: AttributeEndpoint,
-        right: AttributeEndpoint,
-        *,
-        by: tuple[Deferred | Grouping, ...] | Population,
-        parents: Population | AnalysisFrame | None = None,
-        parent_on: tuple[tuple[FrameAxis, Deferred | Entity, Deferred | Entity], ...] = (),
-        parent_how: Literal["exact", "outer"] = "exact",
-        contribution: bool = False,
-    ) -> AnalysisFrame:
-        """Capture an explicit joint investigation as an ordinary lazy Frame.
-
-        Args:
-            left: Current named Metrics and independent observation scopes.
-            right: Baseline named Metrics and independent observation scopes.
-            by: Nonempty new joint classification or one complete Population.
-            parents: Selected complete parent keys; None is one overall parent.
-            parent_on: Complete ordinary parent axes and their endpoint targets.
-            parent_how: Exact or outer correspondence of fresh parent domains.
-            contribution: Strict boolean, False for the default investigation.
-
-        Returns:
-            A lazy AnalysisFrame with parent and fine keys, left/right/absolute
-            values and exactly two endpoint-presence fields. Contribution adds
-            contribution/share values, direct-ratio group components and inert
-            original method facts, preserving actual native numeric types.
-
-        Example:
-            .. code-block:: python
-
-                request = session.attribute(
-                    mv.attribute_endpoint({"q": current}),
-                    mv.attribute_endpoint({"q": baseline}),
-                    by=(region,),
-                )
-                fixed = request.compute()
-
-        Constraints: Capture performs no business reads and creates no Run. Parent
-        selection and both endpoints execute in one checked Frame schedule.
-        None parents means one overall parent; an explicit empty selection stays empty.
-        parent_on covers every ordinary Frame parent axis once with both targets;
-        Population parents already own their bindings and require parent_on=().
-        Calendar and paired-calendar Frame parents retain their explicit binding
-        contract; interval and paired-interval parent axes are refused before reads.
-        parent_how controls fresh complete parent correspondence; fine groups use
-        the outer union. contribution is a strict bool. True requires matching
-        additive/ratio/linear rules and qualified native DuckDB physical tables;
-        unsupported routes or missing component/partition proof fail atomically.
-        Default investigation preserves the original Metric formula, NA and error
-        policies without requiring contribution proof. No automatic fallback.
-        """
-        from marivo.analysis.binding.attribute import attribute
-
-        return attribute(
-            self,
-            left,
-            right,
-            by=by,
-            parents=parents,
-            parent_on=parent_on,
-            parent_how=parent_how,
-            contribution=contribution,
         )
 
     def frame(self, population: Population) -> AnalysisFrame:

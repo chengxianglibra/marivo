@@ -55,7 +55,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         }
         assert plain(outputs["difference"])["reference.absolute.value"].tolist() == [-2]
         assert len(terminal_runs(session)) == before
-        assert all(not hasattr(value, "attribute") for value in outputs.values())
+        assert all(value._derivation is None for value in outputs.values())
     output.write_bytes(encode({"phase": phase, "pid": os.getpid()}))
 
 

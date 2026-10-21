@@ -12,6 +12,7 @@ AnalysisFrame
   owner + exact input binding
   structure: complete ordered axes / named values / independent presence
   required frozen coordinates and comparison descriptors
+  optional process-local source declaration and output mapping
   backing:
     expression: explicit source/literal/fixed inputs and operations
     memory: complete immutable data and audit
@@ -20,7 +21,10 @@ AnalysisFrame
 
 observe/read/values/frame/attribute、align 和 compare 均返回同一种 AnalysisFrame。
 零轴 Frame 表示标量域；不通过公共子类区分计算阶段、比较、单位或日历形状。
-物化根不保存生产图、原语义对象、来源连接、可执行 origin 或隐藏聚合组件。
+完成数据本身不保存生产图、原语义对象、来源连接或隐藏聚合组件。
+Frame 实例可另持有捕获时的不可变来源声明与输出映射，用于显式 attribute 新读。
+compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢复该引用。
+声明不写入 Store，不从同 artifact ID 的其它实例或全局缓存取回。
 
 | 载体 | compute | persist | artifact | to_pandas |
 | --- | --- | --- | --- | --- |
@@ -31,6 +35,8 @@ observe/read/values/frame/attribute、align 和 compare 均返回同一种 Analy
 只有使用返回的完成根才固定值与键；重用待执行来源表达式可看到变化后的数据。
 派生运算保持惰性，其 artifact 不返回祖先产物，导出也不自动执行。
 载体转换保留结果身份/求值审计；多次发布一个内存根可以产生不同提交。
+已完成的 where/top 选择由完整父键、旧值和冻结时间对应固定；后续 attribute 不重跑历史筛选。
+保留声明不改变当前数据操作的读取基础，原值与本次新读父值分别通过 observed_total 与 total 展示。
 
 ## 值、轴与句柄
 

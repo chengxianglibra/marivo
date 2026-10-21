@@ -14,8 +14,8 @@ immutable data type with expression, complete memory and exact stored carriers.
 ``Column`` and ``FrameAxis`` bind to the exact input. ``observe`` binds Metrics,
 ``read`` binds nonempty fields to one Entity identity domain, ``values`` declares
 literal rows, and ``frame`` binds general Population keys, including zero axes.
-``attribute`` binds two explicit ``AttributeEndpoint`` inputs and new business
-classifications; optional contribution requires a separately qualified source route.
+``frame.attribute(by=...)`` explains its captured direct Metric or comparison
+outputs over new business classifications through a qualified source route.
 Construction and inspection perform no business read or publication.
 
 Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
@@ -184,31 +184,40 @@ typed frozen-interpretation attrs. Exported attrs cannot reenter computation.
 Explicit source investigation and contribution
 ----------------------------------------------
 
-``session.attribute(left, right, *, by, parents=None, parent_on=(),
-parent_how="exact", contribution=False)`` returns an ordinary AnalysisFrame.
-``mv.attribute_endpoint(metrics, during=None, where=None, memberships=())`` copies its
-ordered Metric mapping. ``where`` is a native Deferred predicate; ``memberships``
-holds explicit Grouping allocation rules independently of selected output keys.
-The endpoint retains its own TimeScope/CalendarAxis through ``during``.
-Left is current and right is baseline. Default values are ``left.q``, ``right.q``
-and ``absolute.q``; presence is separate. Contribution adds ``contribution.q``
-and ``contribution_share.q``; direct ratios also expose ``numerator_left.q``,
-``numerator_right.q``, ``denominator_left.q`` and ``denominator_right.q``.
-There is no relative-change output or synthetic root row. Empty explicit parents
-stay empty; omitted parents mean one overall parent. Full ordinary parent axes
-require explicit dual binding. Exact/outer parent correspondence does not change
-the outer fine-key union or restore missing values as zero. Calendar and
-paired-calendar Frame parents retain their explicit binding contracts; interval
-and paired-interval parent axes refuse before reads. Reduce the interval axis before
-selecting parents, or use an explicit CalendarAxis parent and endpoint scopes.
+``frame.attribute(*, by=tuple | Population)`` returns an ordinary lazy
+AnalysisFrame. Its receiver supplies the complete selected parent keys, observed
+values and direct source targets. Direct Metric/current/baseline outputs explain
+levels; a comparison absolute or relative output explains that target's change.
+Direct select/rename preserves targets. General Column arithmetic does not create
+source Metric authority; the supported align subtraction retains its captured
+reciprocal endpoint pairing.
 
-Default investigation collects no contribution proof and creates no new method
-facts. Contribution currently requires the qualified physical DuckDB table
-root/fiber statement route; files and remote providers are not qualified by their
-datasource access. Unsupported rules or missing component proof fail rather than
-downgrade. An explicit default request remains available when its observation is
-valid. Native results retain their actual completed types, units and NA; no
-universal Decimal precision or source-read count is promised.
+Each target has ``contribution.<target>``, ``total.<target>``,
+``observed_total.<target>`` and ``contribution_share.<target>``. ``total`` is the
+freshly read original parent result; ``observed_total`` remains the receiver's
+old observation. Detail values and independent presence retain each endpoint;
+applicable numerator, denominator and valid-count diagnostics remain inspectable.
+Relative contributions normalize absolute contributions by the absolute parent
+baseline. Defined zero totals retain signed contributions and NA shares.
+
+``by`` accepts nonempty semantic classification tuples or one complete Population
+with its correlated keys, membership and allocation rules. Frozen interval,
+calendar and paired parent bindings retain their complete correspondence and
+original endpoint scopes. Selected parents remain fixed when source values
+change; attribution does not rerun historical anomaly selection.
+
+Contribution requires the qualified native DuckDB physical-table route. Files
+and remote providers do not qualify through datasource accessibility. Original
+parent and fine formulas, coverage, disjointness, unknown components and closure
+checks remain mandatory. Unsupported recipes fail explicitly. Investigate such
+Metrics through ``population_from`` and a new ``observe`` over complete parent
+keys and fine classifications. Native results retain their actual completed
+types, units and NA; no universal Decimal precision is promised.
+
+Source declarations live on the exact Frame instance and survive compute and
+same-process persist return values. Independent reopen and literal ``values``
+inputs have no declarations, including after compute. Declarations are not saved,
+recovered from a global cache or reconstructed by loading source definitions.
 
 Successful contribution facts are inert original explanations. Filtering or
 reducing data preserves that history without changing original denominators or
@@ -248,11 +257,6 @@ release acceptance are separate contracts.
 
 Canonical public exports
 -------------------------
-
-.. autofunction:: attribute_endpoint
-
-.. autoclass:: AttributeEndpoint
-   :members:
 
 .. autoclass:: FrameMethodFacts
    :members:
@@ -344,17 +348,29 @@ Nested method-fact records
 
 Read complete original explanation records through ``frame.method_facts`` and
 its nested fields. ``FrameMethodFacts`` remains the aggregate public type.
-Nested value, coordinate, support, method, term, metric and parent record types
+Nested value, coordinate, support, method, term, metric, target, output and parent record types
 retain native type/field Help through ``marivo.help(type(value))`` and
 ``marivo.help("analysis.frame_method_facts")``. They are not ``mv.*`` constructor
 exports. Method variants retain their ``kind`` discriminants: ``additive``,
-``ratio_component`` and ``linear``. Reading these facts grants no source execution
+``ratio_component`` and ``linear`` for paired endpoints, and
+``level_additive``, ``level_ratio_component`` and ``level_linear`` for one endpoint. Reading these facts grants no source execution
 authority or new decomposition certification.
+
+``facts.targets`` preserves the complete ordered target/output directory even
+when no parents were selected. Each parent retains complete typed keys and
+metrics with ``kind`` (level/absolute/relative), original rule/support trees,
+``observed_total``, ``total``, explicit output paths and
+``share_state`` (defined/zero_total). ``facts.show(n=...)`` and nested record
+``show`` bound presentation only; complete fields remain available.
 
 Schema, grid and saved Runtime boundaries
 -----------------------------------------
 
-``facts.output_schema`` and ``coordinate.schema`` expose saved complete layouts;
+``facts.output_schema`` and ``coordinate.schema`` expose saved complete layouts.
+``facts.parent_schema`` preserves the original receiver's typed layout and frozen
+comparison correspondence independently of the report's output columns; it
+contains no original value table or executable declaration.
+
 ``method_value.column`` owns its physical dtype, unit and nullability.
 ``calendar_axis.grid`` contains frozen buckets/calendar interpretation.
 ``calendar_axis.scope`` reads the original scope after ``scope.by(grain)``;

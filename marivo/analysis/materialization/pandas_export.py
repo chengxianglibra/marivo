@@ -9,6 +9,7 @@ import pyarrow as pa
 
 from marivo.analysis.core.artifact_data import DataSchema, OutputAttachment
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
+from marivo.analysis.core.frame_method_facts import FrameMethodTarget
 from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 
@@ -151,3 +152,50 @@ def preview_text(
         elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
             labels(axis, keys)
     return text
+
+
+def attribute_preview_text(
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    attachments: tuple[OutputAttachment, ...],
+    targets: tuple[FrameMethodTarget, ...],
+) -> str:
+    """Group actual report columns using captured output paths and one text budget."""
+    values = dict(zip(schema.value_paths, schema.values, strict=True))
+    selected = tuple(
+        (target, tuple(output for output in target.outputs if output.path in values))
+        for target in targets
+    )
+    selected = tuple((target, outputs) for target, outputs in selected if outputs)
+    if not selected:
+        return preview_text(schema, rows, attachments)
+    text = preview_text(DataSchema(schema.axes, ()), rows, attachments)
+    seen: set[tuple[str, ...]] = set()
+    omitted = 0
+    for target, outputs in selected:
+        if target.target in seen:
+            continue
+        seen.add(target.target)
+        columns = tuple(values[output.path] for output in outputs[:4])
+        arrays = tuple(pa.array(rows[column.slot_id], from_pandas=True) for column in columns)
+        display = pd.DataFrame(
+            {
+                column.name: [_cell(array, i, column) for i in range(len(rows))]
+                for column, array in zip(columns, arrays, strict=True)
+            }
+        )
+        block = f"\nTarget {'.'.join(target.target)} ({target.kind})\n" + display.to_string(
+            index=False, max_colwidth=40
+        )
+        if len((text + block).encode("utf-8")) > 3400:
+            omitted += 1
+            continue
+        text += block
+        if len(outputs) > len(columns):
+            text += f"\n{len(outputs) - len(columns)} diagnostic columns: use frame.output_names and select the exact path."
+    if omitted:
+        text += f"\n{omitted} target blocks omitted by the shared preview budget."
+    return (
+        text
+        + "\nComplete values: frame.output_names; select exact diagnostic paths or use to_pandas()."
+    )

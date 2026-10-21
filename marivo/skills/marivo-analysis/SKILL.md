@@ -153,9 +153,15 @@ direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 Before exporting, read `marivo.help("analysis.analysis_frame.to_pandas")` and
 identify whether requested typed work remains. Supported transformations of
 complete Frame data can continue after compute, persist or exact recovery.
-Changes requiring original Metric contributions, new attributes or fresh facts
-need explicit source construction; current-row statistics do not reconstruct
-them. Arranging, plotting, labeling and formatting saved values are presentation.
+For original Metric contributions or new attributes, check whether the current
+Frame retains an admitted source declaration in this process. Its attribute
+operation may read fresh source facts for the selected fixed parent keys;
+distinguish the observed parent values from the newly evaluated totals.
+An independently reopened Frame has no executable declaration. Continue its
+fixed-data operations or explicitly rebuild the source question with governed
+definitions and the saved joint keys. Current-row statistics and saved method
+facts cannot reconstruct that declaration. Arranging, plotting, labeling and
+formatting saved values are presentation.
 Numerical arithmetic is not automatically presentation.
 For a method outside the installed surface, first complete supported upstream
 work, then preserve exact inputs, assumptions and rerunnable external calculations.

@@ -16,7 +16,7 @@ without restoring those source definitions.
 | session.read(population, fields) | Nonempty attributes on one Entity identity domain | AnalysisFrame |
 | session.frame(population) | Complete keys of a general Population | AnalysisFrame, possibly with no values |
 | session.values(by=..., columns=..., rows=...) | Literal keys and named values under the Session owner | AnalysisFrame |
-| session.attribute(left, right, by=..., ...) | Fresh classifications of two explicit source endpoints | AnalysisFrame |
+| frame.attribute(by=...) | Fresh contributions for retained source targets and fixed parent keys | AnalysisFrame |
 | session.population_from(frame, on=...) | Explicit selected ordinary-key projection into a new semantic binding | Population |
 
 Use resolved Entities/fields/Metrics from finalized declarations or the Catalog.
@@ -145,38 +145,44 @@ Here period, revenue, region and city are explicit same-Session/semantic inputs.
 The new question preserves chosen region keys but reads city/revenue again.
 It does not recover the historical city selection or promise a cross-read snapshot.
 
-## Explicit endpoint investigation
+## Captured source contribution targets
 
-mv.attribute_endpoint(metrics, during=None, where=None, memberships=()) copies
-an ordered Metric mapping and endpoint scope without Session/schema/source I/O.
-Session.attribute takes two endpoints with the same nonempty metric-name set,
-new classifications in by, and optional parent selection/correspondence.
+Frame.attribute(by=...) consumes the receiver's direct Metric or admitted comparison
+outputs. Each target retains its own captured source state, scope and correspondence.
+Direct select/rename preserves target identity. Ordinary Column arithmetic cannot
+become a source Metric; combine ratios or fixed linear formulas before observe.
+The restricted align endpoint difference is an explicit admitted exception.
 
-The default computes original left/right/absolute values with independent
-left_present/right_present, without decomposition proof or new method facts.
-It preserves each original formula, actual types, units, NA and strict errors.
-Fine groups use their outer union; parent_how separately controls exact/outer
-fresh parent correspondence. None means one overall parent; an empty Population
-or Frame selection stays empty.
+The current complete receiver rows fix the parent key domain and observed totals.
+Attribute first completes any pending selection, then independently rereads parent
+and fine formulas from shared actual inputs per endpoint/root. Original predicates,
+Population allocation, window dependencies, strict formulas and numeric checks stay
+attached. A fixed parent selection is never reranked against the new source values.
+Interval, calendar and paired coordinates preserve each endpoint's exact scope and
+original complete frozen correspondence. They are not reduced away or rematched
+from the selected subset.
 
-Frame parents bind each complete axis via parent_on to explicit left/right
-semantic targets. Ordinary, calendar and paired-calendar parents have dedicated
-contracts; interval and paired-interval parents reject before reads. Reduce away
-an interval or construct an explicit CalendarAxis parent and endpoint scopes.
+by is a nonempty tuple of new business classifications, including explicit membership
+Grouping rules, or one complete Population. The latter preserves correlated full
+fine keys, allocation and valid no-fact candidates; tuple axes request actual groups.
+Neither variant introduces arbitrary new time refinement. All targets must have
+admitted rules and coverage; one unsupported target rejects the whole request.
 
-contribution=True requests additional contribution/share and original method
-facts. It requires matching additive/ratio/linear rules, complete disjoint
-coverage, retained components and one actual shared input per endpoint/root.
-The qualified route is native DuckDB physical tables. Files, remote providers,
-nonadditive/nested windows and unproved sample reductions are not thereby
-qualified. Fixed additive windows require exact fibers. Failure rejects the
-whole contribution request; a valid default investigation is a separate request.
+The qualified contribution route remains native DuckDB physical tables with retained
+components, original parent/fine formula checks and proven disjoint coverage.
+Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
+rules retain their owning numeric semantics. Output carries contribution, total,
+observed_total and contribution_share per target plus original fine diagnostics,
+components and presence. Zero defined totals retain signed contributions and give
+NA shares. Filtering the report preserves original totals and method facts.
 
-Contribution output includes contribution.q/contribution_share.q; direct ratios
-also expose group numerator/denominator endpoint values. Zero parent change
-makes share NA. Later filtering does not change the original denominator or
-recertify derived arithmetic. [Evidence and method facts](evidence-access-surface.md)
-owns the complete immutable explanation and interpretation limits.
+compute and same-process persist retain the instance declaration. Independent
+reopen retains fixed data and explanatory method facts but no executable declaration.
+For quantile, overlapping distinct or missing declarations, continue ordinary
+investigation explicitly: population_from on governed ordinary parent axes,
+in_population to restrict facts, then observe and compare/align. A multi-time parent
+requires its complete period-specific joint keys, not a global region projection.
+[Evidence and method facts](evidence-access-surface.md) owns cold explanatory reads.
 
 ## Implementation map
 
@@ -185,7 +191,7 @@ owns the complete immutable explanation and interpretation limits.
 [binding/observe.py](../../../marivo/analysis/binding/observe.py) and
 [binding/membership.py](../../../marivo/analysis/binding/membership.py) own source
 bindings; [binding/sampling.py](../../../marivo/analysis/binding/sampling.py) owns
-internal sample admission. [binding/attribute.py](../../../marivo/analysis/binding/attribute.py)
+internal sample admission. [binding/frame_attribute.py](../../../marivo/analysis/binding/frame_attribute.py)
 and [attribute_rules.py](../../../marivo/analysis/binding/attribute_rules.py) own
 endpoint and contribution rules. [compiler/populations.py](../../../marivo/analysis/compiler/populations.py)
 and [compiler/observation.py](../../../marivo/analysis/compiler/observation.py)

@@ -34,8 +34,8 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 
 if TYPE_CHECKING:
-    from marivo.analysis.binding.attribute import AttributeInputRequest
     from marivo.analysis.binding.attribute_rules import AttributeRule
+    from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
     from marivo.analysis.dsl.frame import AnalysisFrame
 
 
@@ -95,7 +95,7 @@ def capture_frame_inputs(
                 expression: FrameExpression = FrameOperation(inputs, root.operation)
                 operation: FrameOperationName = (
                     "attribute"
-                    if isinstance(root.operation, (AttributeFrameValues, AttributeMergeValues))
+                    if isinstance(root.operation, AttributeMergeValues)
                     else "align"
                     if isinstance(root.operation, AlignFrameValues)
                     else "compare"
@@ -112,8 +112,10 @@ def capture_frame_inputs(
                     operation = "attribute"
                     for side, endpoint_frame in enumerate(root.inputs[1:]):
                         contribution_requests[endpoint_frame._input_id] = (
-                            side,
-                            root.operation.rules[side],
+                            side
+                            if root.operation.source_sides is None
+                            else root.operation.source_sides[side],
+                            (root.operation.source_rules or root.operation.rules)[side],
                             root.operation.mapping,
                         )
                 operations.append(operation)

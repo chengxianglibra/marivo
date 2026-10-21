@@ -45,7 +45,6 @@ from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDa
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     AttributeContributionValues,
-    AttributeFrameValues,
     AttributeInputsValues,
     AttributeProjectValues,
     CompareFrameValues,
@@ -351,7 +350,10 @@ def plan_frame(
                 contribution_schema,
             )
 
-            preparation = FrameOperation(node.inputs, AttributeInputsValues(node.operation.mapping))
+            preparation = FrameOperation(
+                node.inputs,
+                AttributeInputsValues(node.operation.mapping, node.operation.source_indices),
+            )
             prepared, _ = visit(preparation)
             input_stage = next(s for s in stages if s.stage_id == prepared)
             assert isinstance(input_stage, FrameCompute)
@@ -449,6 +451,15 @@ def plan_frame(
                 for endpoint in node.inputs[1:]
                 if isinstance(endpoint, SourceFrameInput)
             )
+            if node.operation.source_indices is not None:
+                from marivo.analysis.core.attribute import select_attribute_source_schema
+
+                left_schema = select_attribute_source_schema(
+                    left_schema, node.operation.source_indices[0]
+                )
+                right_schema = select_attribute_source_schema(
+                    right_schema, node.operation.source_indices[1]
+                )
             input_program = attribute_input_program(
                 node.operation,
                 parent_schema,
@@ -494,53 +505,6 @@ def plan_frame(
             stages.append(compute)
             operations[id(node)] = (compute.stage_id, input_program.output_schema)
             return compute.stage_id, input_program.output_schema
-        if isinstance(node.operation, AttributeFrameValues):
-            from marivo.analysis.core.attribute import AttributeProgram, attribute_schema
-
-            parent, parent_schema = visit(node.inputs[0])
-            # Both checked projections precede either new endpoint read. This
-            # rejects damaged/structurally absent calendars before consuming facts.
-            from marivo.analysis.compiler.populations import plan_frame_keys
-
-            for endpoint_node in node.inputs[1:3]:
-                assert isinstance(endpoint_node, SourceFrameInput)
-                for key_stage in source_plans[endpoint_node.input_id].lowered.plan.stages:
-                    if not isinstance(key_stage, FrameKeysInput):
-                        continue
-                    definition = key_stage.parameter.definition.root
-                    if isinstance(definition, AttributeKeys):
-                        projection = plan_frame_keys(key_stage.parameter, parent, parent_schema)
-                        if projection.stage_id not in projections:
-                            stages.append(projection)
-                            projections[projection.stage_id] = projection.stage_id
-            left_domain, left_domain_schema = visit(node.inputs[1])
-            right_domain, right_domain_schema = visit(node.inputs[2])
-            left, left_schema = visit(node.inputs[3])
-            right, right_schema = visit(node.inputs[4])
-            output_schema = attribute_schema(
-                left_schema, right_schema, parent_schema, node.operation
-            )
-            attribute_program = AttributeProgram(
-                node.operation,
-                left_schema,
-                right_schema,
-                parent_schema,
-                left_domain_schema,
-                right_domain_schema,
-                output_schema,
-            )
-            projection_inputs = tuple(
-                "attribute-bridge:" + identifier
-                for identifier in (node.operation.left_projection, node.operation.right_projection)
-            )
-            compute = FrameCompute(
-                f"frame:{len(stages)}",
-                (parent, left_domain, right_domain, left, right, *projection_inputs),
-                attribute_program,
-            )
-            stages.append(compute)
-            operations[id(node)] = (compute.stage_id, output_schema)
-            return compute.stage_id, output_schema
         if isinstance(node.operation, CompareFrameValues):
             resolved = tuple(visit(child) for child in node.inputs)
             schemas = tuple(schema for _, schema in resolved)
@@ -650,8 +614,18 @@ def frame_expression_schema(
                 pending_contribution_schema,
             )
 
+            left_schema, right_schema = inputs[1], inputs[-1]
+            if expression.operation.source_indices is not None:
+                from marivo.analysis.core.attribute import select_attribute_source_schema
+
+                left_schema = select_attribute_source_schema(
+                    left_schema, expression.operation.source_indices[0]
+                )
+                right_schema = select_attribute_source_schema(
+                    right_schema, expression.operation.source_indices[1]
+                )
             contribution_result = pending_contribution_schema(
-                inputs[1], inputs[-1], inputs[0], expression.operation
+                left_schema, right_schema, inputs[0], expression.operation
             )
             assert isinstance(contribution_result, DataSchema)
             memo[id(expression)] = contribution_result
@@ -663,12 +637,6 @@ def frame_expression_schema(
                 "Compile its explicit source layouts before requesting the matrix schema.",
                 "frame.plan",
             )
-        if isinstance(expression.operation, AttributeFrameValues):
-            from marivo.analysis.core.attribute import attribute_schema
-
-            result = attribute_schema(inputs[3], inputs[4], inputs[0], expression.operation)
-            memo[id(expression)] = result
-            return result
         assert not isinstance(expression.operation, AttributeProjectValues)
         result = (
             infer_frame_combine_schema(inputs[0], inputs[1], expression.operation)

@@ -10,12 +10,19 @@ from marivo._help.render import render_help_text
 from marivo._temporal import TimeScope
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearMethod,
+    FrameLevelLinearTerm,
+    FrameLevelRatioMethod,
+    FrameLevelSupport,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
-    FrameMethodMetric,
+    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
+    FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
 )
@@ -130,7 +137,6 @@ def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
 @pytest.mark.parametrize(
     "owner,target",
     (
-        (mv.AttributeEndpoint, "attribute_endpoint"),
         (FrameMethodValue, "frame_method_value"),
         (FrameMethodCoordinate, "frame_method_coordinate"),
         (FrameMethodSupport, "frame_method_support"),
@@ -138,7 +144,14 @@ def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
         (FrameRatioMethod, "frame_ratio_method"),
         (FrameLinearTerm, "frame_linear_term"),
         (FrameLinearMethod, "frame_linear_method"),
-        (FrameMethodMetric, "frame_method_metric"),
+        (FrameAttributeMetric, "frame_attribute_metric"),
+        (FrameMethodTarget, "frame_method_target"),
+        (FrameMethodOutput, "frame_method_output"),
+        (FrameLevelSupport, "frame_level_support"),
+        (FrameLevelAdditiveMethod, "frame_level_additive_method"),
+        (FrameLevelRatioMethod, "frame_level_ratio_method"),
+        (FrameLevelLinearTerm, "frame_level_linear_term"),
+        (FrameLevelLinearMethod, "frame_level_linear_method"),
         (FrameMethodParent, "frame_method_parent"),
         (mv.FrameMethodFacts, "frame_method_facts"),
     ),
@@ -156,7 +169,7 @@ def test_attribute_record_fields_have_exact_static_public_help(
         assert text.startswith(f"Target: {canonical}\nKind: attribute")
         assert resolved == f"{target}.{field.name}"
         assert "read-only" in text and str(field.type) in text
-        assert "_MethodScalar" not in text and "_Method" not in text
+        assert "_MethodScalar" not in text and "_Method" not in text and "_LevelMethod" not in text
 
 
 def test_method_facts_property_owns_full_read_and_exact_type_continuation() -> None:

@@ -159,7 +159,9 @@ def plan_frame_keys(
             output, values=values, value_paths=tuple(("parent", str(i)) for i in range(len(values)))
         )
         program = AttributeProjectProgram(
-            AttributeProjectValues(keys.side, indices, calendar_index, keys.calendar, keys.how),
+            AttributeProjectValues(
+                keys.side, indices, calendar_index, keys.calendar, keys.how, keys.comparison_alias
+            ),
             schema,
             output,
         )

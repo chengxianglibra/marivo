@@ -178,7 +178,12 @@ monthly inventory composition or original overall-mean contributions.
 
 Source Metric/per/window execution may retain internal sufficient state during
 one evaluation. Completed Frame data never persists it for later original
-rollup/drill/share. Changing source grain, attributes, window or source scope
+rollup/drill/share. A Frame with a retained process-local source declaration can
+request `attribute(by=...)` for admitted targets on new business classifications.
+It keeps the current complete parent keys and observed values, then evaluates
+fresh source parent totals and fine contributions. This declaration is separate
+from current-cell statistics and is unavailable after independent reopen.
+Changing source grain, attributes, window or source scope
 requires explicit construction; a fixed ordinary-axis Population bridge can
 constrain selected keys but cannot restore old unobserved facts or history.
 A new source read may see changes after a selection was fixed.

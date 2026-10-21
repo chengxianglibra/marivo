@@ -62,7 +62,6 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodMetric,
     FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
@@ -150,7 +149,6 @@ _RECORDS = (
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodMetric,
     FrameMethodParent,
     FrameMethodSupport,
     FrameMethodValue,
@@ -239,6 +237,7 @@ _FIELDS = {
         "coordinate_row_count",
         "facts_digest",
         "payload",
+        "parent_schema",
         "targets",
     ),
     "FrameMethodTarget": ("target", "kind", "outputs"),
@@ -281,7 +280,6 @@ _FIELDS = {
     ),
     "FrameLinearTerm": ("coefficient", "method"),
     "FrameLinearMethod": ("kind", "left", "right", "change", "terms"),
-    "FrameMethodMetric": ("name", "method", "share_state"),
     "FrameMethodParent": ("key", "metrics"),
     "FrameMethodFacts": (
         "kind",
@@ -290,6 +288,7 @@ _FIELDS = {
         "coordinates",
         "parent_axis_count",
         "parents",
+        "parent_schema",
         "targets",
     ),
     "LocalReceipt": (
@@ -488,5 +487,6 @@ def method_facts_header(value: FrameMethodFacts | SavedFrameMethodFacts) -> str:
             "output_schema": _encode(value.output_schema),
             "parent_axis_count": value.parent_axis_count,
             "targets": _encode(value.targets),
+            "parent_schema": _encode(value.parent_schema),
         }
     )

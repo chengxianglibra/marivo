@@ -15,13 +15,20 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearMethod,
+    FrameLevelLinearTerm,
+    FrameLevelRatioMethod,
+    FrameLevelSupport,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodMetric,
+    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
+    FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
 )
@@ -37,16 +44,17 @@ def provider() -> DisclosureProvider:
             "analysis_frame",
             AnalysisFrame,
             summary="One immutable data object with complete coordinates, ordered values and presence; its carrier is expression, memory or stored.",
-            acquisition="Initial inputs: session.observe/attribute/read/values/frame. Derive with Frame operations; compute/persist return fixed carriers. Recover exactly with session.persisted_frame(id). Direct construction is unsupported.",
+            acquisition="Initial inputs: session.observe/read/values/frame; retained source targets support Frame.attribute. Derive with Frame operations; compute/persist return fixed carriers. Recover exactly with session.persisted_frame(id). Direct construction is unsupported.",
             producers=(
                 "session.observe",
-                "session.attribute",
+                "analysis_frame.attribute",
                 "session.read",
                 "session.values",
                 "session.frame",
                 "session.persisted_frame",
             ),
             consumers=(
+                "analysis_frame.attribute",
                 "analysis_frame.correlate",
                 "analysis_frame.reduce",
                 "analysis_frame.over",
@@ -57,7 +65,7 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.method_facts",
             ),
             constraints=(
-                "Operations consume current data only; a completed result has no original Metric, new-attribute or production-history authority.",
+                "Ordinary operations consume current data. An instance may retain a source declaration for explicit attribute rereads; independent reopen has no declaration.",
                 "Pending expressions capture without business reads. Continue from the Frame returned by compute or persist; to_pandas never executes a pending plan.",
             ),
         ),
@@ -94,24 +102,32 @@ def provider() -> DisclosureProvider:
             ),
         ),
     ]
-    fact_types = (
+    fact_types: tuple[tuple[type[object], str, str, tuple[str, ...]], ...] = (
         (
             FrameMethodFacts,
             "frame_method_facts",
             "Read a fixed Frame's method_facts tuple; each item explains its origin_result_id.",
-            ("frame_method_parent", "frame_method_coordinate"),
+            ("frame_method_parent", "frame_method_coordinate", "frame_method_target"),
         ),
         (
             FrameMethodParent,
             "frame_method_parent",
             "Read facts.parents in complete original parent-key order, including parents with no fine rows.",
-            ("frame_method_value", "frame_method_metric"),
+            ("frame_method_value", "frame_attribute_metric"),
         ),
         (
-            FrameMethodMetric,
-            "frame_method_metric",
-            "Read parent.metrics in original metric declaration order.",
-            ("frame_additive_method", "frame_ratio_method", "frame_linear_method"),
+            FrameAttributeMetric,
+            "frame_attribute_metric",
+            "Read parent.metrics in original target declaration order; target retains its complete output path and kind distinguishes level, absolute and relative.",
+            (
+                "frame_additive_method",
+                "frame_ratio_method",
+                "frame_linear_method",
+                "frame_level_additive_method",
+                "frame_level_ratio_method",
+                "frame_level_linear_method",
+                "frame_method_output",
+            ),
         ),
         (
             FrameMethodValue,
@@ -128,7 +144,7 @@ def provider() -> DisclosureProvider:
         (
             FrameMethodSupport,
             "frame_method_support",
-            "Read method.support for local root/sample policy and exact input/effective counts.",
+            "Read a two-endpoint method.support for local root/sample policy and exact current/baseline input/effective counts.",
             (),
         ),
         (
@@ -156,6 +172,54 @@ def provider() -> DisclosureProvider:
             ("frame_method_value", "frame_linear_term"),
         ),
     )
+    fact_types += (
+        (
+            FrameMethodTarget,
+            "frame_method_target",
+            "Read facts.targets for the complete target directory, including empty parent domains.",
+            ("frame_method_output",),
+        ),
+        (
+            FrameMethodOutput,
+            "frame_method_output",
+            "Read target.outputs for exact role-to-output paths.",
+            (),
+        ),
+        (
+            FrameLevelSupport,
+            "frame_level_support",
+            "Read one-endpoint method support counts and sample policy.",
+            (),
+        ),
+        (
+            FrameLevelAdditiveMethod,
+            "frame_level_additive_method",
+            "Read level target.method when kind is level_additive.",
+            ("frame_method_value", "frame_level_support"),
+        ),
+        (
+            FrameLevelRatioMethod,
+            "frame_level_ratio_method",
+            "Read level target.method when kind is level_ratio_component.",
+            ("frame_method_value", "frame_level_support"),
+        ),
+        (
+            FrameLevelLinearTerm,
+            "frame_level_linear_term",
+            "Read level linear method terms in original order.",
+            (
+                "frame_level_additive_method",
+                "frame_level_ratio_method",
+                "frame_level_linear_method",
+            ),
+        ),
+        (
+            FrameLevelLinearMethod,
+            "frame_level_linear_method",
+            "Read level target.method when kind is level_linear.",
+            ("frame_method_value", "frame_level_linear_term"),
+        ),
+    )
     for fact_owner, target, acquisition, nested in fact_types:
         descriptors.append(
             value_type(
@@ -166,8 +230,30 @@ def provider() -> DisclosureProvider:
                 producers=("analysis_frame.method_facts",)
                 if fact_owner is FrameMethodFacts
                 else {
+                    FrameMethodTarget: ("frame_method_facts.targets",),
+                    FrameMethodOutput: (
+                        "frame_method_target.outputs",
+                        "frame_attribute_metric.outputs",
+                    ),
+                    FrameLevelSupport: (
+                        "frame_level_additive_method.support",
+                        "frame_level_ratio_method.support",
+                    ),
+                    FrameLevelAdditiveMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_level_linear_term.method",
+                    ),
+                    FrameLevelRatioMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_level_linear_term.method",
+                    ),
+                    FrameLevelLinearTerm: ("frame_level_linear_method.terms",),
+                    FrameLevelLinearMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_level_linear_term.method",
+                    ),
                     FrameMethodParent: ("frame_method_facts.parents",),
-                    FrameMethodMetric: ("frame_method_parent.metrics",),
+                    FrameAttributeMetric: ("frame_method_parent.metrics",),
                     FrameMethodValue: (
                         "frame_method_parent.key",
                         "frame_additive_method.left",
@@ -180,15 +266,21 @@ def provider() -> DisclosureProvider:
                         "frame_additive_method.support",
                         "frame_ratio_method.support",
                     ),
-                    FrameAdditiveMethod: ("frame_method_metric.method", "frame_linear_term.method"),
-                    FrameRatioMethod: ("frame_method_metric.method", "frame_linear_term.method"),
-                    FrameLinearMethod: ("frame_method_metric.method", "frame_linear_term.method"),
+                    FrameAdditiveMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_linear_term.method",
+                    ),
+                    FrameRatioMethod: ("frame_attribute_metric.method", "frame_linear_term.method"),
+                    FrameLinearMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_linear_term.method",
+                    ),
                     FrameLinearTerm: ("frame_linear_method.terms",),
                 }[fact_owner],
                 consumers=("frame_method_facts.show", *nested),
                 constraints=(
-                    "Read-only typed data; no Metric, source address, executable recipe or new computation authority. Inherited facts explain their origin, not derived values.",
-                    "Complete fields remain available independently of bounded show output. Numeric values retain actual physical types, Decimal precision and integer time ticks; counts do not prove source qualification.",
+                    "Read-only typed data; no Metric, source address, executable recipe or new computation authority. Inherited facts explain their origin, not derived values. facts.targets retains explicit role-to-output paths even when facts.parents is empty.",
+                    "Complete fields remain available independently of bounded show output. observed_total retains the receiver value and total the fresh parent result; share_state is defined or zero_total. Level methods contain one endpoint. Numeric values retain actual physical types, Decimal precision and integer time ticks; counts do not prove source qualification.",
                 ),
             )
         )
@@ -207,7 +299,7 @@ def provider() -> DisclosureProvider:
             ),
             output="None",
             constraints=(
-                "Shared by FrameMethodFacts and its nine concrete nested record types. At most n detail lines; no field or record truncation in the immutable carrier.",
+                "Shared by FrameMethodFacts and its concrete nested record types. At most n detail lines; no field or record truncation in the immutable carrier.",
                 "No file/source/model reads. Obtaining stored_frame.method_facts beforehand is a separate full method-payload read, even when this show uses n=0.",
             ),
             effects="Print already-owned immutable facts only.",

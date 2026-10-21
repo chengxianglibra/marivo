@@ -23,7 +23,6 @@ from marivo.analysis.core.attribute import (
     AttributeContributionProgram,
     AttributeFormulaBinding,
     AttributeInputProgram,
-    AttributeProgram,
     AttributeProjectProgram,
     AttributeSourceParentBinding,
 )
@@ -299,7 +298,6 @@ class FrameCompute:
         FrameProgram
         | FrameCombineProgram
         | FrameCompareProgram
-        | AttributeProgram
         | AttributeProjectProgram
         | AttributeInputProgram
         | AttributeContributionProgram

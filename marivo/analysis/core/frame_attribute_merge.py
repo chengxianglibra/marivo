@@ -67,7 +67,8 @@ def infer_attribute_merge_schema(
             for a, b in zip(first.axes, schema.axes, strict=True):
                 assert isinstance(a, DataAxis) and isinstance(b, DataAxis)
                 if replace(a, columns=b.columns) != b or any(
-                    x.dtype != y.dtype for x, y in zip(a.columns, b.columns, strict=True)
+                    (x.dtype, x.unit) != (y.dtype, y.unit)
+                    for x, y in zip(a.columns, b.columns, strict=True)
                 ):
                     reject(
                         "identical frozen coordinate identity and exact key types",
@@ -94,8 +95,21 @@ def infer_attribute_merge_schema(
     )
     if all(isinstance(schema, DataSchema) for schema in schemas):
         assert isinstance(first, DataSchema)
+        merged_axes = tuple(
+            replace(
+                axis,
+                columns=tuple(
+                    replace(
+                        column,
+                        nullable=any(schema.axes[i].columns[j].nullable for schema in schemas),
+                    )
+                    for j, column in enumerate(axis.columns)
+                ),
+            )
+            for i, axis in enumerate(first.axes)
+        )
         return DataSchema(
-            first.axes,
+            merged_axes,
             tuple(c for c in values if isinstance(c, DataColumn)),
             tuple(c for c in presence if isinstance(c, DataColumn)),
             value_paths=paths,

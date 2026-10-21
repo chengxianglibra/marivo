@@ -9,9 +9,9 @@ import pandas as pd
 
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.attribute import (
+    AttributeDomainProgram,
     AttributeInputProgram,
     AttributeMatrixSource,
-    AttributeProgram,
     AttributeProjectProgram,
 )
 from marivo.analysis.core.data_schema import (
@@ -22,8 +22,6 @@ from marivo.analysis.core.data_schema import (
 )
 from marivo.analysis.core.data_types import (
     DataColumn,
-    DecimalDataType,
-    DurationDataType,
     ScalarDataType,
 )
 from marivo.analysis.core.frame_calendar import freeze_calendar
@@ -45,12 +43,6 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.query_components import AttributeRootInputs
 from marivo.analysis.methods.frame_comparison import _take
-from marivo.analysis.methods.numeric_state import (
-    duration_arithmetic,
-    finish_decimal,
-    finish_float64,
-    nullable_arithmetic,
-)
 
 
 def _validated(
@@ -66,123 +58,145 @@ def _calendar_keys(
     schema: DataSchema,
     attachments: tuple[OutputAttachment, ...],
 ) -> dict[FrozenKey, FrozenKey | None]:
+    """Project through the complete consumed endpoint correspondence, never rematch."""
+    from marivo._definition.types import IntervalCoordinate
+    from marivo.analysis.core.data_schema import (
+        CalendarComparisonBinding,
+        IntervalComparisonBinding,
+    )
+    from marivo.analysis.core.frame_calendar import freeze_interval
+    from marivo.analysis.core.frozen_calendar import read_interval_directory
+
     assert operation.calendar is not None and operation.target_calendar is not None
     axis = schema.axes[operation.calendar]
     assert isinstance(axis, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis))
-    from marivo._definition.types import IntervalCoordinate
-
-    if isinstance(operation.target_calendar, IntervalCoordinate):
-        from marivo.analysis.core.frozen_calendar import read_interval_directory
-
-        endpoint = (
-            axis
-            if isinstance(axis, IntervalDataAxis)
-            else axis.left
-            if isinstance(axis, PairedDataAxis) and operation.side == "left"
-            else axis.right
-            if isinstance(axis, PairedDataAxis)
-            else None
+    tables = {a.name: a for a in attachments}
+    endpoint: CalendarDataAxis | IntervalDataAxis
+    mapping: dict[FrozenKey, FrozenKey | None] | None = None
+    if operation.comparison_alias is not None:
+        fact = next(
+            (
+                fact
+                for fact in schema.comparisons
+                if fact.alias == operation.comparison_alias
+                and isinstance(fact.binding, (CalendarComparisonBinding, IntervalComparisonBinding))
+                and fact.binding.current_axis_token == axis.token
+            ),
+            None,
         )
-        assert isinstance(endpoint, IntervalDataAxis)
-        tables = {a.name: a for a in attachments}
-        saved_interval = tables[endpoint.frozen.directory_name]
-        interval_directory = read_interval_directory(
-            endpoint, saved_interval.schema, saved_interval.rows
-        )
-        if isinstance(axis, IntervalDataAxis):
-            return {
-                bucket.key: ((endpoint.columns[0].dtype, 0),)
-                for bucket in interval_directory.buckets
-            }
-        assert isinstance(axis, PairedDataAxis)
+        if fact is None:
+            reject(
+                "the captured complete comparison mapping",
+                operation.comparison_alias,
+                "Retain the comparison's coordinate attachments and output declaration.",
+                "frame.attribute",
+            )
+        binding = fact.binding
+        assert isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding))
+        endpoint = binding.baseline
+        table = tables[binding.mapping_name]
+        mapping = {
+            key: None if all(value is None for _, value in target) else target
+            for key, target in zip(
+                frozen_key_rows(table.rows, axis.columns),
+                frozen_key_rows(table.rows, table.schema.values[:-1]),
+                strict=True,
+            )
+        }
+    elif isinstance(axis, PairedDataAxis):
+        endpoint = axis.left if operation.side == "left" else axis.right
         table = tables[axis.mapping_name]
         width = len(axis.left.columns)
         columns = (
             table.schema.values[:width] if operation.side == "left" else table.schema.values[width:]
         )
-        return {
-            key: None if all(v is None for _, v in value) else ((endpoint.columns[0].dtype, 0),)
-            for key, value in zip(
+        mapping = {
+            key: None if all(value is None for _, value in target) else target
+            for key, target in zip(
                 frozen_key_rows(table.rows, axis.columns),
                 frozen_key_rows(table.rows, columns),
                 strict=True,
             )
         }
-    assert isinstance(axis, (CalendarDataAxis, PairedDataAxis))
-    endpoint = (
-        axis
-        if isinstance(axis, CalendarDataAxis)
-        else axis.left
-        if operation.side == "left"
-        else axis.right
-    )
-    if not isinstance(endpoint, CalendarDataAxis):
-        reject(
-            "a calendar endpoint for calendar parent projection",
-            repr(endpoint),
-            "Use a saved calendar parent with the original complete endpoint calendar.",
-            "session.attribute",
-        )
-    target = freeze_calendar(
-        operation.target_calendar,
-        token="attribute.calendar",
-        name="calendar",
-        key=DataColumn("calendar", "calendar", ScalarDataType("int64"), False),
-    )
-    require_compatible_calendar_axes(endpoint, target.axis)
-    tables = {a.name: a for a in attachments}
+    else:
+        endpoint = axis
     assert endpoint.frozen is not None
     original = tables[endpoint.frozen.directory_name]
-    saved = read_calendar_directory(endpoint, original.schema, original.rows)
-    fresh = read_calendar_directory(target.axis, target.directory.schema, target.directory.rows)
-
-    def facts(
-        bucket: FrozenCalendarBucket,
-    ) -> tuple[str, int, datetime, datetime, datetime, datetime]:
-        return (
-            bucket.nominal_label,
-            bucket.ordinal,
-            bucket.nominal_start,
-            bucket.nominal_end,
-            bucket.actual_start,
-            bucket.actual_end,
+    canonical: dict[FrozenKey, FrozenKey]
+    if isinstance(operation.target_calendar, IntervalCoordinate):
+        assert isinstance(endpoint, IntervalDataAxis)
+        saved_interval = read_interval_directory(endpoint, original.schema, original.rows)
+        target_interval = freeze_interval(
+            operation.target_calendar,
+            token="attribute.interval",
+            name="interval",
+            key=DataColumn("interval", "interval", ScalarDataType("int64"), False),
         )
-
-    if tuple(map(facts, saved.buckets)) != tuple(map(facts, fresh.buckets)):
-        reject(
-            "the complete saved endpoint calendar directory",
-            repr(target.axis),
-            "Provide an explicit CalendarAxis with the original finite bucket boundaries.",
-            "session.attribute",
+        fresh_interval = read_interval_directory(
+            target_interval.axis, target_interval.directory.schema, target_interval.directory.rows
         )
-    mapping = {a.key: b.key for a, b in zip(saved.buckets, fresh.buckets, strict=True)}
-    if isinstance(axis, CalendarDataAxis):
-        return dict(mapping)
-    # Full-bucket admission belongs to the original complete paired directories,
-    # including rows removed by the current selected parent filter.
-    for end in (axis.left, axis.right):
-        if not isinstance(end, CalendarDataAxis):
+        if tuple((b.start, b.end, b.timezone) for b in saved_interval.buckets) != tuple(
+            (b.start, b.end, b.timezone) for b in fresh_interval.buckets
+        ):
             reject(
-                "calendar endpoints for a paired calendar parent",
-                repr(end),
-                "Use paired calendar endpoints with the original finite calendars.",
-                "session.attribute",
+                "the captured exact endpoint interval",
+                repr(endpoint),
+                "Retain the original interval bounds and consumed parent correspondence.",
+                "frame.attribute",
             )
-        assert end.frozen is not None
-        table = tables[end.frozen.directory_name]
-        directory = read_calendar_directory(end, table.schema, table.rows)
-        require_matchable_calendar_directory(directory)
-    table = tables[axis.mapping_name]
-    width = len(axis.left.columns)
-    columns = (
-        table.schema.values[:width] if operation.side == "left" else table.schema.values[width:]
-    )
-    result: dict[FrozenKey, FrozenKey | None] = {}
-    for key, value in zip(
-        frozen_key_rows(table.rows, axis.columns), frozen_key_rows(table.rows, columns), strict=True
-    ):
-        result[key] = None if all(v is None for _, v in value) else mapping[value]
-    return result
+        canonical = {
+            a.key: b.key
+            for a, b in zip(saved_interval.buckets, fresh_interval.buckets, strict=True)
+        }
+    else:
+        assert isinstance(endpoint, CalendarDataAxis)
+        target = freeze_calendar(
+            operation.target_calendar,
+            token="attribute.calendar",
+            name="calendar",
+            key=DataColumn("calendar", "calendar", ScalarDataType("int64"), False),
+        )
+        require_compatible_calendar_axes(endpoint, target.axis)
+        saved = read_calendar_directory(endpoint, original.schema, original.rows)
+        fresh = read_calendar_directory(target.axis, target.directory.schema, target.directory.rows)
+
+        def facts(
+            bucket: FrozenCalendarBucket,
+        ) -> tuple[str, int, datetime, datetime, datetime, datetime]:
+            return (
+                bucket.nominal_label,
+                bucket.ordinal,
+                bucket.nominal_start,
+                bucket.nominal_end,
+                bucket.actual_start,
+                bucket.actual_end,
+            )
+
+        if tuple(map(facts, saved.buckets)) != tuple(map(facts, fresh.buckets)):
+            reject(
+                "the complete saved endpoint calendar directory",
+                repr(target.axis),
+                "Retain the original finite bucket boundaries.",
+                "frame.attribute",
+            )
+        if isinstance(axis, PairedDataAxis) or operation.comparison_alias is not None:
+            require_matchable_calendar_directory(saved)
+            original_endpoints = (
+                (axis.left, axis.right) if isinstance(axis, PairedDataAxis) else (axis,)
+            )
+            for original_endpoint in original_endpoints:
+                assert (
+                    isinstance(original_endpoint, CalendarDataAxis)
+                    and original_endpoint.frozen is not None
+                )
+                attachment = tables[original_endpoint.frozen.directory_name]
+                require_matchable_calendar_directory(
+                    read_calendar_directory(original_endpoint, attachment.schema, attachment.rows)
+                )
+        canonical = {a.key: b.key for a, b in zip(saved.buckets, fresh.buckets, strict=True)}
+    if mapping is None:
+        return dict(canonical)
+    return {key: None if value is None else canonical[value] for key, value in mapping.items()}
 
 
 def _projected(
@@ -212,8 +226,8 @@ def _projected(
                     reject(
                         "two structurally projected endpoints for every selected parent",
                         repr(key),
-                        "Use parent_how='outer' for a saved structurally missing side.",
-                        "session.attribute",
+                        "Rebuild the original comparison or alignment with two structurally present endpoints, or inspect the missing side with an explicit finer observation.",
+                        "frame.attribute",
                     )
                 result.append((key, None))
                 continue
@@ -241,8 +255,8 @@ def project_attribute_parents(
     return result
 
 
-def attribute_frame_data(
-    program: AttributeProgram, inputs: tuple[StageOutput, ...]
+def _attribute_domain_data(
+    program: AttributeDomainProgram, inputs: tuple[StageOutput, ...]
 ) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
     parent, left_domain, right_domain, left, right, left_projection, right_projection = inputs
     schemas = (
@@ -259,7 +273,7 @@ def attribute_frame_data(
         (
             i
             for i, a in enumerate(parent_schema.axes)
-            if isinstance(a, (CalendarDataAxis, PairedDataAxis))
+            if isinstance(a, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis))
         ),
         None,
     )
@@ -286,8 +300,8 @@ def attribute_frame_data(
         reject(
             "two structurally projected endpoints for every selected parent",
             repr(structural),
-            "Use parent_how='outer' for a saved structurally missing side.",
-            "session.attribute",
+            "Rebuild the original comparison or alignment with two structurally present endpoints, or inspect the missing side with an explicit finer observation.",
+            "frame.attribute",
         )
     parent_domains: list[set[FrozenKey]] = []
     fine_rows: list[dict[FrozenKey, int]] = []
@@ -319,38 +333,14 @@ def attribute_frame_data(
         reject(
             "equal fresh complete parent domains",
             repr(parent_domains),
-            "Provide matching endpoint parent domains or parent_how='outer'.",
-            "session.attribute",
+            "Retain the original complete endpoint domains, or rebuild the comparison or alignment before requesting attribution.",
+            "frame.attribute",
         )
     keys = full_keys[0] + [k for k in full_keys[1] if k not in fine_rows[0]]
     output = program.output_schema
     encoded_keys = frozen_key_table(tuple(c for a in output.axes for c in a.columns), tuple(keys))
     rows: dict[str, pd.Series] = {name: encoded_keys[name] for name in encoded_keys.columns}
     indices = ([fine_rows[0].get(k) for k in keys], [fine_rows[1].get(k) for k in keys])
-    for i, path in enumerate(program.left_schema.value_paths):
-        a = program.left_schema.values[i]
-        b = program.right_schema.values[program.right_schema.value_paths.index(path)]
-        x, y = _take(left.table, a.slot_id, indices[0]), _take(right.table, b.slot_id, indices[1])
-        dtype = output.values[3 * i + 2].dtype
-        delta = (
-            duration_arithmetic(
-                "subtract",
-                x,
-                y,
-                left_type=a.dtype,
-                right_type=b.dtype,
-                output=dtype,
-                zero_denominator="null",
-            )
-            if isinstance(dtype, DurationDataType)
-            else nullable_arithmetic("subtract", x, y)
-        )
-        if isinstance(dtype, DecimalDataType):
-            delta = finish_decimal(delta, dtype.precision, dtype.scale)
-        elif dtype == ScalarDataType("float64"):
-            delta = finish_float64(delta, "Attribute absolute")
-        for column, values in zip(output.values[3 * i : 3 * i + 3], (x, y, delta), strict=True):
-            rows[column.slot_id] = values
     for column, selected in zip(output.presence, indices, strict=True):
         rows[column.slot_id] = pd.Series([i is not None for i in selected], dtype=bool)
     result = pd.DataFrame(rows, columns=[c.slot_id for c in output.columns])
@@ -379,7 +369,7 @@ def _index(
             "unique complete coordinate tuples",
             "duplicate complete keys",
             "Keep each complete parent or group key once.",
-            "session.attribute",
+            "frame.attribute",
         )
     return keys, result
 
@@ -394,7 +384,7 @@ def attribute_parent_mapping(
         (
             i
             for i, axis in enumerate(parent_schema.axes)
-            if isinstance(axis, (CalendarDataAxis, PairedDataAxis))
+            if isinstance(axis, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis))
         ),
         None,
     )
@@ -416,7 +406,7 @@ def attribute_parent_mapping(
             "exact full parent projection key types",
             repr(source_parent_columns),
             "Retain the original parent axis order and complete projection groups.",
-            "session.attribute",
+            "frame.attribute",
         )
     pairs = tuple(
         zip(
@@ -432,7 +422,7 @@ def attribute_parent_mapping(
                 "one original full parent for each complete source parent",
                 repr((source, mapped[source], original)),
                 "Retain the exact checked complete parent projection without conflicting mappings.",
-                "session.attribute",
+                "frame.attribute",
             )
         mapped[source] = original
     return tuple(mapped.items())
@@ -487,7 +477,7 @@ def attribute_source_values(
             "one actual source value per complete active fiber",
             repr(source.use),
             "Retain unique complete parent and fine source keys.",
-            "session.attribute",
+            "frame.attribute",
         )
     result = frozen_key_table((*output_parent, *output_fine), keys)
     result[source.source] = _take(table, source.source, [i for i, _ in selected])
@@ -574,7 +564,7 @@ def attribute_input_frame_data(
             )
         )
     skeleton_schema = replace(program.output_schema, values=(), value_paths=())
-    skeleton = AttributeProgram(
+    skeleton = AttributeDomainProgram(
         mapping,
         empty_schemas[0],
         empty_schemas[1],
@@ -594,7 +584,7 @@ def attribute_input_frame_data(
         )
         for source, schema in zip((left, right), empty_schemas, strict=True)
     )
-    rows, attachments = attribute_frame_data(
+    rows, attachments = _attribute_domain_data(
         skeleton,
         (
             parent,
@@ -635,7 +625,7 @@ def attribute_input_frame_data(
                 "exactly one expanded source for each active complete fiber",
                 repr(item.occurrence),
                 "Retain disjoint captured window fibers.",
-                "session.attribute",
+                "frame.attribute",
             )
         by_key = {key: index for index, key in enumerate(actual_keys)}
         wanted = tuple(frozen_key_rows(rows, key_columns))
@@ -649,7 +639,7 @@ def attribute_input_frame_data(
                 "one checked total for each complete selected parent",
                 repr(item.occurrence),
                 "Retain the complete parent mapping and checked empty-input policy.",
-                "session.attribute",
+                "frame.attribute",
             )
         values = _take(table, item.target.slot_id, indices)
         if item.scope == "fine" and item.role not in ("value", "native_value"):

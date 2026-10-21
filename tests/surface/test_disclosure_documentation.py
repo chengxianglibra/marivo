@@ -67,26 +67,20 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     region = session.catalog.fields.get("sales.customer.region")
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
     july = session.time_scope(start="2026-07-01", end="2026-08-01")
-    descriptor = REGISTRY.by_canonical_id("session.attribute")
+    source_frame = session.observe({"revenue": revenue})
+    descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
     assert isinstance(descriptor, CallableInput)
-    namespace = {
-        "mv": mv,
-        "session": session,
-        "revenue": revenue,
-        "region": region,
-        "current_period": august,
-        "baseline_period": july,
-    }
+    namespace = {"source_frame": source_frame, "region": region}
     exec(compile(descriptor.example.code, "<attribute-help-example>", "exec"), namespace)
-    default = namespace["result"].compute()
-    assert default.method_facts == ()
-    assert default.to_pandas()[("value", "absolute.revenue")].tolist() == [-20, -50, 0]
-    result = session.attribute(
-        mv.attribute_endpoint({"revenue": revenue}, during=august),
-        mv.attribute_endpoint({"revenue": revenue}, during=july),
-        by=(region,),
-        contribution=True,
+    level = namespace["result"].compute()
+    assert level.to_pandas()[("value", "contribution.revenue")].tolist() == [610, 50, 0]
+    current = session.observe({"revenue": revenue}, by=(august,))
+    baseline = session.observe({"revenue": revenue}, by=(july,))
+    comparison = current.compare(
+        {"reference": baseline}, match={"reference": mv.ordinal()}
     ).compute()
+    target = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
+    result = target.attribute(by=(region,)).compute()
     assert result.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50, 0]
     facts = result.method_facts
     assert len(facts) == 1 and facts[0].parents[0].metrics[0].method.change.value == -70
@@ -95,13 +89,12 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert reopened.method_facts == facts
     assert reopened.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50]
     nonlinear = revenue * revenue
-    left = mv.attribute_endpoint({"squared": nonlinear}, during=august)
-    right = mv.attribute_endpoint({"squared": nonlinear}, during=july)
+    source = session.observe({"squared": nonlinear})
     with pytest.raises(AnalysisError) as error:
-        session.attribute(left, right, by=(region,), contribution=True)
+        source.attribute(by=(region,))
     assert error.value.reason == "unsupported_expression"
-    assert "analysis.session.attribute" in str(error.value)
-    assert session.attribute(left, right, by=(region,)).compute().method_facts == ()
+    investigation = session.observe({"squared": nonlinear}, by=(region,)).compute()
+    assert investigation.method_facts == ()
 
 
 @pytest.mark.parametrize("language", ("docs", "zh-cn/docs"))
@@ -172,12 +165,8 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert isinstance(nonlinear, mv.AnalysisFrame) and nonlinear.method_facts == ()
     session = namespace["session"]
     assert isinstance(session, mv.Session)
+    source = session.observe({"squared": namespace["nonlinear"]})
     with pytest.raises(AnalysisError) as captured:
-        session.attribute(
-            mv.attribute_endpoint({"squared": namespace["nonlinear"]}, during=namespace["august"]),
-            mv.attribute_endpoint({"squared": namespace["nonlinear"]}, during=namespace["july"]),
-            by=(namespace["region"],),
-            contribution=True,
-        )
+        source.attribute(by=(namespace["region"],))
     assert captured.value.reason == "unsupported_expression"
-    assert captured.value.repair.help_target.display == "analysis.session.attribute"
+    assert captured.value.repair.help_target.display == "analysis.analysis_frame.attribute"

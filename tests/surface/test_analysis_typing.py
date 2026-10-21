@@ -40,6 +40,9 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.where(True)  # invalid: ordinary boolean predicate
     query.select({'value': field})  # invalid: source field in result selection
     query.reduce({'value': query['value']})  # invalid: unfinished reduction shape
+    query.attribute()  # invalid: missing fine domain
+    query.attribute(by=query.axes)  # invalid: Frame axes are not source classifications
+    query.attribute(by=(field,), baseline=query)  # invalid: receiver owns its baseline
     query.over(query['value'])  # invalid: unfinished partition statistic
     query.over(mv.row_count(), by=(field,))  # invalid: source partition axis
     query.over(mv.row_count(), by=[query.axes[0]])  # invalid: partition axes are a tuple

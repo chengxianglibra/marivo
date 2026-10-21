@@ -15,7 +15,7 @@ import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
 names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact',
-         'AttributeEndpoint', 'FrameMethodFacts')
+         'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
 assert 'marivo.analysis.forecast_models' not in sys.modules
@@ -150,7 +150,6 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "members",
         "read",
         "observe",
-        "attribute",
         "frame",
         "values",
         "persisted_frame",
@@ -166,6 +165,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "correlate",
         "align",
         "compare",
+        "attribute",
         "compute",
         "persist",
         "to_pandas",
@@ -179,7 +179,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
             assert not hasattr(mv.Session, name)
         assert not hasattr(mv.AnalysisFrame, name)
     assert not hasattr(mv.Session, "_attribute")
-    assert not hasattr(mv.AnalysisFrame, "attribute")
+    assert not hasattr(mv.Session, "attribute")
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:

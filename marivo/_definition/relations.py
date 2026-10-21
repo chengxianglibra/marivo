@@ -251,6 +251,7 @@ class AttributeKeys:
     calendar: CalendarCoordinate | IntervalCoordinate | None = None
     side: Literal["left", "right"] = "left"
     how: Literal["exact", "outer"] = "exact"
+    comparison_alias: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

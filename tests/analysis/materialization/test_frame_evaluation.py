@@ -172,7 +172,7 @@ def _contains_scope(value: object, target: object) -> bool:
 
 
 @pytest.mark.parametrize(
-    "entry", ("observe", "read", "values", "population", "compare", "attribute", "contribution")
+    "entry", ("observe", "read", "values", "population", "compare", "attribute")
 )
 def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, entry: str) -> None:
     numerator = session.catalog.fields.get("sales.facts.numerator")
@@ -192,12 +192,11 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
         base = session.observe({"q": 2 * numerator.sum()}, by=(channel,))
         pending = current.compare({"base": base}, on={"base": ((current.axes[0], base.axes[0]),)})
     else:
-        pending = session.attribute(
-            mv.attribute_endpoint({"q": numerator.sum()}, where=item <= 2),
-            mv.attribute_endpoint({"q": numerator.sum()}, where=item >= 2),
-            by=(channel,),
-            contribution=entry == "contribution",
-        )
+        current = session.observe({"q": numerator.sum()}, where=item <= 2)
+        base = session.observe({"q": numerator.sum()}, where=item >= 2)
+        compared = current.compare({"base": base}, on={"base": ()})
+        target = compared.select({"q": compared["base.absolute.q"]})
+        pending = target.attribute(by=(channel,))
     before = _inventory(session)
     with patch.object(
         graph_execution, "run_query_plan", wraps=graph_execution.run_query_plan
@@ -220,12 +219,11 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
         assert rows[("value", "q")].tolist() == [100, 900]
         assert rows[("value", "base.absolute.q")].tolist() == [-100, -900]
     else:
-        assert rows[("value", "left.q")].tolist() == [50, 900]
-        assert rows[("value", "right.q")].tolist() == [100, 450]
-        assert rows[("value", "absolute.q")].tolist() == [-50, 450]
-        if entry == "contribution":
-            assert rows[("value", "contribution.q")].tolist() == [-50, 450]
-            assert rows[("value", "contribution_share.q")].tolist() == [-0.125, 1.125]
+        assert rows[("value", "detail.current.q")].tolist() == [50, 900]
+        assert rows[("value", "detail.baseline.q")].tolist() == [100, 450]
+        assert rows[("value", "detail.absolute.q")].tolist() == [-50, 450]
+        assert rows[("value", "contribution.q")].tolist() == [-50, 450]
+        assert rows[("value", "contribution_share.q")].tolist() == [-0.125, 1.125]
     assert _inventory(session) == before
     assert terminal_runs(session) == ()
 

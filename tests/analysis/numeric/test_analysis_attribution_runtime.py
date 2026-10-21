@@ -147,7 +147,11 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         allocation(*(basis(value) for value in restored), method="count"), frame
     )
     assert len(terminal_runs(case.session)) == before
-    assert all(not hasattr(value, "attribute") for value in restored)
+    region = case.catalog.fields.get("sales.customer.region")
+    for value in restored:
+        with pytest.raises(AnalysisError) as caught:
+            value.attribute(by=(region,))
+        assert "retained source declaration" in caught.value.expected
 
 
 @pytest.mark.slow

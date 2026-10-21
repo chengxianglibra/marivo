@@ -6,8 +6,10 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+from marivo._grouping import Grouping
 from marivo.analysis.core.attribute import (
     AttributeFineFiber,
     AttributeNumericWitness,
@@ -20,12 +22,27 @@ from marivo.analysis.core.frame_data import (
     OperationFrameBinding,
 )
 from marivo.analysis.core.frame_expression import AttributeContributionValues
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.population import Population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
+
+
+def _contribution(
+    current: AnalysisFrame,
+    baseline: AnalysisFrame,
+    *,
+    by: tuple[Deferred | Grouping, ...] | Population,
+) -> AnalysisFrame:
+    compared = current.compare(
+        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+    )
+    selected = compared.select(
+        {name: compared[f"base.absolute.{name}"] for name in current.output_names}
+    )
+    return selected.attribute(by=by)
 
 
 def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
@@ -90,19 +107,18 @@ def test_additive_exact_values_and_one_read_per_endpoint(
         return execute_original(self, issued)
 
     monkeypatch.setattr(SourceSession, "execute", execute)
-    pending = session.attribute(
-        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
+    pending = _contribution(
+        session.observe({"q": amount.sum()}, where=phase == "current"),
+        session.observe({"q": amount.sum()}, where=phase == "base"),
         by=(channel,),
-        contribution=True,
     )
     pending.show(n=0)
     assert reads == []
     result = pending.compute().to_pandas()
-    assert len(reads) == 2
+    assert len(reads) == 4
     assert result[("value", "contribution.q")].tolist() == [60, -20]
     assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
-    assert result[("value", "absolute.q")].tolist() == [60, -20]
+    assert result[("value", "detail.absolute.q")].tolist() == [60, -20]
 
 
 @pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear"))
@@ -120,11 +136,10 @@ def test_rule_families(session: Session, kind: str) -> None:
     else:
         metric = amount.sum() - 2 * amount.sum()
     result = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
@@ -134,8 +149,8 @@ def test_rule_families(session: Session, kind: str) -> None:
     )
     assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
     if kind != "linear":
-        assert result[("value", "numerator_left.q")].tolist() == [160, 80]
-        assert result[("value", "denominator_left.q")].tolist() == [1, 1]
+        assert result[("value", "component.current.numerator.q")].tolist() == [160, 80]
+        assert result[("value", "component.current.denominator.q")].tolist() == [1, 1]
 
 
 def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: Path) -> None:
@@ -148,21 +163,18 @@ def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: P
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
-        session.attribute(
-            attribute_endpoint(
-                {"q": amount.weighted_mean(weight=weight)}, where=phase == "current"
-            ),
-            attribute_endpoint({"q": amount.weighted_mean(weight=weight)}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.weighted_mean(weight=weight)}, where=phase == "current"),
+            session.observe({"q": amount.weighted_mean(weight=weight)}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "left.q")].iloc[0] == 10
-    assert pd.isna(rows[("value", "left.q")].iloc[1])
+    assert rows[("value", "detail.current.q")].iloc[0] == 10
+    assert pd.isna(rows[("value", "detail.current.q")].iloc[1])
     assert rows[("value", "contribution.q")].tolist() == [5, 0]
-    assert rows[("value", "denominator_left.q")].tolist() == [1, 0]
+    assert rows[("value", "component.current.denominator.q")].tolist() == [1, 0]
 
 
 def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path: Path) -> None:
@@ -172,19 +184,18 @@ def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path:
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.sum()}, where=phase == "current"),
+            session.observe({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
     )
     assert rows[("value", "contribution.q")].tolist() == [160, -100]
-    assert rows[("value", "absolute.q")].isna().all()
-    assert rows[("presence", "left_present")].tolist() == [True, False]
-    assert rows[("presence", "right_present")].tolist() == [False, True]
+    assert rows[("value", "detail.absolute.q")].isna().all()
+    assert rows[("presence", "detail.current.present.q")].tolist() == [True, False]
+    assert rows[("presence", "detail.baseline.present.q")].tolist() == [False, True]
 
 
 def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path) -> None:
@@ -196,11 +207,10 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.sum()}, where=phase == "current"),
+            session.observe({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
@@ -224,15 +234,15 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    pending = session.attribute(
-        mv.attribute_endpoint(
+    pending = _contribution(
+        session.observe(
             {
                 "safe": amount.sum(),
                 "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
             },
             where=phase == "current",
         ),
-        mv.attribute_endpoint(
+        session.observe(
             {
                 "safe": amount.sum(),
                 "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
@@ -240,12 +250,11 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
             where=phase == "base",
         ),
         by=(channel,),
-        contribution=True,
     )
     if derive == "top0":
-        pending = pending.top(0, by=pending["left.safe"])
+        pending = pending.top(0, by=pending["detail.current.safe"])
     elif derive == "select":
-        pending = pending.select({"only": pending["left.safe"]})
+        pending = pending.select({"only": pending["detail.current.safe"]})
     elif derive == "where":
         pending = pending.where(pending.coord(pending.axes[0]) != "B")
         reads: list[CompiledRead] = []
@@ -285,19 +294,15 @@ def test_real_producer_association_and_inert_parent_payload(
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    left = attribute_endpoint({"q": amount.sum()}, where=phase == "current")
-    right = attribute_endpoint({"q": amount.sum()}, where=phase == "base")
-    first = session.attribute(left, right, by=(channel,), contribution=True)
+    left = session.observe({"q": amount.sum()}, where=phase == "current")
+    right = session.observe({"q": amount.sum()}, where=phase == "base")
+    first = _contribution(left, right, by=(channel,))
     result = first
     expected_inputs = [first._input_id]
     if shape == "derived":
         result = first.select({"kept": first["contribution.q"]})
     elif shape in ("shared", "distinct"):
-        second = (
-            first
-            if shape == "shared"
-            else session.attribute(left, right, by=(channel,), contribution=True)
-        )
+        second = first if shape == "shared" else _contribution(left, right, by=(channel,))
         result = first.align(second, on=((first.axes[0], second.axes[0]),))
         if shape == "distinct":
             expected_inputs.append(second._input_id)
@@ -344,6 +349,8 @@ def test_real_producer_association_and_inert_parent_payload(
                 coordinates=payload.coordinates,
                 parent_axis_count=payload.parent_axis_count,
                 parents=payload.parents,
+                targets=payload.targets,
+                parent_schema=payload.parent_schema,
             )
 
 
@@ -359,11 +366,10 @@ def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: P
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.sum()}, where=phase == "current"),
+            session.observe({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
@@ -390,11 +396,10 @@ def test_duration_preserves_exact_ticks_and_half_even(
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.mean() if mean else amount.sum()
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
@@ -416,19 +421,24 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
         connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(38,0)")
         connection.execute(
             "UPDATE facts SET amount=CASE WHEN phase='current' THEN CAST(? AS DECIMAL(38,0)) ELSE -1 END",
-            ["9" * 38],
+            ["10"],
         )
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    pending = session.attribute(
-        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
-        by=(channel,),
-        contribution=True,
+    current = session.observe({"q": amount.sum()}, where=phase == "current")
+    baseline = session.observe({"q": amount.sum()}, where=phase == "base")
+    compared = current.compare(
+        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
     )
+    selected = compared.select({"q": compared["base.absolute.q"]}).compute()
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CAST(? AS DECIMAL(38,0)) WHERE phase='current'", ["9" * 38]
+        )
+    pending = selected.attribute(by=(channel,))
     with pytest.raises(MaterializationError) as caught:
-        pending.top(0, by=pending["left.q"]).compute()
+        pending.top(0, by=pending["detail.current.q"]).compute()
     assert caught.value.stage == "numeric_value"
     assert caught.value.attribute_context is not None
     assert isinstance(
@@ -444,11 +454,10 @@ def test_static_typed_coefficient_mismatch_is_first_path(session: Session) -> No
     amount = session.catalog.fields.get("sales.facts.amount")
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AttributeRuleError) as caught:
-        session.attribute(
-            attribute_endpoint({"q": amount.sum() - 2 * amount.sum()}),
-            attribute_endpoint({"q": amount.sum() - 3 * amount.sum()}),
+        _contribution(
+            session.observe({"q": amount.sum() - 2 * amount.sum()}),
+            session.observe({"q": amount.sum() - 3 * amount.sum()}),
             by=(channel,),
-            contribution=True,
         )
     mismatch = caught.value.mismatch
     assert mismatch is not None and mismatch.path == (1,)
@@ -467,11 +476,10 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.sum().divide(weight.sum())
     with pytest.raises(AttributeInputError) as caught:
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         ).compute()
     assert caught.value.reason == "root_denominator_zero"
     assert caught.value.attribute_context is not None
@@ -492,7 +500,7 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
     parents = mv.coordinates(by=(region,), keys=()) if selected_empty else None
-    endpoint = attribute_endpoint({"q": amount.sum()})
+    endpoint = session.observe({"q": amount.sum()}, by=parents if parents is not None else ())
     captured: list[AttributeMethodProduction] = []
     original = frame_evaluation._attribute_productions
 
@@ -506,15 +514,13 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
         return values
 
     monkeypatch.setattr(frame_evaluation, "_attribute_productions", productions)
-    result = session.attribute(
-        endpoint, endpoint, parents=parents, by=(channel,), contribution=True
-    ).compute()
+    result = _contribution(endpoint, endpoint, by=(channel,)).compute()
     assert result.to_pandas().empty
     assert len(captured) == 1
     assert len(captured[0].payload.parents) == (0 if selected_empty else 1)
     if not selected_empty:
         assert captured[0].payload.parents[0].metrics[0].method.left.value == 0
-        assert captured[0].payload.parents[0].metrics[0].share_state == "zero_total_change"
+        assert captured[0].payload.parents[0].metrics[0].share_state == "zero_total"
 
 
 def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path: Path) -> None:
@@ -528,17 +534,15 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     channel = session.catalog.fields.get("sales.facts.channel")
     parents = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
-            parents=parents,
+        _contribution(
+            session.observe({"q": amount.sum()}, by=parents, where=phase == "current"),
+            session.observe({"q": amount.sum()}, by=parents, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "left.q")].tolist() == [9007199254740993, 0]
+    assert rows[("value", "detail.current.q")].tolist() == [9007199254740993, 0]
     assert rows[("value", "contribution.q")].tolist() == [0, 0]
 
 
@@ -550,11 +554,10 @@ def test_linear_ratio_children_and_original_scalar_order(session: Session) -> No
     ratio = amount.sum().divide(weight.sum())
     metric = ratio - 2 * ratio
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
@@ -574,11 +577,10 @@ def test_null_original_parent_is_unknown_not_additive_zero(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AttributeInputError) as caught:
-        session.attribute(
-            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.sum()}, where=phase == "current"),
+            session.observe({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         ).compute()
     assert caught.value.reason == "undefined_input"
     assert caught.value.attribute_context is not None
@@ -596,18 +598,17 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
-        session.attribute(
-            attribute_endpoint({"q": amount.mean()}, where=phase == "current"),
-            attribute_endpoint({"q": amount.mean()}, where=phase == "base"),
+        _contribution(
+            session.observe({"q": amount.mean()}, where=phase == "current"),
+            session.observe({"q": amount.mean()}, where=phase == "base"),
             by=(channel,),
-            contribution=True,
         )
         .compute()
         .to_pandas()
     )
     assert rows[("value", "contribution.q")].tolist() == pytest.approx([10 / 3, 0])
-    assert rows[("value", "absolute.q")].tolist() == [10, 0]
-    assert rows[("value", "denominator_left.q")].tolist() == [1, 2]
+    assert rows[("value", "detail.absolute.q")].tolist() == [10, 0]
+    assert rows[("value", "component.current.denominator.q")].tolist() == [1, 2]
 
 
 @pytest.mark.parametrize("kind", ("additive", "ratio_component", "linear"))
@@ -639,11 +640,10 @@ def test_payload_satisfies_existing_fact_model(
         return values
 
     monkeypatch.setattr(frame_evaluation, "_attribute_productions", productions)
-    fixed = session.attribute(
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+    fixed = _contribution(
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
         by=(channel,),
-        contribution=True,
     ).compute()
     assert len(captured) == 1
     payload = captured[0].payload
@@ -654,6 +654,8 @@ def test_payload_satisfies_existing_fact_model(
         coordinates=payload.coordinates,
         parent_axis_count=payload.parent_axis_count,
         parents=payload.parents,
+        targets=payload.targets,
+        parent_schema=payload.parent_schema,
     )
     assert facts.parents[0].metrics[0].method.kind == kind
 
@@ -689,24 +691,46 @@ def test_new_attribute_uses_only_its_own_live_components(
     metrics = (
         {"q": amount.sum(), "n": amount.count()} if shape == "pending" else {"q": amount.sum()}
     )
-    left = attribute_endpoint(metrics, where=phase == "current")
-    right = attribute_endpoint(metrics, where=phase == "base")
-    first = session.attribute(
+    source_by = () if shape == "scalar" else mv.coordinates(by=(region,), keys=(("E",), ("W",)))
+    left = session.observe(metrics, by=source_by, where=phase == "current")
+    right = session.observe(metrics, by=source_by, where=phase == "base")
+    first = _contribution(
         left,
         right,
-        parents=None if shape == "scalar" else mv.coordinates(by=(region,), keys=(("E",), ("W",))),
         by=(region,) if shape == "scalar" else (channel,),
-        contribution=True,
     )
     selected = first.where(first["contribution.q"] > 0)
     if shape == "fixed":
         selected = selected.compute()
     parents = session.population_from(selected, on=((selected.axes[0], region),))
-    if shape != "scalar":
-        left = attribute_endpoint(metrics, where=(phase == "current") & (channel == "A"))
-        right = attribute_endpoint(metrics, where=(phase == "base") & (channel == "A"))
-    final = session.attribute(left, right, parents=parents, by=(channel,), contribution=True)
+    left = session.observe(
+        metrics,
+        by=parents,
+        where=(phase == "current")
+        & ((channel == "A") if shape != "scalar" else (phase == "current")),
+    )
+    right = session.observe(
+        metrics,
+        by=parents,
+        where=(phase == "base") & ((channel == "A") if shape != "scalar" else (phase == "base")),
+    )
+    final = _contribution(left, right, by=(channel,))
+    from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
+
+    def producer_ids(frame: AnalysisFrame) -> set[str]:
+        backing = frame._backing
+        assert isinstance(backing, ExpressionFrameBacking) and isinstance(
+            backing.root, OperationFrameBinding
+        )
+        return (
+            {child._input_id for child in backing.root.inputs}
+            if isinstance(backing.root.operation, AttributeMergeValues)
+            else {frame._input_id}
+        )
+
+    first_ids, final_ids = producer_ids(first), producer_ids(final)
     sources: list[SourceSession] = []
+    attribute_sources: list[SourceSession] = []
     captured: list[AttributeMethodProduction] = []
     expected_order: list[str] = []
     consumed: list[str] = []
@@ -717,6 +741,8 @@ def test_new_attribute_uses_only_its_own_live_components(
 
     def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         sources.append(self)
+        if "__attribute_kind" in issued.expression.columns:
+            attribute_sources.append(self)
         return execute_original(self, issued)
 
     def productions(
@@ -728,7 +754,7 @@ def test_new_attribute_uses_only_its_own_live_components(
         expected_order.extend(
             input_id
             for _, input_id, _, _ in associations
-            if input_id == final._input_id or (shape != "fixed" and input_id == first._input_id)
+            if input_id in final_ids or (shape != "fixed" and input_id in first_ids)
         )
         values = productions_original(associations, reachable, observed)
         captured.extend(values)
@@ -767,13 +793,11 @@ def test_new_attribute_uses_only_its_own_live_components(
     assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
         [20 / 15, -5 / 15] if shape == "scalar" else [1.0]
     )
-    assert len(sources) == (2 if shape == "fixed" else 4)
-    assert len(consumed) == (1 if shape == "fixed" else 2)
+    assert len(attribute_sources) == (2 if shape == "fixed" else 4)
+    assert len(consumed) == (1 if shape == "fixed" else 4 if shape == "pending" else 2)
     assert bridges
     assert [production.input_id for production in captured] == expected_order
-    assert set(expected_order) == (
-        {final._input_id} if shape == "fixed" else {first._input_id, final._input_id}
-    )
+    assert set(expected_order) == (final_ids if shape == "fixed" else first_ids | final_ids)
     assert [production.explicit_index for production in captured] == sorted(
         production.explicit_index for production in captured
     )
@@ -784,7 +808,11 @@ def test_new_attribute_uses_only_its_own_live_components(
     if shape == "pending":
         assert rows[("value", "contribution.n")].tolist() == [0]
         assert rows[("value", "contribution_share.n")].isna().all()
-    payload = next(p.payload for p in captured if p.input_id == final._input_id)
+    payload = next(
+        p.payload
+        for p in captured
+        if p.input_id in final_ids and p.payload.targets[0].target == ("q",)
+    )
     assert len(payload.parents) == 1
     assert payload.parents[0].key[0].value == "E"
     method = payload.parents[0].metrics[0].method
@@ -792,9 +820,9 @@ def test_new_attribute_uses_only_its_own_live_components(
         (35, 20, 15) if shape == "scalar" else (30, 10, 20)
     )
     if shape != "scalar":
-        assert rows[("value", "left.q")].tolist() == [30]
-        assert rows[("value", "right.q")].tolist() == [10]
-        assert rows[("value", "absolute.q")].tolist() == [20]
+        assert rows[("value", "detail.current.q")].tolist() == [30]
+        assert rows[("value", "detail.baseline.q")].tolist() == [10]
+        assert rows[("value", "detail.absolute.q")].tolist() == [20]
 
 
 @pytest.mark.parametrize("mean", [True, False])
@@ -839,11 +867,11 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
         == expected_dtype
     )
     endpoints = (
-        attribute_endpoint({"q": metric}, where=phase == "current"),
-        attribute_endpoint({"q": metric}, where=phase == "base"),
+        session.observe({"q": metric}, where=phase == "current"),
+        session.observe({"q": metric}, where=phase == "base"),
     )
-    ordinary_attribute = session.attribute(*endpoints, by=(channel,)).compute()
-    pending = session.attribute(*endpoints, by=(channel,), contribution=True)
+    ordinary_attribute = _contribution(*endpoints, by=(channel,)).compute()
+    pending = _contribution(*endpoints, by=(channel,))
     assert isinstance(pending._backing, ExpressionFrameBacking)
     binding = pending._backing.root
     assert isinstance(binding, OperationFrameBinding)
@@ -861,7 +889,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
 
     monkeypatch.setattr(SourceSession, "execute", counted)
     fixed = pending.compute()
-    assert len(reads) == 2
+    assert len(reads) == 4
     data = fixed.to_pandas()
     default = ordinary_attribute.to_pandas()
     left = current.to_pandas()[("value", "q")].tolist()
@@ -870,7 +898,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert right == (
         [100.0, 100.0] if mean else [Decimal("100.000000000"), Decimal("100.000000000")]
     )
-    for role, values in (("left", left), ("right", right)):
+    for role, values in (("detail.current", left), ("detail.baseline", right)):
         assert (
             data[("value", role + ".q")].tolist()
             == default[("value", role + ".q")].tolist()
@@ -886,8 +914,8 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
             ).dtype
             == expected_dtype
         )
-    assert data[("presence", "left_present")].tolist() == [True, True]
-    assert data[("presence", "right_present")].tolist() == [True, True]
+    assert data[("presence", "detail.current.present.q")].tolist() == [True, True]
+    assert data[("presence", "detail.baseline.present.q")].tolist() == [True, True]
     assert data[("value", "contribution.q")].tolist() == (
         [30.0, -10.0] if mean else [Decimal("60"), Decimal("-20")]
     )
@@ -911,7 +939,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert method.change.value == (20.0 if mean else Decimal("41"))
     saved = fixed.persist()
     assert saved.method_facts == facts and saved.compute().method_facts == facts
-    assert len(reads) == 2
+    assert len(reads) == 4
     if not mean and lexical == "0.500":
         checkout = Path(marivo.__file__).resolve().parents[1]
         code = """
@@ -944,7 +972,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
             text=True,
         )
         assert cold.returncode == 0, cold.stdout + cold.stderr
-    assert pa.array(data[("value", "left.q")]).type == (
+    assert pa.array(data[("value", "detail.current.q")]).type == (
         pa.float64() if mean else pa.decimal128(38, 1)
     )
 
@@ -997,7 +1025,9 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
         connection.execute("UPDATE facts SET amount=140 WHERE id=3")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
-    compared = current.compare({"base": baseline})
+    compared = current.compare(
+        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+    )
     selected = compared.select({"change": compared["base.absolute.q"]}).compute()
     with duckdb.connect(str(database)) as connection:
         connection.execute("UPDATE facts SET amount=160 WHERE id=3")
@@ -1006,3 +1036,134 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
     assert result[("value", "total.change")].tolist() == [40, 40]
     assert result[("value", "observed_total.change")].tolist() == [20, 20]
     assert result[("value", "contribution_share.change")].tolist() == [1.5, -0.5]
+
+
+@pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear", "count"))
+@pytest.mark.parametrize("mode", ("level", "absolute", "relative"))
+def test_captured_rule_families(session: Session, kind: str, mode: str) -> None:
+    from marivo.analysis.binding.frame_attribute import attribute
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    if kind == "ratio":
+        metric = amount.sum().divide(weight.sum())
+    elif kind == "mean":
+        metric = amount.mean()
+    elif kind == "weighted":
+        metric = amount.weighted_mean(weight=weight)
+    elif kind == "count":
+        metric = amount.count()
+    else:
+        metric = amount.sum() - 2 * amount.sum()
+    current = session.observe({"q": metric}, where=phase == "current")
+    if mode == "level":
+        selected = current.compute()
+        expected = [-160, -80] if kind == "linear" else [1, 1] if kind == "count" else [80, 40]
+    else:
+        baseline = session.observe({"q": metric}, where=phase == "base")
+        compared = current.compare(
+            {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        )
+        selected = compared.select({"q": compared[f"base.{mode}.q"]}).compute()
+        expected = [-60, 20] if kind == "linear" else [0, 0] if kind == "count" else [30, -10]
+        if mode == "relative":
+            expected = [
+                value / (200 if kind == "linear" else 2 if kind == "count" else 100)
+                for value in expected
+            ]
+    report = attribute(selected, by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == expected
+    if mode == "level" and kind in ("ratio", "mean", "weighted"):
+        assert rows[("value", "detail.value.q")].tolist() == [160, 80]
+        assert rows[("value", "total.q")].tolist() == [120, 120]
+
+
+@pytest.mark.parametrize("prune", ("direct", "select", "where", "top0"))
+def test_captured_original_fine_formula_checks_survive_pruning(
+    session: Session, prune: str
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
+        connection.execute("UPDATE facts SET weight=0 WHERE id=4")
+    amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    source = session.observe(
+        {"q": amount.sum().divide(weight.sum(), zero_denominator="error")}, where=phase == "current"
+    ).compute()
+    report = source.attribute(by=(channel,))
+    if prune == "select":
+        report = report.select({"kept": report["contribution.q"]})
+    elif prune == "where":
+        report = report.where(report.coord(report.axes[0]) != "B")
+    elif prune == "top0":
+        report = report.top(0, by=report["contribution.q"])
+    with pytest.raises(MaterializationError) as caught:
+        report.compute()
+    assert caught.value.stage == "numeric_value"
+    assert caught.value.attribute_context is not None
+    assert isinstance(caught.value.attribute_context.fiber, AttributeFineFiber)
+    assert caught.value.attribute_context.fiber.fine[0][1] == "B"
+
+
+@pytest.mark.parametrize("kind", ("mean", "weighted", "ratio"))
+def test_captured_known_empty_sample_retains_original_na(session: Session, kind: str) -> None:
+    with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
+        connection.execute("UPDATE facts SET amount=NULL WHERE channel='B'")
+    amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    metric = (
+        amount.mean()
+        if kind == "mean"
+        else amount.weighted_mean(weight=weight)
+        if kind == "weighted"
+        else amount.sum().divide(weight.sum())
+    )
+    source = session.observe({"q": metric}, where=phase == "current").compute()
+    if kind == "ratio":
+        from marivo.analysis.core.attribute import AttributeInputError
+
+        with pytest.raises(AttributeInputError) as caught:
+            source.attribute(by=(channel,)).compute()
+        assert caught.value.reason == "undefined_input"
+        return
+    rows = source.attribute(by=(channel,)).compute().to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == [160, 0]
+    assert pd.isna(rows[("value", "detail.value.q")].iloc[1])
+    assert rows[("presence", "detail.value.present.q")].tolist() == [True, True]
+    if kind == "weighted":
+        assert rows[("value", "component.value.valid_count.q")].tolist() == [1, 0]
+
+
+def test_unsupported_output_records_exact_node_after_compute_and_rename(session: Session) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    source = session.observe({"q": amount.sum()})
+    mixed = source.select({"good": source["q"], "bad": source["q"] + source["q"]}).compute()
+    with pytest.raises(AnalysisError) as caught:
+        mixed.attribute(by=(channel,))
+    assert "bad" in str(caught.value.received)
+    assert "ValueBinary" in str(caught.value.received)
+    assert "good" not in str(caught.value.received)
+    renamed = mixed.select({"renamed": mixed["bad"]}).compute()
+    with pytest.raises(AnalysisError) as renamed_error:
+        renamed.attribute(by=(channel,))
+    assert "renamed" in str(renamed_error.value.received)
+    assert "ValueBinary" in str(renamed_error.value.received)
+    assert (
+        mixed.select({"good": mixed["good"]})
+        .compute()
+        .attribute(by=(channel,))
+        .compute()
+        .output_names[0]
+        == "contribution.good"
+    )

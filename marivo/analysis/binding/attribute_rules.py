@@ -79,12 +79,12 @@ class AttributeRuleError(CoreRuleError):
             received=f"{metric} at {occurrence}: {received}",
             repair=(
                 "Provide the exact captured component and sample proof for this Metric, "
-                "or submit a new request with contribution=False."
+                "or investigate explicitly with population_from, in_population and a finer observe/compare."
                 if reason == "missing_component_proof"
                 else "Use a supported additive, component ratio, or fixed linear Metric, "
-                "or submit a new request with contribution=False."
+                "or investigate explicitly with population_from, in_population and a finer observe/compare."
             ),
-            location="session.attribute",
+            location="frame.attribute",
         )
 
 

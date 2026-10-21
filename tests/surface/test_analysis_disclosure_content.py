@@ -14,12 +14,19 @@ from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearMethod,
+    FrameLevelLinearTerm,
+    FrameLevelRatioMethod,
+    FrameLevelSupport,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
-    FrameMethodMetric,
+    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
+    FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
 )
@@ -283,7 +290,14 @@ def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
         FrameRatioMethod,
         FrameLinearTerm,
         FrameLinearMethod,
-        FrameMethodMetric,
+        FrameAttributeMetric,
+        FrameLevelSupport,
+        FrameLevelAdditiveMethod,
+        FrameLevelRatioMethod,
+        FrameLevelLinearMethod,
+        FrameLevelLinearTerm,
+        FrameMethodOutput,
+        FrameMethodTarget,
         FrameMethodParent,
         mv.FrameMethodFacts,
     )
@@ -305,21 +319,19 @@ def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
 
 
 def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> None:
-    text = render_help_text("analysis.session.attribute")[0]
-    assert text == render_help_text(mv.Session.attribute)[0]
+    text = render_help_text("analysis.analysis_frame.attribute")[0]
+    assert text == render_help_text(mv.AnalysisFrame.attribute)[0]
     for expected in (
-        "Strict bool",
-        "default False",
         "native DuckDB physical tables",
-        "files/remote providers refuse",
-        "unqualified_contribution_route",
-        "missing_component_proof",
-        "never auto-falls back",
-        "canonical",
+        "independent reopen",
+        "complete",
+        "observed_total",
+        "each target",
+        "source declaration",
     ):
         assert expected.lower() in text.lower()
-    assert "analysis.attribute_endpoint" in text and "analysis.analysis_frame.method_facts" in text
-    for target in ("attribute_endpoint", "frame_method_facts", "frame_ratio_method"):
+    assert "analysis.analysis_frame.method_facts" in text
+    for target in ("frame_method_facts", "frame_ratio_method"):
         assert target not in prepare().discovery_ids()
 
 
@@ -329,7 +341,6 @@ def test_construction_type_families_and_retired_surface() -> None:
         "grain",
         "time_scope",
         "calendar_correspondence",
-        "attribute_endpoint",
         "artifact_digest",
         "artifact_ref",
         "finding",
@@ -344,7 +355,14 @@ def test_construction_type_families_and_retired_surface() -> None:
         "artifact",
         "frame_method_facts",
         "frame_method_parent",
-        "frame_method_metric",
+        "frame_attribute_metric",
+        "frame_method_target",
+        "frame_method_output",
+        "frame_level_support",
+        "frame_level_additive_method",
+        "frame_level_ratio_method",
+        "frame_level_linear_term",
+        "frame_level_linear_method",
         "frame_method_value",
         "frame_method_coordinate",
         "frame_method_support",
@@ -360,7 +378,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 18
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 17
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -394,10 +412,8 @@ def test_construction_type_families_and_retired_surface() -> None:
     assert "input_id" not in page and "definition" not in page
     assert "input_id" not in repr(statistic) and "definition" not in repr(statistic)
     assert "analysis.value_statistic" in render_help_text(mv.row_count)[0]
-    assert (
-        render_help_text(mv.attribute_endpoint)[0]
-        == render_help_text("analysis.attribute_endpoint.define")[0]
-    )
+    assert not hasattr(mv, "attribute_endpoint")
+    assert not hasattr(mv, "AttributeEndpoint")
 
 
 def test_nested_metadata_help_keeps_read_boundaries() -> None:

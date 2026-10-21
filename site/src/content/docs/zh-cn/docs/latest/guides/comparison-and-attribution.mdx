@@ -51,52 +51,37 @@ difference = aligned.select({
 difference.show()
 ```
 
-## 显式请求新来源事实
+## 显式声明新来源调查
 
-`session.attribute` 接收显式当前端与基准端。继续教程的物理 DuckDB 表与已解析输入，
-默认调查不需要贡献证明：
+使用受治理 Metric、维度和期间声明新的来源观察，再显式比较。没有贡献规则时，也可以继续普通细分调查：
 
 {/* example: attribute-default-investigation */}
 
 ```python
-pending = session.attribute(
-    mv.attribute_endpoint({"revenue": revenue}, during=august),
-    mv.attribute_endpoint({"revenue": revenue}, during=july),
-    by=(region,),
-)
-pending.show(n=0)
-investigation = pending.compute()
-assert investigation.to_pandas()[("value", "absolute.revenue")].tolist() == [-100, -100]
+fresh_current = session.observe({"revenue": revenue}, by=(august, region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+investigation = fresh_current.compare(
+    {"reference": fresh_baseline},
+    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
 ```
 
-left 为当前端，right 为基准端。值分 left/right/absolute 三组，左右 presence 独立；
-Attribute 不像 compare 那样增加 relative 列。细组按完整键 outer 并集规范排序，缺侧或
-NA 值保持 NA。省略 parents 表示一个总体，显式空父选择保持为空。普通父轴必须完整
-双向 `parent_on` 绑定；`parent_how` exact/outer 管父对应，不自动补零。
+## 用新维度解释已选目标
 
-当前支持普通轴、日历和配对日历父域的显式绑定。interval 和 paired-interval Frame
-父轴在读取前拒绝；先 reduce 移除 interval 轴再选父域，或使用显式 CalendarAxis 父域
-及端点范围。端点 `during=TimeScope`
-仍受支持。
-
-`AttributeEndpoint` 复制具名 Metric 映射；可选 `where` 为原生 Deferred 谓词，
-`memberships` 提供显式 Grouping 分配规则，`during` 保留端点独立时间范围。
-
-## 显式请求精确贡献
-
-教程采用已合格的物理 DuckDB 表路线。同一对端点可显式请求贡献；仅能访问 datasource
-不授予文件或远端路线资格。不支持的规则或缺少组件证明直接失败，不静默回退；原观察合法时，
-默认调查仍是另一个显式请求。
+已准入的 native DuckDB 物理表来源可以沿当前实例保留的声明发起 attribute。
+先选择要解释的直接 Metric 或某个比较输出；接收者完整行键固定父域，每个目标保留自己的基准。
 
 {/* example: attribute-contribution-facts */}
 
 ```python
-explained = session.attribute(
-    mv.attribute_endpoint({"revenue": revenue}, during=august),
-    mv.attribute_endpoint({"revenue": revenue}, during=july),
-    by=(region,),
-    contribution=True,
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": overall_baseline}, match={"reference": mv.ordinal()},
 ).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
 assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
 facts = explained.method_facts
 facts[0].show(n=0)
@@ -107,34 +92,33 @@ decline_rows = reopened_declines.to_pandas()
 original_explanation = reopened_declines.method_facts
 ```
 
-总体变化为 -200，两地区贡献各 -100，份额各 0.5。份额使用原父总体变化；筛选不改变分母，
-也不认证新分解。父变化为零时贡献仍有定义，仅份额未定义。直接比率还暴露分子/分母的
-左右端点列组。数值保留实际完成类型、单位与 NA，不承诺统一 Decimal 精度或来源读取次数。
+本次独立重读父变化为 -200，两个地区贡献各 -100、份额各 .5，原 interval 父轴保留。
+`total.revenue` 是新读父目标，`observed_total.revenue` 是接收者原固定值。
+`detail.current.revenue`、`detail.baseline.revenue`、`detail.absolute.revenue` 保留细域原公式、
+NA 和独立 presence。ratio/native mean 另保存真实组件与有效样本数；父/细严格公式检查不能被
+报告后的投影或 Top-0 取消。份额可以为负；已定义的零 total 保留贡献，份额为 NA。
 
-`method_facts` 显式读取完整原解释。存储 getter 校验自己拥有的方法文件，不读主表、Catalog
-或来源；随后事实 show 只操作内存。pending 访问需先 compute/persist。Frame 卡片只给数量、
-有界 origin 和读取指针。`to_pandas()` 只读当前数据，stored compute 与派生求值消费当前数据
-和方法事实。保存派生结果拥有自己的载荷，原 Artifact 删除后仍可读取。事实不恢复 Metric 或
-来源权限。精确字段与读取效果见 `marivo.help("analysis.analysis_frame.method_facts")` 和
-`marivo.help("analysis.frame_method_facts")`。
+报告后筛选保持原 total 和方法事实。存储方法事实可完整无来源读取，但不能恢复执行声明。
+同进程 compute/persist 返回对象保留实例声明；独立 reopen 后再次 attribute 需显式重建来源。
+只有直接投影/重命名、已准入比较输出及受限 align 端点原始差可继续解释。
+ratio 和固定线性应先在 Metric 层组合再 observe；普通 Column 算术不提升为来源 Metric。
 
-`revenue * revenue` 这样的非线性公式在请求 `contribution=True` 时以
-`unsupported_expression` 拒绝，不表示原观察非法。显式请求默认调查，不改写公式，
-也不依赖自动回退：
+非线性或 quantile 目标可能是合法的普通来源调查，但没有贡献规则。显式 observe 与 compare 可继续：
 
 {/* example: attribute-explicit-default-after-refusal */}
 
 ```python
 nonlinear = revenue * revenue
-nonlinear_investigation = session.attribute(
-    mv.attribute_endpoint({"squared": nonlinear}, during=august),
-    mv.attribute_endpoint({"squared": nonlinear}, during=july),
-    by=(region,),
-    contribution=False,
+fine_current = session.observe({"squared": nonlinear}, by=(august, region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+nonlinear_investigation = fine_current.compare(
+    {"reference": fine_baseline},
+    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
+    match={"reference": mv.ordinal()},
 ).compute()
 ```
 
-这是分组非线性观察，不声称把这些组相加就能重建原整体公式或得到精确贡献。
+这些是细分后的非线性观察与差值，不声明精确贡献，也不证明求和可恢复原总体公式。
 
 ## 先固定父选择，再发起新请求
 

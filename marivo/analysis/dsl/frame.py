@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from json import dumps
-from typing import Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 from uuid import uuid4
 
 import pandas as pd
@@ -53,7 +53,6 @@ from marivo.analysis.core.frame_derivation import (
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     AttributeContributionValues,
-    AttributeFrameValues,
     AttributeInputsValues,
     AttributeProjectValues,
     CompareFrameValues,
@@ -78,6 +77,12 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
 FrameSchema: TypeAlias = DataSchema | PendingDataSchema
+
+if TYPE_CHECKING:
+    from ibis.common.deferred import Deferred
+
+    from marivo._grouping import Grouping
+    from marivo.analysis.dsl.population import Population
 
 
 @dataclass(frozen=True, init=False, repr=False, eq=False)
@@ -512,6 +517,32 @@ class AnalysisFrame:
             statistics.append((name, self._bind_statistic(value)._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
+    def attribute(self, *, by: tuple[Deferred | Grouping, ...] | Population) -> AnalysisFrame:
+        """Explain selected source targets with contributions on new business axes.
+
+        Args:
+            by: Nonempty tuple of new semantic classifications, or one complete
+                Population retaining its correlated keys and allocation rules.
+
+        Returns:
+            A lazy AnalysisFrame with original parent axes, new fine axes,
+            contributions, fresh totals, observed totals, shares and fine diagnostics.
+
+        Example:
+            ``report = selected.attribute(by=(channel,)).compute()``.
+
+        Constraints: Requires retained process-local source declarations for every
+        direct Metric or admitted comparison target. Select and rename direct outputs;
+        define ratio/linear Metrics before observation. Completion freezes parent keys
+        and old values; evaluation reads fresh parent/fine inputs without reranking.
+        Original formulas, coverage and numeric checks remain required. Contribution
+        admission is limited to qualified native DuckDB physical tables. Independent
+        reopen has no declaration; rebuild explicit source inputs using saved joint keys.
+        """
+        from marivo.analysis.binding.frame_attribute import attribute
+
+        return attribute(self, by=by)
+
     def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column:
         """Reduce each current partition and broadcast its statistic to the same rows.
 
@@ -866,7 +897,15 @@ class AnalysisFrame:
         from marivo.analysis.materialization.frame_evaluation import evaluate_frame
 
         keys: dict[str, CompletedFrameData] = {}
-        result = evaluate_frame(self, declaration_keys=keys)
+        needs_key_checkpoint = self._derivation is not None and any(
+            output.target.current.binding.frame_key_inputs
+            or (
+                output.target.baseline is not None
+                and output.target.baseline.binding.frame_key_inputs
+            )
+            for output in self._derivation.outputs
+        )
+        result = evaluate_frame(self, declaration_keys=keys if needs_key_checkpoint else None)
         return self._from_memory(
             self._local, result, complete_declaration(self._derivation, keys, result.metadata)
         )
@@ -1016,6 +1055,22 @@ class AnalysisFrame:
             else "use .output_names for all names and .to_pandas() for complete fixed data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        declaration = self._derivation
+        if declaration is None:
+            card.field(
+                "attribute",
+                "no retained source declaration; rebuild an explicit source observation with saved joint keys",
+            )
+        elif tuple(output.path for output in declaration.outputs) != self._schema.value_paths:
+            card.field(
+                "attribute",
+                "some targets have unsupported producers; select direct Metric or comparison outputs",
+            )
+        else:
+            card.field(
+                "attribute",
+                "source declaration retained; attribute(by=...) checks rules and reads fresh source facts",
+            )
         card.field(
             "axes",
             repr(tuple((axis.token, axis.name, axis.role, axis.key_names) for axis in self.axes)),
@@ -1079,7 +1134,7 @@ class AnalysisFrame:
                 else "captured concrete data types",
             )
         else:
-            from marivo.analysis.materialization.pandas_export import preview_text
+            from marivo.analysis.materialization.pandas_export import attribute_preview_text
 
             if isinstance(self._backing, MemoryFrameBacking):
                 total = self._backing.data.row_count
@@ -1116,7 +1171,13 @@ class AnalysisFrame:
                     prefix = self._local.preview(self._backing, count)
                     rows, attachments = prefix.rows, prefix.attachments
                 assert isinstance(self._schema, DataSchema)
-                card.field("preview", _bounded(preview_text(self._schema, rows, attachments), 4000))
+                targets = tuple(target for fact in facts for target in fact.targets)
+                card.field(
+                    "preview",
+                    _bounded(
+                        attribute_preview_text(self._schema, rows, attachments, targets), 4000
+                    ),
+                )
                 if total > count:
                     card.field("omitted", f"{total - count} rows; preview/card budget")
             else:
@@ -1213,11 +1274,14 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         match = f", match={operation.match!r}" if operation.match is not None else ""
         return f"align(on={operation.pairs!r}, how={operation.how!r}{match})"
     if isinstance(operation, AttributeContributionValues):
-        return f"attribute(parent_how={operation.mapping.how!r}, contribution=True)"
+        target = operation.target
+        return (
+            f"attribute(target={target.path!r}, kind={target.mode!r})"
+            if target is not None
+            else "attribute(source_contribution)"
+        )
     if isinstance(operation, AttributeInputsValues):
         return "private Attribute input preparation"
-    if isinstance(operation, AttributeFrameValues):
-        return f"attribute(parent_how={operation.how!r}, contribution=False)"
     assert not isinstance(operation, AttributeProjectValues)
     statistics = tuple(
         (

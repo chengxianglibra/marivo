@@ -75,6 +75,7 @@ def level_facts() -> FrameMethodFacts:
         0,
         (FrameMethodParent((), (metric,)),),
         targets=(FrameMethodTarget(metric.target, metric.kind, metric.outputs),),
+        parent_schema=DataSchema((), ()),
     )
 
 
@@ -232,3 +233,34 @@ def test_level_linear_facts_reject_conflicting_shared_root_support() -> None:
     )
     with pytest.raises(CoreRuleError):
         replace(metric, method=linear)
+
+
+def test_one_endpoint_record_show_bounds_large_counts_and_coefficients(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.analysis.core.frame_method_facts import FrameLevelLinearTerm
+
+    count = 10**5000
+    support = FrameLevelSupport("one-endpoint", "rows", count, count)
+    facts = level_facts()
+    metric = facts.parents[0].metrics[0]
+    assert isinstance(metric, FrameAttributeMetric)
+    assert isinstance(metric.method, FrameLevelAdditiveMethod)
+    term = FrameLevelLinearTerm(count, metric.method)
+    for record in (support, term, metric.method, facts.targets[0], metric.outputs[0]):
+        assert len(repr(record)) < 180 and ".show()" in repr(record)
+        record.show(n=5)
+        lines = capsys.readouterr().out.splitlines()
+        assert len(lines) <= 7 and max(map(len, lines)) <= 240
+
+
+def test_codec_rejects_retired_method_wrapper_and_arbitrary_mapping() -> None:
+    from marivo.analysis.materialization.errors import IntegrityError
+
+    record = encode_method_record(level_facts().parents[0])
+    obsolete = record.replace('"record":"FrameAttributeMetric"', '"record":"FrameMethodMetric"')
+    assert obsolete != record
+    with pytest.raises(IntegrityError):
+        decode_method_record(obsolete, FrameMethodParent)
+    with pytest.raises(IntegrityError):
+        decode_method_record('{"kind":"attribute","metrics":[]}', FrameMethodParent)

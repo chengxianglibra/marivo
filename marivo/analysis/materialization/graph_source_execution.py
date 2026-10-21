@@ -2284,6 +2284,46 @@ def prepare_attribute_sources(
                         for predicate in source_predicates
                     )
                 )
+            # Parent selection is a typed complete-key relation. Temporal keys are
+            # not legal ordinary predicates and must retain their joint fibers here.
+            parent_scope = observation.coordinates.parent_scope
+            if parent_scope is not None:
+                from marivo._definition.graph import computation_fingerprint
+                from marivo._definition.relations import AttributeKeys, PopulationProgram
+                from marivo._definition.types import CalendarCoordinate
+                from marivo.analysis.compiler.populations import frame_key_groups
+
+                assert isinstance(parent_scope, PopulationProgram) and isinstance(
+                    parent_scope.root, AttributeKeys
+                )
+                parameter_relation = prepared.entities[
+                    "population-parameter:" + computation_fingerprint(parent_scope)
+                ]
+                parent_predicates: list[ir.BooleanValue] = []
+                source_columns: tuple[str, ...]
+                for axis, group in zip(
+                    parent_scope.axes, frame_key_groups(parent_scope.root), strict=True
+                ):
+                    if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                        slot = next(slot for slot, calendar in first.calendars if calendar == axis)
+                        source_columns = (dict(parent_slots)[slot],)
+                    else:
+                        ordinary_axes = tuple(
+                            a for a in graph.signature.axes if isinstance(a, AxisBinding)
+                        )[: len(parent_reads)]
+                        read = parent_reads[ordinary_axes.index(axis)]
+                        source_columns = tuple(
+                            scoped_map[path] for path in coordinate_read_keys(read)
+                        )
+                    parent_predicates.extend(
+                        base[column].identical_to(parameter_relation[name])
+                        for column, name in zip(source_columns, group, strict=True)
+                    )
+                base = (
+                    base.semi_join(parameter_relation, parent_predicates)
+                    if parent_predicates
+                    else base.filter(parameter_relation.count() > 0)
+                )
             identity = (
                 normalize_target_entity(state.registry, root).version_row_key
                 or normalize_target_entity(state.registry, root).primary_key
@@ -2366,7 +2406,24 @@ def prepare_attribute_sources(
                 for index, item in enumerate(schemas):
                     if item.source_id == root and item.occurrence == leaf.occurrence:
                         schemas[index] = replace(
-                            item, fields=fields, preparation_checks=scoped.checks
+                            item,
+                            fields=fields,
+                            preparation_checks=scoped.checks,
+                            parameters=tuple(
+                                dict.fromkeys(
+                                    (
+                                        *item.parameters,
+                                        *(
+                                            parameter
+                                            for schema in prepared.schemas
+                                            for parameter in schema.parameters
+                                            if observation.coordinates.parent_scope is not None
+                                            and parameter.definition
+                                            == observation.coordinates.parent_scope
+                                        ),
+                                    )
+                                )
+                            ),
                         )
         raw = (
             raw_fibers[0].union(*raw_fibers[1:], distinct=False)

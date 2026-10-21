@@ -63,7 +63,7 @@ from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
-    from marivo.analysis.binding.attribute import AttributeInputRequest
+    from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
     from marivo.analysis.dsl.frame import AnalysisFrame
 
@@ -152,6 +152,7 @@ def _fold_method_facts(
     own_facts: dict[str, FrameMethodFacts] = {}
     for production in productions:
         payload = production.payload
+        assert payload.parent_schema is not None
         facts = FrameMethodFacts(
             kind="attribute",
             origin_result_id=result_id if production.is_final else "result_" + uuid4().hex,
@@ -160,6 +161,7 @@ def _fold_method_facts(
             parent_axis_count=payload.parent_axis_count,
             parents=payload.parents,
             targets=payload.targets,
+            parent_schema=payload.parent_schema,
         )
         validate_method_facts(facts)
         own_facts[production.input_id] = facts

@@ -6,7 +6,7 @@ description: 显式构造来源、固定数据，并使用完整 Frame 续算。
 显式描述与组合使用 `mv.*`；引入 Catalog、Store、执行归属或冻结默认时区时使用
 `session.*`；已有上下文从接收对象的方法、属性和分页项获取或派生。公开类型用于标注
 与检查，值经其 producer 获取。`mv.session.*` 拥有生命周期发现；端点由
-`mv.attribute_endpoint(...)` 捕获。
+通过 `frame.attribute(by=...)` 延续所保留的来源目标。
 
 ## 为下一项决策读取指导
 
@@ -30,7 +30,7 @@ Session 恢复在内部核对原发布事务和资源，不重新读取来源；
 所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 by/where；TimeScope 与 CalendarAxis 都放入 by；
 read 将非空字段绑定到一个完整 Entity 身份域；values 声明字面量坐标与值；frame 绑定一般
 Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不保存结果。
-attribute 绑定显式当前/基准 AttributeEndpoint、父对应与新增分类；贡献是显式可选请求。
+attribute 沿接收者保留的直接来源/比较目标与已选完整父坐标，引入新的受治理分类。
 未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
 
 tuple by 按观察到的联合坐标分组；by=Population 只选择指定完整键并保留无事实坐标。
@@ -125,10 +125,11 @@ new_source.show()
 interval 轴、日历轴、配对轴与任意值列不能桥接。by=Population 选择完整输出键；in_population 选择事实贡献。
 原整体均值/去重、新属性、窗口或粒度需要显式来源构造，当前行 reduce 不等于原量 rollup。
 
-两端调查使用 `session.attribute` 并明确提供 Metric/范围。默认只返回 left/right/absolute，
-不收集贡献证明或生成新方法事实。`contribution=True` 只在合格来源/规则路线上增加贡献与份额，
-失败不自动降级。当前贡献资格限定合格的物理 DuckDB 表，不包含文件或远端 provider。
-可运行用法见[比较与调查指南](/zh-cn/docs/latest/guides/comparison-and-attribution/)。
+贡献分析先直接选择来源 Metric 或比较目标，再调用 `frame.attribute(by=...)`。
+当前完整行键固定父域，每个目标保留自己的基准。同进程 compute/persist 保留声明，
+独立 reopen 需用保存的联合键显式重建来源。贡献资格仍限 native DuckDB 物理表。
+不支持的目标可通过显式 observe 与 compare/align 继续普通调查。
+参见[比较与调查指南](/zh-cn/docs/latest/guides/comparison-and-attribution/)。
 
 ## 保持来源贡献与时间含义
 

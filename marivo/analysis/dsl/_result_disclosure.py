@@ -116,6 +116,44 @@ def provider() -> DisclosureProvider:
         )
     )
     exports.append(ExportInput("Column", Column, "Column"))
+    descriptors.append(
+        operation(
+            "analysis_frame.attribute",
+            "frame.attribute",
+            AnalysisFrame.attribute,
+            bindings=(bind(AnalysisFrame.attribute, AnalysisFrame),),
+            summary="Explain retained source targets on new business classifications, preserving selected parent keys.",
+            parameters=(
+                P(
+                    "by",
+                    "Nonempty semantic classification tuple or one complete Population preserving joint keys and allocation.",
+                ),
+            ),
+            output="AnalysisFrame",
+            constraints=(
+                "Every receiver output must be a direct source Metric or admitted compare/align target. Direct projection and rename retain declarations; arbitrary Column arithmetic does not. Each target keeps its own endpoint and baseline.",
+                "compute and same-process persist retain the source declaration; independent reopen does not. Complete parent keys and observed values stay fixed; fresh source inputs independently evaluate parent/fine formulas and contributions.",
+                "Qualified native DuckDB physical tables only. Preserve original numeric checks, coverage, disjointness and complete frozen time correspondence. One unsupported target rejects the whole request; select admitted targets first.",
+                "Per target: contribution, total, observed_total, contribution_share plus original fine diagnostics/components and independent presence. Defined zero totals retain contributions and give NA shares. Report filtering preserves its original facts and denominators.",
+            ),
+            effects="Capture only. compute reads fresh source facts after evaluating and fixing the parent selection; persist publishes the completed report without serializing declarations.",
+            failures=(
+                "AnalysisError: follow the target-specific expected/received/repair; rebuild explicit source observations when declarations are unavailable, or use population_from/in_population and observe for an ordinary investigation.",
+            ),
+            example=ExampleInput(
+                "result = source_frame.attribute(by=(region,))",
+                ("source_frame", "region"),
+                "result",
+                "AnalysisFrame",
+            ),
+            discovery_group="methods.attribute",
+            related=(
+                "analysis_frame.compute",
+                "analysis_frame.method_facts",
+                "session.population_from",
+            ),
+        )
+    )
     for owner, name, parameters, output, summary, code, requires, group in (
         (
             AnalysisFrame,

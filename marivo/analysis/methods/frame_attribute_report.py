@@ -20,7 +20,6 @@ from marivo.analysis.core.frame_method_facts import (
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
     FrameLinearMethod,
-    FrameMethodMetric,
     FrameMethodOutput,
     FrameMethodParent,
     FrameMethodTarget,
@@ -53,7 +52,9 @@ def _series(value: FrameMethodValue) -> _Value:
     return _Value(pd.Series(pd.arrays.ArrowExtensionArray(array)), value.column)
 
 
-def _closure(values: _Value, total: FrameMethodValue) -> None:
+def _closure(
+    values: _Value, total: FrameMethodValue, method: _Method | _LevelMethod, *, relative: bool
+) -> None:
     """Compare independently evaluated totals within the captured carrier's rounding."""
     array = pa.array(values.values, type=stage_arrow_type(values.column.dtype))
     if isinstance(values.column.dtype, DurationDataType):
@@ -64,7 +65,7 @@ def _closure(values: _Value, total: FrameMethodValue) -> None:
             "known complete fine contributions",
             total.column.name,
             "Inspect unknown source components before attribution.",
-            "analysis_frame.attribute",
+            "frame.attribute",
         )
     expected = total.value
     assert isinstance(expected, (int, float, Decimal))
@@ -78,8 +79,35 @@ def _closure(values: _Value, total: FrameMethodValue) -> None:
             valid = abs(actual - expected) <= bound
     elif isinstance(expected, float):
         floating = fsum(cells)
+
+        def precision_error(rule: _Method | _LevelMethod) -> float:
+            captured = (
+                (rule.left, rule.right)
+                if isinstance(rule, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod))
+                else (rule.value,)
+            )
+            error = fsum(
+                ulp(abs(value.value)) / 2 for value in captured if type(value.value) is float
+            )
+            if isinstance(rule, (FrameLinearMethod, FrameLevelLinearMethod)):
+                error += fsum(
+                    abs(float(term.coefficient)) * precision_error(term.method)
+                    for term in rule.terms
+                )
+            return error
+
+        # Native Float64 endpoint rounding survives cancellation. Its error is
+        # expressed in report units, including relative baseline normalization.
+        source_error = precision_error(method)
+        if relative:
+            assert isinstance(method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod))
+            assert isinstance(method.right.value, (int, float, Decimal))
+            baseline = abs(float(method.right.value))
+            source_error /= baseline
+            if type(method.right.value) is float:
+                source_error += abs(expected) * ulp(abs(method.right.value)) / (2 * baseline)
         magnitude = max(abs(expected), fsum(abs(value) for value in cells))
-        tolerance = 16 * (len(cells) + 1) * ulp(magnitude)
+        tolerance = 16 * (len(cells) + 1) * (source_error + ulp(magnitude))
         valid = isfinite(floating) and abs(floating - expected) <= tolerance
     else:
         valid = sum(cells) == expected
@@ -88,7 +116,7 @@ def _closure(values: _Value, total: FrameMethodValue) -> None:
             "fine contributions closing to the independently evaluated parent total",
             total.column.name,
             "Inspect complete source coverage and the original parent/fine formula; residual repair is unsupported.",
-            "analysis_frame.attribute",
+            "frame.attribute",
         )
 
 
@@ -99,7 +127,7 @@ def report_attribute(
     parent: StageOutput,
     report_schema: DataSchema,
     *,
-    legacy_methods: tuple[_Method, ...] = (),
+    paired_parent_methods: tuple[_Method, ...] = (),
     level_methods: tuple[
         FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod, ...
     ] = (),
@@ -108,6 +136,15 @@ def report_attribute(
     target = program.operation.target
     assert target is not None
     level = target.mode == "level"
+    if target.mode == "relative" and any(
+        method.right.value == 0 for method in paired_parent_methods
+    ):
+        reject(
+            "a nonzero complete-parent baseline for a defined relative target",
+            ".".join(target.path),
+            "Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
+            "frame.attribute",
+        )
     old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
     output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
     parent_schema = program.input_program.parent_schema
@@ -176,24 +213,16 @@ def report_attribute(
     for path in report_schema.presence_paths:
         mappings.append(presence_mapping[path[1]])
     descriptor = FrameMethodTarget(target.path, target.mode, tuple(mappings))
-    metrics_by_key = {
-        tuple(value.value for value in item.key): item.metrics[0] for item in payload.parents
-    }
     methods: list[_Method | _LevelMethod] = []
     paired_methods: list[FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod] = []
     totals: list[FrameMethodValue] = []
-    for index, key in enumerate(parent_keys):
+    for index, _key in enumerate(parent_keys):
         method: _Method | _LevelMethod
         if level:
             method = level_methods[index]
             fresh = _series(method.value)
         else:
-            if legacy_methods:
-                paired = legacy_methods[index]
-            else:
-                legacy = metrics_by_key[tuple(value for _, value in key)]
-                assert isinstance(legacy, FrameMethodMetric)
-                paired = legacy.method
+            paired = paired_parent_methods[index]
             method = paired
             paired_methods.append(paired)
             fresh = _series(paired.change)
@@ -205,7 +234,7 @@ def report_attribute(
                 )
         methods.append(method)
         totals.append(_scalar(_Value(fresh.values, output[("total", *target.path)]), 0))
-    contribution_column = old[("left" if level else "contribution", "target")]
+    contribution_column = old[("contribution", "target")]
     contributions = _Value(rows[contribution_column.slot_id], contribution_column)
     if target.mode == "relative":
         baselines = [paired_methods[index].right.value for index in fine_indices]
@@ -251,11 +280,13 @@ def report_attribute(
     for column, source in zip(report_schema.presence, program.output_schema.presence, strict=False):
         result[column.slot_id] = rows[source.slot_id]
     parents = []
-    for index, key in enumerate(parent_keys):
+    for index, _key in enumerate(parent_keys):
         indices = [row for row, parent_index in enumerate(fine_indices) if parent_index == index]
         _closure(
             _Value(contributions.values.take(indices), output[("contribution", *target.path)]),
             totals[index],
+            methods[index],
+            relative=target.mode == "relative",
         )
         observed_value = _scalar(observed, index)
         metric = FrameAttributeMetric(
@@ -271,7 +302,7 @@ def report_attribute(
             FrameMethodParent(
                 tuple(
                     FrameMethodValue(column, cell)
-                    for column, (_, cell) in zip(parent_columns, key, strict=True)
+                    for column, (_, cell) in zip(parent_columns, _key, strict=True)
                 ),
                 (metric,),
             )
@@ -282,6 +313,7 @@ def report_attribute(
         tuple(sorted(parents, key=_key_order)),
         payload.coordinates,
         (descriptor,),
+        parent_schema=parent_schema,
     )
     return result.loc[:, [column.slot_id for column in report_schema.columns]].reset_index(
         drop=True

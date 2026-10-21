@@ -90,7 +90,13 @@ def test_public_contract_actions_and_result_card(
     try:
         reopened = case.session.persisted_frame(saved.artifact.id)
         reopened.show(n=2)
-        assert capsys.readouterr().out == card
+        reopened_card = capsys.readouterr().out
+        assert "source declaration retained" in card
+        assert "no retained source declaration" in reopened_card
+        assert reopened_card == card.replace(
+            "source declaration retained; attribute(by=...) checks rules and reads fresh source facts",
+            "no retained source declaration; rebuild an explicit source observation with saved joint keys",
+        )
         assert reopened.to_pandas().equals(saved.to_pandas())
     finally:
         offline.rename(case.database_path)

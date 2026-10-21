@@ -178,7 +178,7 @@ def _mapped_source(
         root = next(
             root
             for root in prepared.attribute_inputs
-            if root.layout.side == item.side
+            if root.layout.side == source.use.endpoint
             and any(leaf.use == source.use for leaf in root.layout.leaves)
         )
         frames.append(
@@ -317,15 +317,13 @@ def attribute_contribution_data(
         FrameLinearMethod,
         FrameLinearTerm,
         FrameMethodCoordinate,
-        FrameMethodMetric,
-        FrameMethodParent,
         FrameMethodSupport,
         FrameMethodValue,
         FrameRatioMethod,
-        _key_order,
     )
 
     report_operation = program.operation
+    assert report_operation.target is not None
     report_output = program.output_schema
     level = report_operation.target is not None and report_operation.target.mode == "level"
     if report_operation.target is not None:
@@ -389,9 +387,15 @@ def attribute_contribution_data(
         uses = tuple(
             leaf.use
             for root in prepared.attribute_inputs
-            if side == "both" or root.layout.side == side
             for leaf in root.layout.leaves
-            if leaf.use.logical_occurrence in occurrences
+            if (
+                side == "both"
+                or any(
+                    item.side == side and any(source.use == leaf.use for source in item.sources)
+                    for item in program.input_program.matrix
+                )
+            )
+            and leaf.use.logical_occurrence in occurrences
         )
         if scope == "parent":
             fiber: AttributeParentFiber | AttributeFineFiber = AttributeParentFiber(
@@ -433,6 +437,8 @@ def attribute_contribution_data(
     def native_value(
         rule: AttributeRule, side: str, scope: str, path: tuple[int, ...]
     ) -> _Value | None:
+        if program.operation.source_indices is not None:
+            path = (program.operation.source_indices[0 if side == "left" else 1], *path[1:])
         native = values.get((side, scope, path, "native_value"))
         if native is None:
             return None
@@ -737,7 +743,7 @@ def attribute_contribution_data(
 
     rows = prepared.table.loc[:, list(program.output_schema.key_fields)].copy()
     wanted = frozen_key_rows(rows, full_columns)
-    parent_metrics: list[list[FrameMethodMetric]] = [[] for _ in parent_rows]
+    paired_parent_methods: list[FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod] = []
     for metric_index, ((name, left_rule), (_, right_rule)) in enumerate(
         zip(*program.operation.rules, strict=True)
     ):
@@ -764,9 +770,14 @@ def attribute_contribution_data(
                 frame = originals[(side, scope)]
                 by_key = dict(zip(frozen_key_rows(frame, keys), range(len(frame)), strict=True))
                 target_keys = wanted if scope == "fine" else parent_rows
+                source_index = (
+                    program.operation.source_indices[0 if side == "left" else 1]
+                    if program.operation.source_indices is not None
+                    else metric_index
+                )
                 series = pd.Series(
                     [
-                        frame[f"value.{metric_index}"].iloc[by_key[key]] if key in by_key else None
+                        frame[f"value.{source_index}"].iloc[by_key[key]] if key in by_key else None
                         for key in target_keys
                     ],
                     dtype=object,
@@ -872,6 +883,10 @@ def attribute_contribution_data(
                         values[(side, "fine", _logical(operation.source), role)] for role in roles
                     )
                 emitted["numerator_" + side], emitted["denominator_" + side] = n, d
+                if isinstance(operation, NativeWeightedMean):
+                    emitted["valid_count_" + side] = values[
+                        (side, "fine", _logical(operation.source), "pair_count")
+                    ]
         for prefix, value in emitted.items():
             rows[
                 program.output_schema.values[
@@ -905,29 +920,11 @@ def attribute_contribution_data(
                         directory[("denominator_right", name)], root_method.denominator_right.value
                     ),
                 )
-            parent_metrics[index].append(
-                FrameMethodMetric(
-                    name,
-                    root_method,
-                    "zero_total_change" if total_change.values.iloc[index] == 0 else "defined",
-                )
-            )
+            paired_parent_methods.append(root_method)
     for column in program.output_schema.presence:
         rows[column.slot_id] = prepared.table[column.slot_id]
     for key_slot in reversed(program.output_schema.key_fields):
         rows = rows.sort_values(key_slot, na_position="first", kind="stable")
-    parents = tuple(
-        FrameMethodParent(
-            tuple(
-                FrameMethodValue(column, cell)
-                for column, (_, cell) in zip(parent_columns, key, strict=True)
-            ),
-            tuple(metrics),
-        )
-        for key, metrics in zip(parent_rows, parent_metrics, strict=True)
-        if not level
-    )
-    parents = tuple(sorted(parents, key=_key_order))
     coordinates = tuple(
         FrameMethodCoordinate(
             a.name,
@@ -937,19 +934,20 @@ def attribute_contribution_data(
         for a in sorted(parent.frame_attachments, key=lambda a: a.name)
     )
     payload = AttributeMethodPayload(
-        program.output_schema, len(program.input_program.parent_schema.axes), parents, coordinates
+        program.output_schema,
+        len(program.input_program.parent_schema.axes),
+        (),
+        coordinates,
+        parent_schema=program.input_program.parent_schema,
     )
-    if report_operation.target is not None:
-        from marivo.analysis.methods.frame_attribute_report import report_attribute
+    from marivo.analysis.methods.frame_attribute_report import report_attribute
 
-        return report_attribute(
-            replace(program, operation=report_operation),
-            rows,
-            payload,
-            parent,
-            report_output,
-            level_methods=tuple(level_methods),
-        )
-    return rows.loc[:, [c.slot_id for c in program.output_schema.columns]].reset_index(
-        drop=True
-    ), payload
+    return report_attribute(
+        replace(program, operation=report_operation),
+        rows,
+        payload,
+        parent,
+        report_output,
+        level_methods=tuple(level_methods),
+        paired_parent_methods=tuple(paired_parent_methods),
+    )

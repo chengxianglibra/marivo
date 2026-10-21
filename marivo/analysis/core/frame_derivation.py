@@ -46,6 +46,7 @@ class DerivedOutput:
 @dataclass(frozen=True, slots=True)
 class FrameDerivation:
     outputs: tuple[DerivedOutput, ...]
+    rejections: tuple[tuple[tuple[str, ...], str], ...] = ()
 
 
 def _remap(metric: SourceMetric, positions: tuple[tuple[int, int], ...]) -> SourceMetric:
@@ -85,6 +86,8 @@ def derive_declaration(
             return sources.get(paths[slot.index])
 
         selected: list[DerivedOutput] = []
+        rejections: list[tuple[tuple[str, ...], str]] = []
+        prior_rejections = dict(first.rejections)
         for path, (_, expression) in zip(schema.value_paths, operation.values, strict=True):
             target = direct(expression) if isinstance(expression, ValueSlot) else None
             if (
@@ -106,7 +109,16 @@ def derive_declaration(
                     target = replace(left, mode="absolute", align_side=None)
             if target is not None:
                 selected.append(DerivedOutput(path, target))
-        return FrameDerivation(tuple(selected))
+            else:
+                label = (
+                    prior_rejections.get(
+                        paths[expression.index], "ValueSlot without a direct source Metric"
+                    )
+                    if isinstance(expression, ValueSlot)
+                    else type(expression).__name__
+                )
+                rejections.append((path, label))
+        return FrameDerivation(tuple(selected), tuple(rejections))
     if isinstance(operation, CompareFrameValues):
         outputs = (
             []
@@ -258,5 +270,6 @@ def complete_declaration(
                 ),
             )
             for output in declaration.outputs
-        )
+        ),
+        declaration.rejections,
     )

@@ -96,9 +96,7 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
     from marivo.analysis.core.attribute import (
         AttributeContributionProgram,
         AttributeInputProgram,
-        AttributeProgram,
         AttributeProjectProgram,
-        attribute_schema,
     )
 
     def attribute_program(
@@ -121,6 +119,11 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
                     and len(item.occurrence) == 1
                 ):
                     index = item.occurrence[0]
+                    if program.operation.source_indices is not None:
+                        selected = program.operation.source_indices[0 if side == "left" else 1]
+                        if index != selected:
+                            continue
+                        index = 0
                     values[index] = replace(values[index], dtype=item.target.dtype)
             sides.append(replace(schema, values=tuple(values)))
         return replace(
@@ -149,33 +152,19 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
         )
     if isinstance(program, AttributeInputProgram):
         actual = {
-            column.slot_id: column
-            for source in inputs[1:3]
+            (side, column.slot_id): column
+            for side, source in zip(("left", "right"), inputs[1:3], strict=True)
             for root in source.attribute_inputs
             for column in root.layout.columns
         }
         columns = {
-            item.target.slot_id: actual[item.sources[0].source]
+            item.target.slot_id: actual[(item.side, item.sources[0].source)]
             for item in program.matrix
-            if item.sources[0].source in actual
+            if (item.side, item.sources[0].source) in actual
         }
         return replace(stage, program=attribute_program(program, columns))
     if isinstance(program, AttributeProjectProgram):
         return stage
-    if isinstance(program, AttributeProgram):
-        left = effective_frame_schema(program.left_schema, inputs[3].columns)
-        right = effective_frame_schema(program.right_schema, inputs[4].columns)
-        return replace(
-            stage,
-            program=replace(
-                program,
-                left_schema=left,
-                right_schema=right,
-                output_schema=attribute_schema(
-                    left, right, program.parent_schema, program.operation
-                ),
-            ),
-        )
     if isinstance(program, FrameCompareProgram):
         schemas = tuple(
             item.frame_schema or effective_frame_schema(schema, item.columns)

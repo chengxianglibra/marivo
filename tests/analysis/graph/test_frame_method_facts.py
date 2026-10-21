@@ -24,13 +24,15 @@ from marivo.analysis.core.data_types import (
 )
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
-    FrameMethodMetric,
+    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
+    FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
 )
@@ -87,52 +89,120 @@ def schema(
 ) -> DataSchema:
     name = method.left.column.name.split(".", 1)[1]
     values = [
-        method.left.column,
-        method.right.column,
-        method.change.column,
         column(f"contribution.{name}", method.change.column.dtype, unit=method.change.column.unit),
+        column(f"total.{name}", method.change.column.dtype, unit=method.change.column.unit),
+        column(
+            f"observed_total.{name}", method.change.column.dtype, unit=method.change.column.unit
+        ),
         column(
             f"contribution_share.{name}",
             ScalarDataType("float64"),
             unit="1" if method.change.column.unit else None,
         ),
+        replace(method.left.column, name=f"detail.current.{name}"),
+        replace(method.right.column, name=f"detail.baseline.{name}"),
+        replace(method.change.column, name=f"detail.absolute.{name}"),
     ]
     if isinstance(method, FrameRatioMethod):
         values.extend(
             (
-                method.numerator_left.column,
-                method.numerator_right.column,
-                method.denominator_left.column,
-                method.denominator_right.column,
+                replace(method.numerator_left.column, name=f"component.current.numerator.{name}"),
+                replace(method.numerator_right.column, name=f"component.baseline.numerator.{name}"),
+                replace(
+                    method.denominator_left.column, name=f"component.current.denominator.{name}"
+                ),
+                replace(
+                    method.denominator_right.column, name=f"component.baseline.denominator.{name}"
+                ),
             )
         )
     presence = tuple(
-        column(side, ScalarDataType("boolean"), nullable=False, unit=None)
-        for side in ("left_present", "right_present")
+        column(
+            f"detail.{side}.present.{name}", ScalarDataType("boolean"), nullable=False, unit=None
+        )
+        for side in ("current", "baseline")
     )
     return DataSchema(
         axes,
         tuple(values),
         presence,
         value_paths=tuple(tuple(c.name.split(".")) for c in values),
-        presence_paths=(("left_present",), ("right_present",)),
+        presence_paths=tuple(tuple(c.name.split(".")) for c in presence),
     )
 
 
 def metric(
     method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | None = None,
-) -> FrameMethodMetric:
+) -> FrameAttributeMetric:
     rule = method or additive()
-    return FrameMethodMetric(
-        rule.left.column.name.split(".", 1)[1],
+    output = schema(rule)
+    name = rule.left.column.name.split(".", 1)[1]
+    mapping = [
+        FrameMethodOutput("contribution", ("contribution", name)),
+        FrameMethodOutput("total", ("total", name)),
+        FrameMethodOutput("observed_total", ("observed_total", name)),
+        FrameMethodOutput("share", ("contribution_share", name)),
+        FrameMethodOutput("current", ("detail", "current", name)),
+        FrameMethodOutput("baseline", ("detail", "baseline", name)),
+        FrameMethodOutput("absolute", ("detail", "absolute", name)),
+    ]
+    if isinstance(rule, FrameRatioMethod):
+        mapping.extend(
+            (
+                FrameMethodOutput("numerator_current", ("component", "current", "numerator", name)),
+                FrameMethodOutput(
+                    "numerator_baseline", ("component", "baseline", "numerator", name)
+                ),
+                FrameMethodOutput(
+                    "denominator_current", ("component", "current", "denominator", name)
+                ),
+                FrameMethodOutput(
+                    "denominator_baseline", ("component", "baseline", "denominator", name)
+                ),
+            )
+        )
+    mapping.extend(
+        (
+            FrameMethodOutput("current_present", ("detail", "current", "present", name)),
+            FrameMethodOutput("baseline_present", ("detail", "baseline", "present", name)),
+        )
+    )
+    return FrameAttributeMetric(
+        (name,),
+        "absolute",
         rule,
-        "zero_total_change" if rule.change.value == 0 else "defined",
+        FrameMethodValue(output.values[2], rule.change.value),
+        FrameMethodValue(output.values[1], rule.change.value),
+        tuple(mapping),
+        "zero_total" if rule.change.value == 0 else "defined",
+    )
+
+
+def make_facts(
+    kind: str,
+    origin: str,
+    output: DataSchema,
+    coordinates: tuple[FrameMethodCoordinate, ...],
+    parent_axis_count: int,
+    parents: tuple[FrameMethodParent, ...],
+) -> FrameMethodFacts:
+    metrics = parents[0].metrics
+    targets = tuple(FrameMethodTarget(item.target, item.kind, item.outputs) for item in metrics)
+    return FrameMethodFacts(
+        kind,
+        origin,
+        output,
+        coordinates,
+        parent_axis_count,
+        parents,
+        DataSchema(output.axes[:parent_axis_count], ()),
+        targets,
     )
 
 
 def facts() -> FrameMethodFacts:
     rule = additive()
-    return FrameMethodFacts(
+    return make_facts(
         "attribute", "result-1", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
 
@@ -205,6 +275,7 @@ def test_records_are_frozen_slotted_and_have_exact_fields() -> None:
         "coordinates",
         "parent_axis_count",
         "parents",
+        "parent_schema",
         "targets",
     )
     assert not hasattr(value, "__dict__")
@@ -277,7 +348,7 @@ def test_nested_linear_terms_preserve_order_and_explanatory_values() -> None:
     assert outer.terms[0].method.terms == terms
     assert outer.terms[0].method.terms[1].coefficient.as_tuple().exponent == -3
     assert (
-        FrameMethodFacts(
+        make_facts(
             "attribute", "r", schema(outer), (), 0, (FrameMethodParent((), (metric(outer),)),)
         )
         .parents[0]
@@ -293,9 +364,9 @@ def test_nested_linear_terms_preserve_order_and_explanatory_values() -> None:
 
 
 def test_share_state_uses_exact_change_and_support_roots_are_consistent() -> None:
-    with pytest.raises(CoreRuleError, match="share_state"):
-        replace(metric(), share_state="zero_total_change")
-    assert metric(additive(change=0)).share_state == "zero_total_change"
+    with pytest.raises(CoreRuleError, match="share state"):
+        replace(metric(), share_state="zero_total")
+    assert metric(additive(change=0)).share_state == "zero_total"
     rule = additive()
     changed = replace(rule, support=(replace(support(), left_effective_count=1),))
     linear = FrameLinearMethod(
@@ -305,7 +376,7 @@ def test_share_state_uses_exact_change_and_support_roots_are_consistent() -> Non
         rule.change,
         (FrameLinearTerm(1, rule), FrameLinearTerm(-1, changed)),
     )
-    with pytest.raises(CoreRuleError, match="shared local sample root"):
+    with pytest.raises(CoreRuleError, match="shared root"):
         FrameMethodParent((), (metric(linear),))
 
 
@@ -325,9 +396,9 @@ def test_origin_parent_count_and_exact_output_schema() -> None:
         with pytest.raises(CoreRuleError):
             replace(original, **changes)
     assert replace(original, parents=()).parents == ()
-    with pytest.raises(CoreRuleError, match="unique complete parent"):
+    with pytest.raises(CoreRuleError, match="unique canonically ordered"):
         replace(original, parents=original.parents * 2)
-    with pytest.raises(CoreRuleError, match="exact original output columns"):
+    with pytest.raises(CoreRuleError, match="exact captured rule carriers"):
         replace(
             original,
             parents=(
@@ -339,7 +410,10 @@ def test_origin_parent_count_and_exact_output_schema() -> None:
                                 additive(),
                                 left=replace(
                                     additive().left,
-                                    column=replace(additive().left.column, slot_id="wrong"),
+                                    column=replace(
+                                        additive().left.column, dtype=ScalarDataType("float64")
+                                    ),
+                                    value=10.0,
                                 ),
                             )
                         ),
@@ -363,7 +437,7 @@ def test_complete_composite_parent_keys_canonical_order_and_nulls() -> None:
         )
 
     parents = (parent(1, "a"), parent(1, "b"), parent(None, "a"))
-    result = FrameMethodFacts("attribute", "r", output, (), 1, parents)
+    result = make_facts("attribute", "r", output, (), 1, parents)
     assert result.parents == parents
     for invalid in (
         parents[::-1],
@@ -378,35 +452,38 @@ def test_complete_composite_parent_keys_canonical_order_and_nulls() -> None:
 def test_metric_directory_and_ratio_component_association() -> None:
     original = facts()
     parent = original.parents[0]
-    with pytest.raises(CoreRuleError, match="all original metrics"):
-        replace(original, parents=(replace(parent, metrics=(replace(metric(), name="other"),)),))
+    with pytest.raises(CoreRuleError, match="identical ordered target"):
+        replace(
+            original, parents=(replace(parent, metrics=(replace(metric(), target=("other",)),)),)
+        )
     with pytest.raises(CoreRuleError):
         replace(parent, metrics=(metric(), metric()))
     rule = ratio()
-    ratio_facts = FrameMethodFacts(
+    ratio_facts = make_facts(
         "attribute", "ratio-r", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
     assert ratio_facts.parents[0].metrics[0].method == rule
     changed = replace(
         rule,
         numerator_left=replace(
-            rule.numerator_left, column=replace(rule.numerator_left.column, slot_id="bad")
+            rule.numerator_left, column=replace(rule.numerator_left.column, nullable=False)
         ),
     )
-    with pytest.raises(CoreRuleError, match="exact original ratio component"):
+    with pytest.raises(CoreRuleError, match="exact captured rule carriers"):
         replace(ratio_facts, parents=(FrameMethodParent((), (metric(changed),)),))
     missing = replace(
         original.output_schema,
         values=original.output_schema.values[:-1],
         value_paths=original.output_schema.value_paths[:-1],
     )
-    with pytest.raises(CoreRuleError, match="complete ordered contribution"):
+    with pytest.raises(CoreRuleError, match="value columns"):
         replace(original, output_schema=missing)
     wrong_unit = replace(
         original.output_schema,
         values=(
-            *original.output_schema.values[:-1],
-            replace(original.output_schema.values[-1], unit="USD"),
+            *original.output_schema.values[:3],
+            replace(original.output_schema.values[3], unit="USD"),
+            *original.output_schema.values[4:],
         ),
     )
     with pytest.raises(CoreRuleError, match="dimensionless"):
@@ -452,9 +529,7 @@ def test_coordinate_exact_scalars_width_and_calendar_parent_domain() -> None:
     snap = coordinate(axis)
     rule = additive()
     parent = FrameMethodParent((FrameMethodValue(axis.columns[0], 1),), (metric(rule),))
-    result = FrameMethodFacts(
-        "attribute", "calendar-r", schema(rule, (axis,)), (snap,), 1, (parent,)
-    )
+    result = make_facts("attribute", "calendar-r", schema(rule, (axis,)), (snap,), 1, (parent,))
     assert result.coordinates == (snap,)
     for changes in (
         {"coordinates": ()},
@@ -486,9 +561,7 @@ def test_paired_snapshot_closure_and_canonical_names() -> None:
     )
     rule = additive()
     parent = FrameMethodParent((FrameMethodValue(axis.columns[0], 3),), (metric(rule),))
-    result = FrameMethodFacts(
-        "attribute", "paired-r", schema(rule, (axis,)), coordinates, 1, (parent,)
-    )
+    result = make_facts("attribute", "paired-r", schema(rule, (axis,)), coordinates, 1, (parent,))
     with pytest.raises(CoreRuleError):
         replace(result, coordinates=coordinates[::-1])
     bad_mapping = replace(mapping, rows=((3, 999, 1),))
@@ -567,10 +640,10 @@ def test_large_exact_counts_and_parent_identity_are_bounded(
 
 def test_opaque_metric_unit_keeps_dimensionless_share_policy() -> None:
     rule = additive(unit="USD(net)")
-    result = FrameMethodFacts(
+    result = make_facts(
         "attribute", "opaque-r", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
-    assert result.output_schema.values[-1].unit == "1"
+    assert result.output_schema.values[3].unit == "1"
 
 
 def test_invalid_component_unit_uses_structured_error() -> None:
@@ -591,7 +664,7 @@ def test_saved_numeric_consistency_reuses_original_order_and_exact_carriers() ->
     def wrapped(
         rule: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod,
     ) -> FrameMethodFacts:
-        return FrameMethodFacts(
+        return make_facts(
             "attribute", "numeric", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
         )
 
@@ -653,7 +726,7 @@ def test_saved_ratio_finishes_decimal_half_up_and_duration_half_even(duration: b
         FrameMethodValue(column("denominator_right.rate", unit="1"), denominator),
         (support(),),
     )
-    result = FrameMethodFacts(
+    result = make_facts(
         "attribute", "rounded", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
     validate_method_facts(result)
@@ -669,7 +742,7 @@ def test_same_origin_payload_comparison_preserves_scalar_representation() -> Non
     second = replace(first, terms=(FrameLinearTerm(1.0, rule),))
 
     def wrapped(method: FrameLinearMethod) -> FrameMethodFacts:
-        return FrameMethodFacts(
+        return make_facts(
             "attribute", "r", schema(method), (), 0, (FrameMethodParent((), (metric(method),)),)
         )
 
@@ -696,7 +769,7 @@ def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_sc
         replace(leaf.change, value=Decimal("4.000000000")),
         (FrameLinearTerm(scalar, leaf),),
     )
-    facts = FrameMethodFacts(
+    facts = make_facts(
         "attribute", "native", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
     validate_method_facts(facts)

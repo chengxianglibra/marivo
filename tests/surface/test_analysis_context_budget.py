@@ -246,16 +246,16 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
         "analysis",
         "analysis.methods",
         "analysis.methods.attribute",
-        "analysis.session.attribute",
-        "analysis.attribute_endpoint.define",
+        "analysis.analysis_frame.attribute",
     ):
         trace.help(target)
-    request = session.attribute(
-        mv.attribute_endpoint({"revenue": revenue}, during=august),
-        mv.attribute_endpoint({"revenue": revenue}, during=july),
-        by=(region,),
-        contribution=True,
-    )
+    current = session.observe({"revenue": revenue}, by=(august,))
+    baseline = session.observe({"revenue": revenue}, by=(july,))
+    comparison = current.compare(
+        {"reference": baseline}, match={"reference": mv.ordinal()}
+    ).compute()
+    targets = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
+    request = targets.attribute(by=(region,))
     trace.read("attribute captured request", lambda: request.show(n=0))
     fixed = request.compute()
     trace.read("attribute fixed values", fixed.show)
