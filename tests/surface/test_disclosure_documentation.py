@@ -82,8 +82,8 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert default.method_facts == ()
     assert default.to_pandas()[("value", "absolute.revenue")].tolist() == [-20, -50, 0]
     result = session.attribute(
-        mv.AttributeEndpoint({"revenue": revenue}, during=august),
-        mv.AttributeEndpoint({"revenue": revenue}, during=july),
+        mv.attribute_endpoint({"revenue": revenue}, during=august),
+        mv.attribute_endpoint({"revenue": revenue}, during=july),
         by=(region,),
         contribution=True,
     ).compute()
@@ -95,8 +95,8 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert reopened.method_facts == facts
     assert reopened.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50]
     nonlinear = revenue * revenue
-    left = mv.AttributeEndpoint({"squared": nonlinear}, during=august)
-    right = mv.AttributeEndpoint({"squared": nonlinear}, during=july)
+    left = mv.attribute_endpoint({"squared": nonlinear}, during=august)
+    right = mv.attribute_endpoint({"squared": nonlinear}, during=july)
     with pytest.raises(AnalysisError) as error:
         session.attribute(left, right, by=(region,), contribution=True)
     assert error.value.reason == "unsupported_expression"
@@ -170,8 +170,8 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert isinstance(session, mv.Session)
     with pytest.raises(AnalysisError) as captured:
         session.attribute(
-            mv.AttributeEndpoint({"squared": namespace["nonlinear"]}, during=namespace["august"]),
-            mv.AttributeEndpoint({"squared": namespace["nonlinear"]}, during=namespace["july"]),
+            mv.attribute_endpoint({"squared": namespace["nonlinear"]}, during=namespace["august"]),
+            mv.attribute_endpoint({"squared": namespace["nonlinear"]}, during=namespace["july"]),
             by=(namespace["region"],),
             contribution=True,
         )

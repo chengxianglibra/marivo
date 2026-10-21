@@ -3,6 +3,11 @@ title: 分析工作流
 description: 显式构造来源、固定数据，并使用完整 Frame 续算。
 ---
 
+显式描述与组合使用 `mv.*`；引入 Catalog、Store、执行归属或冻结默认时区时使用
+`session.*`；已有上下文从接收对象的方法、属性和分页项获取或派生。公开类型用于标注
+与检查，值经其 producer 获取。`mv.session.*` 拥有生命周期发现；端点由
+`mv.attribute_endpoint(...)` 捕获。
+
 ## 为下一项决策读取指导
 
 marivo-analysis 技能负责问题范围、语义交接与完成判断。未知能力从

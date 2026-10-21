@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 import marivo.analysis as mv
+from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
@@ -23,6 +24,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameRatioMethod,
 )
 from marivo.analysis.datasets.errors import DatasetRegistrationError
+from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -289,3 +291,105 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
     assert "analysis.attribute_endpoint" in text and "analysis.analysis_frame.method_facts" in text
     for target in ("attribute_endpoint", "frame_method_facts", "frame_ratio_method"):
         assert target not in prepare().discovery_ids()
+
+
+def test_construction_type_families_and_retired_surface() -> None:
+    registry = prepare()
+    assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {
+        "grain",
+        "time_scope",
+        "calendar_correspondence",
+        "attribute_endpoint",
+        "artifact_digest",
+        "artifact_ref",
+        "failed_run",
+        "finding",
+        "finding_page",
+        "incomplete_run",
+        "run_page",
+        "succeeded_run",
+        "session",
+        "runtime.output_evidence",
+        "runtime.output_coordinate",
+        "runtime.session_summary_page",
+        "runtime.session_inspection",
+        "runtime.session_summary",
+        "analysis_frame",
+        "frame_axis",
+        "artifact",
+        "frame_method_facts",
+        "frame_method_parent",
+        "frame_method_metric",
+        "frame_method_value",
+        "frame_method_coordinate",
+        "frame_method_support",
+        "frame_additive_method",
+        "frame_ratio_method",
+        "frame_linear_term",
+        "frame_linear_method",
+        "instant_anchor",
+        "calendar_axis",
+        "population",
+        "grouping",
+        "observation_window",
+        "value_statistic",
+        "column",
+    }
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 22
+    removed = {
+        "before_end_boundary",
+        "before_end_boundary.end",
+        "before_end_boundary.boundary_timezone",
+        "before_end_boundary.show",
+        "time_scope.before_end",
+        "grain.to_token",
+        "grain.width_seconds",
+        "grain.is_day",
+        "grain.is_subday",
+        "time_scope.contract",
+        "time_scope.model_dump",
+    }
+    for target in removed:
+        with pytest.raises((AnalysisError, MarivoHelpTargetError)) as error:
+            render_help_text("analysis." + target)
+        assert "registered" in str(error.value).lower() or "unknown" in str(error.value).lower()
+    assert not hasattr(mv, "BeforeEndBoundary")
+    for member in ("to_token", "width_seconds", "is_day", "is_subday"):
+        assert not hasattr(mv.grain("day"), member)
+    assert not hasattr(mv.TimeScope, "before_end")
+    assert not hasattr(mv.TimeScope, "contract")
+    assert "model_dump" not in vars(mv.TimeScope)
+    descriptor = registry.by_canonical_id("value_statistic")
+    assert isinstance(descriptor, TypeInput)
+    assert tuple(f.name for f in descriptor.bindings[0].fields) == ("unit",)
+    statistic = mv.row_count()
+    assert not hasattr(statistic, "input_id") and not hasattr(statistic, "definition")
+    page = render_help_text(type(statistic))[0]
+    assert page == render_help_text("analysis.value_statistic")[0]
+    assert "input_id" not in page and "definition" not in page
+    assert "input_id" not in repr(statistic) and "definition" not in repr(statistic)
+    assert "analysis.value_statistic" in render_help_text(mv.row_count)[0]
+    assert (
+        render_help_text(mv.attribute_endpoint)[0]
+        == render_help_text("analysis.attribute_endpoint.define")[0]
+    )
+
+
+def test_nested_metadata_help_keeps_read_boundaries() -> None:
+    for target, fact in (
+        ("calendar_axis.scope", "never rebuilds"),
+        ("calendar_axis.grid", "frozen finite buckets"),
+        ("frame_method_facts.output_schema", "complete original saved output layout"),
+        ("frame_method_coordinate.schema", "complete saved coordinate layout"),
+        ("frame_method_value.column", "physical dtype, unit and nullability"),
+        ("finding.value", "finding_type/kind"),
+        ("incomplete_run.dataset_input", "not an execution recipe"),
+        ("failed_run.dataset_input", "not an execution recipe"),
+        ("succeeded_run.dataset_input", "not an execution recipe"),
+        ("failed_run.failure", "failure.repair.help_target"),
+    ):
+        page = render_help_text("analysis." + target)[0]
+        assert "Kind: attribute" in page and fact in page
+    for target in ("time_scope_contract_v1", "data_schema", "bound_time_grid", "run_failure"):
+        with pytest.raises((AnalysisError, MarivoHelpTargetError)):
+            render_help_text("analysis." + target)

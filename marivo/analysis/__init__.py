@@ -8,7 +8,6 @@ from marivo._definition.windows import since as since
 from marivo._definition.windows import to_date as to_date
 from marivo._definition.windows import trailing_duration as trailing_duration
 from marivo._definition.windows import trailing_periods as trailing_periods
-from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
     from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
+    from marivo.analysis.dsl.attribute import attribute_endpoint as attribute_endpoint
     from marivo.analysis.dsl.column import Column as Column
     from marivo.analysis.dsl.column import row_count as row_count
     from marivo.analysis.dsl.correspondence import offset as offset

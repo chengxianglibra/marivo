@@ -10,7 +10,7 @@ acceptance, provider Runtime qualification and release gates are separate.
 | [AnalysisFrame](query-result-reuse.md) | Final data, coordinate, carrier and source-boundary contract |
 | [Operators and Frames](operators-and-frames.md) | Nullable values, complete keys, contribution occurrences and current-row operator meaning |
 | [Core Algebra](algebra-theory.md) | Mathematical definitions and conditional laws, with separate current DSL and optimizer coverage |
-| [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 14 and reading |
+| [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 15 and reading |
 | [Analysis Evidence Access](evidence-access-surface.md) | Saved source facts, current evaluation, Findings and their interpretation limits |
 | [AnalysisFrame cutover](analysis-frame-cutover.md) | Breaking API/value-name changes, older Store refusal and explicit source reconstruction |
 
@@ -24,6 +24,16 @@ are kept in the local-only `docs/design/`, `docs/implementation/`, and
 `docs/testing/` directories. They are not part of the tracked architecture
 reference.
 
+## Public construction and acquisition
+
+Use `mv.*` for explicit descriptions and composition, `session.*` to introduce
+Catalog, Store, execution ownership or the frozen default timezone, and receiver
+methods/properties for existing context. `mv.session.create/resume/recent/inspect`
+establish or discover lifecycle context. Public types support annotations and
+inspection; they do not authorize direct construction or extension.
+`mv.attribute_endpoint(metrics, during=None, where=None, memberships=())`
+captures immutable endpoint inputs; `session.attribute` owns binding and eligibility.
+
 ## Execution and output boundary
 
 ```text
@@ -32,7 +42,7 @@ datasource: qualified Ibis execution returning pandas
     -> analysis: Population / AnalysisFrame / Column / exact FrameAxis handles
     -> compiler: explicit source and fixed inputs, complete checks and one schedule
     -> compute: complete immutable memory data, frozen coordinates and one audit
-    -> persist: publish that existing result through the Store 14 transaction
+    -> persist: publish that existing result through the Store 15 transaction
     -> persisted Frame: source-free data operations and isolated pandas export
     -> frame.artifact: submission, Findings and Evidence audit
 ```
@@ -51,7 +61,7 @@ targets declare caller business intent; validation does not prove original
 semantic identity. Current-row sum/mean retain units without certifying Metric additivity.
 Static Help owns operation discovery; `.show()` owns captured facts and errors own repairs.
 
-All Frames use Store14, `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.
+All Frames use Store15, `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`.
 Cards/reopen read bounded descriptors; `to_pandas()` reads current data only;
 `method_facts` reads complete owned explanation payloads. Stored compute and
 evaluated derivatives consume both. Saved derivatives remain self-contained.

@@ -774,7 +774,14 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         )
         return BoundTimeGrid(
             _identity(
-                grain.to_token(), "UTC", "UTC", None, None, cells, origin=origin, civil_bounds=civil
+                grain._to_token(),
+                "UTC",
+                "UTC",
+                None,
+                None,
+                cells,
+                origin=origin,
+                civil_bounds=civil,
             ),
             grain,
             "UTC",

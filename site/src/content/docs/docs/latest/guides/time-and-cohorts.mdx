@@ -153,3 +153,8 @@ declared domain. Saved endpoint/map facts do not reconstruct Metric, source or
 current timezone rules. A Population contribution selection is unchanged by
 shift; by=P is each endpoint's own complete domain and must be constructed
 explicitly for both periods.
+
+Only exact Session TimeScope boundaries are InstantAnchor values; Catalog periods
+may have civil date bounds. Use `session.instant(...)` for an exact anchor.
+Literal coordinates describe keys without proving source existence;
+`session.members(...)` selects a source identity domain.

@@ -110,7 +110,8 @@ mean/per 等状态，不因退役 Query receiver 全局删除 components。固�
 
 #### 1.5.3 显式 Attribute 与完整事实
 
-`Session.attribute` 捕获两个 AttributeEndpoint、完整父对应和新增业务分类；默认路径只做合法
+`mv.attribute_endpoint(...)` 只复制有序 Metric 映射并保留显式范围、条件和分配规则，
+不打开 Session、不读取 Catalog/schema/业务行、不创建 Run。`Session.attribute` 捕获两个 AttributeEndpoint、完整父对应和新增业务分类；默认路径只做合法
 原观察与差值，不准备贡献证明。贡献路径在同一调度中复用合格的 physical DuckDB TableSourceIR
 root/fiber statement 共同输入，保留完整父/细组/原式和必要检查。文件、远端以及未证明的 per/
 窗口形态不因 provider 名或共享图而合格；失败不自动退回默认请求。

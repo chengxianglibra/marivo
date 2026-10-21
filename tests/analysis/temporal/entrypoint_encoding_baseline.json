@@ -1,0 +1,84 @@
+[
+  {
+    "contract": {
+      "schema": "time-scope/v1",
+      "kind": "absolute",
+      "start": "2026-01-01",
+      "end": "2026-02-01"
+    },
+    "ordinary": {
+      "start": "2026-01-01",
+      "end": "2026-02-01"
+    },
+    "fingerprint": "4d7e53a0afc560ac165db05a3716288f368fffc6ac44ec6c75a2f7295f6a3d71"
+  },
+  {
+    "contract": {
+      "schema": "time-scope/v1",
+      "kind": "absolute",
+      "start": "2026-03-08T05:00:00Z",
+      "end": "2026-03-09T04:00:00Z",
+      "boundary_timezone": "America/New_York"
+    },
+    "ordinary": {
+      "start": "2026-03-08T05:00:00Z",
+      "end": "2026-03-09T04:00:00Z",
+      "boundary_timezone": "America/New_York"
+    },
+    "fingerprint": "c1d9cdbbe4cc51fc084487c589a74ca66dde18e30104ca630c4fd17d5b62757b"
+  },
+  {
+    "contract": {
+      "schema": "time-scope/v1",
+      "kind": "calendar_period",
+      "start": "2026-01-01",
+      "end": "2026-02-01",
+      "calendar_ref": "sales.fiscal",
+      "snapshot_digest": "captured",
+      "boundary_timezone": "UTC",
+      "level": "month",
+      "key": "jan"
+    },
+    "ordinary": {
+      "start": "2026-01-01",
+      "end": "2026-02-01",
+      "calendar": {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "period_calendar",
+        "path": "sales.fiscal"
+      },
+      "snapshot_digest": "captured",
+      "boundary_timezone": "UTC",
+      "level": "month",
+      "key": "jan",
+      "ordinal": 0
+    },
+    "fingerprint": "d1a352ddfc695d9ad0422509be6dda8e3411249aa6e4b32c58bd004a9ddf4c94"
+  },
+  {
+    "contract": {
+      "schema": "time-scope/v1",
+      "kind": "temporal_occurrence",
+      "start": "2026-01-01",
+      "end": "2026-01-02",
+      "temporal_set_ref": "sales.events",
+      "snapshot_digest": "captured",
+      "boundary_timezone": "UTC",
+      "key": "new-year",
+      "occurrence_category": null
+    },
+    "ordinary": {
+      "start": "2026-01-01",
+      "end": "2026-01-02",
+      "temporal_set": {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "temporal_set",
+        "path": "sales.events"
+      },
+      "snapshot_digest": "captured",
+      "boundary_timezone": "UTC",
+      "key": "new-year"
+    },
+    "fingerprint": "a17e47f463b2a10b8cfeab9a1810e4d0330fc1e110457692854322d7c1560b2b"
+  }
+]

@@ -497,7 +497,7 @@ class _Inspector:
             self.token(
                 "time_scope",
                 json.dumps(
-                    value.contract().model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+                    value._contract().model_dump(mode="json"), sort_keys=True, separators=(",", ":")
                 ),
             )
             return

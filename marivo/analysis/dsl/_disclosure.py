@@ -37,7 +37,7 @@ def provider() -> DisclosureProvider:
             "analysis_frame",
             AnalysisFrame,
             summary="One immutable data object with complete coordinates, ordered values and presence; its carrier is expression, memory or stored.",
-            acquisition="Call session.observe, session.attribute, session.read, session.values or session.frame; reopen an exact stored root with session.persisted_frame(id).",
+            acquisition="Initial inputs: session.observe/attribute/read/values/frame. Derive with Frame operations; compute/persist return fixed carriers. Recover exactly with session.persisted_frame(id). Direct construction is unsupported.",
             producers=(
                 "session.observe",
                 "session.attribute",
@@ -65,6 +65,7 @@ def provider() -> DisclosureProvider:
             FrameAxis,
             summary="Read-only complete coordinate handle bound to one exact Frame input.",
             acquisition="Read frame.axes or call frame.axis(name); direct construction is not supported.",
+            producers=("analysis_frame.axes", "analysis_frame.axis"),
             consumers=(
                 "analysis_frame.coord",
                 "analysis_frame.correlate",
@@ -82,7 +83,8 @@ def provider() -> DisclosureProvider:
             "Artifact",
             Artifact,
             summary="Read-only committed identity, submission metadata and Finding/Evidence audit view.",
-            acquisition="Read saved.artifact on the exact persisted Frame, or session.persisted_frame(id).artifact.",
+            acquisition="Read saved.artifact on the exact persisted Frame, or session.persisted_frame(id).artifact. Direct construction and extension are unsupported.",
+            producers=("analysis_frame.artifact",),
             consumers=("Artifact.show", "Artifact.findings", "Artifact.evidence_digest"),
             constraints=(
                 "Audit reads consume no result table or coordinate attachments. Preview, export and data operations belong to AnalysisFrame. Old Store generations are rejected unchanged; use a compatible environment or an export made with the original version.",
@@ -157,10 +159,29 @@ def provider() -> DisclosureProvider:
                 target,
                 fact_owner,
                 summary=f"Immutable {fact_owner.__name__} original explanation facts.",
-                acquisition=acquisition,
+                acquisition=acquisition + " Direct construction and extension are unsupported.",
                 producers=("analysis_frame.method_facts",)
                 if fact_owner is FrameMethodFacts
-                else (),
+                else {
+                    FrameMethodParent: ("frame_method_facts.parents",),
+                    FrameMethodMetric: ("frame_method_parent.metrics",),
+                    FrameMethodValue: (
+                        "frame_method_parent.key",
+                        "frame_additive_method.left",
+                        "frame_ratio_method.numerator_left",
+                        "frame_ratio_method.denominator_left",
+                        "frame_linear_method.left",
+                    ),
+                    FrameMethodCoordinate: ("frame_method_facts.coordinates",),
+                    FrameMethodSupport: (
+                        "frame_additive_method.support",
+                        "frame_ratio_method.support",
+                    ),
+                    FrameAdditiveMethod: ("frame_method_metric.method", "frame_linear_term.method"),
+                    FrameRatioMethod: ("frame_method_metric.method", "frame_linear_term.method"),
+                    FrameLinearMethod: ("frame_method_metric.method", "frame_linear_term.method"),
+                    FrameLinearTerm: ("frame_linear_method.terms",),
+                }[fact_owner],
                 consumers=("frame_method_facts.show", *nested),
                 constraints=(
                     "Read-only typed data; no Metric, source address, executable recipe or new computation authority. Inherited facts explain their origin, not derived values.",
@@ -389,10 +410,14 @@ def provider() -> DisclosureProvider:
                 target,
                 value,
                 summary=f"Immutable {value.__name__} temporal binding.",
-                acquisition=f"Call {producer}(...).",
+                acquisition=(
+                    "Call session.instant(...) or read start/end of an exact Session TimeScope; civil Catalog dates are not InstantAnchor values. Direct construction is unsupported."
+                    if value is InstantAnchor
+                    else "Call scope.by(grain) or calendar_axis.shift(rule). Direct construction is unsupported; scope/grid are captured metadata."
+                ),
                 producers=(producer, "calendar_axis.shift")
                 if value is CalendarAxis
-                else (producer,),
+                else (producer, "time_scope.start", "time_scope.end"),
                 consumers=(consumer, "calendar_axis.shift", "session.observe", "product")
                 if value is CalendarAxis
                 else (consumer,),

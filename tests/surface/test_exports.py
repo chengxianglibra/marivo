@@ -113,7 +113,7 @@ def test_analysis_all_is_pinned() -> None:
 def test_attribute_entry_has_one_concrete_typed_signature_and_no_alias() -> None:
     import inspect
 
-    endpoint = inspect.signature(ma.AttributeEndpoint)
+    endpoint = inspect.signature(ma.attribute_endpoint)
     assert tuple(endpoint.parameters) == ("metrics", "during", "where", "memberships")
     assert str(endpoint.parameters["where"].annotation) == "Deferred | None"
     assert str(endpoint.parameters["memberships"].annotation) == "tuple[Grouping, ...]"

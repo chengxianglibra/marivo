@@ -10,7 +10,11 @@ from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCo
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CalendarCorrespondence:
-    """One closed calendar mapping rule, without endpoint axes or source state."""
+    """One closed calendar mapping rule, without endpoint axes or source state.
+
+    Acquire with mv.ordinal() or mv.offset(years=...)/mv.offset(periods=...).
+    Direct kind/by construction and subclass extension are unsupported.
+    """
 
     kind: Literal["ordinal", "years", "periods"]
     by: int = 0

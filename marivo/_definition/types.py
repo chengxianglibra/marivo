@@ -269,7 +269,7 @@ class CalendarCoordinate:
 
     @property
     def grain(self) -> str:
-        return self.grain_spec.to_token()
+        return self.grain_spec._to_token()
 
 
 @dataclass(frozen=True, slots=True)

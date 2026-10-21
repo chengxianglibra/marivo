@@ -12,7 +12,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.dsl.column import Column, row_count
+from marivo.analysis.dsl.column import Column, _Statistic, row_count
 from marivo.analysis.dsl.correspondence import offset
 from marivo.analysis.dsl.frame import AnalysisFrame
 
@@ -71,16 +71,36 @@ def provider() -> DisclosureProvider:
                     "AnalysisError: follow the structured expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
+                related=("value_statistic",) if output == "_Statistic" else (),
                 discovery_group=group,
             )
         )
         exports.append(ExportInput(target, value, target))
     descriptors.append(
         value_type(
+            "value_statistic",
+            _Statistic,
+            summary="An immutable unfinished current-row statistic with read-only unit.",
+            acquisition="Use mv.row_count() or Column.sum/mean/corr/pair_count; direct construction is unsupported.",
+            producers=(
+                "row_count",
+                "column.sum",
+                "column.mean",
+                "column.corr",
+                "column.pair_count",
+            ),
+            consumers=("analysis_frame.reduce",),
+            constraints=(
+                "row_count() is unbound and reusable across Frames without mutation. Column statistics retain their exact Frame/Session input and cannot be rebound, even to equal data.",
+            ),
+        )
+    )
+    descriptors.append(
+        value_type(
             "Column",
             Column,
             summary="Immutable current-data expression bound to one exact Frame input.",
-            acquisition="Use frame[name] or frame.coord(axis).",
+            acquisition="Use frame[name] or frame.coord(axis). Direct construction and extension are unsupported.",
             producers=("analysis_frame.__getitem__", "analysis_frame.coord"),
             consumers=(
                 "analysis_frame.select",
@@ -146,7 +166,7 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "AnalysisFrame",
-            "Filter current coordinates while preserving checks and current row order.",
+            "Filter current coordinates, preserving checks and row order.",
             "result = frame.where(frame['value'] > 0)",
             ("frame",),
             "methods.rows",
@@ -361,6 +381,7 @@ def provider() -> DisclosureProvider:
                     "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
+                related=("value_statistic",) if output == "_Statistic" else (),
                 discovery_group=group,
             )
         )

@@ -111,7 +111,7 @@ def canonical_value(value: object) -> object:
         return canonical_value(value.value)
     if isinstance(value, TemporalGrain):
         if value.kind == "builtin":
-            return value.to_token()
+            return value._to_token()
         assert value.calendar is not None and value.level is not None
         return {
             "kind": "semantic",

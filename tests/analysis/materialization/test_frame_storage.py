@@ -2032,13 +2032,13 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
 def attribute_request(
     session: Session, *, axis: str = "channel", parents: Population | None = None
 ) -> AnalysisFrame:
-    from marivo.analysis.dsl.attribute import AttributeEndpoint
+    from marivo.analysis.dsl.attribute import attribute_endpoint
 
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     return session.attribute(
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
         by=(session.catalog.fields.get("sales.facts." + axis),),
         parents=parents,
         contribution=True,

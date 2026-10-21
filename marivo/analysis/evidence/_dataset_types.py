@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
+from dataclasses import field as dataclass_field
 from datetime import date, datetime
 from decimal import Decimal
 from types import UnionType
@@ -267,7 +268,11 @@ class Finding(_Value):
     finding_id: str
     artifact_ref: ArtifactRef
     session_id: str
-    value: FindingValueV1
+    value: FindingValueV1 = dataclass_field(
+        metadata={
+            "meaning": "Read finding.value for the saved finding_type/kind variant, including retained lag facts when present. This is saved content, not a new calculation; nested value/lag variants are not public constructors."
+        }
+    )
     coordinates: tuple[OutputCoordinate, ...]
     committed_at: datetime
 

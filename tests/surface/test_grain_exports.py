@@ -15,7 +15,7 @@ def test_public_grain_value_and_factory() -> None:
     with pytest.raises(TypeError, match="direct construction is not supported"):
         ma.Grain(unit="day")
     g = ma.grain("minute", count=5)
-    assert g.to_token() == "5minute"
+    assert g._to_token() == "5minute"
 
 
 def test_public_grain_constructors_share_one_value_type():
@@ -28,6 +28,7 @@ def test_public_grain_constructors_share_one_value_type():
     assert type(builtin) is not type(semantic)
     assert builtin.kind == "builtin"
     assert semantic.kind == "semantic"
-    assert builtin.to_token() == "5minute"
+    assert builtin._to_token() == "5minute"
     assert semantic.calendar == calendar
     assert semantic.level == "week"
+    assert semantic._to_token() == "sales.fiscal::week"

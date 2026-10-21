@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 
 from marivo import _temporal
-from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
+from marivo._temporal import Grain, TimeScope
 from marivo.analysis import grain
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
@@ -54,31 +54,45 @@ def provider() -> DisclosureProvider:
             )
         )
         exports.append(ExportInput(target, value, "grain.define"))
-    for type_value, target, producer in (
-        (Grain, "Grain", "grain.define"),
-        (TimeScope, "TimeScope", "session.time_scope"),
-        (BeforeEndBoundary, "BeforeEndBoundary", "TimeScope"),
+    for type_value, target in (
+        (Grain, "Grain"),
+        (TimeScope, "TimeScope"),
     ):
         descriptors.append(
             value_type(
                 target,
                 type_value,
                 summary=f"Exact {target} input contract.",
-                acquisition="Read scope.before_end from an existing TimeScope."
-                if type_value is BeforeEndBoundary
-                else "Construct with session.time_scope(...); its frozen timezone supports by(Grain). "
-                "Session.instant(...) constructs one exact boundary; no module-level time constructors are public."
+                acquisition=(
+                    "Obtain session.time_scope(...), calendar.period/period_on or periods(...).items, "
+                    "temporal_set.occurrence or occurrences(...).items, or a non-None calendar_axis.scope. "
+                    "Direct construction is unsupported; scope reads never rebuild a range."
+                    if type_value is TimeScope
+                    else "Use mv.grain for builtin units; ms.calendar_grain for source-free lookup; "
+                    "calendar.grain(level) for a certified snapshot-bound Grain. Direct construction is unsupported."
+                ),
+                producers=(
+                    "session.time_scope",
+                    "catalog.period_calendars.period",
+                    "catalog.period_calendars.period_on",
+                    "catalog.period_calendars.periods",
+                    "catalog.temporal_sets.occurrence",
+                    "catalog.temporal_sets.occurrences",
+                    "calendar_axis.scope",
+                )
                 if type_value is TimeScope
-                else "Construct with mv.grain(...).",
-                producers=(producer,),
+                else ("grain.define", "catalog.period_calendars.grain"),
+                constraints=(
+                    "The source-free lookup factory is marivo.help('semantic.calendar_grain').",
+                )
+                if type_value is Grain
+                else (
+                    "Session scopes retain their frozen timezone and exact InstantAnchor start/end; Catalog periods can retain civil date bounds.",
+                ),
             )
         )
         exports.append(ExportInput(type_value.__name__, type_value, target))
-    for receiver_type, receiver_name, method_names in (
-        (Grain, "daily_grain", ("to_token", "width_seconds")),
-        (TimeScope, "window", ("contract", "model_dump", "render", "show")),
-        (BeforeEndBoundary, "boundary", ("show",)),
-    ):
+    for receiver_type, receiver_name, method_names in ((TimeScope, "window", ("render", "show")),):
         for method_name in method_names:
             method_value = inspect.getattr_static(receiver_type, method_name)
             binding = bind(method_value, receiver_type)

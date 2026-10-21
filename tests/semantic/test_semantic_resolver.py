@@ -365,7 +365,7 @@ def test_temporal_set_snapshot_is_order_independent_and_preserves_exact_occurren
     assert scope.kind == "temporal_occurrence"
     assert scope.start == date(2026, 3, 1)
     assert scope.end == date(2026, 3, 4)
-    assert scope.contract().model_dump() == {
+    assert scope._contract().model_dump() == {
         "schema": "time-scope/v1",
         "kind": "temporal_occurrence",
         "start": date(2026, 3, 1),
@@ -376,7 +376,7 @@ def test_temporal_set_snapshot_is_order_independent_and_preserves_exact_occurren
         "key": "spring",
         "occurrence_category": "promotion",
     }
-    assert first.occurrence_scope("holiday").contract().model_dump()["occurrence_category"] is None
+    assert first.occurrence_scope("holiday")._contract().model_dump()["occurrence_category"] is None
 
 
 def test_temporal_set_snapshot_rows_reject_invalid_encoding_bounds_and_category() -> None:
@@ -683,8 +683,8 @@ def test_temporal_set_snapshot_store_retains_exact_history(tmp_path) -> None:
 
 def test_time_scope_contract_preserves_normalized_bounds_and_provenance() -> None:
     absolute = time_scope(start="2026-01-01", end="2026-02-01")
-    assert isinstance(absolute.contract(), TimeScopeContractV1)
-    assert absolute.contract().model_dump() == {
+    assert isinstance(absolute._contract(), TimeScopeContractV1)
+    assert absolute._contract().model_dump() == {
         "schema": "time-scope/v1",
         "kind": "absolute",
         "start": date(2026, 1, 1),

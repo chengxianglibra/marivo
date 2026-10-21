@@ -37,7 +37,7 @@ def provider() -> DisclosureProvider:
                 "CalendarCorrespondence",
                 CalendarCorrespondence,
                 summary="Immutable axis-free calendar rule.",
-                acquisition="Use ordinal(), offset(years=...), or offset(periods=...).",
+                acquisition="Use mv.ordinal(), mv.offset(years=...), or mv.offset(periods=...). Direct construction and extension are unsupported.",
                 producers=("ordinal", "offset"),
                 consumers=("calendar_axis.shift", "analysis_frame.align", "analysis_frame.compare"),
             ),

@@ -25,7 +25,7 @@ class _Window:
         if isinstance(self, Since):
             return f"Since: {self.start.isoformat()}"
         assert isinstance(self, ToDate)
-        return f"ToDate: {self.grain.to_token()}"
+        return f"ToDate: {self.grain._to_token()}"
 
 
 @dataclass(frozen=True, slots=True, repr=False)

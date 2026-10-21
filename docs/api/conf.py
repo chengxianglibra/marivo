@@ -9,6 +9,9 @@ published as a static subtree at ``/api/`` by the Astro site.
 
 from importlib.metadata import version as _metadata_version
 
+from sphinx.application import Sphinx
+from sphinx.ext.autodoc import Options
+
 project = "Marivo"
 author = "Marivo contributors"
 copyright = "2026, Marivo contributors"
@@ -44,3 +47,22 @@ html_title = f"Marivo {release} API"
 html_theme_options = {
     "github_url": "https://github.com/chengxianglibra/marivo",
 }
+
+
+def _analysis_type_signature(
+    app: Sphinx,
+    what: str,
+    name: str,
+    obj: object,
+    options: Options,
+    signature: str | None,
+    return_annotation: str | None,
+) -> tuple[str, str | None] | None:
+    """Analysis classes are acquired values; their internal init is not an API."""
+    if what == "class" and name.startswith("marivo.analysis."):
+        return "", None
+    return None
+
+
+def setup(app: Sphinx) -> None:
+    app.connect("autodoc-process-signature", _analysis_type_signature)

@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 
@@ -93,8 +93,8 @@ def test_plain_calendar_complete_parent_order_one_statement(
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "base"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
             parents=parent,
             parent_on=((parent.axes[0], region, region),),
             by=(channel,),
@@ -142,8 +142,8 @@ def test_cross_period_paired_calendar_parent(
     monkeypatch.setattr(SourceSession, "execute", execute)
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=current, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, during=baseline, where=phase == "base"),
+            attribute_endpoint({"q": metric}, during=current, where=phase == "current"),
+            attribute_endpoint({"q": metric}, during=baseline, where=phase == "base"),
             parents=paired,
             parent_on=((paired.axes[1], region, region),),
             by=(channel,),
@@ -210,8 +210,8 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
 
     monkeypatch.setattr(execution, "read_stage", read)
     pending = session.attribute(
-        AttributeEndpoint({"q": metric}, during=calendar, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, during=calendar, where=phase == "base"),
+        attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
+        attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
         parents=parent,
         by=(channel,),
         contribution=True,
@@ -279,7 +279,7 @@ def test_window_partition_context_is_scoped_before_classification(
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    endpoint = AttributeEndpoint(
+    endpoint = attribute_endpoint(
         {"q": metric},
         during=calendar,
         where=identifier == (2 if missing else 1),
@@ -332,7 +332,7 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day)
     parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar, where=phase == "current")
+    endpoint = attribute_endpoint({"q": metric}, during=calendar, where=phase == "current")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe(
             {"q": metric},
@@ -382,8 +382,8 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     )
     with pytest.raises(AttributeInputError) as actual:
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=current),
-            AttributeEndpoint({"q": metric}, during=baseline),
+            attribute_endpoint({"q": metric}, during=current),
+            attribute_endpoint({"q": metric}, during=baseline),
             by=(channel,),
             parents=parent,
             parent_how="outer",
@@ -413,8 +413,8 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
     parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "base"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
             by=(channel,),
             parents=parent,
             contribution=True,
@@ -495,8 +495,8 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
         match="complete actual coverage" if corruption == "partial_directory" else "endpoint",
     ):
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=current),
-            AttributeEndpoint({"q": metric}, during=baseline),
+            attribute_endpoint({"q": metric}, during=current),
+            attribute_endpoint({"q": metric}, during=baseline),
             by=(channel,),
             parents=parent,
             contribution=True,
@@ -518,8 +518,8 @@ def test_calendar_original_nullable_integer_stays_exact(session: Session, tmp_pa
     parent = session.observe({"q": amount.count(time=day)}, by=(calendar,)).compute()
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, during=calendar, where=phase == "base"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "current"),
+            attribute_endpoint({"q": metric}, during=calendar, where=phase == "base"),
             by=(channel,),
             parents=parent,
             contribution=True,
@@ -549,7 +549,7 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
         connection.execute("DELETE FROM facts WHERE id=2")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, where=channel == "A", by=(calendar, channel)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar, where=channel == "A")
+    endpoint = attribute_endpoint({"q": metric}, during=calendar, where=channel == "A")
     with pytest.raises(MaterializationError) as actual:
         session.attribute(
             endpoint, endpoint, by=(channel,), parents=parent, contribution=True
@@ -579,7 +579,7 @@ def test_calendar_duplicate_root_is_checked_before_classification(
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar)
+    endpoint = attribute_endpoint({"q": metric}, during=calendar)
     with pytest.raises(
         MaterializationError, match="duplicate complete contribution identity"
     ) as actual:
@@ -601,7 +601,7 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     parents = mv.product(mv.coordinates(by=(region,), keys=(("east",), ("absent",))), calendar)
-    endpoint = AttributeEndpoint({"q": amount.count(time=day)}, during=calendar)
+    endpoint = attribute_endpoint({"q": amount.count(time=day)}, during=calendar)
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
     )
@@ -650,8 +650,10 @@ def test_paired_source_failure_retains_original_full_parent(
     if failure == "native":
         with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
             connection.execute("UPDATE facts SET amount=? WHERE id IN (9,10)", [2**62])
-        left_endpoint = AttributeEndpoint({"q": original}, during=current, where=phase == "current")
-        right_endpoint = AttributeEndpoint({"q": original}, during=baseline, where=phase == "base")
+        left_endpoint = attribute_endpoint(
+            {"q": original}, during=current, where=phase == "current"
+        )
+        right_endpoint = attribute_endpoint({"q": original}, during=baseline, where=phase == "base")
         by = (channel,)
     else:
         label = session.catalog.fields.get("sales.tags.label")
@@ -662,10 +664,10 @@ def test_paired_source_failure_retains_original_full_parent(
         membership = mv.membership(label, via=(path,), unmatched="exclude")
         by = (label,)
         metric = original.window(mv.all_history())
-        left_endpoint = AttributeEndpoint(
+        left_endpoint = attribute_endpoint(
             {"q": metric}, during=current, where=identifier == 1, memberships=(membership,)
         )
-        right_endpoint = AttributeEndpoint(
+        right_endpoint = attribute_endpoint(
             {"q": metric}, during=baseline, where=identifier == 1, memberships=(membership,)
         )
     pending = session.attribute(
@@ -750,8 +752,8 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.weighted_mean(weight=weight)
-    left = AttributeEndpoint({"q": metric}, where=phase == "current")
-    right = AttributeEndpoint({"q": metric}, where=phase == "base")
+    left = attribute_endpoint({"q": metric}, where=phase == "current")
+    right = attribute_endpoint({"q": metric}, where=phase == "base")
     ordinary = session.attribute(left, right, by=(channel,)).compute().to_pandas()
     parent_values = [
         session.observe({"q": metric}, where=phase == endpoint)
@@ -837,8 +839,8 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
         session.observe({"q": metric}, where=phase == "current").compute()
     with pytest.raises(MaterializationError) as actual:
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         ).compute()
@@ -867,8 +869,8 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
     current = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
     result = session.attribute(
-        AttributeEndpoint({"q": metric}, during=current, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, during=baseline, where=phase == "base"),
+        attribute_endpoint({"q": metric}, during=current, where=phase == "current"),
+        attribute_endpoint({"q": metric}, during=baseline, where=phase == "base"),
         by=(channel,),
         contribution=contribution,
     ).compute()
@@ -901,7 +903,7 @@ def test_interval_parent_rejects_before_source_read(
         raise AssertionError("Interval parent rejection read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    endpoint = AttributeEndpoint({"q": metric}, during=scope)
+    endpoint = attribute_endpoint({"q": metric}, during=scope)
     with pytest.raises(AnalysisError, match="interval or paired-interval parent axis") as actual:
         session.attribute(endpoint, endpoint, parents=parent, by=(channel,))
     assert "Reduce the interval axis" in str(actual.value)

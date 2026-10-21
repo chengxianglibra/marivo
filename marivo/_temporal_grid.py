@@ -122,7 +122,7 @@ class BoundTimeGrid:
 
     @property
     def grain_token(self) -> str:
-        return self.grain_spec.to_token()
+        return self.grain_spec._to_token()
 
     def __post_init__(self) -> None:
         if not self.identity or not self.grain_token or self.precision != "us":
@@ -596,7 +596,7 @@ def bind_grid(
         for cell in cells
     )
     snapshot_digest = snapshot.snapshot_digest if snapshot is not None else None
-    token = grain.to_token()
+    token = grain._to_token()
     scope_identity = (
         None if during.kind == "absolute" else sha256(repr(during._identity()).encode()).hexdigest()
     )

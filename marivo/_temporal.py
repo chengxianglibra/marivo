@@ -15,6 +15,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
@@ -24,7 +25,6 @@ from typing import (
     Literal,
     Protocol,
     cast,
-    overload,
     runtime_checkable,
 )
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -266,21 +266,14 @@ class Grain:
         return hash((self.kind, semantic_value.calendar, semantic_value.level))
 
     @property
-    def is_subday(self) -> bool:
+    def _is_subday(self) -> bool:
         return self.kind == "builtin" and cast("_BuiltinGrain", self).unit in {
             "second",
             "minute",
             "hour",
         }
 
-    @property
-    def is_day(self) -> bool:
-        if self.kind != "builtin":
-            return False
-        value = cast("_BuiltinGrain", self)
-        return value.unit == "day" and value.count == 1
-
-    def width_seconds(self) -> int:
+    def _width_seconds(self) -> int:
         """Return fixed width for builtin sub-day/day/week grains."""
         if self.kind != "builtin" or cast("_BuiltinGrain", self).unit not in {
             "second",
@@ -290,7 +283,7 @@ class Grain:
             "week",
         }:
             raise ValueError(
-                f"Grain.width_seconds() is undefined for calendar-variable grain {self!r}"
+                f"Grain._width_seconds() is undefined for calendar-variable grain {self!r}"
             )
         value = cast("_BuiltinGrain", self)
         return (
@@ -304,7 +297,7 @@ class Grain:
             }[value.unit]
         )
 
-    def to_token(self) -> str:
+    def _to_token(self) -> str:
         """Return a stable display token for metadata and diagnostics."""
         if self.kind == "builtin":
             value = cast("_BuiltinGrain", self)
@@ -328,8 +321,8 @@ class Grain:
             "quarter": 6,
             "year": 7,
         }
-        if self.is_subday and other.is_subday:
-            return self.width_seconds() < other.width_seconds()
+        if self._is_subday and other._is_subday:
+            return self._width_seconds() < other._width_seconds()
         return ranks[left.unit] < ranks[right.unit]
 
     def __gt__(self, other: object) -> bool:
@@ -518,7 +511,7 @@ def work_schedule_definition_digest(
 
 
 class TimeScopeContractV1(BaseModel):
-    """Versioned serialization returned by :meth:`TimeScope.contract`."""
+    """Internal versioned scope serialization used by fingerprints and trusted readers."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -666,31 +659,6 @@ class TimeScopeContractV1(BaseModel):
         return self.render()
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class BeforeEndBoundary:
-    """Exact left limit of a TimeScope end, without a precision-dependent tick."""
-
-    end: date | datetime
-    boundary_timezone: str | None = None
-
-    def __post_init__(self) -> None:
-        if type(self.end) not in (date, datetime):
-            raise ValueError("BeforeEndBoundary requires a date or datetime end")
-        if self.boundary_timezone is not None:
-            ZoneInfo(self.boundary_timezone)
-
-    def show(self) -> None:
-        """Print the boundary. Args: None. Returns: None.
-
-        Example: ``scope.before_end.show()``.
-        Constraints: Does not resolve a source or select an available version.
-        """
-        print(f"before_end={self.end.isoformat()}")
-
-    def __repr__(self) -> str:
-        return f"<BeforeEndBoundary end={self.end.isoformat()}; use .show()>"
-
-
 class TimeScope(BaseModel):
     """One immutable public selection window shared by semantic and analysis.
 
@@ -725,19 +693,6 @@ class TimeScope(BaseModel):
         Constraints: Uses frozen scope timezone or certified calendar authority; no source reads.
         """
         return calendar_axis(self, grain)
-
-    @property
-    def before_end(self) -> BeforeEndBoundary:
-        """Return the symbolic left limit of this scope's end.
-
-        Args: None.
-        Returns: A BeforeEndBoundary retaining the exact end.
-        Example: ``members = session.members(entity, at=scope.before_end)``.
-        Constraints: Never subtracts a timestamp tick or selects a latest version.
-        """
-        return BeforeEndBoundary(
-            self.end, None if self.kind == "absolute" else self.boundary_timezone
-        )
 
     # Provenance belongs to the private concrete variants.  These declarations
     # keep the dependency-neutral base usable by statically typed internal
@@ -982,7 +937,7 @@ class TimeScope(BaseModel):
             )
         return "TimeScope(" + ", ".join(values) + ")"
 
-    def contract(self) -> TimeScopeContractV1:
+    def _contract(self) -> TimeScopeContractV1:
         """Return the bounded, versioned scope identity used by artifacts."""
         start, end = self.start, self.end
         if self.kind == "absolute":
@@ -1018,17 +973,11 @@ class TimeScope(BaseModel):
             key=calendar_scope.key,
         )
 
-    @overload
-    def model_dump(self, *, mode: Literal["json"], **kwargs: Any) -> dict[str, object]: ...
-
-    @overload
-    def model_dump(self, *, mode: str = "python", **kwargs: Any) -> dict[str, object]: ...
-
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, object]:
-        # Preserve the existing absolute-window payload shape while retaining
-        # semantic provenance whenever it is present.
-        kwargs.setdefault("exclude_none", True)
-        return cast("dict[str, object]", super().model_dump(*args, **kwargs))
+    def _model_dump(
+        self, *, mode: Literal["python", "json"] = "python", exclude_none: bool = True
+    ) -> dict[str, object]:
+        # Keep the ordinary payload distinct from the versioned contract encoding.
+        return super().model_dump(mode=mode, exclude_none=exclude_none)
 
 
 class _AbsoluteTimeScope(TimeScope):
@@ -3452,10 +3401,22 @@ def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CalendarAxis(Grouping):
-    """Exact finite calendar selection with captured civil boundary authority."""
+    """Exact finite calendar selection with captured civil boundary authority.
 
-    scope: TimeScope | None
-    grid: BoundTimeGrid
+    Acquire with scope.by(grain) or axis.shift(rule); raw scope/grid construction
+    is not a supported public entrypoint.
+    """
+
+    scope: TimeScope | None = dataclass_field(
+        metadata={
+            "meaning": "Read the already captured TimeScope: scope.by(grain).scope is the original scope; a shifted axis may have None. Reading never rebuilds a range or fills a grid envelope."
+        }
+    )
+    grid: BoundTimeGrid = dataclass_field(
+        metadata={
+            "meaning": "Read the frozen finite buckets and calendar snapshot interpretation from calendar_axis.grid. Read-only metadata; no source reads or new construction authority. Nested bucket/snapshot internals have no additional public entrypoints."
+        }
+    )
 
     @property
     def kind(self) -> Literal["calendar"]:

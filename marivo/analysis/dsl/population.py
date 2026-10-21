@@ -135,7 +135,7 @@ def identity(
         primary-key component through a single-valued route. Use mv.coordinates
         for a finite requested key domain, or session.members for source members.
     """
-    if at is not None and not isinstance(at, InstantAnchor):
+    if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):
         reject(
             "an exact InstantAnchor", type(at).__name__, "Use session.instant(...).", "identity.at"
         )
@@ -183,7 +183,12 @@ def _combined_owner(definitions: tuple[PopulationDependency, ...]) -> Owner | No
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Population(PopulationParameter):
-    """A lazy finite set of complete coordinates; use a Session to execute it."""
+    """A lazy finite set of complete coordinates; use a Session to execute it.
+
+    Acquire through mv.coordinates/product, session.members/population_from or
+    existing Population operations. Internal definition/frame inputs are not a
+    supported constructor.
+    """
 
     _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
 
@@ -443,7 +448,7 @@ class Population(PopulationParameter):
         Constraints: Requires one identity axis and explicit connected relationships.
         """
         _identity_path(self, via)
-        if at is not None and not isinstance(at, InstantAnchor):
+        if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):
             reject(
                 "an exact InstantAnchor",
                 type(at).__name__,

@@ -271,8 +271,8 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
         second.coord(first.axes[0])
     with pytest.raises(CoreRuleError, match="exact Frame input"):
         second._bind_statistic(first["revenue"].mean())
-    assert second._bind_statistic(row_count()).input_id == second._input_id
-    assert first._bind_statistic(row_count()).input_id == first._input_id
+    assert second._bind_statistic(row_count())._input_id == second._input_id
+    assert first._bind_statistic(row_count())._input_id == first._input_id
     assert second._backing.metadata.result_id == first._backing.metadata.result_id
     assert second._backing.metadata.evaluated_at == NOW
 

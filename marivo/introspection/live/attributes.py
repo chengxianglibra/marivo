@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import get_origin
 
 from pydantic import BaseModel
@@ -41,6 +41,11 @@ def _field_access(type_obj: type, name: str) -> str:
 def public_attributes(type_obj: type) -> dict[str, AttributeHelp]:
     """Read public annotated fields and properties without invoking descriptors."""
     attributes: dict[str, AttributeHelp] = {}
+    field_meanings = (
+        {field.name: field.metadata.get("meaning") for field in fields(type_obj)}
+        if is_dataclass(type_obj)
+        else {}
+    )
     for base in reversed(type_obj.__mro__):
         if base is not type_obj and not base.__module__.startswith("marivo."):
             continue
@@ -53,9 +58,12 @@ def public_attributes(type_obj: type) -> dict[str, AttributeHelp]:
                     and str(get_origin(annotation)) != "typing.ClassVar"
                     and not (isinstance(annotation, str) and annotation.startswith("ClassVar["))
                 ):
+                    meaning = field_meanings.get(name)
                     attributes[name] = AttributeHelp(
                         _annotation_text(annotation),
-                        f"Stored {name.replace('_', ' ')} of {type_obj.__name__}.",
+                        meaning
+                        if isinstance(meaning, str)
+                        else f"Stored {name.replace('_', ' ')} of {type_obj.__name__}.",
                         _field_access(type_obj, name),
                         "Reads the stored field; no property getter or execution is involved.",
                     )

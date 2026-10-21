@@ -72,8 +72,8 @@ Grouping allocation rules. Endpoint `during` retains its independent time scope:
 
 ```python
 pending = session.attribute(
-    mv.AttributeEndpoint({"revenue": revenue}, during=august),
-    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    mv.attribute_endpoint({"revenue": revenue}, during=august),
+    mv.attribute_endpoint({"revenue": revenue}, during=july),
     by=(region,),
 )
 pending.show(n=0)
@@ -104,8 +104,8 @@ request when the original observation is valid.
 
 ```python
 explained = session.attribute(
-    mv.AttributeEndpoint({"revenue": revenue}, during=august),
-    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    mv.attribute_endpoint({"revenue": revenue}, during=august),
+    mv.attribute_endpoint({"revenue": revenue}, during=july),
     by=(region,),
     contribution=True,
 ).compute()
@@ -146,8 +146,8 @@ changing the formula or relying on a fallback:
 ```python
 nonlinear = revenue * revenue
 nonlinear_investigation = session.attribute(
-    mv.AttributeEndpoint({"squared": nonlinear}, during=august),
-    mv.AttributeEndpoint({"squared": nonlinear}, during=july),
+    mv.attribute_endpoint({"squared": nonlinear}, during=august),
+    mv.attribute_endpoint({"squared": nonlinear}, during=july),
     by=(region,),
     contribution=False,
 ).compute()

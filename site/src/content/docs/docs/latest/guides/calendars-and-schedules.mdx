@@ -36,7 +36,7 @@ calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
 week_scope = calendar.period("week", "FY2026-W01")
 assert week_scope.kind == "calendar_period"
-week_scope.contract().show()  # exact bounds and certified snapshot identity
+week_scope.show()  # exact bounds and certified snapshot identity
 ```
 
 Calendar identity governs boundaries and membership. Analysis alignment uses
@@ -100,3 +100,10 @@ publishes when exhaustive input satisfies the declaration. Display limits do not
 bound certification input. Readiness reports missing/stale/invalid artifacts;
 follow its typed repair to preview and recertify. Business authority for working
 and non-working dates remains with the project definition.
+
+`mv.grain` describes builtin units; `ms.calendar_grain` captures a source-free
+lookup, while `calendar.grain(level)` retains the certified snapshot.
+`scope.by(grain).scope` is the original scope. A shifted axis may have
+`scope is None`; reading never fills it from the grid envelope. `axis.grid`
+retains frozen buckets and calendar interpretation. A day bucket can span 23 or
+25 hours across DST; nominal widths do not describe its elapsed duration.

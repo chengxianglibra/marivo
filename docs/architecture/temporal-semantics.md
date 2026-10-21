@@ -378,10 +378,17 @@ ms.calendar_grain(
 ) -> Grain
 ```
 
-Both constructors return the same public `Grain` contract. The common contract
+`ms.calendar_grain` captures a source-free lookup without loading or certifying a
+calendar. `calendar.grain(level)` returns a Grain bound to the already certified
+snapshot. These paths retain their distinct binding stages.
+
+All three paths return the same public `Grain` contract. The common contract
 exposes only `kind`, stable identity, equality, hashing, and bounded `repr`.
-`count`, `unit`, fixed width, and duration/rank comparisons are builtin-variant
-facts, not common `Grain` behavior. Semantic-grain compatibility is resolved
+`count` and `unit` are builtin-variant facts. Existing rank comparisons remain;
+nominal widths and stable token encoding are internal implementation details.
+A nominal day remains 86400 seconds internally while an actual New York
+2026-03-08 bucket spans 82800 seconds. No public duration conversion is implied.
+Semantic-grain compatibility is resolved
 structurally from the certified calendar graph.
 
 ```python
@@ -408,6 +415,18 @@ backend-native scalar wrappers are rejected. A catalog-produced scope is frozen,
 structurally comparable, hashable, and already bound to the exact certified
 snapshot and bounds. Its bounded single-line `repr` exposes business identity
 and points to `show()` for detail; it never exposes a project path.
+
+Read `scope.by(grain).scope` to obtain the original scope. A shifted CalendarAxis
+may have `scope is None`; reads never rebuild a scope from the grid envelope or
+infer a sparse period range. `grid` retains frozen bucket/calendar interpretation.
+Session scopes have exact InstantAnchor start/end; Catalog scopes can retain civil
+date boundaries. Exact `members/identity/image` anchors must be timezone-aware.
+Inspect a scope through fields and `render/show`. Versioned contract and ordinary
+payload serialization remain separate internal encodings with unchanged provenance,
+fingerprints and trusted decoding. Pydantic inheritance does not make serialization
+a supported Marivo entrypoint. Internal `before_endpoint` version selection retains
+its strict comparison meaning; there is no public left-limit value/consumer and no
+exact-end or tick-subtraction replacement.
 
 ### Catalog navigation and result types
 

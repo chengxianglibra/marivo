@@ -205,7 +205,7 @@ class Session:
                 "Use a field condition from the identity Entity.",
                 "session.members",
             )
-        if at is not None and not isinstance(at, InstantAnchor):
+        if at is not None and (not isinstance(at, InstantAnchor) or at.utcoffset() is None):
             reject(
                 "an exact InstantAnchor",
                 type(at).__name__,
@@ -362,8 +362,8 @@ class Session:
             .. code-block:: python
 
                 request = session.attribute(
-                    mv.AttributeEndpoint({"q": current}),
-                    mv.AttributeEndpoint({"q": baseline}),
+                    mv.attribute_endpoint({"q": current}),
+                    mv.attribute_endpoint({"q": baseline}),
                     by=(region,),
                 )
                 fixed = request.compute()

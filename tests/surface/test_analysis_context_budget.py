@@ -247,12 +247,12 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
         "analysis.methods",
         "analysis.methods.attribute",
         "analysis.session.attribute",
-        "analysis.attribute_endpoint",
+        "analysis.attribute_endpoint.define",
     ):
         trace.help(target)
     request = session.attribute(
-        mv.AttributeEndpoint({"revenue": revenue}, during=august),
-        mv.AttributeEndpoint({"revenue": revenue}, during=july),
+        mv.attribute_endpoint({"revenue": revenue}, during=august),
+        mv.attribute_endpoint({"revenue": revenue}, during=july),
         by=(region,),
         contribution=True,
     )

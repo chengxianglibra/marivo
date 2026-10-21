@@ -567,12 +567,18 @@ class Column:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class _Statistic:
-    input_id: str | None
-    definition: Statistic | PairStatistic
+    _input_id: str | None
+    _definition: Statistic | PairStatistic
     unit: str | None
     _frame: AnalysisFrame | None = None
+
+    def __repr__(self) -> str:
+        unit = repr(self.unit)
+        if len(unit) > 80:
+            unit = unit[:77] + "..."
+        return f"<ValueStatistic unit={unit}; use marivo.help('analysis.value_statistic')>"
 
 
 def row_count() -> _Statistic:

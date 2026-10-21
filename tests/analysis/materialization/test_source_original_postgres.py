@@ -402,8 +402,8 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
 
         trace = capture_source(monkeypatch)
         assert session.runs().items == ()
-        left = mv.AttributeEndpoint({"q": metric}, during=current)
-        right = mv.AttributeEndpoint({"q": metric}, during=baseline)
+        left = mv.attribute_endpoint({"q": metric}, during=current)
+        right = mv.attribute_endpoint({"q": metric}, during=baseline)
         pending = session.attribute(
             left,
             right,

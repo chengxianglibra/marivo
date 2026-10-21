@@ -71,3 +71,8 @@ print(paired_difference.mean())
 
 presence 与值有效性独立。保留完整键与共同存在、共同非 NA 的掩码，不按 RangeIndex
 配对无关导出。需要时用 dropna=False 保留 Field Null 类别。算术变化不证明因果。
+
+未完成统计量只公开只读 `unit`，由 `frame.reduce(...)` 消费。`mv.row_count()` 未绑定，
+可复用于不同 Frame，消费不修改原请求。Column 的 sum/mean/corr/pair_count 绑定精确
+Frame 与 Session；名称、结构或值相同的另一输入不能替换。
+见 `marivo.help("analysis.value_statistic")`。

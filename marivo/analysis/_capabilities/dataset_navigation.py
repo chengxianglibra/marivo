@@ -83,6 +83,9 @@ _HUBS = (
         "Find missing governed inputs or scope.",
         (),
         "decision_hub",
+        guidance=(
+            "Use mv.* for explicit descriptions/composition, session.* to introduce Catalog, Store, execution ownership or frozen default timezone, and receiver methods/properties for existing context. Exported types do not authorize direct construction.",
+        ),
     ),
     NavigationInput(
         "artifacts",
@@ -169,6 +172,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 "Unknown capability: choose a route. Population/Frame: show() -> exact type Help. Artifact: metadata and audit only.",
                 "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
                 "Errors own expected/received facts and the exact repair.",
+                "Choose mv.* for explicit descriptions/composition, session.* for Session context, and receiver methods/properties for existing context. mv.session.create/resume/recent/inspect own lifecycle discovery.",
             ),
         )
     )

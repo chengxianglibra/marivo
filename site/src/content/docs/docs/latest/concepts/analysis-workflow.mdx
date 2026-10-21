@@ -3,6 +3,12 @@ title: Analysis workflow
 description: Construct explicit source inputs, fix data and continue with complete Frames.
 ---
 
+Use `mv.*` for explicit descriptions/composition, `session.*` when introducing
+Catalog, Store, execution ownership or the frozen default timezone, and receiver
+methods/properties for existing context. Public types support inspection and
+annotations; obtain values through their producers. `mv.session.*` owns lifecycle
+discovery. Capture an endpoint with `mv.attribute_endpoint(...)`.
+
 ## Read guidance for the next decision
 
 The marivo-analysis skill owns question scope, semantic handoffs and closeout.

@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.binding.attribute import attribute_input_request
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -78,7 +78,7 @@ def test_same_root_ratio_one_actual_read_per_endpoint(
     value = session.catalog.fields.get("sales.facts.value")
     weight = session.catalog.fields.get("sales.facts.weight")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum().divide(weight.sum())})
+    endpoint = attribute_endpoint({"q": value.sum().divide(weight.sum())})
     request = attribute_input_request(session, endpoint, endpoint, by=(channel,))
     reads = []
     original = SourceSession.execute
@@ -115,7 +115,7 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
     channel = session.catalog.fields.get("sales.facts.channel")
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.weighted_mean(weight=weight) if weighted else value.mean()
-    endpoint = AttributeEndpoint({"q": metric}, where=region == "east")
+    endpoint = attribute_endpoint({"q": metric}, where=region == "east")
     output = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, by=(channel,))
     )
@@ -135,7 +135,7 @@ def test_full_compound_and_null_parent_keys(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
     region = session.catalog.fields.get("sales.facts.region")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     parents = mv.coordinates(by=(region,), keys=(("east",), (None,)))
     output = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
@@ -153,7 +153,7 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
         connection.execute("UPDATE facts SET value=10 WHERE id=2")
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.count_distinct()})
+    endpoint = attribute_endpoint({"q": value.count_distinct()})
     with pytest.raises(AnalysisError, match="overlapping_groups"):
         evaluate_attribute_inputs(
             attribute_input_request(session, endpoint, endpoint, by=(channel,))
@@ -169,7 +169,7 @@ def test_duplicate_physical_root_identity_keeps_original_error(
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     with pytest.raises(MaterializationError, match="duplicate complete contribution identity"):
         evaluate_attribute_inputs(
             attribute_input_request(session, endpoint, endpoint, by=(channel,))
@@ -184,7 +184,7 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
     channel = session.catalog.fields.get("sales.facts.channel")
     region = session.catalog.fields.get("sales.facts.region")
     parents = mv.coordinates(by=(region,), keys=() if empty else (("absent",),))
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
     )
@@ -210,7 +210,7 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
     )
     membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
-    endpoint = AttributeEndpoint({"q": value.sum()}, memberships=(membership,))
+    endpoint = attribute_endpoint({"q": value.sum()}, memberships=(membership,))
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
     )
@@ -240,7 +240,7 @@ def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
         session.catalog.relationships.get("sales.link_tags"),
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
-    endpoint = AttributeEndpoint(
+    endpoint = attribute_endpoint(
         {"q": value.sum()},
         where=region.isnull() if missing else fact_id == 1,
         memberships=(membership,),
@@ -260,7 +260,7 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
         session.catalog.relationships.get("sales.link_tags"),
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
-    endpoint = AttributeEndpoint({"q": value.sum()}, where=fact_id == 1, memberships=(membership,))
+    endpoint = attribute_endpoint({"q": value.sum()}, where=fact_id == 1, memberships=(membership,))
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, by=(label,))
     )
@@ -274,8 +274,8 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
 def test_outer_fine_group_has_typed_empty_components(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    left = AttributeEndpoint({"q": value.sum()})
-    right = AttributeEndpoint({"q": value.sum()}, where=channel == "A")
+    left = attribute_endpoint({"q": value.sum()})
+    right = attribute_endpoint({"q": value.sum()}, where=channel == "A")
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, left, right, by=(channel,))
     )
@@ -306,7 +306,7 @@ def test_default_path_collects_no_attribute_input_proof(
     monkeypatch.setattr(graph_source_execution, "prepare_attribute_sources", unexpected)
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     assert len(session.attribute(endpoint, endpoint, by=(channel,)).compute().to_pandas()) == 2
 
 
@@ -337,7 +337,7 @@ def test_unknown_physical_leaf_fails_before_business_read(
     monkeypatch.setattr(SourceSession, "execute", execute)
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     with pytest.raises(AnalysisError, match="unqualified_contribution_route"):
         evaluate_attribute_inputs(
             attribute_input_request(session, endpoint, endpoint, by=(channel,))
@@ -359,7 +359,7 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
         )
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.mean()})
+    endpoint = attribute_endpoint({"q": value.mean()})
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, by=(channel,))
     )
@@ -394,7 +394,7 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
         )
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.mean()})
+    endpoint = attribute_endpoint({"q": value.mean()})
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, by=(channel,))
     )
@@ -425,7 +425,7 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
         connection.execute("UPDATE facts SET value=9223372036854775807")
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.mean()})
+    endpoint = attribute_endpoint({"q": value.mean()})
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, by=(channel,))
     )
@@ -444,7 +444,7 @@ def test_one_additional_root_adds_one_read_per_endpoint_without_fact_fanout(
     value = session.catalog.fields.get("sales.facts.value")
     other = session.catalog.fields.get("sales.otherfacts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum() + other.sum()})
+    endpoint = attribute_endpoint({"q": value.sum() + other.sum()})
     calls = []
     original = SourceSession.execute
 
@@ -478,7 +478,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
 
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     captured = []
     compile_plan = frame_evaluation.plan_frame
 
@@ -532,7 +532,7 @@ def test_complete_compound_identity_parent_mapping(session: Session) -> None:
     channel = session.catalog.fields.get("sales.facts.channel")
     entity = session.catalog.entities.get("sales.facts")
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     prepared = evaluate_attribute_inputs(
         attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
     )
@@ -576,7 +576,7 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
     channel = session.catalog.fields.get("sales.facts.channel")
     entity = session.catalog.entities.get("sales.facts")
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
-    endpoint = mv.AttributeEndpoint({"q": value.sum()})
+    endpoint = mv.attribute_endpoint({"q": value.sum()})
     with pytest.raises(MaterializationError) as caught:
         evaluate_attribute_inputs(
             attribute_input_request(session, endpoint, endpoint, parents=parents, by=(channel,))
@@ -607,7 +607,7 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
     monkeypatch.setattr(SourceSession, "execute", read)
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     with pytest.raises(AttributeInputError) as caught:
         evaluate_attribute_inputs(
             attribute_input_request(session, endpoint, endpoint, by=(channel,))
@@ -620,7 +620,7 @@ def test_empty_zero_axis_parent_has_no_required_weighted_total(session: Session)
     weight = session.catalog.fields.get("sales.facts.weight")
     channel = session.catalog.fields.get("sales.facts.channel")
     empty = mv.coordinates(by=(), keys=())
-    endpoint = AttributeEndpoint(
+    endpoint = attribute_endpoint(
         {"q": value.weighted_mean(weight=weight, zero_denominator="error")}
     )
     prepared = evaluate_attribute_inputs(
@@ -641,7 +641,7 @@ def test_unproved_sample_sequence_stays_closed_before_source_read(
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
     region = session.catalog.fields.get("sales.facts.region")
-    endpoint = AttributeEndpoint({"q": value.sum().per(channel).mean()})
+    endpoint = attribute_endpoint({"q": value.sum().per(channel).mean()})
     with pytest.raises(AttributeRuleError) as caught:
         attribute_input_request(session, endpoint, endpoint, by=(region,))
     assert caught.value.reason == "missing_component_proof"
@@ -682,7 +682,7 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
         return frame
 
     monkeypatch.setattr(SourceSession, "execute", execute)
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     output = evaluate_attribute_inputs(
         attribute_input_request(
             session,
@@ -720,7 +720,7 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
         session.catalog.relationships.get("sales.link_tags"),
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="null")
-    endpoint = AttributeEndpoint({"q": value.mean()}, memberships=(membership,))
+    endpoint = attribute_endpoint({"q": value.mean()}, memberships=(membership,))
     output = evaluate_attribute_inputs(
         attribute_input_request(
             session,
@@ -757,7 +757,7 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
     value = session.catalog.fields.get("sales.facts.value")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     output = evaluate_attribute_inputs(
         attribute_input_request(
             session,
@@ -797,7 +797,7 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
     value = session.catalog.fields.get("sales.facts.value")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.count()})
+    endpoint = attribute_endpoint({"q": value.count()})
     parents = mv.coordinates(by=(region,), keys=((exact,), (None,)))
     population_rows = session.frame(parents).compute().to_pandas()
     assert {
@@ -857,7 +857,7 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         if case == "missing_outside_where"
         else None
     )
-    endpoint = AttributeEndpoint({"q": value.sum()}, where=where)
+    endpoint = attribute_endpoint({"q": value.sum()}, where=where)
     if case == "missing_outside_where":
         ordinary_rows = (
             session.observe({"q": value.sum()}, by=(channel,), where=where).compute().to_pandas()
@@ -891,7 +891,7 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
     value = session.catalog.fields.get("sales.otherfacts.value")
     identifier = session.catalog.fields.get("sales.otherfacts.id")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     output = evaluate_attribute_inputs(
         attribute_input_request(
             session,
@@ -915,7 +915,7 @@ def test_known_empty_weighted_parent_retains_original_numeric_source_context(
     weight = session.catalog.fields.get("sales.facts.weight")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint(
+    endpoint = attribute_endpoint(
         {"q": value.weighted_mean(weight=weight, zero_denominator="error")}
     )
     with pytest.raises(MaterializationError) as actual:
@@ -989,7 +989,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
         return execute(self, issued)
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    endpoint = AttributeEndpoint({"q": value.sum()})
+    endpoint = attribute_endpoint({"q": value.sum()})
     with pytest.raises(MaterializationError) as actual:
         evaluate_attribute_inputs(
             attribute_input_request(
@@ -1015,7 +1015,7 @@ def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: S
     second = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     domain = mv.product(first, second)
     ordinary = session.observe({"q": domain.count()}, by=domain).compute()
-    endpoint = AttributeEndpoint({"q": domain.count()})
+    endpoint = attribute_endpoint({"q": domain.count()})
     result = session.attribute(endpoint, endpoint, by=domain).compute()
     expected = ordinary.to_pandas()
     actual = result.to_pandas()
@@ -1032,3 +1032,43 @@ def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: S
     assert actual[("value", "left.q")].tolist() == expected[("value", "q")].tolist() == [1] * 4
     assert actual[("value", "right.q")].tolist() == expected[("value", "q")].tolist()
     assert actual[("value", "absolute.q")].tolist() == [0] * 4
+
+
+def test_endpoint_factory_preserves_capture_without_execution(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource.adapters import SourceSession
+
+    value = session.catalog.fields.get("sales.facts.value")
+    region = session.catalog.fields.get("sales.facts.region")
+    first, second = value.sum(), value.mean()
+    period = session.time_scope(start="2026-01-01", end="2026-02-01")
+    condition = region == "east"
+    memberships = (mv.identity(session.catalog.entities.get("sales.facts")),)
+    metrics = {"sum": first, "mean": second}
+    before = session.runs().items
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Endpoint capture must not read a source or Catalog")
+
+    with monkeypatch.context() as capture:
+        capture.setattr(SourceSession, "execute", forbidden)
+        capture.setattr(SourceSession, "compile", forbidden)
+        capture.setattr(Session, "catalog", property(forbidden))
+        endpoint = mv.attribute_endpoint(metrics, period, condition, memberships)
+        default = mv.attribute_endpoint(metrics)
+        with pytest.raises(AnalysisError, match=r"mv\.attribute_endpoint") as error:
+            mv.AttributeEndpoint(metrics)
+        assert "analysis.attribute_endpoint.define" in str(error.value)
+        with pytest.raises(AnalysisError):
+            mv.attribute_endpoint({})
+    metrics.clear()
+    assert tuple(endpoint.metrics) == ("sum", "mean")
+    assert endpoint.metrics["sum"] is first and endpoint.metrics["mean"] is second
+    assert endpoint.during is period and endpoint.where is condition
+    assert endpoint.memberships is memberships
+    assert default.during is None and default.where is None and default.memberships == ()
+    with pytest.raises(TypeError):
+        endpoint.metrics["new"] = first
+    assert session.runs().items == before

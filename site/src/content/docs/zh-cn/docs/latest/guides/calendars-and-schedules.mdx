@@ -34,7 +34,7 @@ calendar = catalog.period_calendars.get("sales.fiscal")
 grain = calendar.grain("week")
 week_scope = calendar.period("week", "FY2026-W01")
 assert week_scope.kind == "calendar_period"
-week_scope.contract().show()  # exact bounds and certified snapshot identity
+week_scope.show()  # exact bounds and certified snapshot identity
 ```
 
 Calendar identity 管理边界与成员。分析对齐使用这些认证事实，不使用看似相同的周期标签。
@@ -95,3 +95,8 @@ schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
 认证在正数有界 scope 下读取所需列，仅在完整输入满足声明时发布。
 展示限制不限制认证输入。Readiness 报告 artifact 缺失、过时或无效；
 跟随 typed repair preview 并重新认证。工作日与非工作日的业务依据仍属于项目定义。
+
+`mv.grain` 描述内置单位；`ms.calendar_grain` 捕获源自由 lookup，
+`calendar.grain(level)` 保留已认证快照。`scope.by(grain).scope` 是原 scope；
+shift 后的轴可为 `scope is None`，读取不以 grid 包络补齐。`axis.grid` 保留冻结的桶和
+日历解释。DST 日桶可为 23 或 25 小时，名义宽度不表示实际经过时长。

@@ -227,7 +227,7 @@ def test_symmetry_keeps_ordered_capture_and_self_pair_count(local: LocalFrameSer
     frame = _pairs(local, (1, 2, None, 4), (4, None, 2, 1))
     x, y = frame["x"], frame["y"]
     forward, backward = x.corr(y, method="pearson"), y.corr(x, method="pearson")
-    assert fingerprint(forward.definition) != fingerprint(backward.definition)
+    assert fingerprint(forward._definition) != fingerprint(backward._definition)
     result = (
         frame.reduce(
             {
@@ -681,3 +681,30 @@ def test_unresolved_source_duration_rejected_during_preparation(
         with pytest.raises(AnalysisError, match=r"[Dd]uration") as failure:
             candidate.compute()
         assert failure.value.repair is not None
+
+
+def test_unfinished_statistics_preserve_binding_and_reusable_row_count(
+    local: LocalFrameServices, tmp_path: Path
+) -> None:
+    first = _pairs(local, (1, 2), (3, 4))
+    second = _pairs(local, (1, 2, 3), (4, 5, 6))
+    foreign = _pairs(
+        DatasetRuntime.create(tmp_path / "foreign", "foreign", timezone="UTC").local, (1,), (2,)
+    )
+    request = mv.row_count()
+    before = (request._input_id, request._definition, request.unit, request._frame)
+    for frame, expected in ((first, 2), (second, 3)):
+        assert frame.reduce({"rows": request}).compute().to_pandas()[
+            ("value", "rows")
+        ].tolist() == [expected]
+        assert (request._input_id, request._definition, request.unit, request._frame) == before
+    for statistic in (
+        first["x"].sum(),
+        first["x"].mean(),
+        first["x"].corr(first["y"], method="pearson"),
+        first["x"].pair_count(first["y"]),
+    ):
+        assert not hasattr(statistic, "input_id") and not hasattr(statistic, "definition")
+        for other in (second, foreign):
+            with pytest.raises(AnalysisError):
+                other.reduce({"value": statistic})

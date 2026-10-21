@@ -16,7 +16,7 @@ from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_expression import FrameExpression
 from marivo.analysis.core.frame_method_facts import FrameRatioMethod
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
@@ -111,14 +111,14 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.sum().divide(weight.sum())
     global_result = session.attribute(
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
         by=(region, channel),
         contribution=True,
     ).compute()
     local_result = session.attribute(
-        AttributeEndpoint({"q": metric}, where=(phase == "current") & (region == "B")),
-        AttributeEndpoint({"q": metric}, where=(phase == "base") & (region == "B")),
+        attribute_endpoint({"q": metric}, where=(phase == "current") & (region == "B")),
+        attribute_endpoint({"q": metric}, where=(phase == "base") & (region == "B")),
         by=(channel,),
         contribution=True,
     ).compute()
@@ -227,8 +227,8 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
     region = session.catalog.fields.get("sales.facts.region")
     metric = gross.sum() - 2 * cost.sum()
     result = session.attribute(
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
         by=(region,),
         contribution=True,
     ).compute()
@@ -283,8 +283,8 @@ def test_disjoint_counted_identities_allow_exact_contributions(
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.count_distinct() if distinct else value.count()
     result = session.attribute(
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
         by=(region,),
         contribution=True,
     ).compute()
@@ -324,8 +324,8 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.weighted_mean(weight=weight)
     result = session.attribute(
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
         by=(region,),
         contribution=True,
     ).compute()

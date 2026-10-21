@@ -42,6 +42,12 @@ must be a string. ``frame.artifact`` is available only for a persisted root and
 provides audit-only ``show()``, ``findings()`` and ``evidence_digest()``.
 Frame owns ``show(n=20)`` and ``to_pandas()``. Artifact is not a computation input.
 
+Public classes describe returned values; they do not authorize direct construction
+or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
+``session.*`` when introducing Catalog, Store, execution ownership or the frozen
+default timezone, and receiver methods/properties for existing context.
+``mv.session.create/resume/recent/inspect`` establish or discover lifecycle context.
+
 Current data operations
 -----------------------
 
@@ -61,6 +67,10 @@ their count, including zero-pair groups. Spearman uses average ranks within
 paired group values. Presence is removed and is never an implicit filter.
 ``Column.corr(other, method=...)`` and ``Column.pair_count(other)`` are unfinished
 statistics for ``reduce`` compositions; each named item outputs one column.
+``mv.row_count()`` is an unbound request, reusable in different Frames without
+mutation. Column sum/mean/corr/pair_count bind one exact Frame and Session;
+equal-looking data cannot substitute. Only their read-only ``unit`` is public;
+pass requests to ``frame.reduce``. See ``analysis.value_statistic`` in Live Help.
 Self pair counting counts non-NA values. Output names never infer matching
 variable pairs. Group coefficients/counts do not reconstruct pooled correlation.
 
@@ -156,7 +166,7 @@ Explicit source investigation and contribution
 
 ``session.attribute(left, right, *, by, parents=None, parent_on=(),
 parent_how="exact", contribution=False)`` returns an ordinary AnalysisFrame.
-``AttributeEndpoint(metrics, during=None, where=None, memberships=())`` copies its
+``mv.attribute_endpoint(metrics, during=None, where=None, memberships=())`` copies its
 ordered Metric mapping. ``where`` is a native Deferred predicate; ``memberships``
 holds explicit Grouping allocation rules independently of selected output keys.
 The endpoint retains its own TimeScope/CalendarAxis through ``during``.
@@ -218,6 +228,8 @@ release acceptance are separate contracts.
 Canonical public exports
 -------------------------
 
+.. autofunction:: attribute_endpoint
+
 .. autoclass:: AttributeEndpoint
    :members:
 
@@ -267,11 +279,9 @@ Canonical public exports
 
 .. autoclass:: TimeScope
    :members:
+   :exclude-members: model_dump
 
-.. autoclass:: InstantAnchor
-   :members:
-
-.. autoclass:: BeforeEndBoundary
+.. autoclass:: InstantAnchor()
    :members:
 
 .. autoclass:: CalendarAxis
@@ -331,3 +341,17 @@ retain native type/field Help through ``marivo.help(type(value))`` and
 exports. Method variants retain their ``kind`` discriminants: ``additive``,
 ``ratio_component`` and ``linear``. Reading these facts grants no source execution
 authority or new decomposition certification.
+
+Schema, grid and saved Runtime boundaries
+-----------------------------------------
+
+``facts.output_schema`` and ``coordinate.schema`` expose saved complete layouts;
+``method_value.column`` owns its physical dtype, unit and nullability.
+``calendar_axis.grid`` contains frozen buckets/calendar interpretation.
+``calendar_axis.scope`` reads the original scope after ``scope.by(grain)``;
+a shifted axis may have None, which is never filled from a grid envelope.
+``finding.value`` is saved content selected by finding_type/kind, including lag
+facts where applicable. ``run.dataset_input.result_id`` identifies an existing
+completed result submitted for publication, not an execution recipe.
+``failed_run.failure`` retains its failure and optional original repair Help.
+These read-only paths do not open constructors for nested implementation types.

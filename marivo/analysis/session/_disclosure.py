@@ -17,7 +17,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import AttributeEndpoint, attribute_endpoint
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
@@ -45,12 +45,46 @@ def provider() -> DisclosureProvider:
                 "attribute_endpoint",
                 AttributeEndpoint,
                 summary="Immutable explicit Metrics and observation scope for one Attribute endpoint.",
-                acquisition="Construct mv.AttributeEndpoint(metrics, during=scope); metrics are copied in declaration order.",
+                acquisition="Construct mv.attribute_endpoint(metrics, during=scope); metrics are copied in declaration order. Direct construction and extension are unsupported.",
+                producers=("attribute_endpoint.define",),
                 consumers=("session.attribute",),
                 constraints=(
                     "metrics is a nonempty ordered mapping of resolved Metrics; during uses the existing time authority; where is a native Deferred predicate and memberships supplies explicit Grouping allocation rules. Construction performs no business reads or Run creation.",
                     "This input record is not a source handle and cannot recover historical Metric definitions.",
                 ),
+            ),
+            operation(
+                "attribute_endpoint.define",
+                "mv.attribute_endpoint",
+                attribute_endpoint,
+                summary="Capture one immutable explicit Attribute endpoint without a Session or source reads.",
+                parameters=(
+                    P(
+                        "metrics",
+                        "Nonempty ordered named resolved Metric mapping; copied without replacing its values.",
+                    ),
+                    P("during", "Explicit TimeScope, CalendarAxis or None; retained unchanged."),
+                    P("where", "Native Deferred predicate or None; retained unchanged."),
+                    P(
+                        "memberships",
+                        "Tuple of explicit Grouping allocation rules; retained unchanged.",
+                    ),
+                ),
+                output="AttributeEndpoint",
+                constraints=(
+                    "Direct AttributeEndpoint construction is unsupported. Session.attribute validates Metrics, ownership, binding and contribution eligibility.",
+                ),
+                effects="Capture only: no Session opening, Catalog loading, schema/business read or Run.",
+                failures=(
+                    "AnalysisError: supply a nonempty named Metric mapping; resolve Metrics before capture.",
+                ),
+                example=ExampleInput(
+                    "result = mv.attribute_endpoint({'revenue': revenue})",
+                    ("revenue",),
+                    "result",
+                    "AttributeEndpoint",
+                ),
+                discovery_group="methods.attribute",
             ),
             operation(
                 "session.attribute",
@@ -104,7 +138,7 @@ def provider() -> DisclosureProvider:
                     "AnalysisError: follow expected/received/location/repair. Unsupported expressions, overlap, missing_component_proof, undefined_input, root_denominator_zero and unqualified_contribution_route fail the whole contribution request; original source/numeric errors retain their owner.",
                 ),
                 example=ExampleInput(
-                    "result = session.attribute(\n    mv.AttributeEndpoint({'revenue': revenue}, during=current_period),\n    mv.AttributeEndpoint({'revenue': revenue}, during=baseline_period),\n    by=(region,),\n)",
+                    "result = session.attribute(\n    mv.attribute_endpoint({'revenue': revenue}, during=current_period),\n    mv.attribute_endpoint({'revenue': revenue}, during=baseline_period),\n    by=(region,),\n)",
                     ("session", "revenue", "current_period", "baseline_period", "region"),
                     "result",
                     "AnalysisFrame",
@@ -115,6 +149,9 @@ def provider() -> DisclosureProvider:
         )
     )
     exports.append(ExportInput("AttributeEndpoint", AttributeEndpoint, "attribute_endpoint"))
+    exports.append(
+        ExportInput("attribute_endpoint", attribute_endpoint, "attribute_endpoint.define")
+    )
     acquisitions = {
         "ArtifactDigest": (
             "Call artifact.evidence_digest(); .items contains all saved output facts.",
@@ -122,32 +159,36 @@ def provider() -> DisclosureProvider:
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read a SucceededRun.output_artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
-            ("SucceededRun",),
+            "Read run.output_artifact_ref, finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
+            (
+                "succeeded_run.output_artifact_ref",
+                "finding.artifact_ref",
+                "artifact_digest.artifact_ref",
+            ),
             ("session.persisted_frame",),
         ),
         "FailedRun": (
-            "Select a failed Run from session.runs() or session.get_run(id).",
+            "Select a failed Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
             ("session.runs", "session.get_run"),
             ("runtime.values.render", "runtime.values.show"),
         ),
         "IncompleteRun": (
-            "Select an incomplete Run from session.runs() or session.get_run(id).",
+            "Select an incomplete Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
             ("session.runs", "session.get_run"),
             ("session.reconcile_run",),
         ),
         "SucceededRun": (
-            "Select a succeeded Run from session.runs() or session.get_run(id).",
+            "Select a succeeded Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
             ("session.runs", "session.get_run"),
             ("session.persisted_frame",),
         ),
         "RunPage": (
-            "Call session.runs(); use next_cursor for the identical selection.",
-            ("session.runs",),
+            "Call session.runs() or read mv.session.inspect(id).runs; use next_cursor for the identical selection.",
+            ("session.runs", "runtime.session_inspection.runs"),
             ("session.runs", "session.get_run", "SucceededRun", "FailedRun", "IncompleteRun"),
         ),
         "Finding": (
-            "Select an exact self-contained output item from artifact.findings().",
+            "Select an exact self-contained output item from artifact.findings().items.",
             ("Artifact.findings",),
             ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
         ),
@@ -163,7 +204,8 @@ def provider() -> DisclosureProvider:
                 value.__name__,
                 value,
                 summary=f"Immutable {value.__name__} contract.",
-                acquisition=acquisitions[value.__name__][0],
+                acquisition=acquisitions[value.__name__][0]
+                + " Direct construction and extension are unsupported.",
                 producers=acquisitions[value.__name__][1],
                 consumers=acquisitions[value.__name__][2],
                 constraints=(
@@ -177,7 +219,7 @@ def provider() -> DisclosureProvider:
             "Session",
             Session,
             summary="One Session binds logical construction and committed Runtime reads.",
-            acquisition="Create or recover through mv.session.create or mv.session.resume.",
+            acquisition="Create or recover through mv.session.create or mv.session.resume. Direct construction and extension are unsupported.",
             producers=("session.create", "session.resume"),
             constraints=(
                 "Source construction loads authored semantics on demand; retained reads do not require current sources.",
@@ -463,13 +505,13 @@ def provider() -> DisclosureProvider:
         (
             e.OutputEvidence,
             "Read artifact.evidence_digest().items; each item is a saved declaration, read or check fact.",
-            ("ArtifactDigest",),
+            ("artifact_digest.items",),
             ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
         ),
         (
             e.OutputCoordinate,
             "Read a saved Evidence or Finding .coordinates item; slot_id locates its output column and value is the saved scalar.",
-            ("runtime.OutputEvidence", "Finding"),
+            ("runtime.output_evidence.coordinates", "finding.coordinates"),
             ("runtime.values.render", "runtime.values.show"),
         ),
         (
@@ -487,7 +529,7 @@ def provider() -> DisclosureProvider:
         (
             r.SessionSummary,
             "Read a selected recent().items entry or inspect(identity).summary; retain its id/name.",
-            ("runtime.SessionSummaryPage", "runtime.SessionInspection"),
+            ("runtime.session_summary_page.items", "runtime.session_inspection.summary"),
             ("session.resume",),
         ),
     )

@@ -80,3 +80,9 @@ print(paired_difference.mean())
 Presence and value validity are independent. Keep complete keys and the common
 present/non-NA mask; do not pair unrelated exports by RangeIndex. Preserve Field
 Null categories with dropna=False where appropriate. Arithmetic is not causality.
+
+Unfinished statistics expose only read-only `unit` and are consumed by
+`frame.reduce(...)`. `mv.row_count()` is unbound and reusable across Frames;
+consuming it does not modify the request. Column sum/mean/corr/pair_count bind the
+exact Frame and Session; another input with equal names, structure or values
+cannot substitute. See `marivo.help("analysis.value_statistic")`.

@@ -3,7 +3,6 @@
 import marivo.analysis.session as session
 from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
 from marivo._grouping import Grouping as Grouping
-from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
@@ -11,6 +10,7 @@ from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
 from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint as attribute_endpoint
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
 from marivo.analysis.dsl.correspondence import offset as offset
@@ -43,6 +43,7 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "AnalysisFrame",
     "FrameAxis",
     "AttributeEndpoint",
+    "attribute_endpoint",
     "FrameMethodFacts",
     "Column",
     "Grouping",
@@ -60,7 +61,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "Grain",
     "TimeScope",
     "InstantAnchor",
-    "BeforeEndBoundary",
     "CalendarAxis",
     "all_history",
     "since",

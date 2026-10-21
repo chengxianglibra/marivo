@@ -7,7 +7,7 @@ with source execution remains with the producer's existing arithmetic policies.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import date
 from decimal import Decimal
 from itertools import islice
@@ -161,7 +161,11 @@ class FrameMethodValue(_FactRecord):
     The frozen result preserves nullable values, Decimal precision and integer time ticks.
     """
 
-    column: DataColumn
+    column: DataColumn = field(
+        metadata={
+            "meaning": "Read method_value.column for this saved value's exact physical dtype, unit and nullability. This is read-only saved metadata; nested dtype implementations are not public constructors."
+        }
+    )
     value: bool | int | float | str | date | Decimal | None
 
     def __post_init__(self) -> None:
@@ -182,7 +186,11 @@ class FrameMethodCoordinate(_FactRecord):
     """
 
     name: str
-    schema: DataSchema
+    schema: DataSchema = field(
+        metadata={
+            "meaning": "Read coordinate.schema for the complete saved coordinate layout. Read-only schema metadata; nested axes and bindings do not acquire public construction authority."
+        }
+    )
     rows: tuple[tuple[bool | int | float | str | date | Decimal | None, ...], ...]
 
     def __post_init__(self) -> None:
@@ -641,14 +649,19 @@ def _key_order(parent: FrameMethodParent) -> tuple[tuple[bool, _MethodScalar], .
 class FrameMethodFacts(_FactRecord):
     """Own one original decomposition's complete explanatory facts.
 
-    Args: kind, origin_result_id, output_schema, coordinates, parent_axis_count, parents.
-    Returns a frozen record; e.g. ``FrameMethodFacts('attribute', 'r', s, (), 0, ())``.
+    Read an item from ``fixed_frame.method_facts``. The returned frozen record
+    contains complete original output schema, coordinates and ordered parents.
+    Direct construction is not a supported public entrypoint.
     Constraints: no source authority, current-result certification or numerical reexecution.
     """
 
     kind: Literal["attribute"]
     origin_result_id: str
-    output_schema: DataSchema
+    output_schema: DataSchema = field(
+        metadata={
+            "meaning": "Read facts.output_schema for the complete original saved output layout. Read-only schema metadata; nested axes, comparisons and frozen descriptors remain internal."
+        }
+    )
     coordinates: tuple[FrameMethodCoordinate, ...]
     parent_axis_count: int
     parents: tuple[FrameMethodParent, ...]

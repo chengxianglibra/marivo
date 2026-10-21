@@ -604,3 +604,17 @@ def test_predicate_consumer_limits_and_hidden_field_roots(session: Session) -> N
         consume_predicate(((region == "east") & member) | ((segment == "gold") & False))
     for condition in ((region == "east") | member, member | (region == "east")):
         assert consume_predicate(condition).roots == (consume_field(region).root,)
+
+
+def test_precise_anchor_consumers_refuse_timezone_free_manual_copies(session: Session) -> None:
+    entity = session.catalog.entities.get("sales.facts")
+    relationship = session.catalog.relationships.get("sales.customer")
+    members = session.members(entity)
+    naive = mv.InstantAnchor(2026, 1, 1)
+    for construct in (
+        lambda: session.members(entity, at=naive),
+        lambda: mv.identity(entity, at=naive),
+        lambda: members.image(via=(relationship,), at=naive),
+    ):
+        with pytest.raises(CoreRuleError, match="exact InstantAnchor"):
+            construct()

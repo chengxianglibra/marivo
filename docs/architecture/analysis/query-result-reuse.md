@@ -211,6 +211,15 @@ observe 声明指标求值。允许 read 的 fields 为空仍不能覆盖一般�
 这些入口不通过空参数互相代用。frame 的 output_names 可为空，但完整键域及空域检查仍适用。
 派生对象的结构和输入绑定均不可变；不开放直接替换载体或修改结构的公共入口。
 
+未完成统计量由 `mv.row_count()` 与 Column 的 `sum/mean/corr/pair_count` 获取，
+只读公开字段为 `unit`，由 `frame.reduce(...)` 消费。row_count 请求未绑定，可复用于
+不同 Frame，消费不修改原请求；Column 统计量绑定精确 Frame/Session，不能以名称、
+结构或值相同的另一输入替换。它们不公开 AST 或重绑定入口。
+
+端点描述使用 `mv.attribute_endpoint(metrics, during=None, where=None, memberships=())`；
+它复制有序映射且不读取来源，`session.attribute` 继续拥有归属、绑定与贡献准入校验。
+`AttributeEndpoint` 仅作为返回类型公开。
+
 ### 3.1 普通结果与比较结果
 
 ```python

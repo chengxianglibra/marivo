@@ -891,15 +891,15 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     assert type(scope) is _SessionTimeScope
     axis = scope.by(mv.grain("day"))
     assert scope.by(mv.grain("month")).scope is scope
-    restored = _time_scope_from_contract_data(scope.contract().model_dump(mode="json"))
+    restored = _time_scope_from_contract_data(scope._contract().model_dump(mode="json"))
     assert isinstance(restored, TimeScope)
     assert restored.start == scope.start and restored.end == scope.end
     assert restored.boundary_timezone == scope.boundary_timezone
     assert restored.by(mv.grain("day")).grid.identity == axis.grid.identity
     civil = time_scope(start="2026-01-01", end="2026-01-03")
-    civil_restored = _time_scope_from_contract_data(civil.contract().model_dump(mode="json"))
+    civil_restored = _time_scope_from_contract_data(civil._contract().model_dump(mode="json"))
     assert type(civil_restored.start) is date and type(civil_restored.end) is date
-    assert civil_restored == civil and civil_restored.contract().boundary_timezone is None
+    assert civil_restored == civil and civil_restored._contract().boundary_timezone is None
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
     time = optimization_session.catalog.fields.get("sales.orders.ordered_at")
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))

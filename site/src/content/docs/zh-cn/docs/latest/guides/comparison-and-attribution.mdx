@@ -60,8 +60,8 @@ difference.show()
 
 ```python
 pending = session.attribute(
-    mv.AttributeEndpoint({"revenue": revenue}, during=august),
-    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    mv.attribute_endpoint({"revenue": revenue}, during=august),
+    mv.attribute_endpoint({"revenue": revenue}, during=july),
     by=(region,),
 )
 pending.show(n=0)
@@ -92,8 +92,8 @@ NA 值保持 NA。省略 parents 表示一个总体，显式空父选择保持�
 
 ```python
 explained = session.attribute(
-    mv.AttributeEndpoint({"revenue": revenue}, during=august),
-    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    mv.attribute_endpoint({"revenue": revenue}, during=august),
+    mv.attribute_endpoint({"revenue": revenue}, during=july),
     by=(region,),
     contribution=True,
 ).compute()
@@ -127,8 +127,8 @@ original_explanation = reopened_declines.method_facts
 ```python
 nonlinear = revenue * revenue
 nonlinear_investigation = session.attribute(
-    mv.AttributeEndpoint({"squared": nonlinear}, during=august),
-    mv.AttributeEndpoint({"squared": nonlinear}, during=july),
+    mv.attribute_endpoint({"squared": nonlinear}, during=august),
+    mv.attribute_endpoint({"squared": nonlinear}, during=july),
     by=(region,),
     contribution=False,
 ).compute()

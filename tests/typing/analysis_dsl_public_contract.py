@@ -156,6 +156,4 @@ if TYPE_CHECKING:
         assert_type(query, mv.AnalysisFrame)
         return query
 
-    assert_type(
-        session.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
-    )
+    assert_type(session.time_scope(start="2026-08-01", end="2026-09-01").end, mv.InstantAnchor)

@@ -6,11 +6,10 @@ from marivo.analysis import grain
 
 def test_keyword_construction_and_token():
     g = grain("minute", count=5)
-    assert g.is_subday is True
-    assert g.is_day is False
-    assert g.width_seconds() == 300
-    assert g.to_token() == "5minute"
-    assert grain("day", count=1).to_token() == "day"
+    assert g._is_subday is True
+    assert g._width_seconds() == 300
+    assert g._to_token() == "5minute"
+    assert grain("day", count=1)._to_token() == "day"
 
 
 @pytest.mark.parametrize(
@@ -29,13 +28,13 @@ def test_grain_width_seconds_fixed_size(token, seconds):
     count, unit = (
         (5, "minute") if token == "5minute" else (2, "hour") if token == "2hour" else (1, token)
     )
-    assert grain(unit, count=count).width_seconds() == seconds
+    assert grain(unit, count=count)._width_seconds() == seconds
 
 
 @pytest.mark.parametrize("token", ["month", "quarter", "year"])
 def test_grain_width_seconds_rejects_calendar_variable(token):
     with pytest.raises(ValueError, match="calendar-variable"):
-        grain(token).width_seconds()
+        grain(token)._width_seconds()
 
 
 def test_positional_construction_rejected():

@@ -31,6 +31,7 @@ class CoreRuleError(AnalysisError):
                     surface="analysis",
                     canonical_id={
                         "session.attribute": "session.attribute",
+                        "attribute_endpoint.define": "attribute_endpoint.define",
                         "frame.method_facts": "analysis_frame.method_facts",
                         "frame.method_facts.show": "frame_method_facts.show",
                     }.get(location),

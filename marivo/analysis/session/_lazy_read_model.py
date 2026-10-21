@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, TypeAlias
 
@@ -52,7 +52,11 @@ class _RunBase(RenderableResult):
     run_id: str
     session_id: str
     admitted_at: datetime
-    dataset_input: InvocationInput
+    dataset_input: InvocationInput = field(
+        metadata={
+            "meaning": "Read run.dataset_input.result_id to identify the existing completed result submitted for publication. This saved record is read-only and is not an execution recipe."
+        }
+    )
 
     def __post_init__(self) -> None:
         if type(self) not in (IncompleteRun, SucceededRun, FailedRun):
@@ -121,7 +125,11 @@ class SucceededRun(_RunBase):
 @dataclass(frozen=True, repr=False, slots=True, kw_only=True)
 class FailedRun(_RunBase):
     failed_at: datetime
-    failure: RunFailure
+    failure: RunFailure = field(
+        metadata={
+            "meaning": "Read failed_run.failure for the saved failure and original structured repair. When present, failure.repair.help_target identifies its owning Help. Reading does not execute the repair or restore sources."
+        }
+    )
 
     @property
     def lifecycle(self) -> Literal["failed"]:

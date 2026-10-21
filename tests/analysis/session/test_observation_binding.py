@@ -347,6 +347,7 @@ def test_exact_boundaries_calendar_and_host_independence(
     assert isinstance(scope.start, InstantAnchor) and isinstance(scope.end, InstantAnchor)
     assert scope.start == datetime(2026, 3, 7, 17, tzinfo=timezone.utc)
     axis = scope.by(mv.grain("day"))
+    assert axis.scope is scope
     cells = axis.grid.cells
     assert len(cells) == 4 and cells[0].partial and cells[-1].partial
     assert cells[1].original_end - cells[1].original_start == timedelta(hours=23)
@@ -356,10 +357,12 @@ def test_exact_boundaries_calendar_and_host_independence(
     monkeypatch.setenv("TZ", "Pacific/Honolulu")
     assert repr(axis) == before
     assert scope.by(mv.grain("day")) == axis
-    reopened = _time_scope_from_contract_data(scope.contract().model_dump(mode="json"))
+    assert mv.grain("day")._width_seconds() == 86400
+    assert scope._contract().model_dump(mode="json")["schema"] == "time-scope/v1"
+    reopened = _time_scope_from_contract_data(scope._contract().model_dump(mode="json"))
     assert reopened == scope
     assert reopened.by(mv.grain("day")) == axis
-    assert _validate_time_scope_data(scope.model_dump(mode="json")) == scope
+    assert _validate_time_scope_data(scope._model_dump(mode="json")) == scope
     for value in (datetime(2026, 1, 1), "2026-03-08T02:30:00", "2026-11-01T01:30:00"):
         with pytest.raises(AnalysisError):
             session.instant(value)

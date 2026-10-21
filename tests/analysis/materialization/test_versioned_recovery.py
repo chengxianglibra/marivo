@@ -13,7 +13,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import BeforeEndBoundary
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
@@ -118,10 +117,10 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 current = session.members(entity, at=august)
                 boundary = session.time_scope(start="2026-08-01", end="2026-09-01")
                 with pytest.raises(AnalysisError):
-                    # The retired left-limit token is not an exact InstantAnchor.
+                    # A manually copied anchor without a timezone is not an exact instant.
                     session.members(
                         entity,
-                        at=BeforeEndBoundary(datetime(2026, 9, 1, tzinfo=timezone.utc)),  # type: ignore[arg-type]
+                        at=mv.InstantAnchor(2026, 9, 1),  # type: ignore[arg-type]
                     )
             assert session.runs().items == before
             with monkeypatch.context() as preparation:

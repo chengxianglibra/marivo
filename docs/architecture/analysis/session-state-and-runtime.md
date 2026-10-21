@@ -13,6 +13,14 @@ Frame/Column/FrameAxis dependencies stay alive while consumers need them; no
 Session result cache, automatic eviction/spill or public close/unpersist is added.
 Pure memory reading/computation does not require the persistent destination writable.
 
+Session methods introduce Catalog, Store, execution ownership or frozen default
+timezone. Even source-free `session.values(...)` needs the receiving Frame's
+execution and persistence owner. Explicit descriptions such as
+`mv.attribute_endpoint(...)` introduce no Session; composition such as
+`mv.product(P, Q)` inherits its unique input owner and rejects conflicts.
+Receiver methods derive from existing context; public result types are acquired
+values, not supported constructors.
+
 Construction, repr, Help and show do not evaluate or create a Run. Compute
 completes immutable memory data without Run/Artifact/temporary saved output.
 Expression persist is compute followed by publish-existing. Evaluation fails

@@ -513,3 +513,25 @@ def test_cli_help_render_failure_is_diagnostic_exit_one(
     assert captured.out == ""
     assert "cause='RuntimeError'" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_cli_rejects_retired_analysis_construction_targets(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for suffix in (
+        "before_end_boundary",
+        "before_end_boundary.end",
+        "before_end_boundary.boundary_timezone",
+        "before_end_boundary.show",
+        "time_scope.before_end",
+        "grain.to_token",
+        "grain.width_seconds",
+        "grain.is_day",
+        "grain.is_subday",
+        "time_scope.contract",
+        "time_scope.model_dump",
+    ):
+        with pytest.raises(SystemExit) as error:
+            main(["help", "analysis." + suffix])
+        assert error.value.code == 2
+        assert "not registered" in capsys.readouterr().err

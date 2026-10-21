@@ -19,7 +19,12 @@ Task navigation and type/member indexes link to the same canonical leaves.
 `semantic.objects` selects an object kind; `semantic.metric` describes its
 meaning and operations; `semantic.metric.define` describes `ms.metric`.
 `semantic.metric.where` is explicitly supported Deferred syntax, not a Python
-class inferred by reflection. Native role pages disclose legal input acquisition.
+class inferred by reflection. Native role pages disclose legal input acquisition. Exporting a type permits
+annotations, inspection and Help, not direct construction or subclass extension.
+Type pages own acquisition paths; callable pages own signatures, effects and repairs.
+For analysis, explicit descriptions/composition live at `mv.*`; introducing Session
+context uses `session.*`; existing context is read or derived through receiver
+methods, properties and page items. Lifecycle discovery stays at `mv.session.*`.
 
 Public fields and properties have independent attribute targets such as
 `analysis.query.output_names`. Query them by string without executing a getter;

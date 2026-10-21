@@ -318,7 +318,11 @@ def provider() -> DisclosureProvider:
             ("coordinates", "product", "session.members", "session.population_from"),
             ("session.frame", "Population.project", "Population.classify", "Population.where"),
         ),
-        (Grouping, ("identity", "membership"), ("session.observe", "Grouping.show")),
+        (
+            Grouping,
+            ("identity", "membership", "population.axes", "time_scope.by"),
+            ("session.observe", "Grouping.show"),
+        ),
     ):
         descriptors.append(
             value_type(
@@ -332,9 +336,9 @@ def provider() -> DisclosureProvider:
                     else "Closed immutable coordinate membership predicate."
                 ),
                 acquisition=(
-                    "Use identity(entity), membership(...), scope.by(grain), or population.axes."
+                    "Use identity(entity), membership(...), scope.by(grain), or population.axes. This abstract type has no public constructor or extension point."
                     if value is Grouping
-                    else "Use its owning constructor or producer."
+                    else "Use mv.coordinates for literal keys, session.members for source identities, session.population_from for a fixed Frame bridge, mv.product for composition, or Population.project/classify/where/union/intersection/difference/image/preimage for derivation. Direct construction is unsupported."
                 ),
                 producers=producers,
                 consumers=consumers,
@@ -347,7 +351,7 @@ def provider() -> DisclosureProvider:
             "ObservationWindow",
             _Window,
             summary="A closed source-free endpoint window rule.",
-            acquisition="Use all_history, trailing_duration, trailing_periods, since or to_date.",
+            acquisition="Use all_history, trailing_duration, trailing_periods, since or to_date. Direct construction and extension are unsupported.",
             producers=("all_history", "trailing_duration", "trailing_periods", "since", "to_date"),
             consumers=("ObservationWindow.show",),
             constraints=(

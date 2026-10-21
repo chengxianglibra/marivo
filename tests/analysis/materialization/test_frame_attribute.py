@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -75,8 +75,8 @@ link_tags = ms.relationship(name='link_tags', from_entity=links, to_entity=tags,
 def test_default_q_major_outer_presence_canonical_and_continuation(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     channel = session.catalog.fields.get("sales.facts.channel")
-    current = mv.AttributeEndpoint({"q": amount}, where=channel != "B")
-    baseline = mv.AttributeEndpoint({"q": amount}, where=channel != "C")
+    current = mv.attribute_endpoint({"q": amount}, where=channel != "B")
+    baseline = mv.attribute_endpoint({"q": amount}, where=channel != "C")
     result = session.attribute(current, baseline, by=(channel,))
     assert result.output_names == ("left.q", "right.q", "absolute.q")
     assert result.presence_names == ("left_present", "right_present")
@@ -112,7 +112,7 @@ def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.Monk
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     channel = session.catalog.fields.get("sales.facts.channel")
     original = {"q": amount}
-    endpoint = mv.AttributeEndpoint(original)
+    endpoint = mv.attribute_endpoint(original)
     original["later"] = amount
     assert tuple(endpoint.metrics) == ("q",)
     for value in (0, 1, None):
@@ -120,7 +120,7 @@ def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.Monk
             session.attribute(endpoint, endpoint, by=(channel,), contribution=value)
     for metrics in ({}, {"": amount}):
         with pytest.raises(AnalysisError) as caught:
-            invalid = mv.AttributeEndpoint(metrics)
+            invalid = mv.attribute_endpoint(metrics)
             session.attribute(invalid, invalid, by=(channel,))
         assert caught.value.expected
         assert caught.value.received
@@ -203,8 +203,8 @@ def test_ordinary_compare_population_bridge_uses_fixed_keys_and_fresh_values(
     assert parent_change == 51
     assert totals[1][1] - totals[1][2] == 1980
     fixed = session.attribute(
-        mv.AttributeEndpoint({"q": metric}, during=current),
-        mv.AttributeEndpoint({"q": metric}, during=baseline),
+        mv.attribute_endpoint({"q": metric}, during=current),
+        mv.attribute_endpoint({"q": metric}, during=baseline),
         parents=parents,
         by=(channel,),
         contribution=True,
@@ -244,7 +244,7 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = mv.AttributeEndpoint({"q": amount}, where=(channel == "A") | (channel == "B"))
+    endpoint = mv.attribute_endpoint({"q": amount}, where=(channel == "A") | (channel == "B"))
     regions = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     channels = mv.coordinates(by=(channel,), keys=(("A",), ("B",)))
     product = mv.product(regions, channels)
@@ -341,10 +341,10 @@ def test_default_max_and_cancelling_sum_match_native_sql(session: Session, tmp_p
     channel = session.catalog.fields.get("sales.facts.channel")
     metrics = {"peak": denominator.max(time=day), "net": amount.sum(time=day)}
     fixed = session.attribute(
-        mv.AttributeEndpoint(
+        mv.attribute_endpoint(
             metrics, during=session.time_scope(start="2026-08-01", end="2026-08-02")
         ),
-        mv.AttributeEndpoint(
+        mv.attribute_endpoint(
             metrics, during=session.time_scope(start="2026-07-01", end="2026-07-02")
         ),
         by=(channel,),
@@ -394,7 +394,7 @@ def test_parent_frame_filter_is_and_and_fine_keys_are_outer(session: Session) ->
     region = session.catalog.fields.get("sales.facts.region")
     parent = session.observe({"q": amount}, by=(region,))
     parent = parent.top(1, by=parent["q"])
-    endpoint = AttributeEndpoint({"q": amount}, where=channel != "C")
+    endpoint = attribute_endpoint({"q": amount}, where=channel != "C")
     result = session.attribute(
         endpoint,
         endpoint,
@@ -412,7 +412,7 @@ def test_default_uses_original_group_formula_without_parent_ratio_total(session:
     denominator = session.catalog.fields.get("sales.facts.denominator")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.sum().divide(denominator.sum(), zero_denominator="error")
-    endpoint = AttributeEndpoint({"q": metric}, where=(channel == "A") | (channel == "C"))
+    endpoint = attribute_endpoint({"q": metric}, where=(channel == "A") | (channel == "C"))
     result = _flat(session.attribute(endpoint, endpoint, by=(channel,)).compute().to_pandas())
     assert result["left.q"].tolist() == [-2.0, 100.0]
     assert result["absolute.q"].tolist() == [0.0, 0.0]
@@ -429,7 +429,7 @@ def test_plain_calendar_parent_and_paired_mixed_parent(session: Session, tmp_pat
     august = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     july = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     selected = session.observe({"q": metric}, by=(august,)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=august)
+    endpoint = attribute_endpoint({"q": metric}, during=august)
     plain = session.attribute(endpoint, endpoint, by=(channel,), parents=selected).compute()
     assert _flat(plain.to_pandas())["left.q"].tolist() == [2, 100, 2]
     left = session.observe(
@@ -458,8 +458,8 @@ def test_plain_calendar_parent_and_paired_mixed_parent(session: Session, tmp_pat
             "INSERT INTO facts(id,region,channel,amount,denominator,day) VALUES (5,'east','A',50,1,'2026-07-01')"
         )
     result = session.attribute(
-        AttributeEndpoint({"q": metric}, during=august),
-        AttributeEndpoint({"q": metric}, during=july),
+        attribute_endpoint({"q": metric}, during=august),
+        attribute_endpoint({"q": metric}, during=july),
         by=(channel,),
         parents=paired,
         parent_on=((paired.axes[1], region, region),),
@@ -474,7 +474,7 @@ def test_complete_population_null_keys_and_empty_parent(session: Session) -> Non
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": amount})
+    endpoint = attribute_endpoint({"q": amount})
     parent = mv.coordinates(by=(region,), keys=((None,), ("missing",)))
     result = session.attribute(endpoint, endpoint, by=(channel,), parents=parent).compute()
     assert result.to_pandas().iloc[:, 1].tolist() == ["N"]
@@ -494,8 +494,8 @@ def test_parent_exact_is_complete_parent_only_and_survives_top_zero(session: Ses
     channel = session.catalog.fields.get("sales.facts.channel")
     parents = session.observe({"q": amount}, by=(region,))
     parents = parents.where(parents.coord(parents.axes[0]) == "east").compute()
-    left = AttributeEndpoint({"q": amount}, where=channel == "A")
-    right = AttributeEndpoint({"q": amount}, where=channel == "C")
+    left = attribute_endpoint({"q": amount}, where=channel == "A")
+    right = attribute_endpoint({"q": amount}, where=channel == "C")
     shared = {
         "parents": parents,
         "parent_on": ((parents.axes[0], region, region),),
@@ -503,7 +503,7 @@ def test_parent_exact_is_complete_parent_only_and_survives_top_zero(session: Ses
     }
     rows = _flat(session.attribute(left, right, **shared).compute().to_pandas())
     assert rows.iloc[:, 1].tolist() == ["A", "C"]
-    missing = AttributeEndpoint({"q": amount}, where=channel == "B")
+    missing = attribute_endpoint({"q": amount}, where=channel == "B")
     invalid = session.attribute(left, missing, **shared)
     with pytest.raises(AnalysisError, match="equal fresh complete parent domains"):
         invalid.top(0, by=invalid["absolute.q"]).compute()
@@ -534,7 +534,7 @@ def test_fixed_and_pending_parent_selection_use_one_checked_schedule(
         return original(compiled, **kwargs)
 
     monkeypatch.setattr(evaluator, "run_frame_plan", track)
-    endpoint = AttributeEndpoint({"q": amount})
+    endpoint = attribute_endpoint({"q": amount})
     for parent, expected in ((fixed, "east"), (selection, "west")):
         result = session.attribute(
             endpoint,
@@ -581,7 +581,7 @@ def test_calendar_tuple_actual_domain_preserves_ordinary_observe_completion(
     ).compute()
     assert len(ordinary.to_pandas()) == 6
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar)
+    endpoint = attribute_endpoint({"q": metric}, during=calendar)
     actual = session.attribute(endpoint, endpoint, by=(channel,), parents=parent).compute()
     assert len(actual.to_pandas()) == 3
     candidates = mv.coordinates(by=(channel,), keys=(("A",), ("B",), ("C",), ("Z",)))
@@ -608,7 +608,7 @@ def test_compound_identity_parent_and_member_candidate_policy(
         ),
     )
     parent = session.frame(keys).compute()
-    endpoint = AttributeEndpoint({"q": amount})
+    endpoint = attribute_endpoint({"q": amount})
     result = session.attribute(
         endpoint,
         endpoint,
@@ -617,7 +617,7 @@ def test_compound_identity_parent_and_member_candidate_policy(
         parent_on=((parent.axes[0], entity, entity),),
     ).compute()
     assert result.to_pandas().iloc[:, 0].tolist() == [("t", 1), ("t", 3)]
-    endpoint = AttributeEndpoint({"q": amount}, where=mv.in_population(keys))
+    endpoint = attribute_endpoint({"q": amount}, where=mv.in_population(keys))
     members = session.attribute(endpoint, endpoint, by=keys).compute()
     assert members.to_pandas().iloc[:, 0].tolist() == [("t", 1), ("t", 3), ("t", 999)]
     assert members.to_pandas()[("value", "left.q")].tolist()[:2] == [100, 2]
@@ -628,14 +628,14 @@ def test_original_checks_survive_select_top_and_explicit_empty_candidates(sessio
     amount = session.catalog.fields.get("sales.facts.amount")
     channel = session.catalog.fields.get("sales.facts.channel")
     invalid = amount.sum().divide(amount.sum() * 0, zero_denominator="error")
-    endpoint = AttributeEndpoint({"q": invalid})
+    endpoint = attribute_endpoint({"q": invalid})
     result = session.attribute(endpoint, endpoint, by=(channel,))
     with pytest.raises(AnalysisError, match="denominator"):
         selected = result.select({"ignored": 1})
         selected.top(0, by=selected["ignored"]).compute()
     empty = mv.coordinates(by=(channel,), keys=())
     result = session.attribute(
-        AttributeEndpoint({"q": amount.sum()}), AttributeEndpoint({"q": amount.sum()}), by=empty
+        attribute_endpoint({"q": amount.sum()}), attribute_endpoint({"q": amount.sum()}), by=empty
     )
     assert result.compute().to_pandas().empty
 
@@ -651,14 +651,14 @@ def test_default_overlapping_correlated_membership_and_calendar_policy(session: 
         session.catalog.relationships.get("sales.link_tags"),
     )
     buckets = mv.membership((label, kind), via=(path,), unmatched="exclude")
-    endpoint = AttributeEndpoint({"q": amount.sum()}, memberships=(buckets,))
+    endpoint = attribute_endpoint({"q": amount.sum()}, memberships=(buckets,))
     result = session.attribute(endpoint, endpoint, by=(label, kind)).compute()
     assert result.to_pandas()[("value", "left.q")].tolist() == [102, 100]
     assert len(result.axes) == 2
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar, memberships=(buckets,))
+    endpoint = attribute_endpoint({"q": metric}, during=calendar, memberships=(buckets,))
     result = session.attribute(
         endpoint, endpoint, by=(channel, label, kind), parents=parent
     ).compute()
@@ -678,11 +678,11 @@ def test_request_rejects_incompatible_names_units_policies_and_parent_handles(
     denominator = session.catalog.fields.get("sales.facts.denominator")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": amount.sum()})
+    endpoint = attribute_endpoint({"q": amount.sum()})
     for other in (
-        AttributeEndpoint({"other": amount.sum()}),
-        AttributeEndpoint({"q": denominator.sum()}),
-        AttributeEndpoint({"q": amount.max()}),
+        attribute_endpoint({"other": amount.sum()}),
+        attribute_endpoint({"q": denominator.sum()}),
+        attribute_endpoint({"q": amount.max()}),
     ):
         with pytest.raises(AnalysisError):
             session.attribute(endpoint, other, by=(channel,))
@@ -716,8 +716,8 @@ def test_actual_parent_key_types_checked_before_top_zero_and_multiple_names_q_ma
     denominator = session.catalog.fields.get("sales.facts.denominator")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"second": amount.sum(), "first": amount.max()})
-    right = AttributeEndpoint({"first": amount.max(), "second": amount.sum()})
+    endpoint = attribute_endpoint({"second": amount.sum(), "first": amount.max()})
+    right = attribute_endpoint({"first": amount.max(), "second": amount.sum()})
     frame = session.attribute(endpoint, right, by=(channel,))
     assert frame.output_names == (
         "left.second",
@@ -747,7 +747,7 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
     metric = amount.sum(time=day).window(mv.all_history())
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    endpoint = AttributeEndpoint({"q": metric}, during=calendar)
+    endpoint = attribute_endpoint({"q": metric}, during=calendar)
     result = session.attribute(endpoint, endpoint, by=(channel,), parents=parent).compute()
     rows = result.to_pandas()
     assert rows[("value", "left.q")].dropna().tolist() == [2, 100, 2, 2, 100]
@@ -762,7 +762,7 @@ def test_complete_saved_calendar_directory_is_required_after_parent_top(session:
     parent = session.observe({"q": metric}, by=(calendar,))
     parent = parent.top(1, by=parent["q"]).compute()
     shortened = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
-    endpoint = AttributeEndpoint({"q": metric}, during=shortened)
+    endpoint = attribute_endpoint({"q": metric}, during=shortened)
     invalid = session.attribute(endpoint, endpoint, by=(channel,), parents=parent)
     with pytest.raises(AnalysisError, match="complete saved endpoint calendar directory"):
         invalid.compute()
@@ -790,8 +790,8 @@ def test_paired_structural_missing_side_exact_rejects_before_source_and_outer_ke
         .compute()
     )
     left, right = (
-        AttributeEndpoint({"q": metric}, during=august),
-        AttributeEndpoint({"q": metric}, during=july),
+        attribute_endpoint({"q": metric}, during=august),
+        attribute_endpoint({"q": metric}, during=july),
     )
     read_calls = []
     original = evaluator.run_frame_plan
@@ -825,7 +825,7 @@ def test_reduced_attribute_result_is_an_ordinary_parent_without_slot_collisions(
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": amount})
+    endpoint = attribute_endpoint({"q": amount})
     first = session.attribute(endpoint, endpoint, by=(region, channel)).compute()
     reduced = first.reduce({"delta": first["absolute.q"].sum()}, by=(first.axes[1],)).compute()
     second = session.attribute(
@@ -849,7 +849,7 @@ def test_calendar_population_parent_and_member_count_keep_complete_member_domain
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     regions = mv.coordinates(by=(region,), keys=(("east",), ("absent",)))
     parents = mv.product(calendar, regions)
-    endpoint = AttributeEndpoint({"q": amount.sum(time=day)}, during=calendar)
+    endpoint = attribute_endpoint({"q": amount.sum(time=day)}, during=calendar)
     result = session.attribute(endpoint, endpoint, by=(channel,), parents=parents).compute()
     assert len(result.to_pandas()) == 2
     entity = session.catalog.entities.get("sales.facts")
@@ -871,10 +871,10 @@ def test_calendar_population_parent_and_member_count_keep_complete_member_domain
         ),
     ).compute()
     parent = session.observe({"q": amount.sum(time=day)}, by=(calendar,)).compute()
-    invalid = AttributeEndpoint({"q": members.count()}, during=calendar, where=channel == "A")
+    invalid = attribute_endpoint({"q": members.count()}, during=calendar, where=channel == "A")
     with pytest.raises(AnalysisError, match="count-only outputs"):
         session.attribute(invalid, invalid, by=(channel,), parents=parent)
-    counted = AttributeEndpoint({"q": members.count()}, during=calendar)
+    counted = attribute_endpoint({"q": members.count()}, during=calendar)
     result = session.attribute(counted, counted, by=(channel,), parents=parent).compute()
     assert (
         result.to_pandas()[("value", "left.q")].tolist()
@@ -907,16 +907,16 @@ def test_member_count_effective_root_rejects_unrelated_integer_identities(
 
     with pytest.raises(AnalysisError, match="compatible root roles"):
         session.attribute(
-            AttributeEndpoint({"q": metric(tag_members)}),
-            AttributeEndpoint({"q": metric(link_members)}),
+            attribute_endpoint({"q": metric(tag_members)}),
+            attribute_endpoint({"q": metric(link_members)}),
             by=(mv.identity(session.catalog.entities.get("sales.tags")),),
         )
     same_root_other = mv.coordinates(
         by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((2,),),)
     )
     result = session.attribute(
-        AttributeEndpoint({"q": metric(tag_members)}),
-        AttributeEndpoint({"q": metric(same_root_other)}),
+        attribute_endpoint({"q": metric(tag_members)}),
+        attribute_endpoint({"q": metric(same_root_other)}),
         by=(mv.identity(session.catalog.entities.get("sales.tags")),),
     ).compute()
     rows = result.to_pandas()
@@ -946,7 +946,7 @@ def test_selected_parent_scopes_member_count_before_candidate_selection(
     mapping = ((parent.axes[0], region, region),) if frame_parent else ()
     fine = mv.coordinates(by=(channel,), keys=(("A",), ("C",))) if complete_fine else (channel,)
     # The classified Population owns counted membership before parent selection.
-    endpoint = AttributeEndpoint({"q": 2 * members.count()})
+    endpoint = attribute_endpoint({"q": 2 * members.count()})
     result = session.attribute(
         endpoint, endpoint, parents=parent, parent_on=mapping, by=fine
     ).compute()
@@ -986,7 +986,7 @@ def test_population_parent_retains_correlated_overlapping_membership_authority(
         .to_pandas()
     )
     expected = oracle.loc[oracle.iloc[:, 0].isin([key[0] for key in keys])]
-    endpoint = AttributeEndpoint({"q": amount}, memberships=(membership,))
+    endpoint = attribute_endpoint({"q": amount}, memberships=(membership,))
     actual = (
         session.attribute(endpoint, endpoint, parents=parents, by=(channel,)).compute().to_pandas()
     )
@@ -1012,13 +1012,13 @@ def test_member_count_compound_identity_parent_scope_and_calendar_axis_order(
             (("t", 3),),
         ),
     )
-    endpoint = AttributeEndpoint({"q": members.count()})
+    endpoint = attribute_endpoint({"q": members.count()})
     complete = (
         session.attribute(endpoint, endpoint, by=(mv.identity(entity),)).compute().to_pandas()
     )
     assert complete.iloc[:, 0].tolist() == [("t", 1), ("t", 2), ("t", 3)]
     members = members.classify(by=(members.axes[0], region, channel))
-    endpoint = AttributeEndpoint({"q": members.count()})
+    endpoint = attribute_endpoint({"q": members.count()})
     parent = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),),))
     fine = mv.coordinates(by=(channel,), keys=(("C",),))
     scoped = session.attribute(endpoint, endpoint, parents=parent, by=fine).compute().to_pandas()
@@ -1027,7 +1027,7 @@ def test_member_count_compound_identity_parent_scope_and_calendar_axis_order(
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     # Preserve the parent order region,calendar; the calendar is not key.0.
     parents = mv.product(mv.coordinates(by=(region,), keys=(("east",),)), calendar)
-    counted = AttributeEndpoint({"q": members.count()}, during=calendar)
+    counted = attribute_endpoint({"q": members.count()}, during=calendar)
     rows = (
         session.attribute(
             counted,
@@ -1070,8 +1070,8 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     region = session.catalog.fields.get("sales.facts.region")
     metric = (amount.sum() + amount.sum()) * Decimal("0.5")
     current, baseline = identifier >= 3, identifier <= 2
-    left = AttributeEndpoint({"q": metric}, where=current)
-    right = AttributeEndpoint({"q": metric}, where=baseline)
+    left = attribute_endpoint({"q": metric}, where=current)
+    right = attribute_endpoint({"q": metric}, where=baseline)
 
     def no_proof(*args: object, **kwargs: object) -> None:
         raise AssertionError("default Attribute requested contribution proof")
@@ -1170,7 +1170,7 @@ def test_fixed_attribute_method_facts_survive_named_multi_baseline_compare(
 ) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     channel = session.catalog.fields.get("sales.facts.channel")
-    endpoint = AttributeEndpoint({"q": amount.sum()}, where=channel != "N")
+    endpoint = attribute_endpoint({"q": amount.sum()}, where=channel != "N")
     fixed = session.attribute(endpoint, endpoint, by=(channel,), contribution=True).compute()
     on = tuple(zip(fixed.axes, fixed.axes, strict=True))
     compared = fixed.compare({"one": fixed, "two": fixed}, on={"one": on, "two": on}).compute()

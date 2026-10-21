@@ -325,20 +325,20 @@ class AnalysisFrame:
                 "frame.reduce",
             )
         if (
-            statistic.input_id is None
-            and isinstance(statistic.definition, Statistic)
-            and statistic.definition.method == "row_count"
-            and statistic.definition.value is None
+            statistic._input_id is None
+            and isinstance(statistic._definition, Statistic)
+            and statistic._definition.method == "row_count"
+            and statistic._definition.value is None
         ):
-            return _Statistic(self._input_id, statistic.definition, statistic.unit, self)
+            return _Statistic(self._input_id, statistic._definition, statistic.unit, self)
         if (
-            statistic.input_id != self._input_id
+            statistic._input_id != self._input_id
             or statistic._frame is None
             or statistic._frame._local.owner != self._local.owner
         ):
             reject(
                 "a statistic from this exact Frame input",
-                repr(statistic.input_id),
+                repr(statistic._input_id),
                 "Reacquire the Column on this Frame before constructing the statistic.",
                 "frame.reduce",
             )
@@ -488,7 +488,7 @@ class AnalysisFrame:
         statistics = []
         for name, value in values.items():
             value_name(name, location="frame.reduce")
-            statistics.append((name, self._bind_statistic(value).definition))
+            statistics.append((name, self._bind_statistic(value)._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
     def correlate(
@@ -568,7 +568,8 @@ class AnalysisFrame:
         count = x._pair_statistic(y, "pair_count", location="frame.correlate")
         return self._derive(
             ReduceValues(
-                (("coefficient", coefficient.definition), ("n_pairs", count.definition)), positions
+                (("coefficient", coefficient._definition), ("n_pairs", count._definition)),
+                positions,
             )
         )
 

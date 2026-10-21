@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 
@@ -66,8 +66,8 @@ def test_additive_exact_values_and_one_read_per_endpoint(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     pending = session.attribute(
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
         by=(channel,),
         contribution=True,
     )
@@ -96,8 +96,8 @@ def test_rule_families(session: Session, kind: str) -> None:
         metric = amount.sum() - 2 * amount.sum()
     result = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -127,8 +127,8 @@ def test_fraction_ratio_uses_parent_denominators(session: Session, tmp_path: Pat
     metric = amount.sum().divide(weight.sum())
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -154,8 +154,10 @@ def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: P
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.weighted_mean(weight=weight)}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.weighted_mean(weight=weight)}, where=phase == "base"),
+            attribute_endpoint(
+                {"q": amount.weighted_mean(weight=weight)}, where=phase == "current"
+            ),
+            attribute_endpoint({"q": amount.weighted_mean(weight=weight)}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -176,8 +178,8 @@ def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path:
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -200,8 +202,8 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -228,14 +230,14 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     pending = session.attribute(
-        mv.AttributeEndpoint(
+        mv.attribute_endpoint(
             {
                 "safe": amount.sum(),
                 "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
             },
             where=phase == "current",
         ),
-        mv.AttributeEndpoint(
+        mv.attribute_endpoint(
             {
                 "safe": amount.sum(),
                 "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
@@ -290,8 +292,8 @@ def test_real_producer_association_and_inert_parent_payload(
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    left = AttributeEndpoint({"q": amount.sum()}, where=phase == "current")
-    right = AttributeEndpoint({"q": amount.sum()}, where=phase == "base")
+    left = attribute_endpoint({"q": amount.sum()}, where=phase == "current")
+    right = attribute_endpoint({"q": amount.sum()}, where=phase == "base")
     first = session.attribute(left, right, by=(channel,), contribution=True)
     result = first
     expected_inputs = [first._input_id]
@@ -365,8 +367,8 @@ def test_exact_decimal_contribution(session: Session, tmp_path: Path) -> None:
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -396,8 +398,8 @@ def test_duration_preserves_exact_ticks_and_half_even(
     metric = amount.mean() if mean else amount.sum()
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -425,8 +427,8 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     pending = session.attribute(
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-        AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+        attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
         by=(channel,),
         contribution=True,
     )
@@ -445,8 +447,8 @@ def test_static_typed_coefficient_mismatch_is_first_path(session: Session) -> No
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AttributeRuleError) as caught:
         session.attribute(
-            AttributeEndpoint({"q": amount.sum() - 2 * amount.sum()}),
-            AttributeEndpoint({"q": amount.sum() - 3 * amount.sum()}),
+            attribute_endpoint({"q": amount.sum() - 2 * amount.sum()}),
+            attribute_endpoint({"q": amount.sum() - 3 * amount.sum()}),
             by=(channel,),
             contribution=True,
         )
@@ -468,8 +470,8 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
     metric = amount.sum().divide(weight.sum())
     with pytest.raises(AttributeInputError) as caught:
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         ).compute()
@@ -493,7 +495,7 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
     parents = mv.coordinates(by=(region,), keys=()) if selected_empty else None
-    endpoint = AttributeEndpoint({"q": amount.sum(empty="zero")})
+    endpoint = attribute_endpoint({"q": amount.sum(empty="zero")})
     captured: list[AttributeMethodProduction] = []
     original = frame_evaluation._attribute_productions
 
@@ -530,8 +532,8 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     parents = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.sum(empty="zero")}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.sum(empty="zero")}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum(empty="zero")}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum(empty="zero")}, where=phase == "base"),
             parents=parents,
             by=(channel,),
             contribution=True,
@@ -552,8 +554,8 @@ def test_linear_ratio_children_and_original_scalar_order(session: Session) -> No
     metric = ratio - 2 * ratio
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": metric}, where=phase == "current"),
-            AttributeEndpoint({"q": metric}, where=phase == "base"),
+            attribute_endpoint({"q": metric}, where=phase == "current"),
+            attribute_endpoint({"q": metric}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -576,8 +578,8 @@ def test_null_original_parent_is_unknown_not_additive_zero(
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AttributeInputError) as caught:
         session.attribute(
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         ).compute()
@@ -598,8 +600,8 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
     channel = session.catalog.fields.get("sales.facts.channel")
     rows = (
         session.attribute(
-            AttributeEndpoint({"q": amount.mean()}, where=phase == "current"),
-            AttributeEndpoint({"q": amount.mean()}, where=phase == "base"),
+            attribute_endpoint({"q": amount.mean()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.mean()}, where=phase == "base"),
             by=(channel,),
             contribution=True,
         )
@@ -643,8 +645,8 @@ def test_payload_satisfies_existing_fact_model(
 
     monkeypatch.setattr(frame_evaluation, "_attribute_productions", productions)
     fixed = session.attribute(
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
         by=(channel,),
         contribution=True,
     ).compute()
@@ -694,8 +696,8 @@ def test_new_attribute_uses_only_its_own_live_components(
     metrics = (
         {"q": amount.sum(), "n": amount.count()} if shape == "pending" else {"q": amount.sum()}
     )
-    left = AttributeEndpoint(metrics, where=phase == "current")
-    right = AttributeEndpoint(metrics, where=phase == "base")
+    left = attribute_endpoint(metrics, where=phase == "current")
+    right = attribute_endpoint(metrics, where=phase == "base")
     first = session.attribute(
         left,
         right,
@@ -708,8 +710,8 @@ def test_new_attribute_uses_only_its_own_live_components(
         selected = selected.compute()
     parents = session.population_from(selected, on=((selected.axes[0], region),))
     if shape != "scalar":
-        left = AttributeEndpoint(metrics, where=(phase == "current") & (channel == "A"))
-        right = AttributeEndpoint(metrics, where=(phase == "base") & (channel == "A"))
+        left = attribute_endpoint(metrics, where=(phase == "current") & (channel == "A"))
+        right = attribute_endpoint(metrics, where=(phase == "base") & (channel == "A"))
     final = session.attribute(left, right, parents=parents, by=(channel,), contribution=True)
     sources: list[SourceSession] = []
     captured: list[AttributeMethodProduction] = []
@@ -844,8 +846,8 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
         == expected_dtype
     )
     endpoints = (
-        AttributeEndpoint({"q": metric}, where=phase == "current"),
-        AttributeEndpoint({"q": metric}, where=phase == "base"),
+        attribute_endpoint({"q": metric}, where=phase == "current"),
+        attribute_endpoint({"q": metric}, where=phase == "base"),
     )
     ordinary_attribute = session.attribute(*endpoints, by=(channel,)).compute()
     pending = session.attribute(*endpoints, by=(channel,), contribution=True)
