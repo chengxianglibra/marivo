@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     assert_type(frame, mv.AnalysisFrame)
     assert_type(frame.compute(), mv.AnalysisFrame)
     assert_type(frame.persist(), mv.AnalysisFrame)
+    assert_type(frame.over(frame["revenue"].mean()), mv.Column)
+    assert_type(frame.over(mv.row_count(), by=frame.axes), mv.Column)
+    assert_type(recovered["revenue"].share(along=recovered.axes), mv.Column)
     assert_type(
         frame.correlate(frame["revenue"], frame["revenue"], method="pearson"), mv.AnalysisFrame
     )

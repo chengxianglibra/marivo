@@ -13,6 +13,7 @@ from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     TopValues,
+    ValuePartition,
 )
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.core.data_types import (
@@ -266,3 +267,31 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
     for key in reversed(output.key_fields):
         result = result.sort_values(key, na_position="first", kind="stable")
     return result.reset_index(drop=True)
+
+
+def partition_series(
+    expression: ValuePartition, source: pd.DataFrame, program: FrameProgram
+) -> pd.Series:
+    """Reuse reduction semantics and attach totals by complete, null-safe keys."""
+    from marivo.analysis.compiler.frame_plan import frame_program
+
+    reduction = frame_program(
+        program.input_schema,
+        ReduceValues((("partition", expression.statistic),), expression.positions),
+    )
+    # Empty inputs retain their empty row domain, including scalar partitions.
+    # Evaluate first so strict child obligations remain owned by the reducer.
+    reduced = evaluate_frame(reduction, (source,))
+    column = reduction.output_schema.values[0]
+    if not len(source):
+        return reduced[column.slot_id].iloc[:0].reset_index(drop=True)
+    keys = tuple(
+        column
+        for position in expression.positions
+        for column in program.input_schema.axes[position].columns
+    )
+    if not keys:
+        return reduced[column.slot_id].take([0] * len(source)).reset_index(drop=True)
+    by_key = {key: position for position, key in enumerate(frozen_key_rows(reduced, keys))}
+    positions = [by_key[key] for key in frozen_key_rows(source, keys)]
+    return reduced[column.slot_id].take(positions).reset_index(drop=True)

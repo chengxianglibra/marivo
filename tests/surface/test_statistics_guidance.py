@@ -9,13 +9,15 @@ from tests.support.paths import PROJECT_ROOT
 ROOT = PROJECT_ROOT
 
 
-def test_nine_current_methods_are_reachable_through_existing_groups() -> None:
+def test_current_methods_are_reachable_through_existing_groups() -> None:
     registry = prepare()
     groups = {
         "methods.rows": ("analysis_frame.select", "analysis_frame.where", "analysis_frame.top"),
         "methods.metric.summary": (
             "row_count",
             "analysis_frame.reduce",
+            "analysis_frame.over",
+            "column.share",
             "column.sum",
             "column.mean",
         ),

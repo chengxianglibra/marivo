@@ -2295,16 +2295,23 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
         total = fixed.reduce({"total": fixed["contribution.q"].sum()}).compute()
         positive = fixed.where(fixed["contribution.q"] > 0).compute()
         subtotal = positive.reduce({"total": positive["contribution.q"].sum()}).compute()
+        partitioned = fixed.select(
+            {
+                "total": fixed.over(fixed["contribution.q"].sum()),
+                "share": fixed["contribution.q"].share(along=fixed.axes),
+            }
+        ).compute()
         assert total.to_pandas()[("value", "total")].tolist() == [40]
         assert subtotal.to_pandas()[("value", "total")].tolist() == [60]
         assert positive.to_pandas()[("value", "contribution_share.q")].tolist() == [1.5]
+        assert partitioned.to_pandas()[("value", "share")].tolist() == [1.5, -0.5]
         renamed = fixed.select({"doubled": fixed["contribution.q"] * 2})
         empty = renamed.top(0, by=renamed["doubled"]).compute()
         combined = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
         compared = renamed.compare(
             {"base": renamed}, on={"base": ((renamed.axes[0], renamed.axes[0]),)}
         ).compute()
-        for derived in (total, positive, subtotal, empty, combined, compared):
+        for derived in (total, positive, subtotal, partitioned, empty, combined, compared):
             assert derived.method_facts == original
             assert _memory_backing(derived).metadata.result_id != original[0].origin_result_id
         assert total.axes == () and total.presence_names == ()

@@ -13,6 +13,7 @@ from marivo._definition.query import (
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
     ValueUnary,
 )
 from marivo._definition.relations import AttributeKeys, FrameKeys
@@ -58,6 +59,7 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
     infer_frame_schema,
+    statistic_expressions,
 )
 from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
@@ -144,6 +146,12 @@ def _prefix_local(stage: LocalCompute, names: Mapping[str, str], namespace: str)
 
 
 def _durations(schema: DataSchema, expression: ValueExpression) -> tuple[DurationBinary, ...]:
+    if isinstance(expression, ValuePartition):
+        return tuple(
+            item
+            for value in statistic_expressions(expression.statistic)
+            for item in _durations(schema, value)
+        )
     if isinstance(expression, ValueUnary):
         return _durations(schema, expression.operand)
     if not isinstance(expression, ValueBinary):

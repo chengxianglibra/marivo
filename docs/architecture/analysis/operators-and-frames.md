@@ -119,7 +119,8 @@ remain dimensionless; neither certifies monthly inventory or an overall ratio.
 AnalysisFrame.correlate is the ordinary Pearson/Spearman entry, with explicit
 method and fixed coefficient/n_pairs outputs from one input evaluation.
 Column.corr and Column.pair_count compose through reduce, one scalar column per
-named statistic. Both endpoints must be numeric on the exact input; different
+named statistic, or over, broadcasting that statistic to the original rows.
+Both endpoints must be numeric on the exact input; different
 units are allowed, Duration is rejected. Each pair uses its own common non-NA
 mask after both expression checks. Presence is independent, zero-pair groups
 remain, and Spearman ranks within each group's valid pairs using average ties.
@@ -133,6 +134,47 @@ stable sums and residual scaling. Nonfinite intermediates or a lost nonconstant
 scale fail before clipping a finite coefficient to [-1, 1]. The numeric implementation is owned by
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
+
+## Partition statistics and current-value shares
+
+`frame.over(statistic, by=())` uses the same sum, mean, corr, pair_count and
+row_count kernels as reduce, then maps each partition's result back to every
+original row. `by` contains distinct complete axes from this exact input;
+composite keys remain indivisible and Null keys use the existing null-safe
+grouping rules. Ordinary, interval, calendar and paired axes use their frozen
+coordinates without rematching. The result is a Column bound to the receiver,
+with the same row count and order. Empty input stays empty, including zero axes;
+`by=frame.axes` partitions by complete row key.
+
+`frame.over(mv.row_count())` binds its reusable unbound request without mutation.
+For [10, NA, 30], row_count broadcasts 3 and self pair_count broadcasts 2.
+Nested over evaluates its dependencies first: broadcast totals repeated on
+several rows remain repeated samples for an outer sum or mean. In where/top,
+each partition is evaluated before the operation selects rows. The selection
+cannot shrink an earlier statistic's denominator or bypass required checks.
+
+`column.share(along=axes, zero_denominator="null")` requires a nonempty tuple of
+distinct complete axes from that Column's input. All other input axes define
+partitions. It expands to `column.divide(frame.over(column.sum(), by=remaining),
+zero_denominator=...)`, retaining input rows, order and ordinary NA behavior.
+Axis order normalizes to input order. A zero-axis Frame rejects share; use an
+explicit divide for a scalar ratio. Numeric and legal Duration sum/divide
+combinations retain their existing type rules; boolean, string and date reject.
+Unsupported carriers fail before execution rather than converting silently.
+
+Shares are signed ratios, not percentages, and may lie outside [0,1]. Zero
+partition totals, including cancellation of nonzero values, give NA or the
+captured division error. Known equal units cancel to `1`; unknown units remain
+None. Filtering before share changes the denominator; filtering a selected share
+afterward preserves the computed denominator. For month × region × category,
+along=(region,) sums within each month/category, while along=(region, category)
+sums within each month. Remove category explicitly with reduce when the intended
+rows are region totals, then acquire fresh handles.
+
+Both operations consume current data and preserve inherited method facts without
+creating source decomposition proofs. Normalizing inventory or group means
+describes those numbers' sum; it does not establish original Metric additivity,
+monthly inventory composition or original overall-mean contributions.
 
 Source Metric/per/window execution may retain internal sufficient state during
 one evaluation. Completed Frame data never persists it for later original

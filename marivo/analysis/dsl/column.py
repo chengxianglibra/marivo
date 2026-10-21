@@ -23,6 +23,7 @@ from marivo.analysis.core.value_types import literal_kind
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.dsl.frame_axis import FrameAxis
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -423,11 +424,56 @@ class Column:
             self._frame,
         )
 
+    def share(
+        self,
+        *,
+        along: tuple[FrameAxis, ...],
+        zero_denominator: Literal["null", "error"] = "null",
+    ) -> Column:
+        """Divide current values by their partition sum along the specified axes.
+
+        Args:
+            along: Nonempty tuple of distinct complete axes from this exact input.
+            zero_denominator: This division's null or error policy, default null.
+        Returns: A same-input Column using the actual sum/divide dtype and unit.
+        Example: ``frame.select({'share': frame['revenue'].share(along=frame.axes)})``.
+        Constraints: Other axes define partitions. Signed values may produce shares
+        outside [0,1]; unknown units stay unknown. Filtering first changes the denominator;
+        filtering the resulting Frame keeps the captured denominator. Uses current data.
+        """
+        frame = self._frame
+        if frame is None or type(along) is not tuple or not along:
+            reject(
+                "a nonempty tuple of complete axes from this Column's Frame",
+                repr(along),
+                "Acquire the Column and axes from one Frame; use divide for a scalar ratio.",
+                "Column.share",
+            )
+        frame._require_column(self)
+        positions = tuple(frame._axis_index(axis) for axis in along)
+        if len(set(positions)) != len(positions):
+            reject(
+                "distinct complete current axes",
+                repr(positions),
+                "Use each complete axis once.",
+                "Column.share",
+            )
+        partitions = tuple(axis for index, axis in enumerate(frame.axes) if index not in positions)
+        denominator = frame.over(self.sum(), by=partitions)
+        result = self.divide(denominator, zero_denominator=zero_denominator)
+        from marivo._definition.query import SelectValues
+        from marivo.analysis.core.frame_expression import infer_frame_schema
+        from marivo.analysis.core.frame_structure import column_kind
+
+        schema = infer_frame_schema(frame._schema, SelectValues((("share", result._expression),)))
+        column = schema.values[0]
+        return Column(self._input_id, result._expression, column.unit, column_kind(column), frame)
+
     def sum(self) -> _Statistic:
-        """Request an ignore-NA sum, completed only by AnalysisFrame.reduce.
+        """Request an ignore-NA sum, completed by AnalysisFrame.reduce or over.
 
         Args: None. Returns: An unfinished statistic; empty input returns zero, all-NA returns NA.
-        Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
+        Constraints: Numeric or Duration values; reduce aggregates and over broadcasts.
         Integer sums return Decimal(38,0); Decimal sums return Decimal(38,input_scale).
         Count and Duration keep their own carriers. Empty input is zero; nonempty
         all-NA input is NA.
@@ -437,16 +483,16 @@ class Column:
         return self._statistic("sum")
 
     def mean(self) -> _Statistic:
-        """Request an ignore-NA mean, completed only by AnalysisFrame.reduce.
+        """Request an ignore-NA mean, completed by AnalysisFrame.reduce or over.
 
         Args: None. Returns: An unfinished statistic; empty/all-NA samples return NA.
-        Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
+        Constraints: Numeric or Duration values; reduce aggregates and over broadcasts.
         Example: ``q.reduce({'average': q['value'].mean()})``.
         """
         return self._statistic("mean")
 
     def corr(self, other: Column, *, method: Literal["pearson", "spearman"]) -> _Statistic:
-        """Request one paired correlation coefficient, completed by Frame.reduce.
+        """Request one paired correlation coefficient, completed by Frame.reduce or over.
 
         Args:
             other: Numeric Column from this exact Frame and Session input.
@@ -470,7 +516,7 @@ class Column:
         return self._pair_statistic(other, method, location="Column.corr")
 
     def pair_count(self, other: Column) -> _Statistic:
-        """Count common non-NA endpoint values, completed by Frame.reduce.
+        """Count common non-NA endpoint values, completed by Frame.reduce or over.
 
         Args: other: Numeric Column from this exact Frame and Session input.
         Returns: An unfinished nonnullable int64 statistic with no declared unit.
@@ -571,7 +617,7 @@ class _Statistic:
 
 
 def row_count() -> _Statistic:
-    """Request the count of all current coordinates, completed by AnalysisFrame.reduce.
+    """Request the count of current coordinates, completed by AnalysisFrame.reduce or over.
 
     Args: None. Returns: An input-independent unfinished statistic.
     Example: ``q.reduce({'rows': mv.row_count()})``.

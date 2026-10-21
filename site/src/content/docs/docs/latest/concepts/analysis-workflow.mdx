@@ -89,11 +89,19 @@ semantic object, connection or aggregate components. Saved recovery requires
 exact Session identity and `frame.artifact.id`, not a latest answer.
 
 Frame data methods operate on current rows across all carriers: where/select,
-global top, reduce over existing complete axes, full-axis align/compare and
+global top, reduce over existing complete axes, partition over/Column.share, full-axis align/compare and
 supported frozen calendar match. Column/FrameAxis handles bind to exact inputs.
 Ordinary mapping needs complete explicit on; zero axes and one sole interval or calendar axis
 have only the stated inference. Generated value paths are exact names, not roles
 guessed by suffix. Presence is independent of NA.
+
+`frame.over(statistic, by=...)` broadcasts a current partition's sum, mean,
+corr, pair_count or row_count to the same input rows. `column.share(along=...)`
+divides current values by the sum over those axes, partitioning by the remaining
+axes. Use complete same-input handles; share requires a nonempty axis tuple.
+Filtering before the calculation changes its samples and denominator; filtering
+its result preserves them. These fixed-data operations do not establish original
+Metric contribution. See [partition statistics and shares](/docs/latest/guides/statistics/).
 
 For current-row Pearson or Spearman correlation, choose the method explicitly:
 

@@ -49,6 +49,7 @@ def provider() -> DisclosureProvider:
             consumers=(
                 "analysis_frame.correlate",
                 "analysis_frame.reduce",
+                "analysis_frame.over",
                 "analysis_frame.compute",
                 "analysis_frame.persist",
                 "analysis_frame.show",
@@ -70,6 +71,8 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.coord",
                 "analysis_frame.correlate",
                 "analysis_frame.reduce",
+                "analysis_frame.over",
+                "column.share",
                 "analysis_frame.align",
                 "analysis_frame.compare",
                 "frame_axis.show",

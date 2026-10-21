@@ -491,6 +491,48 @@ class AnalysisFrame:
             statistics.append((name, self._bind_statistic(value)._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
+    def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column:
+        """Reduce each current partition and broadcast its statistic to the same rows.
+
+        Args:
+            statistic: A same-input sum, mean, corr, pair_count, or unbound row_count.
+            by: Distinct complete axes retained as partition keys; () uses all rows.
+        Returns: A lazy Column bound to this exact Frame, retaining row order.
+        Example: ``frame.select({'total': frame.over(frame['revenue'].sum())})``.
+        Constraints: Uses current data and reduce's numeric/sample rules. Empty input
+        stays empty. Nested statistics count repeated broadcast values. Filtering after
+        over does not change its partition; no source regrouping or calendar matching.
+        """
+        from marivo._definition.query import ValuePartition
+
+        if type(by) is not tuple:
+            reject(
+                "a tuple of complete current axes",
+                type(by).__name__,
+                "Pass over(statistic, by=(frame.axes[0],)).",
+                "frame.over",
+            )
+        requested = tuple(self._axis_index(axis) for axis in by)
+        if len(set(requested)) != len(requested):
+            reject(
+                "distinct complete current axes",
+                repr(requested),
+                "Use each complete axis once.",
+                "frame.over",
+            )
+        positions = tuple(index for index in range(len(self.axes)) if index in requested)
+        bound = self._bind_statistic(statistic)
+        schema = infer_frame_schema(
+            self._schema, ReduceValues((("statistic", bound._definition),), positions)
+        )
+        return Column(
+            self._input_id,
+            ValuePartition(bound._definition, positions),
+            bound.unit,
+            column_kind(schema.values[0]),
+            self,
+        )
+
     def correlate(
         self,
         x: Column,

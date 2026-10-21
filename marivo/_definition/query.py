@@ -50,8 +50,22 @@ class ValueBinary:
     zero_denominator: Literal["null", "error"] = "null"
 
 
+@dataclass(frozen=True, slots=True)
+class ValuePartition:
+    """A current-input statistic broadcast over complete partition keys."""
+
+    statistic: Statistic | PairStatistic
+    positions: tuple[int, ...]
+
+
 ValueExpression: TypeAlias = (
-    ValueSlot | CoordinateSlot | PresenceSlot | ValueLiteral | ValueUnary | ValueBinary
+    ValueSlot
+    | CoordinateSlot
+    | PresenceSlot
+    | ValueLiteral
+    | ValueUnary
+    | ValueBinary
+    | ValuePartition
 )
 
 

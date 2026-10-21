@@ -77,17 +77,38 @@ presence 通过 __getitem__ 取得不可空 boolean Column，独立于值 NA 和
 
 ## 数据操作边界
 
-where/select/global top、已有完整轴 reduce/correlate、全轴 align/compare 在各载体上使用
+where/select/global top、已有完整轴 reduce/correlate、分区 over/Column.share、全轴 align/compare 在各载体上使用
 同一合同。结构/参数在构造时检查；实际类型、唯一性、数值与映射在消费前验证。必要检查
 不能被 Top-0、后续过滤或投影取消。按已有轴规约只统计当前行，不是日历粗化或原 Metric 上卷。
 相关、算术、null/empty 和物理精度由[算子合同](operators-and-frames.md)拥有。
 
 来源粒度、观察期间、新属性、原整体和原贡献份额要求显式来源输入。Frame 没有
-rollup/drill/share、分区 Top、自动广播、任意关系对应或配对轴再次对齐接收者。
+原 Metric rollup/drill、分区 Top、任意粗 Frame 自动广播、任意关系对应或配对轴再次对齐接收者。
 相容完整域的预算参照可显式 align 后做列算术；它不自动证明贡献包含或业务份额。
 
 完整不可执行 method_facts 解释原 Attribute 结果；筛选和规约不改其原分母或认证新分解。
 它与当前值表、Artifact 审计分别读取，详见[方法与审计事实](evidence-access-surface.md)。
+
+## 分区归约、广播与当前值份额
+
+`frame.over(statistic, by=())` 接收同输入的 sum/mean/corr/pair_count 或未绑定的
+mv.row_count()。by 是当前完整轴的无重复 tuple，按输入轴序规范化；空 tuple 表示整个
+当前输入一个分区，frame.axes 表示每个完整行键一个分区。各分区统计映回原行，返回
+与接收者同精确输入的 Column，行数与行序不变，可直接用于 select/where/top 或算术。
+空输入仍为空，不沿用 reduce 零轴空输入生成一行的规则。
+
+普通、interval、calendar 和 paired 轴均按当前冻结完整键分区；不拆复合身份、不重匹配
+日历或更改原来源窗口。统计量沿用 reduce 的类型、NA、样本与单位规则；row_count 请求
+消费时绑定且不被修改。允许同输入合法嵌套，内层广播值在外层仍按实际出现次数统计。
+where/top 先计算其操作输入上的完整分区，再筛选或排序；下游选择不反向缩小分母。
+
+`column.share(along=axes, zero_denominator="null")` 将 along 指定的轴参与加总，其余轴
+构成分区，等价于当前 Column 除以相应 over(sum)。along 必须是同输入完整轴的非空、
+无重复 tuple；不改变行粒度，零轴 Frame 拒绝。需要先去掉其它轴时显式 reduce，再从
+返回 Frame 重新获取句柄。份额是有符号比例，不乘 100，也不保证在 [0,1]。
+零分母使用本节点的 null/error 政策，未知单位保持 None；合法 Duration 组合沿用
+sum/divide 合同。筛选前后的位置有意义：先筛选改变分母，后筛选保留已有分母。
+两者不重读来源、不生成新 method_facts，不认证原 Metric 的可加性或来源贡献。
 
 ## Correspondence and comparison
 
@@ -185,6 +206,7 @@ compare 使用同一 Frame 保存协议，并保存有限命名值绑定、端�
 | compare | 保留本期轴与值，按别名添加值组与端点 presence；已有说明按精确路径与时域运输，缺外层行时继承 presence 为 false |
 | where/top | 当前行域、值和所有行级 presence 同步筛选；配对桶映射可按保留轴键裁剪 |
 | select | 保留完整坐标、所有行级 presence 及必要映射；直接 Column 可复制/重命名比较值绑定，表达式不获得认证；无直接值时保留有限 presence-only 说明 |
+| over/Column.share | 返回同输入 Column，保持完整键域及行序；经 select 生成的计算值不获得比较列认证，presence 仍由 select 保留 |
 | 按已有轴 reduce | 生成分组域，保留所选当前轴及其目录；删除全部 presence 和比较列认证/逐桶基期关系，不自动 any/all 或取首值 |
 | 标量 reduce | 同样删除全部行级 presence，另移除全部坐标及其附件 |
 
@@ -208,6 +230,7 @@ AnalysisFrame 的计算逻辑决定结果行序；物化、存储、恢复、sho
 轴的顺序和键分量顺序属于 schema，不等于结果行排序。
 
 - where 保留被选中行的相对顺序；select 保持当前行序。
+- over/Column.share 返回同输入 Column，不重排原行；by/along 参数顺序不改变行序。
 - top 保留 descending: bool = True；升降序均 NA 最后，完整键按既有规范次序裁决并列，不能用局部 token 或随机 ID 排名。
 - reduce 的输出按完整分组键的既有规范次序产生；这是算子输出合同，存储不再排序。
 - exact align/compare 保持左侧/当前输入行序；outer 先按该行序输出匹配/独有键，再按右侧/基准行序追加独有键；日历映射不改此行序合同。

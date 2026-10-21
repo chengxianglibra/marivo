@@ -212,11 +212,13 @@ def test_grouping_surface_stays_with_finite_query_operations() -> None:
 def test_current_row_aggregation_has_one_public_entry() -> None:
     for function, target in (
         (mv.AnalysisFrame.reduce, "analysis_frame.reduce"),
+        (mv.AnalysisFrame.over, "analysis_frame.over"),
         (mv.AnalysisFrame.correlate, "analysis_frame.correlate"),
         (mv.Column.sum, "column.sum"),
         (mv.Column.mean, "column.mean"),
         (mv.Column.corr, "column.corr"),
         (mv.Column.pair_count, "column.pair_count"),
+        (mv.Column.share, "column.share"),
         (mv.row_count, "row_count"),
     ):
         route = route_help_target(function)
@@ -232,6 +234,27 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
     assert "does not certify original Metric additivity or permit rollup over removed axes" in page
     for target in ("analysis.column.sum", "analysis.column.mean"):
         assert "Retain the expression's unit without certifying" in rendered_help(target)
+
+
+def test_partition_and_share_help_disclose_binding_denominators_and_discovery() -> None:
+    over = rendered_help("analysis.analysis_frame.over")
+    share = rendered_help("analysis.column.share")
+    assert over == rendered_help(mv.AnalysisFrame.over)
+    assert share == rendered_help(mv.Column.share)
+    for fact in ("same-input Column", "empty input stays empty", "before selection", "Nested over"):
+        assert fact in over
+    for fact in (
+        "complementary axes",
+        "zero-axis",
+        "filtering afterward preserves",
+        "unknown units",
+    ):
+        assert fact in share
+    assert "analysis.analysis_frame.over" in rendered_help("analysis.value_statistic")
+    assert "analysis.analysis_frame.over" in rendered_help("analysis.analysis_frame")
+    assert "analysis.column.share" in rendered_help("analysis.column")
+    axis = rendered_help("analysis.frame_axis")
+    assert "analysis.analysis_frame.over" in axis and "analysis.column.share" in axis
 
 
 @pytest.mark.parametrize("method", ("align", "compare"))

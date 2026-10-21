@@ -40,6 +40,12 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.where(True)  # invalid: ordinary boolean predicate
     query.select({'value': field})  # invalid: source field in result selection
     query.reduce({'value': query['value']})  # invalid: unfinished reduction shape
+    query.over(query['value'])  # invalid: unfinished partition statistic
+    query.over(mv.row_count(), by=(field,))  # invalid: source partition axis
+    query.over(mv.row_count(), by=[query.axes[0]])  # invalid: partition axes are a tuple
+    query['value'].share()  # invalid: missing normalization axes
+    query['value'].share(along=(field,))  # invalid: source normalization axis
+    query['value'].share(along=query.axes, zero_denominator='zero')  # invalid: share policy
     query.top('1', by=query['value'])  # invalid: rank count type
     query.top(1, by=field)  # invalid: source score at result
     query.compare({'reference': artifact})  # invalid: terminal compare endpoint
@@ -146,6 +152,9 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(query.where(query['revenue'] > 0), mv.AnalysisFrame)
     assert_type(query.top(3, by=query['revenue']), mv.AnalysisFrame)
     assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.AnalysisFrame)
+    assert_type(query.over(query['revenue'].sum(), by=query.axes), mv.Column)
+    assert_type(query.over(mv.row_count()), mv.Column)
+    assert_type(query['revenue'].share(along=query.axes, zero_denominator='error'), mv.Column)
     assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}, how='outer'), mv.AnalysisFrame)
     assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """

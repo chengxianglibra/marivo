@@ -154,10 +154,14 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     for marker in ("period-comparison-query", "shifted-period-comparison-query"):
         exec(compile(block(time_guide, marker), "<time-" + marker + ">", "exec"), namespace)
     statistics = (guides / "statistics.mdx").read_text()
-    exec(
-        compile(block(statistics, "pandas-paired-statistics"), "<statistics-example>", "exec"),
-        namespace,
-    )
+    for marker in ("frame-partition-share", "pandas-paired-statistics"):
+        exec(compile(block(statistics, marker), "<statistics-" + marker + ">", "exec"), namespace)
+    normalized = namespace["normalized"]
+    assert isinstance(normalized, mv.AnalysisFrame)
+    normalized_rows = normalized.to_pandas()
+    assert normalized_rows[("value", "total")].tolist() == [800, 800]
+    assert normalized_rows[("value", "share")].tolist() == [0.25, 0.75]
+    assert normalized_rows[("value", "rows")].tolist() == [2, 2]
     explained = namespace["explained"]
     assert isinstance(explained, mv.AnalysisFrame)
     rows = explained.to_pandas()

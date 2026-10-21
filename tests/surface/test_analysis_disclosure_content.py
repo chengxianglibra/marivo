@@ -78,8 +78,8 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     # AnalysisFrame owns each result operation once, without legacy receiver-family projections.
     assert families == {}
     for owner, methods in (
-        (mv.AnalysisFrame, ("select", "where", "reduce", "correlate", "align", "compare")),
-        (mv.Column, ("sum", "mean", "corr", "pair_count", "divide", "is_null")),
+        (mv.AnalysisFrame, ("select", "where", "reduce", "over", "correlate", "align", "compare")),
+        (mv.Column, ("sum", "mean", "corr", "pair_count", "share", "divide", "is_null")),
     ):
         for method in methods:
             target = ("analysis_frame" if owner is mv.AnalysisFrame else "column") + "." + method
@@ -141,6 +141,7 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
         "select",
         "top",
         "reduce",
+        "over",
         "correlate",
         "align",
         "compare",
@@ -172,6 +173,35 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
         "Native Deferred predicates belong to source"
         in render_help_text("analysis.analysis_frame.where")[0]
     )
+
+
+def test_partition_and_share_help_examples_return_composable_same_input_columns(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    region = case.catalog.fields.get("sales.customer.region")
+    frame = case.session.values(
+        by=(region,),
+        columns={"value": "CNY"},
+        rows=((("east",), {"value": 1}), (("west",), {"value": 3})),
+    ).compute()
+    registry = prepare()
+    for target, implementation, bound, expected in (
+        ("analysis_frame.over", mv.AnalysisFrame.over, frame.over, [4, 4]),
+        ("column.share", mv.Column.share, frame["value"].share, [0.25, 0.75]),
+    ):
+        text = render_help_text("analysis." + target)[0]
+        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
+        assert text.startswith(f"Target: analysis.{target}\nKind: callable")
+        assert len(text) < 3500
+        descriptor = registry.by_canonical_id(target)
+        assert isinstance(descriptor, CallableInput)
+        namespace: dict[str, object] = {"frame": frame}
+        exec(descriptor.example.code, namespace)
+        column = namespace["result"]
+        assert isinstance(column, mv.Column)
+        result = frame.select({"result": column}).compute()
+        assert result.to_pandas()[("value", "result")].tolist() == expected
 
 
 def test_correlation_help_contract_and_executable_examples(

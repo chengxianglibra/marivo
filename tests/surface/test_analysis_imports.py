@@ -162,6 +162,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "where",
         "top",
         "reduce",
+        "over",
         "correlate",
         "align",
         "compare",

@@ -26,6 +26,7 @@ from marivo._definition.query import (
     TopValues,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
     ValueSlot,
     ValueUnary,
 )
@@ -121,6 +122,17 @@ def _timestamp_awareness(values: pd.Series) -> bool | None:
 def expression_series(
     expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram | FrameProgram
 ) -> pd.Series:
+    if isinstance(expression, ValuePartition):
+        if not isinstance(program, FrameProgram):
+            reject(
+                "a Frame-bound partition expression",
+                repr(expression),
+                "Evaluate partitions on their original AnalysisFrame input.",
+                "frame.over",
+            )
+        from marivo.analysis.methods.frame_values import partition_series
+
+        return partition_series(expression, frame, program)
     if isinstance(expression, ValueSlot):
         columns = (
             program.input_schema.values

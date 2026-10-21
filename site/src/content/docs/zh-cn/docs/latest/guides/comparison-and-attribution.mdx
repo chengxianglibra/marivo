@@ -176,7 +176,9 @@ vs_budget.show()
 ```
 
 先将单期间收入的当前行按地区求和，显式移除 interval 轴后再对齐预算；这不恢复任意非可加 Metric 的原量。预算显式覆盖同一地区域。这是普通全轴对齐与算术，不会广播标量、推断关系或证明贡献包含。
-自动广播与 Frame share 接收者不在本版范围内；可选来源贡献份额属于上面的显式 Attribute 请求。
+独立 Frame 之间的任意广播与原贡献 Frame share 接收者不在本版范围内。
+当前数据归一化使用同一精确输入上的 `frame.over(statistic, by=...)` 与
+`column.share(along=...)`；可选来源贡献份额属于上面的显式 Attribute 请求。
 
 ## 主动选择日历对应
 

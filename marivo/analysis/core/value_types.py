@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -15,6 +16,7 @@ from marivo._definition.query import (
     PresenceSlot,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
     ValueSlot,
     ValueUnary,
 )
@@ -86,8 +88,19 @@ def expression_value(
     expression: ValueExpression,
     values: tuple[ir.Value, ...],
     keys: tuple[ir.Value, ...],
+    *,
+    partition_type: Callable[[ValuePartition], DataType] | None = None,
 ) -> ir.Value:
     """Resolve only the finite result grammar over typed scalar placeholders."""
+    if isinstance(expression, ValuePartition):
+        if partition_type is None:
+            reject(
+                "a Frame-bound partition expression",
+                repr(expression),
+                "Evaluate partitions on their original AnalysisFrame input.",
+                "frame.over",
+            )
+        return ibis.param(ibis_type(partition_type(expression)))
     if isinstance(expression, ValueSlot):
         return values[expression.index]
     if isinstance(expression, CoordinateSlot):
@@ -113,7 +126,7 @@ def expression_value(
 
         return bind_numeric_literal(ibis.literal(expression.value))
     if isinstance(expression, ValueUnary):
-        value = expression_value(expression.operand, values, keys)
+        value = expression_value(expression.operand, values, keys, partition_type=partition_type)
         if expression.operation == "is_null":
             return value.isnull()
         if expression.operation == "not":
@@ -121,8 +134,8 @@ def expression_value(
         if expression.operation == "abs":
             return value.abs()
         return -value
-    left = expression_value(expression.left, values, keys)
-    right = expression_value(expression.right, values, keys)
+    left = expression_value(expression.left, values, keys, partition_type=partition_type)
+    right = expression_value(expression.right, values, keys, partition_type=partition_type)
     if expression.operation in ("add", "sub", "mul", "div"):
         if not all(
             value.type().is_numeric() or value.type().is_interval() for value in (left, right)

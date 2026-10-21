@@ -89,7 +89,7 @@ def provider() -> DisclosureProvider:
                 "column.corr",
                 "column.pair_count",
             ),
-            consumers=("analysis_frame.reduce",),
+            consumers=("analysis_frame.reduce", "analysis_frame.over"),
             constraints=(
                 "row_count() is unbound and reusable across Frames without mutation. Column statistics retain their exact Frame/Session input and cannot be rebound, even to equal data.",
             ),
@@ -101,7 +101,7 @@ def provider() -> DisclosureProvider:
             Column,
             summary="Immutable current-data expression bound to one exact Frame input.",
             acquisition="Use frame[name] or frame.coord(axis). Direct construction and extension are unsupported.",
-            producers=("analysis_frame.__getitem__", "analysis_frame.coord"),
+            producers=("analysis_frame.__getitem__", "analysis_frame.coord", "analysis_frame.over"),
             consumers=(
                 "analysis_frame.select",
                 "analysis_frame.where",
@@ -111,6 +111,7 @@ def provider() -> DisclosureProvider:
                 "Column.pair_count",
                 "Column.sum",
                 "Column.mean",
+                "Column.share",
             ),
         )
     )
@@ -198,6 +199,25 @@ def provider() -> DisclosureProvider:
             "AnalysisFrame",
             "Compute current-value statistics with independent NA masks; remove presence and retain only the selected complete axes.",
             "result = frame.reduce({'mean': frame['value'].mean()})",
+            ("frame",),
+            "methods.metric.summary",
+        ),
+        (
+            AnalysisFrame,
+            "over",
+            (
+                P(
+                    "statistic",
+                    "One same-input sum/mean/corr/pair_count, or reusable unbound row_count request.",
+                ),
+                P(
+                    "by",
+                    "Tuple of existing complete same-input partition axes; () uses the whole input.",
+                ),
+            ),
+            "Column",
+            "Reduce each current-data partition and broadcast its statistic to the original rows as a same-input Column.",
+            "result = frame.over(frame['value'].sum())",
             ("frame",),
             "methods.metric.summary",
         ),
@@ -293,6 +313,25 @@ def provider() -> DisclosureProvider:
         ),
         (
             Column,
+            "share",
+            (
+                P(
+                    "along",
+                    "Nonempty tuple of distinct complete axes from this exact input; the remaining axes define partitions.",
+                ),
+                P(
+                    "zero_denominator",
+                    "null by default or error; applies to this share's division only.",
+                ),
+            ),
+            "Column",
+            "Normalize current values by their partition sum; return signed ratios with the same rows and input.",
+            "result = frame['value'].share(along=frame.axes)",
+            ("frame",),
+            "methods.metric.summary",
+        ),
+        (
+            Column,
             "is_null",
             (),
             "Column",
@@ -306,7 +345,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA current-row sum: int64 returns Decimal(38,0), Decimal returns Decimal(38,input_scale); count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row sum: int64 returns Decimal(38,0), Decimal returns Decimal(38,input_scale); count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",
@@ -322,7 +361,7 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "_Statistic",
-            "Capture one coefficient statistic; finish with AnalysisFrame.reduce. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
+            "Capture one coefficient statistic; finish with AnalysisFrame.reduce or AnalysisFrame.over. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
             "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
             ("frame",),
             "methods.metric.summary",
@@ -347,7 +386,7 @@ def provider() -> DisclosureProvider:
             "mean",
             (),
             "_Statistic",
-            "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.mean()",
             ("column",),
             "methods.metric.summary",
@@ -370,8 +409,12 @@ def provider() -> DisclosureProvider:
                     if name == "compare"
                     else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
                     if name == "correlate"
-                    else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce to finish; analysis.analysis_frame.correlate supplies the matched two-column result."
+                    else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce or analysis.analysis_frame.over to finish; analysis.analysis_frame.correlate supplies the matched two-column result."
                     if name in ("corr", "pair_count")
+                    else "Use reduce's statistic types, independent NA masks, units and numeric policies. Preserve exact input identity, complete keys, row count and row order; empty input stays empty. row_count counts every coordinate and binds without mutating its reusable request. Existing ordinary, interval, calendar and paired axes use frozen keys without rematching. Nested over evaluates dependencies in order; repeated broadcast totals remain repeated samples. In where/top, partitions are evaluated before selection. No source reread, Metric decomposition or new method facts."
+                    if name == "over"
+                    else "Equivalent to this Column divided by over(this Column.sum(), by=the complementary axes), with the captured zero_denominator policy. Axis order normalizes to input order; empty along and zero-axis inputs reject. Numeric and legal Duration sum/divide types follow their existing kernels; boolean/string/date reject. NA propagates; zero totals give NA or error, including cancelling signed values. Ratios are not percentages and may lie outside [0,1]. Unit is '1' when known equal units cancel, otherwise None for unknown units. Filtering before share changes the denominator; filtering afterward preserves it. Current-value normalization does not certify source Metric additivity or contribution; it creates no method facts."
+                    if name == "share"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Summed inventory or ratios remain current-row statistics, not monthly inventory or an overall ratio."
                     if name == "reduce"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",

@@ -56,6 +56,23 @@ Current data operations
 with independent valid masks per statistic. It does not recompute original
 Metrics. New facts or original overall questions require explicit source inputs.
 
+``frame.over(statistic, by=())`` reduces each current partition and broadcasts its
+result as a Column on the exact same input, preserving complete keys and row order.
+It accepts the same sum/mean/corr/pair_count and reusable row_count requests as
+reduce, with the same sample, numeric and unit rules. ``by`` contains distinct
+complete current axes; () uses all rows. Empty input stays empty. Nested over
+counts repeated broadcast values, and where/top consume the full input partition
+before selecting rows.
+
+``column.share(along=axes, zero_denominator="null")`` divides current values by
+their partition sum, summing along the named axes and partitioning by the remaining
+axes. ``along`` is a nonempty tuple of distinct complete same-input axes; zero-axis
+inputs require explicit division. Signed shares can exceed [0,1]; zero totals give
+NA unless this division requests ``"error"``. Unknown units stay unknown. Filtering
+before share changes the denominator; filtering its output preserves it. Both
+operations use current data on pending, memory and stored carriers without new
+source questions or method facts.
+
 ``frame.correlate(x, y, method="pearson" | "spearman", by=())`` returns a lazy
 ordinary Frame with exactly ``coefficient`` (nullable float64, unit ``1``) and
 ``n_pairs`` (nonnullable int64, no unit), evaluated from the same input once.
@@ -66,11 +83,12 @@ Undefined coefficients (fewer than two pairs or a constant endpoint) retain
 their count, including zero-pair groups. Spearman uses average ranks within
 paired group values. Presence is removed and is never an implicit filter.
 ``Column.corr(other, method=...)`` and ``Column.pair_count(other)`` are unfinished
-statistics for ``reduce`` compositions; each named item outputs one column.
+statistics for ``reduce`` compositions or ``over`` broadcasts; each produces one value.
 ``mv.row_count()`` is an unbound request, reusable in different Frames without
 mutation. Column sum/mean/corr/pair_count bind one exact Frame and Session;
 equal-looking data cannot substitute. Only their read-only ``unit`` is public;
-pass requests to ``frame.reduce``. See ``analysis.value_statistic`` in Live Help.
+pass requests to ``frame.reduce`` or ``frame.over``. See ``analysis.value_statistic``
+in Live Help.
 Self pair counting counts non-NA values. Output names never infer matching
 variable pairs. Group coefficients/counts do not reconstruct pooled correlation.
 
@@ -122,9 +140,11 @@ day/quarter offset matching remains supported; partial day/quarter reject.
 per side with the same boundary timezone. It never compresses positions after
 filtering and cannot construct a shifted source domain. Completed comparison
 facts/attachments explain saved values and endpoint presence, with no Metric,
-source or current timezone reconstruction. Relationship correspondence,
-broadcasting, calendar coarsening and original rollup/drill/share receivers remain
-outside this Frame surface; current-row reduce is not their equivalent.
+source or current timezone reconstruction. Relationship correspondence, arbitrary
+broadcasting between independent Frames, calendar coarsening and original
+rollup/drill/share receivers remain outside this Frame surface. Same-input
+``over`` broadcasts current statistics and ``Column.share`` normalizes current
+values; neither reconstructs original Metric contributions.
 
 
 

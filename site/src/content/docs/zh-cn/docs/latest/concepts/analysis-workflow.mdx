@@ -72,10 +72,16 @@ compute 返回完整内存数据，persist 发布已经完成的结果。继续�
 完整数据没有生产图、语义对象、连接或聚合组件。恢复需要精确 Session 身份和
 `frame.artifact.id`，不能由“最新答案”代替。
 
-Frame 在所有载体上支持当前行 where/select、全局 top、按已有完整轴 reduce、全轴
+Frame 在所有载体上支持当前行 where/select、全局 top、按已有完整轴 reduce、分区 over/Column.share、全轴
 align/compare 与受支持冻结日历 match。Column/FrameAxis 绑定精确输入。
 普通轴需要完整显式 on，零轴与各自唯一日历轴只有规定的推导。生成值路径按全名精确查询，
 不按后缀猜角色；presence 独立于 NA。
+
+`frame.over(statistic, by=...)` 将当前分区的 sum、mean、corr、pair_count 或 row_count
+广播到同输入原行。`column.share(along=...)` 沿指定轴求和、按剩余轴分区，再将当前值
+除以总和。两者使用同输入完整句柄；share 的轴 tuple 必须非空。先筛选会改变样本与分母，
+筛选计算后的结果则保留它们。这些固定数据操作不证明原 Metric 的贡献。
+见[分区统计与份额](/zh-cn/docs/latest/guides/statistics/)。
 
 当前行 Pearson 或 Spearman 相关需要显式选择方法：
 

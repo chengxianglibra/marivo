@@ -21,6 +21,7 @@ from marivo._definition.query import (
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValuePartition,
     ValueSlot,
     ValueUnary,
 )
@@ -165,6 +166,15 @@ def admitted(expression: ValueExpression) -> None:
     elif isinstance(expression, ValueBinary):
         admitted(expression.left)
         admitted(expression.right)
+    elif isinstance(expression, ValuePartition):
+        for value in statistic_expressions(expression.statistic):
+            admitted(value)
+
+
+def statistic_expressions(statistic: Statistic | PairStatistic) -> tuple[ValueExpression, ...]:
+    if isinstance(statistic, PairStatistic):
+        return statistic.left, statistic.right
+    return () if statistic.value is None else (statistic.value,)
 
 
 def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ...]:
@@ -238,6 +248,14 @@ def expression_column(
 def expression_unit(schema: DataSchema | PendingDataSchema, value: ValueExpression) -> str | None:
     if isinstance(value, (ValueSlot, CoordinateSlot, PresenceSlot)):
         return expression_column(schema, value).unit
+    if isinstance(value, ValuePartition):
+        return (
+            infer_frame_schema(
+                schema, ReduceValues((("partition", value.statistic),), value.positions)
+            )
+            .values[0]
+            .unit
+        )
     if isinstance(value, ValueLiteral):
         return None
     if isinstance(value, ValueUnary):
@@ -279,6 +297,14 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
         column = expression_column(schema, value)
         assert isinstance(column, DataColumn)
         return column.dtype
+    if isinstance(value, ValuePartition):
+        return (
+            infer_frame_schema(
+                schema, ReduceValues((("partition", value.statistic),), value.positions)
+            )
+            .values[0]
+            .dtype
+        )
     if isinstance(value, ValueUnary) and value.operation in ("neg", "abs"):
         return expression_type(schema, value.operand)
     if isinstance(value, ValueBinary):
@@ -331,7 +357,14 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
     values = tuple(ibis.param(ibis_type(c.dtype)) for c in schema.values)
     coordinates = tuple(ibis.param(ibis_type(a.columns[0].dtype)) for a in schema.axes)
     try:
-        return data_type(expression_value(value, values, coordinates).type())
+        return data_type(
+            expression_value(
+                value,
+                values,
+                coordinates,
+                partition_type=lambda node: expression_type(schema, node),
+            ).type()
+        )
     except (TypeError, ValueError) as error:
         reject(
             "compatible concrete Column types",
@@ -344,6 +377,14 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
 def _pending_kind(schema: PendingDataSchema, expression: ValueExpression) -> ValueKind:
     if isinstance(expression, (ValueSlot, CoordinateSlot, PresenceSlot)):
         return column_kind(expression_column(schema, expression))
+    if isinstance(expression, ValuePartition):
+        return (
+            infer_frame_schema(
+                schema, ReduceValues((("partition", expression.statistic),), expression.positions)
+            )
+            .values[0]
+            .kind
+        )
     if isinstance(expression, ValueLiteral):
         from marivo.analysis.core.value_types import literal_kind
 

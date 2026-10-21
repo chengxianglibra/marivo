@@ -200,8 +200,10 @@ vs_budget.show()
 
 The one-period revenue rows are explicitly summed by region to remove the interval axis before alignment. This current-row sum does not reconstruct arbitrary non-additive Metrics. The budget covers the same region domain. This is ordinary full-axis
 alignment and arithmetic; it does not broadcast a scalar, infer a relationship,
-or establish contribution inclusion. Automatic broadcast and a Frame share
-receiver are outside this surface; optional source contribution share
+or establish contribution inclusion. Arbitrary broadcast between independent
+Frames and an original-contribution Frame share receiver are outside this surface.
+For current-data normalization, use `frame.over(statistic, by=...)` and
+`column.share(along=...)` on one exact input; optional source contribution share
 belongs to the explicit Attribute request above.
 
 ## Choose calendar correspondence deliberately
