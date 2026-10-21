@@ -96,8 +96,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 15 is under `<project_root>/.marivo/analysis/generations/v15/`. One closed
-`marivo.frame_output/v4` protocol stores values, complete axes, independent presence, typed
+Store 16 is under `<project_root>/.marivo/analysis/generations/v16/`. One closed
+`marivo.frame_output/v5` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
@@ -200,8 +200,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4` under
-`.marivo/analysis/generations/v15/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v5`, `frame.v5` and `frame-output-v5` under
+`.marivo/analysis/generations/v16/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,

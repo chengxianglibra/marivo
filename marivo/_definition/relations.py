@@ -248,7 +248,7 @@ class AttributeKeys:
     input_id: str
     bindings: tuple[FrameKeyAxis, ...]
     calendar_token: str | None = None
-    calendar: CalendarCoordinate | None = None
+    calendar: CalendarCoordinate | IntervalCoordinate | None = None
     side: Literal["left", "right"] = "left"
     how: Literal["exact", "outer"] = "exact"
 

@@ -1192,7 +1192,11 @@ def _value_summary(value: object, source: AnalysisFrame, depth: int = 0) -> str:
 
 
 def _operation_summary(binding: OperationFrameBinding) -> str:
+    from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
+
     operation, source = binding.operation, binding.inputs[0]
+    if isinstance(operation, AttributeMergeValues):
+        return "attribute(report_merge)"
     if isinstance(operation, SelectValues):
         values = tuple((name, _value_summary(value, source)) for name, value in operation.values)
         return f"select(values={values!r})"

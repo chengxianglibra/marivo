@@ -205,6 +205,7 @@ def test_records_are_frozen_slotted_and_have_exact_fields() -> None:
         "coordinates",
         "parent_axis_count",
         "parents",
+        "targets",
     )
     assert not hasattr(value, "__dict__")
     with pytest.raises(FrozenInstanceError):

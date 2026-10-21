@@ -199,7 +199,7 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         artifact.show()
         assert artifact.artifact.findings().items == ()
         digest = artifact.artifact.evidence_digest()
-        assert digest.digest_version == "frame-output-v4"
+        assert digest.digest_version == "frame-output-v5"
         assert not any(item.kind == "read" for item in digest.items)
     published = terminal_runs(session, status="succeeded")
     assert all(run.lifecycle == "succeeded" for run in published)
@@ -685,7 +685,7 @@ def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Pa
         with pytest.raises(IntegrityError, match="user_version=12"):
             SessionStore.open_existing(tmp_path)
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v15").exists()
+    assert not (old.parent.parent / "v16").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -1087,7 +1087,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     assert artifact.artifact.findings().items == ()
     artifact.artifact.evidence_digest()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store15 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store16 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1336,7 +1336,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v4"
+    assert value.semantics_version == "frame.v5"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0

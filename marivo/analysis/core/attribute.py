@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.frame_method_facts import (
         FrameMethodCoordinate,
         FrameMethodParent,
+        FrameMethodTarget,
         FrameMethodValue,
     )
 
@@ -273,6 +274,7 @@ class AttributeMethodPayload:
     parent_axis_count: int
     parents: tuple[FrameMethodParent, ...]
     coordinates: tuple[FrameMethodCoordinate, ...]
+    targets: tuple[FrameMethodTarget, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +466,9 @@ def pending_contribution_schema(
     operation: AttributeContributionValues,
 ) -> DataSchema | PendingDataSchema:
     """Describe an ordinary pending result without preparing source schemas."""
+    if operation.target is not None:
+        legacy = pending_contribution_schema(left, right, parent, replace(operation, target=None))
+        return report_schema(legacy, parent, operation)
     base = attribute_schema(left, right, parent, operation.mapping)
     values: list[DataColumn | PendingDataColumn] = []
     paths: list[tuple[str, ...]] = []
@@ -518,6 +523,11 @@ def pending_contribution_schema(
 def contribution_schema(
     program: AttributeInputProgram, operation: AttributeContributionValues
 ) -> DataSchema:
+    if operation.target is not None:
+        legacy = contribution_schema(program, replace(operation, target=None))
+        result = report_schema(legacy, program.parent_schema, operation)
+        assert isinstance(result, DataSchema)
+        return result
     result = pending_contribution_schema(
         program.left_schema, program.right_schema, program.parent_schema, operation
     )
@@ -533,7 +543,11 @@ def contribution_schema(
             right_rule, RatioComponentRule
         ):
             continue
-        for side, rule in (("left", left_rule), ("right", right_rule)):
+        for side, rule in (
+            (("left", left_rule),)
+            if operation.single_endpoint
+            else (("left", left_rule), ("right", right_rule))
+        ):
             n, d = _component_columns(program, rule, side)
             for prefix, column in (("numerator_" + side, n), ("denominator_" + side, d)):
                 position = result.value_paths.index((prefix, name))
@@ -640,3 +654,83 @@ def _rule_column(program: AttributeInputProgram, rule: AttributeRule, side: str)
     assert isinstance(operation, RuleScale)
     a = _rule_column(program, operation.operand, side)
     return replace(a, dtype=_type("mul", a, _coefficient_column(operation.scalar.value)))
+
+
+def report_schema(
+    legacy: DataSchema | PendingDataSchema,
+    parent: DataSchema | PendingDataSchema,
+    operation: AttributeContributionValues,
+) -> DataSchema | PendingDataSchema:
+    """Map one closed target to its report directory without parsing display names."""
+    target = operation.target
+    assert target is not None
+    directory: dict[tuple[str, ...], DataColumn | PendingDataColumn] = dict(
+        zip(legacy.value_paths, legacy.values, strict=True)
+    )
+    path = target.path
+    level = target.mode == "level"
+    source = directory[("left" if level else "contribution", "target")]
+    values: list[DataColumn | PendingDataColumn] = []
+    paths: list[tuple[str, ...]] = []
+    entries: list[tuple[tuple[str, ...], DataColumn | PendingDataColumn]] = [
+        (("contribution", *path), source),
+        (("total", *path), source),
+        (("observed_total", *path), parent.values[target.observed]),
+        (("contribution_share", *path), directory[("contribution_share", "target")]),
+    ]
+    for prefix, role in (
+        ((("detail", "value"), "left"),)
+        if level
+        else (
+            (("detail", "current"), "left"),
+            (("detail", "baseline"), "right"),
+            (("detail", "absolute"), "absolute"),
+        )
+    ):
+        entries.append(((*prefix, *path), directory[(role, "target")]))
+    for side, role in (
+        (("left", "value"),) if level else (("left", "current"), ("right", "baseline"))
+    ):
+        for component in ("numerator", "denominator"):
+            column = directory.get((component + "_" + side, "target"))
+            if column is not None:
+                entries.append((("component", role, component, *path), column))
+    for output_path, column in entries:
+        if isinstance(legacy, PendingDataSchema) and isinstance(column, DataColumn):
+            column = _pending_column(column)
+        if target.mode == "relative" and output_path[0] in ("contribution", "total"):
+            original = column
+            column = replace(column, unit="1")
+            if isinstance(column, DataColumn) and isinstance(original, DataColumn):
+                column = replace(column, dtype=_type("div", original, original))
+        column = replace(
+            column, slot_id=f"attribute.report.{len(values)}", name=".".join(output_path)
+        )
+        values.append(column)
+        paths.append(output_path)
+    presence: tuple[DataColumn | PendingDataColumn, ...] = (
+        legacy.presence[:1] if level else legacy.presence[:2]
+    )
+    presence_paths = tuple(
+        ("detail", role, "present", *path)
+        for role in (("value",) if level else ("current", "baseline"))
+    )
+    presence = tuple(
+        replace(c, slot_id=f"attribute.report.present.{i}", name=".".join(p))
+        for i, (c, p) in enumerate(zip(presence, presence_paths, strict=True))
+    )
+    if isinstance(legacy, PendingDataSchema):
+        return replace(
+            legacy,
+            values=tuple(c for c in values if isinstance(c, PendingDataColumn)),
+            value_paths=tuple(paths),
+            presence=tuple(c for c in presence if isinstance(c, PendingDataColumn)),
+            presence_paths=presence_paths,
+        )
+    return replace(
+        legacy,
+        values=tuple(c for c in values if isinstance(c, DataColumn)),
+        value_paths=tuple(paths),
+        presence=tuple(c for c in presence if isinstance(c, DataColumn)),
+        presence_paths=presence_paths,
+    )

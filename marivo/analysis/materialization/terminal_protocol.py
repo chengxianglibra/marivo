@@ -52,13 +52,21 @@ from marivo.analysis.core.frame_audit import (
 )
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearMethod,
+    FrameLevelLinearTerm,
+    FrameLevelRatioMethod,
+    FrameLevelSupport,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
     FrameMethodFacts,
     FrameMethodMetric,
+    FrameMethodOutput,
     FrameMethodParent,
     FrameMethodSupport,
+    FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
 )
@@ -83,7 +91,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 15 Frame output v4 value",
+        expected="a complete Store 16 Frame output v5 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -129,6 +137,14 @@ _RECORDS = (
     ParquetHandle,
     SavedAttachment,
     SavedFrameMethodFacts,
+    FrameAttributeMetric,
+    FrameMethodOutput,
+    FrameMethodTarget,
+    FrameLevelSupport,
+    FrameLevelAdditiveMethod,
+    FrameLevelRatioMethod,
+    FrameLevelLinearTerm,
+    FrameLevelLinearMethod,
     FrameAdditiveMethod,
     FrameLinearMethod,
     FrameLinearTerm,
@@ -159,9 +175,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v4"
+FORMAT = "marivo.frame_output/v5"
 
-# One closed Store15 field inventory. No older field set or dataclass fallback.
+# One closed Store16 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "ArtifactManifest": (
         "store_id",
@@ -223,7 +239,24 @@ _FIELDS = {
         "coordinate_row_count",
         "facts_digest",
         "payload",
+        "targets",
     ),
+    "FrameMethodTarget": ("target", "kind", "outputs"),
+    "FrameAttributeMetric": (
+        "target",
+        "kind",
+        "method",
+        "observed_total",
+        "total",
+        "outputs",
+        "share_state",
+    ),
+    "FrameMethodOutput": ("role", "path"),
+    "FrameLevelSupport": ("root_id", "policy", "input_count", "effective_count"),
+    "FrameLevelAdditiveMethod": ("kind", "value", "support"),
+    "FrameLevelRatioMethod": ("kind", "value", "numerator", "denominator", "support"),
+    "FrameLevelLinearTerm": ("coefficient", "method"),
+    "FrameLevelLinearMethod": ("kind", "value", "terms"),
     "FrameMethodValue": ("column", "value"),
     "FrameMethodCoordinate": ("name", "schema", "rows"),
     "FrameMethodSupport": (
@@ -257,6 +290,7 @@ _FIELDS = {
         "coordinates",
         "parent_axis_count",
         "parents",
+        "targets",
     ),
     "LocalReceipt": (
         "project_relative_path",
@@ -405,7 +439,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v4; obsolete output format received")
+            raise invalid("expected Frame output v5; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
@@ -431,7 +465,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v4 method record")
+            raise invalid("expected Frame output v5 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")
@@ -453,5 +487,6 @@ def method_facts_header(value: FrameMethodFacts | SavedFrameMethodFacts) -> str:
             "origin_result_id": value.origin_result_id,
             "output_schema": _encode(value.output_schema),
             "parent_axis_count": value.parent_axis_count,
+            "targets": _encode(value.targets),
         }
     )

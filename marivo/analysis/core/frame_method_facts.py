@@ -126,10 +126,22 @@ class _FactRecord:
     __slots__ = ()
 
     def _summary(self) -> str:
-        raise NotImplementedError
+        return f"kind={type(self).__name__}"
 
     def _lines(self) -> Iterator[str]:
-        raise NotImplementedError
+        assert is_dataclass(self)
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if isinstance(value, _FactRecord):
+                yield f"{item.name}: {value!r}"
+                yield from value._lines()
+            elif isinstance(value, tuple):
+                for index, child in enumerate(value):
+                    yield f"{item.name}[{index}]={_short(repr(child), 160)}"
+                    if isinstance(child, _FactRecord):
+                        yield from child._lines()
+            else:
+                yield f"{item.name}={_short(repr(value), 200)}"
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({_short(self._summary(), 120)}; .show())"
@@ -330,12 +342,30 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
                 yield repr(term.coefficient)
                 yield from method_values(term.method)
 
+    def target_values(method: _Method | _LevelMethod) -> Iterator[str]:
+        if isinstance(method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)):
+            yield from method_values(method)
+        else:
+            yield repr(method.value.value)
+            if isinstance(method, FrameLevelRatioMethod):
+                yield repr(method.numerator.value)
+                yield repr(method.denominator.value)
+            elif isinstance(method, FrameLevelLinearMethod):
+                for term in method.terms:
+                    yield repr(term.coefficient)
+                    yield from target_values(term.method)
+
     def scalar_values(facts: FrameMethodFacts) -> Iterator[str]:
         for parent in facts.parents:
             for key in parent.key:
                 yield repr(key.value)
             for metric in parent.metrics:
-                yield from method_values(metric.method)
+                if isinstance(metric, FrameAttributeMetric):
+                    yield repr(metric.observed_total.value)
+                    yield repr(metric.total.value)
+                    yield from target_values(metric.method)
+                else:
+                    yield from method_values(metric.method)
         for coordinate in facts.coordinates:
             for row in coordinate.rows:
                 for value in row:
@@ -517,6 +547,334 @@ class FrameMethodMetric(_FactRecord):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelSupport(_FactRecord):
+    """Captured support for one endpoint, with no synthetic baseline."""
+
+    root_id: str
+    policy: Literal[
+        "rows", "non_null_value", "co_valid_value_weight", "identity", "preserved_sample"
+    ]
+    input_count: int
+    effective_count: int
+
+    def __post_init__(self) -> None:
+        _text(self.root_id)
+        if self.policy not in (
+            "rows",
+            "non_null_value",
+            "co_valid_value_weight",
+            "identity",
+            "preserved_sample",
+        ):
+            _fail("a closed sample policy", repr(self.policy))
+        if (
+            type(self.input_count) is not int
+            or type(self.effective_count) is not int
+            or not 0 <= self.effective_count <= self.input_count
+        ):
+            _fail("exact nonnegative endpoint support counts", repr(self.input_count))
+
+
+def _level_support(support: tuple[FrameLevelSupport, ...]) -> None:
+    if (
+        type(support) is not tuple
+        or not support
+        or any(type(item) is not FrameLevelSupport for item in support)
+        or len({item.root_id for item in support}) != len(support)
+    ):
+        _fail("immutable unique one-endpoint supports", repr(support))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelAdditiveMethod(_FactRecord):
+    """A one-endpoint additive rule and its original total."""
+
+    kind: Literal["level_additive"]
+    value: FrameMethodValue
+    support: tuple[FrameLevelSupport, ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "level_additive":
+            _fail("kind='level_additive'", repr(self.kind))
+        _total(self.value)
+        _level_support(self.support)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelRatioMethod(_FactRecord):
+    """A one-endpoint ratio with independently captured components."""
+
+    kind: Literal["level_ratio_component"]
+    value: FrameMethodValue
+    numerator: FrameMethodValue
+    denominator: FrameMethodValue
+    support: tuple[FrameLevelSupport, ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "level_ratio_component":
+            _fail("kind='level_ratio_component'", repr(self.kind))
+        for value in (self.value, self.numerator, self.denominator):
+            _total(value)
+        if (
+            self.denominator.value == 0
+            or _quotient_unit(self.numerator.column.unit, self.denominator.column.unit)
+            != self.value.column.unit
+        ):
+            _fail("nonzero denominator and matching ratio units", self.value.column.name)
+        _level_support(self.support)
+
+
+_LevelMethod: TypeAlias = (
+    "FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod"
+)
+
+
+def _level_method(method: _LevelMethod) -> None:
+    if type(method) not in (
+        FrameLevelAdditiveMethod,
+        FrameLevelRatioMethod,
+        FrameLevelLinearMethod,
+    ):
+        _fail("a closed one-endpoint rule", type(method).__name__)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelLinearTerm(_FactRecord):
+    """An original ordered coefficient and one-endpoint child rule."""
+
+    coefficient: int | float | Decimal
+    method: _LevelMethod
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.coefficient) not in (int, float, Decimal)
+            or (isinstance(self.coefficient, float) and not isfinite(self.coefficient))
+            or (isinstance(self.coefficient, Decimal) and not self.coefficient.is_finite())
+        ):
+            _fail("a finite original coefficient", repr(self.coefficient))
+        _level_method(self.method)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelLinearMethod(_FactRecord):
+    """A one-endpoint fixed linear rule retaining child order."""
+
+    kind: Literal["level_linear"]
+    value: FrameMethodValue
+    terms: tuple[FrameLevelLinearTerm, ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "level_linear":
+            _fail("kind='level_linear'", repr(self.kind))
+        _total(self.value)
+        if (
+            type(self.terms) is not tuple
+            or not self.terms
+            or any(type(term) is not FrameLevelLinearTerm for term in self.terms)
+        ):
+            _fail("nonempty exact ordered level terms", repr(self.terms))
+        if any(term.method.value.column.unit != self.value.column.unit for term in self.terms):
+            _fail("linear child units matching parent", self.value.column.name)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameMethodOutput(_FactRecord):
+    """Associate one exact original output path with its report role."""
+
+    role: Literal[
+        "contribution",
+        "total",
+        "observed_total",
+        "share",
+        "value",
+        "current",
+        "baseline",
+        "absolute",
+        "numerator",
+        "denominator",
+        "numerator_current",
+        "numerator_baseline",
+        "denominator_current",
+        "denominator_baseline",
+        "valid_count",
+        "valid_count_current",
+        "valid_count_baseline",
+        "present",
+        "current_present",
+        "baseline_present",
+    ]
+    path: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.role not in (
+            "contribution",
+            "total",
+            "observed_total",
+            "share",
+            "value",
+            "current",
+            "baseline",
+            "absolute",
+            "numerator",
+            "denominator",
+            "numerator_current",
+            "numerator_baseline",
+            "denominator_current",
+            "denominator_baseline",
+            "valid_count",
+            "valid_count_current",
+            "valid_count_baseline",
+            "present",
+            "current_present",
+            "baseline_present",
+        ):
+            _fail("a closed report output role", repr(self.role))
+        if (
+            type(self.path) is not tuple
+            or not self.path
+            or any(type(part) is not str or not part for part in self.path)
+        ):
+            _fail("a complete nonempty output path", repr(self.path))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameMethodTarget(_FactRecord):
+    """Original target and output directory, retained even for an empty parent set."""
+
+    target: tuple[str, ...]
+    kind: Literal["level", "absolute", "relative"]
+    outputs: tuple[FrameMethodOutput, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.target) is not tuple
+            or not self.target
+            or any(type(part) is not str or not part for part in self.target)
+        ):
+            _fail("a complete original target path", repr(self.target))
+        if self.kind not in ("level", "absolute", "relative"):
+            _fail("a closed target kind", repr(self.kind))
+        if type(self.outputs) is not tuple or any(
+            type(item) is not FrameMethodOutput for item in self.outputs
+        ):
+            _fail("immutable closed output mappings", repr(self.target))
+        roles = tuple(item.role for item in self.outputs)
+        if (
+            roles[:4] != ("contribution", "total", "observed_total", "share")
+            or len(set(roles)) != len(roles)
+            or len({item.path for item in self.outputs}) != len(self.outputs)
+        ):
+            _fail("four ordered main roles and unique diagnostics", repr(self.target))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameAttributeMetric(_FactRecord):
+    """Complete source-free target facts, including observed and reread totals."""
+
+    target: tuple[str, ...]
+    kind: Literal["level", "absolute", "relative"]
+    method: (
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameAdditiveMethod
+        | FrameRatioMethod
+        | FrameLinearMethod
+    )
+    observed_total: FrameMethodValue
+    total: FrameMethodValue
+    outputs: tuple[FrameMethodOutput, ...]
+    share_state: Literal["defined", "zero_total"]
+
+    @property
+    def name(self) -> str:
+        return ".".join(self.target)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.target) is not tuple
+            or not self.target
+            or any(type(part) is not str or not part for part in self.target)
+        ):
+            _fail("the complete original target path", repr(self.target))
+        if self.kind == "level":
+            if not isinstance(
+                self.method,
+                (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod),
+            ):
+                _fail("a one-endpoint level rule", self.name)
+            _level_method(self.method)
+        elif self.kind in ("absolute", "relative"):
+            if not isinstance(
+                self.method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)
+            ):
+                _fail("a two-endpoint change rule", self.name)
+            _method(self.method)
+        else:
+            _fail("level, absolute or relative target", repr(self.kind))
+        support_by_root: dict[tuple[str, str], tuple[str, int, int]] = {}
+
+        def supports(method: _Method | _LevelMethod) -> Iterator[tuple[str, str, str, int, int]]:
+            if isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
+                for term in method.terms:
+                    yield from supports(term.method)
+            elif isinstance(method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod)):
+                for item in method.support:
+                    yield item.root_id, "level", item.policy, item.input_count, item.effective_count
+            else:
+                for paired_support in method.support:
+                    yield (
+                        paired_support.root_id,
+                        "current",
+                        paired_support.policy,
+                        paired_support.left_input_count,
+                        paired_support.left_effective_count,
+                    )
+                    yield (
+                        paired_support.root_id,
+                        "baseline",
+                        paired_support.policy,
+                        paired_support.right_input_count,
+                        paired_support.right_effective_count,
+                    )
+
+        for root, endpoint, policy, input_count, effective_count in supports(self.method):
+            key = (root, endpoint)
+            value = (policy, input_count, effective_count)
+            if key in support_by_root and support_by_root[key] != value:
+                _fail("consistent support for every shared root and endpoint", root)
+            support_by_root[key] = value
+        _total(self.total)
+        if (
+            type(self.observed_total) is not FrameMethodValue
+            or self.observed_total.column.dtype != self.total.column.dtype
+            or self.observed_total.column.unit != self.total.column.unit
+        ):
+            _fail("observed total with the exact report carrier and unit", self.name)
+        if type(self.outputs) is not tuple or any(
+            type(item) is not FrameMethodOutput for item in self.outputs
+        ):
+            _fail("immutable closed output mappings", self.name)
+        roles = tuple(item.role for item in self.outputs)
+        if (
+            roles[:4] != ("contribution", "total", "observed_total", "share")
+            or len(set(roles)) != len(roles)
+            or len({item.path for item in self.outputs}) != len(self.outputs)
+        ):
+            _fail("four ordered main outputs and unique diagnostic mappings", self.name)
+        if self.share_state != ("zero_total" if self.total.value == 0 else "defined"):
+            _fail("share state matching the exact reread total", self.name)
+
+    def _summary(self) -> str:
+        return f"kind={self.kind}, target={_short(self.name)!r}, share_state={self.share_state}"
+
+    def _lines(self) -> Iterator[str]:
+        yield f"observed_total={_cell(self.observed_total.value)}, total={_cell(self.total.value)}"
+        yield repr(self.method)
+        yield from self.method._lines()
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class FrameMethodParent(_FactRecord):
     """Explain a complete parent key and ordered metrics. Args: key, metrics.
 
@@ -525,7 +883,7 @@ class FrameMethodParent(_FactRecord):
     """
 
     key: tuple[FrameMethodValue, ...]
-    metrics: tuple[FrameMethodMetric, ...]
+    metrics: tuple[FrameMethodMetric | FrameAttributeMetric, ...]
 
     def __post_init__(self) -> None:
         if type(self.key) is not tuple or any(type(v) is not FrameMethodValue for v in self.key):
@@ -533,14 +891,16 @@ class FrameMethodParent(_FactRecord):
         if (
             type(self.metrics) is not tuple
             or not self.metrics
-            or any(type(m) is not FrameMethodMetric for m in self.metrics)
+            or any(type(m) not in (FrameMethodMetric, FrameAttributeMetric) for m in self.metrics)
         ):
             _fail("a nonempty immutable ordered metric tuple", type(self.metrics).__name__)
         if len({m.name for m in self.metrics}) != len(self.metrics):
             _fail("unique parent metric names", "duplicate metric")
         roots: dict[str, FrameMethodSupport] = {}
         for metric in self.metrics:
-            for support in _method_supports(metric.method):
+            for support in (
+                () if isinstance(metric, FrameAttributeMetric) else _method_supports(metric.method)
+            ):
                 if support.root_id in roots and roots[support.root_id] != support:
                     _fail("consistent facts for each shared local sample root", support.root_id)
                 roots[support.root_id] = support
@@ -665,6 +1025,7 @@ class FrameMethodFacts(_FactRecord):
     coordinates: tuple[FrameMethodCoordinate, ...]
     parent_axis_count: int
     parents: tuple[FrameMethodParent, ...]
+    targets: tuple[FrameMethodTarget, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.kind) is not str or self.kind != "attribute":
@@ -690,6 +1051,13 @@ class FrameMethodFacts(_FactRecord):
             c for axis in self.output_schema.axes[: self.parent_axis_count] for c in axis.columns
         )
         paths = self.output_schema.value_paths
+        if type(self.targets) is not tuple or any(
+            type(target) is not FrameMethodTarget for target in self.targets
+        ):
+            _fail("immutable closed target directory", type(self.targets).__name__)
+        if self.targets:
+            self._attribute_targets(columns)
+            return
         names = tuple(path[1] for path in paths if len(path) == 2 and path[0] == "left")
         if not names or len(set(names)) != len(names):
             _fail("an original ordered Attribute metric directory", repr(paths))
@@ -740,6 +1108,8 @@ class FrameMethodFacts(_FactRecord):
                     "all original metrics in declaration order", "parent metric directory differs"
                 )
             for metric in parent.metrics:
+                if not isinstance(metric, FrameMethodMetric):
+                    _fail("one closed legacy metric directory", "mixed target records")
                 method = metric.method
                 for role, value in (
                     ("left", method.left),
@@ -764,6 +1134,144 @@ class FrameMethodFacts(_FactRecord):
             _fail("unique complete parent keys", "duplicate parent key")
         if tuple(sorted(self.parents, key=_key_order)) != self.parents:
             _fail("canonical complete parent key order", "unsorted parent keys")
+        _coordinates(self.output_schema, self.coordinates, self.parents, self.parent_axis_count)
+
+    def _attribute_targets(self, columns: tuple[DataColumn, ...]) -> None:
+        directory = dict(
+            zip(self.output_schema.value_paths, self.output_schema.values, strict=True)
+        )
+        presence = set(self.output_schema.presence_paths)
+        if len({target.target for target in self.targets}) != len(self.targets):
+            _fail("unique complete target paths", "duplicate target")
+        targets = tuple(target.target for target in self.targets)
+        mapping = tuple(target.outputs for target in self.targets)
+        mapped_values: list[tuple[str, ...]] = []
+        mapped_presence: set[tuple[str, ...]] = set()
+        for target in self.targets:
+            roles = {output.role for output in target.outputs}
+            required = (
+                {"value", "present"}
+                if target.kind == "level"
+                else {"current", "baseline", "absolute", "current_present", "baseline_present"}
+            )
+            if not required <= roles:
+                _fail("complete diagnostics for the target endpoint shape", repr(target.target))
+            typed = {}
+            for output in target.outputs:
+                if output.role in ("present", "current_present", "baseline_present"):
+                    if output.path not in presence:
+                        _fail("presence roles mapped only to presence columns", repr(output.path))
+                    mapped_presence.add(output.path)
+                else:
+                    column = directory.get(output.path)
+                    if column is None:
+                        _fail(
+                            "numeric report roles mapped only to value columns", repr(output.path)
+                        )
+                    if not (
+                        isinstance(column.dtype, (DecimalDataType, DurationDataType))
+                        or column.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+                    ):
+                        _fail("numeric or Duration report values", column.name)
+                    if output.role.startswith("valid_count") and (
+                        column.dtype != ScalarDataType("int64") or column.unit not in (None, "1")
+                    ):
+                        _fail("integer dimensionless valid sample counts", column.name)
+                    typed[output.role] = column
+                    mapped_values.append(output.path)
+            total = typed["total"]
+            for role in ("contribution", "observed_total"):
+                if typed[role].dtype != total.dtype or typed[role].unit != total.unit:
+                    _fail(
+                        "main totals and contributions sharing the exact carrier and unit",
+                        repr(target.target),
+                    )
+            share = typed["share"]
+            if isinstance(share.dtype, DurationDataType) or share.unit != (
+                None if total.unit is None else "1"
+            ):
+                _fail("numeric dimensionless share output", share.name)
+        if tuple(mapped_values) != self.output_schema.value_paths or mapped_presence != presence:
+            _fail(
+                "complete ordered value and presence output mapping", "missing or extra output path"
+            )
+        for parent in self.parents:
+            if tuple(value.column for value in parent.key) != columns:
+                _fail("complete original parent key columns", "parent key columns differ")
+            if any(type(metric) is not FrameAttributeMetric for metric in parent.metrics):
+                _fail("one closed target facts shape", "mixed legacy and target records")
+            metrics = tuple(
+                metric for metric in parent.metrics if isinstance(metric, FrameAttributeMetric)
+            )
+            current = tuple(metric.target for metric in metrics)
+            paths = tuple(metric.outputs for metric in metrics)
+            if (
+                targets != current
+                or mapping != paths
+                or tuple(metric.kind for metric in metrics)
+                != tuple(target.kind for target in self.targets)
+            ):
+                _fail(
+                    "identical ordered target/output directory for all parents",
+                    "inconsistent targets",
+                )
+            for metric in metrics:
+                by_role: dict[str, tuple[str, ...]] = {
+                    output.role: output.path for output in metric.outputs
+                }
+                rule = metric.method
+                if isinstance(
+                    rule, (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod)
+                ):
+                    expected_columns = {"value": rule.value.column}
+                    required_presence: tuple[str, ...] = ("present",)
+                    if isinstance(rule, FrameLevelRatioMethod):
+                        expected_columns.update(
+                            numerator=rule.numerator.column, denominator=rule.denominator.column
+                        )
+                else:
+                    expected_columns = {
+                        "current": rule.left.column,
+                        "baseline": rule.right.column,
+                        "absolute": rule.change.column,
+                    }
+                    required_presence = ("current_present", "baseline_present")
+                    if isinstance(rule, FrameRatioMethod):
+                        expected_columns.update(
+                            numerator_current=rule.numerator_left.column,
+                            numerator_baseline=rule.numerator_right.column,
+                            denominator_current=rule.denominator_left.column,
+                            denominator_baseline=rule.denominator_right.column,
+                        )
+                for role in required_presence:
+                    if role not in by_role:
+                        _fail("all endpoint presence diagnostics", metric.name)
+                for role, column in expected_columns.items():
+                    diagnostic = directory.get(by_role.get(role, ()))
+                    if (
+                        diagnostic is None
+                        or diagnostic.dtype != column.dtype
+                        or diagnostic.unit != column.unit
+                    ):
+                        _fail(
+                            "diagnostic columns matching exact captured rule carriers and units",
+                            role,
+                        )
+                for output in metric.outputs:
+                    if output.path not in directory and output.path not in presence:
+                        _fail("output mappings resolving in the saved schema", repr(output.path))
+                for role, value in (
+                    ("total", metric.total),
+                    ("observed_total", metric.observed_total),
+                ):
+                    path = next(output.path for output in metric.outputs if output.role == role)
+                    if directory.get(path) != value.column:
+                        _fail("exact typed report columns for parent totals", repr(path))
+        if (
+            len({parent.key for parent in self.parents}) != len(self.parents)
+            or tuple(sorted(self.parents, key=_key_order)) != self.parents
+        ):
+            _fail("unique canonically ordered complete parent keys", "invalid parent ordering")
         _coordinates(self.output_schema, self.coordinates, self.parents, self.parent_axis_count)
 
     def _summary(self) -> str:

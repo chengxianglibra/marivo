@@ -29,6 +29,7 @@ from marivo.analysis.core.attribute import (
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.time_authority import SourceTimeAuthority
@@ -302,6 +303,7 @@ class FrameCompute:
         | AttributeProjectProgram
         | AttributeInputProgram
         | AttributeContributionProgram
+        | AttributeMergeProgram
     )
 
     @property

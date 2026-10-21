@@ -25,7 +25,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
-from marivo._definition.types import CalendarCoordinate
+from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -46,6 +46,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
+from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_structure import (
     AxisRole,
     PendingDataAxis,
@@ -110,11 +111,20 @@ class AttributeInputsValues:
 
 
 @dataclass(frozen=True, slots=True)
+class FrameAttributeTarget:
+    path: tuple[str, ...]
+    mode: Literal["level", "absolute", "relative"]
+    observed: int
+
+
+@dataclass(frozen=True, slots=True)
 class AttributeContributionValues:
     """Explicit contribution consumer in the ordinary Frame expression."""
 
     mapping: AttributeFrameValues
     rules: tuple[tuple[tuple[str, AttributeRule], ...], tuple[tuple[str, AttributeRule], ...]]
+    target: FrameAttributeTarget | None = None
+    single_endpoint: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +134,7 @@ class AttributeProjectValues:
     side: Literal["left", "right"]
     ordinary: tuple[int, ...]
     calendar: int | None
-    target_calendar: CalendarCoordinate | None = None
+    target_calendar: CalendarCoordinate | IntervalCoordinate | None = None
     how: Literal["exact", "outer"] = "exact"
 
 
@@ -136,6 +146,7 @@ FrameOperationKind: TypeAlias = (
     | AttributeInputsValues
     | AttributeContributionValues
     | AttributeProjectValues
+    | AttributeMergeValues
 )
 
 

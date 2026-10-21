@@ -82,7 +82,7 @@ Artifact/ID 对象及 RawSqlResult 不是计算操作数。保存错误直接给
 重新构建来源输入可能读取变化的数据。
 缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
-Store 15 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
+Store 16 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
 发现可返回 None/空而不暴露旧状态；create 不能绕过仅有旧 Store 的项目。
 切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
 保留旧 Store，当前工作在新项目创建新的命名 Session。Store15 的 generation15/output-v4

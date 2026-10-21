@@ -324,6 +324,27 @@ def plan_frame(
         existing = operations.get(id(node))
         if existing is not None:
             return existing
+        from marivo.analysis.core.frame_attribute_merge import (
+            AttributeMergeProgram,
+            AttributeMergeValues,
+            infer_attribute_merge_schema,
+        )
+
+        if isinstance(node.operation, AttributeMergeValues):
+            children = tuple(visit(item) for item in node.inputs)
+            merged_schema = infer_attribute_merge_schema(tuple(schema for _, schema in children))
+            assert isinstance(merged_schema, DataSchema)
+            merge_program = AttributeMergeProgram(
+                node.operation, tuple(schema for _, schema in children), merged_schema
+            )
+            merged = FrameCompute(
+                f"frame:{len(stages)}",
+                tuple(identifier for identifier, _ in children),
+                merge_program,
+            )
+            stages.append(merged)
+            operations[id(node)] = (merged.stage_id, merged_schema)
+            return merged.stage_id, merged_schema
         if isinstance(node.operation, AttributeContributionValues):
             from marivo.analysis.core.attribute import (
                 AttributeContributionProgram,
@@ -391,7 +412,7 @@ def plan_frame(
             contribution_program = AttributeContributionProgram(
                 node.operation,
                 input_stage.program,
-                (formulas[0], formulas[1]),
+                (formulas[0], formulas[-1]),
                 contribution_schema(input_stage.program, node.operation),
             )
             compute = FrameCompute(
@@ -418,7 +439,7 @@ def plan_frame(
                             stages.append(projection)
                             projections[projection.stage_id] = projection.stage_id
             left, left_schema = visit(node.inputs[1])
-            right, right_schema = visit(node.inputs[2])
+            right, right_schema = visit(node.inputs[-1])
             layouts = tuple(
                 tuple(
                     require_attribute(stage)
@@ -429,7 +450,12 @@ def plan_frame(
                 if isinstance(endpoint, SourceFrameInput)
             )
             input_program = attribute_input_program(
-                node.operation, parent_schema, left_schema, right_schema, layouts[0], layouts[1]
+                node.operation,
+                parent_schema,
+                left_schema,
+                right_schema,
+                layouts[0],
+                layouts[-1] if len(node.inputs) > 2 else (),
             )
             bridges = tuple(
                 "attribute-bridge:" + identifier
@@ -441,7 +467,9 @@ def plan_frame(
             from marivo.analysis.core.attribute import AttributeSourceParentBinding
 
             source_owners = dict(owners)
-            for endpoint_node, projection_id in zip(node.inputs[1:], bridges, strict=True):
+            for endpoint_node, projection_id in zip(
+                node.inputs[1:], bridges[: len(node.inputs) - 1], strict=True
+            ):
                 assert isinstance(endpoint_node, SourceFrameInput)
                 for stage_index, source_stage in enumerate(stages):
                     if (
@@ -607,13 +635,23 @@ def frame_expression_schema(
         inputs = tuple(
             frame_expression_schema(item, source_schemas, memo=memo) for item in expression.inputs
         )
+        from marivo.analysis.core.frame_attribute_merge import (
+            AttributeMergeValues,
+            infer_attribute_merge_schema,
+        )
+
+        if isinstance(expression.operation, AttributeMergeValues):
+            merged_schema = infer_attribute_merge_schema(inputs)
+            assert isinstance(merged_schema, DataSchema)
+            memo[id(expression)] = merged_schema
+            return merged_schema
         if isinstance(expression.operation, AttributeContributionValues):
             from marivo.analysis.core.attribute import (
                 pending_contribution_schema,
             )
 
             contribution_result = pending_contribution_schema(
-                inputs[1], inputs[2], inputs[0], expression.operation
+                inputs[1], inputs[-1], inputs[0], expression.operation
             )
             assert isinstance(contribution_result, DataSchema)
             memo[id(expression)] = contribution_result

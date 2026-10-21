@@ -159,6 +159,7 @@ def _fold_method_facts(
             coordinates=payload.coordinates,
             parent_axis_count=payload.parent_axis_count,
             parents=payload.parents,
+            targets=payload.targets,
         )
         validate_method_facts(facts)
         own_facts[production.input_id] = facts

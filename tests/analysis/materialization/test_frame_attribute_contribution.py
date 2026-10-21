@@ -947,3 +947,62 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert pa.array(data[("value", "left.q")]).type == (
         pa.float64() if mean else pa.decimal128(38, 1)
     )
+
+
+def test_captured_frame_attribute_absolute(session: Session) -> None:
+    from marivo.analysis.binding.frame_attribute import attribute
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    current = session.observe({"q": amount.sum()}, where=phase == "current")
+    baseline = session.observe({"q": amount.sum()}, where=phase == "base")
+    comparison = current.compare({"base": baseline})
+    selected = comparison.select({"change": comparison["base.absolute.q"]}).compute()
+    result = attribute(selected, by=(channel,)).compute().to_pandas()
+    assert result[("value", "contribution.change")].tolist() == [60, -20]
+
+
+def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.analysis.binding.frame_attribute import attribute
+    from marivo.datasource.adapters import SourceSession
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe({"q": amount.sum()}, where=phase == "current").compute()
+    reads: list[CompiledRead] = []
+    original = SourceSession.execute
+
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        reads.append(issued)
+        return original(self, issued)
+
+    monkeypatch.setattr(SourceSession, "execute", execute)
+    result = attribute(selected, by=(channel,)).compute().to_pandas()
+    assert len(reads) == 1
+    assert result[("value", "contribution.q")].tolist() == [160, 80]
+    assert result[("value", "total.q")].tolist() == [240, 240]
+    assert result[("value", "observed_total.q")].tolist() == [240, 240]
+
+
+def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: Session) -> None:
+    from marivo.analysis.binding.frame_attribute import attribute
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    database = Path.cwd() / "contribution.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("UPDATE facts SET amount=140 WHERE id=3")
+    current = session.observe({"q": amount.sum()}, where=phase == "current")
+    baseline = session.observe({"q": amount.sum()}, where=phase == "base")
+    compared = current.compare({"base": baseline})
+    selected = compared.select({"change": compared["base.absolute.q"]}).compute()
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("UPDATE facts SET amount=160 WHERE id=3")
+    result = attribute(selected, by=(channel,)).compute().to_pandas()
+    assert result[("value", "contribution.change")].tolist() == [60, -20]
+    assert result[("value", "total.change")].tolist() == [40, 40]
+    assert result[("value", "observed_total.change")].tolist() == [20, 20]
+    assert result[("value", "contribution_share.change")].tolist() == [1.5, -0.5]

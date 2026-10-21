@@ -28,6 +28,7 @@ from marivo.analysis.core.data_types import ScalarDataType as ScalarDataType
 from marivo.analysis.core.data_types import TimestampDataType as TimestampDataType
 from marivo.analysis.core.data_types import require_data_text
 from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_method_facts import FrameMethodTarget
 from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.output_records import (
@@ -102,9 +103,19 @@ class SavedFrameMethodFacts:
     coordinate_row_count: int
     facts_digest: str
     payload: SavedAttachment
+    targets: tuple[FrameMethodTarget, ...] = ()
 
     def __post_init__(self) -> None:
         require_data_text(self.origin_result_id, "artifact.method.origin")
+        if type(self.targets) is not tuple or any(
+            type(target) is not FrameMethodTarget for target in self.targets
+        ):
+            reject(
+                "immutable closed original target directory",
+                type(self.targets).__name__,
+                "Preserve the complete target mapping.",
+                "artifact.method",
+            )
         counts = (
             self.parent_axis_count,
             self.parent_count,
@@ -188,7 +199,7 @@ class ArtifactManifest:
     data: ArtifactData
     metadata: FrameResultMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
-    semantics_version: Literal["frame.v4"] = "frame.v4"
+    semantics_version: Literal["frame.v5"] = "frame.v5"
 
     @property
     def result_id(self) -> str:
@@ -200,7 +211,7 @@ class ArtifactManifest:
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not FrameResultMetadata
-            or self.semantics_version != "frame.v4"
+            or self.semantics_version != "frame.v5"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

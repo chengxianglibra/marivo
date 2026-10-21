@@ -222,7 +222,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 15 writer transaction. Memory persist never reevaluates. Stored
+single Store 16 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived Frame never exposes an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
 
@@ -234,10 +234,10 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 15 uses ``marivo.frame_output/v4``, ``frame.v4`` and ``frame-output-v4`` for
-all Frames, under ``.marivo/analysis/generations/v15/``. Owned method files share
+Store 16 uses ``marivo.frame_output/v5``, ``frame.v5`` and ``frame-output-v5`` for
+all Frames, under ``.marivo/analysis/generations/v16/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 15 refuses older-generation Session/result/audit data unchanged, without
+Store 16 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty; create cannot bypass an old-only project. Preserve required
 old results by exporting with their original version or retaining a compatible

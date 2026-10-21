@@ -14,7 +14,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
 
-def test_new_public_session_starts_with_empty_v15_store(
+def test_new_public_session_starts_with_empty_v16_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)

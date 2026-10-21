@@ -325,7 +325,20 @@ def attribute_contribution_data(
         _key_order,
     )
 
+    report_operation = program.operation
+    report_output = program.output_schema
+    level = report_operation.target is not None and report_operation.target.mode == "level"
+    if report_operation.target is not None:
+        from marivo.analysis.core.attribute import contribution_schema
+
+        program = replace(
+            program,
+            output_schema=contribution_schema(
+                program.input_program, replace(program.operation, target=None)
+            ),
+        )
     prepared, parent, _, _ = inputs
+    sides: tuple[Literal["left", "right"], ...] = ("left",) if level else ("left", "right")
     parent_columns = tuple(c for a in program.input_program.parent_schema.axes for c in a.columns)
     fine_columns = tuple(
         c
@@ -337,9 +350,9 @@ def attribute_contribution_data(
     fine_parents = tuple(frozen_key_rows(prepared.table, parent_columns))
     parent_indices = {key: i for i, key in enumerate(parent_rows)}
     fine_to_parent = [parent_indices[key] for key in fine_parents]
-    originals = {
+    originals: dict[tuple[str, str], pd.DataFrame] = {
         (side, scope): _original(program, inputs, side, scope)
-        for side in ("left", "right")
+        for side in sides
         for scope in ("parent", "fine")
     }
     values: dict[tuple[str, str, tuple[int, ...], str], _Value] = {}
@@ -647,6 +660,81 @@ def attribute_contribution_data(
             )
         return FrameLinearMethod("linear", *common, tuple(terms))
 
+    from marivo.analysis.core.frame_method_facts import (
+        FrameLevelAdditiveMethod,
+        FrameLevelLinearMethod,
+        FrameLevelLinearTerm,
+        FrameLevelRatioMethod,
+        FrameLevelSupport,
+    )
+
+    level_methods: list[
+        FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod
+    ] = []
+
+    def level_method(
+        rule: AttributeRule, index: int, total: _Value | None = None, path: tuple[int, ...] = (0,)
+    ) -> FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod:
+        value = fact(
+            total
+            if total is not None
+            else evaluate(rule, "left", "parent", original=True, path=path),
+            index,
+        )
+        supporting = []
+        for request in component_requests(rule):
+            occurrence = _logical(request)
+            count = values[("left", "parent", occurrence, "input_count")].values.iloc[index]
+            effective = values[("left", "parent", occurrence, "effective_count")].values.iloc[index]
+            supporting.append(
+                FrameLevelSupport(
+                    "root." + ".".join(map(str, occurrence)),
+                    request.support,
+                    int(count),
+                    int(effective),
+                )
+            )
+        support = tuple(dict.fromkeys(supporting))
+        operation = rule.operation
+        if isinstance(rule, AdditiveRule):
+            return FrameLevelAdditiveMethod("level_additive", value, support)
+        if isinstance(rule, RatioComponentRule):
+            if isinstance(operation, DirectRatio):
+                n, d = (
+                    evaluate(operation.numerator, "left", "parent"),
+                    evaluate(operation.denominator, "left", "parent"),
+                )
+            else:
+                assert isinstance(operation, (NativeMean, NativeWeightedMean))
+                roles = (
+                    ("valid_value_sum", "valid_value_count")
+                    if isinstance(operation, NativeMean)
+                    else ("pair_product_sum", "pair_weight_sum")
+                )
+                n, d = (
+                    values[("left", "parent", _logical(operation.source), role)] for role in roles
+                )
+            return FrameLevelRatioMethod(
+                "level_ratio_component", value, fact(n, index), fact(d, index), support
+            )
+        if isinstance(operation, (RuleAdd, RuleSubtract)):
+            terms: tuple[FrameLevelLinearTerm, ...] = (
+                FrameLevelLinearTerm(1, level_method(operation.left, index, path=(*path, 0))),
+                FrameLevelLinearTerm(
+                    1 if isinstance(operation, RuleAdd) else -1,
+                    level_method(operation.right, index, path=(*path, 1)),
+                ),
+            )
+        else:
+            assert isinstance(operation, (RuleNegate, RuleScale))
+            terms = (
+                FrameLevelLinearTerm(
+                    -1 if isinstance(operation, RuleNegate) else operation.scalar.value,
+                    level_method(operation.operand, index, path=(*path, 0)),
+                ),
+            )
+        return FrameLevelLinearMethod("level_linear", value, terms)
+
     rows = prepared.table.loc[:, list(program.output_schema.key_fields)].copy()
     wanted = frozen_key_rows(rows, full_columns)
     parent_metrics: list[list[FrameMethodMetric]] = [[] for _ in parent_rows]
@@ -657,10 +745,13 @@ def attribute_contribution_data(
         # Original error-policy formulas have already run above. A nullable
         # original parent caused by D=0 now gets the contribution-specific reason.
         evaluate(left_rule, "left", "parent")
-        evaluate(right_rule, "right", "parent")
+        if not level:
+            evaluate(right_rule, "right", "parent")
         endpoint_values: list[_Value] = []
         total_values: list[_Value] = []
-        for side, rule in (("left", left_rule), ("right", right_rule)):
+        for side, rule in (
+            (("left", left_rule),) if level else (("left", left_rule), ("right", right_rule))
+        ):
             column = (
                 program.input_program.left_schema
                 if side == "left"
@@ -688,30 +779,41 @@ def attribute_contribution_data(
                         context=context(name, rule, side, scope, index, "original"),
                     )
                 destination.append(_Value(series, column))
+        if level:
+            endpoint_values.append(endpoint_values[0])
+            total_values.append(total_values[0])
         # Evaluate parent masses even when there are no fine rows. This retains
         # every required denominator/child check and complete parent facts.
         directory = dict(
             zip(program.output_schema.value_paths, program.output_schema.values, strict=True)
         )
-        total_change = arithmetic(
-            "sub",
-            total_values[0],
-            total_values[1],
-            left_rule,
-            "both",
-            "parent",
-            output=directory[("absolute", name)].dtype,
+        total_change = (
+            total_values[0]
+            if level
+            else arithmetic(
+                "sub",
+                total_values[0],
+                total_values[1],
+                left_rule,
+                "both",
+                "parent",
+                output=directory[("absolute", name)].dtype,
+            )
         )
-        contribution = arithmetic(
-            "sub",
-            evaluate(left_rule, "left", "fine"),
-            evaluate(right_rule, "right", "fine"),
-            left_rule,
-            "both",
-            "fine",
-            output=program.output_schema.values[
-                program.output_schema.value_paths.index(("contribution", name))
-            ].dtype,
+        contribution = (
+            evaluate(left_rule, "left", "fine")
+            if level
+            else arithmetic(
+                "sub",
+                evaluate(left_rule, "left", "fine"),
+                evaluate(right_rule, "right", "fine"),
+                left_rule,
+                "both",
+                "fine",
+                output=program.output_schema.values[
+                    program.output_schema.value_paths.index(("contribution", name))
+                ].dtype,
+            )
         )
         if contribution.values.isna().any():
             index = int(contribution.values.isna().to_numpy().nonzero()[0][0])
@@ -720,14 +822,18 @@ def attribute_contribution_data(
                 received=f"{name}: undefined required contribution",
                 context=context(name, left_rule, "left", "fine", index, "contribution"),
             )
-        change = arithmetic(
-            "sub",
-            endpoint_values[0],
-            endpoint_values[1],
-            left_rule,
-            "both",
-            "fine",
-            output=directory[("absolute", name)].dtype,
+        change = (
+            endpoint_values[0]
+            if level
+            else arithmetic(
+                "sub",
+                endpoint_values[0],
+                endpoint_values[1],
+                left_rule,
+                "both",
+                "fine",
+                output=directory[("absolute", name)].dtype,
+            )
         )
         share = arithmetic(
             "div",
@@ -746,7 +852,9 @@ def attribute_contribution_data(
             "contribution_share": share,
         }
         if isinstance(left_rule, RatioComponentRule):
-            for side, rule in (("left", left_rule), ("right", right_rule)):
+            for side, rule in (
+                (("left", left_rule),) if level else (("left", left_rule), ("right", right_rule))
+            ):
                 assert isinstance(rule, RatioComponentRule)
                 operation = rule.operation
                 if isinstance(operation, DirectRatio):
@@ -771,6 +879,9 @@ def attribute_contribution_data(
                 ].slot_id
             ] = value.values
         for index in range(len(parent_rows)):
+            if level:
+                level_methods.append(level_method(left_rule, index, total_values[0]))
+                continue
             root_method = method(left_rule, right_rule, index, (total_values[0], total_values[1]))
             root_method = replace(
                 root_method,
@@ -814,6 +925,7 @@ def attribute_contribution_data(
             tuple(metrics),
         )
         for key, metrics in zip(parent_rows, parent_metrics, strict=True)
+        if not level
     )
     parents = tuple(sorted(parents, key=_key_order))
     coordinates = tuple(
@@ -827,6 +939,17 @@ def attribute_contribution_data(
     payload = AttributeMethodPayload(
         program.output_schema, len(program.input_program.parent_schema.axes), parents, coordinates
     )
+    if report_operation.target is not None:
+        from marivo.analysis.methods.frame_attribute_report import report_attribute
+
+        return report_attribute(
+            replace(program, operation=report_operation),
+            rows,
+            payload,
+            parent,
+            report_output,
+            level_methods=tuple(level_methods),
+        )
     return rows.loc[:, [c.slot_id for c in program.output_schema.columns]].reset_index(
         drop=True
     ), payload

@@ -14,7 +14,12 @@ from marivo.analysis.core.attribute import (
     AttributeProgram,
     AttributeProjectProgram,
 )
-from marivo.analysis.core.data_schema import CalendarDataAxis, DataSchema, PairedDataAxis
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataSchema,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.core.data_types import (
     DataColumn,
     DecimalDataType,
@@ -63,6 +68,46 @@ def _calendar_keys(
 ) -> dict[FrozenKey, FrozenKey | None]:
     assert operation.calendar is not None and operation.target_calendar is not None
     axis = schema.axes[operation.calendar]
+    assert isinstance(axis, (CalendarDataAxis, IntervalDataAxis, PairedDataAxis))
+    from marivo._definition.types import IntervalCoordinate
+
+    if isinstance(operation.target_calendar, IntervalCoordinate):
+        from marivo.analysis.core.frozen_calendar import read_interval_directory
+
+        endpoint = (
+            axis
+            if isinstance(axis, IntervalDataAxis)
+            else axis.left
+            if isinstance(axis, PairedDataAxis) and operation.side == "left"
+            else axis.right
+            if isinstance(axis, PairedDataAxis)
+            else None
+        )
+        assert isinstance(endpoint, IntervalDataAxis)
+        tables = {a.name: a for a in attachments}
+        saved_interval = tables[endpoint.frozen.directory_name]
+        interval_directory = read_interval_directory(
+            endpoint, saved_interval.schema, saved_interval.rows
+        )
+        if isinstance(axis, IntervalDataAxis):
+            return {
+                bucket.key: ((endpoint.columns[0].dtype, 0),)
+                for bucket in interval_directory.buckets
+            }
+        assert isinstance(axis, PairedDataAxis)
+        table = tables[axis.mapping_name]
+        width = len(axis.left.columns)
+        columns = (
+            table.schema.values[:width] if operation.side == "left" else table.schema.values[width:]
+        )
+        return {
+            key: None if all(v is None for _, v in value) else ((endpoint.columns[0].dtype, 0),)
+            for key, value in zip(
+                frozen_key_rows(table.rows, axis.columns),
+                frozen_key_rows(table.rows, columns),
+                strict=True,
+            )
+        }
     assert isinstance(axis, (CalendarDataAxis, PairedDataAxis))
     endpoint = (
         axis

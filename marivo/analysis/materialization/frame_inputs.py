@@ -10,6 +10,7 @@ from marivo.analysis.core.artifact_data import (
     DataSchema,
     OutputEvidence,
 )
+from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_audit import (
     FrameOperationName,
 )
@@ -94,7 +95,7 @@ def capture_frame_inputs(
                 expression: FrameExpression = FrameOperation(inputs, root.operation)
                 operation: FrameOperationName = (
                     "attribute"
-                    if isinstance(root.operation, AttributeFrameValues)
+                    if isinstance(root.operation, (AttributeFrameValues, AttributeMergeValues))
                     else "align"
                     if isinstance(root.operation, AlignFrameValues)
                     else "compare"

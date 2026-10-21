@@ -102,7 +102,7 @@ If the returned Artifact ID was lost, explicitly resubmit. Complete memory data
 can be saved again without reevaluation; rebuilding source inputs may read changed data.
 Missing/corrupt consumed data is not a cache miss and must not trigger replay.
 
-Store 15 refuses every older generation's data unchanged, without migration or
+Store 16 refuses every older generation's data unchanged, without migration or
 dual reads. Absent-current discovery may return None/empty without exposing old
 state; create cannot initialize around an old-only project.
 Before switching, export required results with the original version or retain a

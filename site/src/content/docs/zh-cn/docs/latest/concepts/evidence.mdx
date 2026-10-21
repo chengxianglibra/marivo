@@ -3,11 +3,11 @@ title: 证据与恢复
 description: 无需当前来源读取精确固定数据与审计。
 ---
 
-Store 15 在 `.marivo/analysis/generations/v15/` 保存 Frame 数据。数据持久后，一个
+Store 16 在 `.marivo/analysis/generations/v16/` 保存 Frame 数据。数据持久后，一个
 SQLite 发布事务同时提交 manifest、收据、Findings 和 Evidence。
 persist 完成求值后发布已有 result ID，提交协议保持内部实现。
 内存 persist 不重新求值，存储根 persist 验证提交元数据并返回自身。
-所有 Frame 使用 `marivo.frame_output/v4`、`frame.v4` 和 `frame-output-v4`。
+所有 Frame 使用 `marivo.frame_output/v5`、`frame.v5` 和 `frame-output-v5`。
 存在完整方法表时，其文件和收据共享这一个原子事务；manifest 只保存有界方法描述符。
 
 ## 读取数据与审计
@@ -62,7 +62,7 @@ reconciliation 解决原事务，不重新求值。完整内存结果在旧文�
 
 ## 旧数据与证据限度
 
-Store 15 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
+Store 16 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
 不迁移或双读。缺少当前 generation 的发现可返回 None/空而不暴露旧数据；create
 不能在仅有旧 Store 的项目初始化旁路。切换前用原版本导出，或保留兼容读取环境。
 保留旧 Store；当前工作在新项目创建新的命名 Session，不提供自动导出/导入迁移。

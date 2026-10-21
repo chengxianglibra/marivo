@@ -1,4 +1,4 @@
-"""Store15 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store16 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -442,8 +442,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v4"
-    assert local.store.layout.generation == 15
+    assert FORMAT == "marivo.frame_output/v5"
+    assert local.store.layout.generation == 16
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     assert value.metadata == metadata()
@@ -797,7 +797,7 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, genera
         with pytest.raises(IntegrityError, match="generation"):
             constructor()
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v15").exists()
+    assert not (old.parent.parent / "v16").exists()
 
 
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
@@ -1034,7 +1034,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert not (old.parent.parent / "v15").exists()
+    assert not (old.parent.parent / "v16").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:

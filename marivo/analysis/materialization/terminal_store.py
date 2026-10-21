@@ -210,7 +210,7 @@ def publish(
                 len(evidence),
                 len(findings),
                 digest(finding_payloads),
-                "frame-output-v4",
+                "frame-output-v5",
             ),
         )
         conn.executemany(
@@ -267,7 +267,7 @@ def records_page(
         if manifest(store, conn, ref) is None:
             raise invalid("exact terminal Artifact is absent")
         collection = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-        if collection is None or _text(collection, "evidence_format") != "frame-output-v4":
+        if collection is None or _text(collection, "evidence_format") != "frame-output-v5":
             raise invalid("terminal output collection is absent or obsolete")
         owner = digest(
             (
@@ -332,7 +332,7 @@ class OutputCollection:
 
 def collection(conn: sqlite3.Connection, ref: str) -> OutputCollection:
     row = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-    if row is None or _text(row, "evidence_format") != "frame-output-v4":
+    if row is None or _text(row, "evidence_format") != "frame-output-v5":
         raise invalid("terminal output collection is absent or obsolete")
     evidence_count, finding_count = row["evidence_count"], row["finding_count"]
     if (
@@ -388,7 +388,7 @@ def confirm_records(
         or collection["evidence_count"] != len(evidence)
         or _text(collection, "finding_set_digest") != digest(finding_payloads)
         or _text(collection, "evidence_digest") != digest(evidence_payloads)
-        or _text(collection, "evidence_format") != "frame-output-v4"
+        or _text(collection, "evidence_format") != "frame-output-v5"
     ):
         raise invalid("original terminal record collection differs from publication")
     rows = _rows(

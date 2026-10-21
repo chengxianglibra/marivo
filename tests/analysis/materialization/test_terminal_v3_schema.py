@@ -1,4 +1,4 @@
-"""The sole Store15 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store16 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -54,7 +54,7 @@ def test_historical_output_envelope_is_rejected_without_rewrite(historical_forma
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v4"):
+    with pytest.raises(IntegrityError, match="expected Frame output v5"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 

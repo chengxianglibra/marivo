@@ -3,12 +3,12 @@ title: Evidence and recovery
 description: Read exact fixed data and audit without current sources.
 ---
 
-Store 15 saves Frame data under `.marivo/analysis/generations/v15/`. One
+Store 16 saves Frame data under `.marivo/analysis/generations/v16/`. One
 SQLite publication transaction commits manifest, receipts, Findings, Evidence
 after durable data. Persist evaluates completely before publishing an existing
 result ID; its submission protocol remains internal. Memory persist never
 reevaluates; stored persist validates commit metadata and returns itself.
-All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`.
+All Frames use `marivo.frame_output/v5`, `frame.v5` and `frame-output-v5`.
 Complete method tables, when present, and their receipts share this same atomic
 transaction; the manifest contains only bounded method descriptors.
 
@@ -78,7 +78,7 @@ are removed; reading the old stored handle still fails if its data is gone.
 
 ## Older data and evidence limits
 
-Store 15 refuses older-generation Session/result/Findings/Evidence access without
+Store 16 refuses older-generation Session/result/Findings/Evidence access without
 changing bytes or migrating/dual-reading. Absent-current discovery may return
 None/empty without exposing old data; create cannot initialize a
 bypass around an old-only project. Export with the original version before

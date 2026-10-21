@@ -13,6 +13,10 @@ from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
+    FrameAttributeMetric,
+    FrameLevelAdditiveMethod,
+    FrameLevelLinearMethod,
+    FrameLevelRatioMethod,
     FrameLinearMethod,
     FrameMethodFacts,
     FrameMethodValue,
@@ -112,6 +116,74 @@ def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) 
             )
 
 
+def _level(
+    method: FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod,
+) -> None:
+    if isinstance(method, FrameLevelRatioMethod):
+        _equal(
+            _numeric_binary(
+                "div",
+                _value(method.numerator),
+                _value(method.denominator),
+                output=method.value.column.dtype,
+            ),
+            method.value,
+        )
+    elif isinstance(method, FrameLevelLinearMethod):
+        for term in method.terms:
+            _level(term.method)
+        if len(method.terms) == 1:
+            term = method.terms[0]
+            _equal(_scaled(term.method.value, term.coefficient, method.value), method.value)
+        elif (
+            len(method.terms) == 2
+            and type(method.terms[0].coefficient) is int
+            and method.terms[0].coefficient == 1
+            and type(method.terms[1].coefficient) is int
+            and method.terms[1].coefficient in (1, -1)
+        ):
+            first, second = method.terms
+            operation: Literal["add", "sub"] = "add" if second.coefficient == 1 else "sub"
+            _equal(
+                _numeric_binary(
+                    operation,
+                    _value(first.method.value),
+                    _value(second.method.value),
+                    output=method.value.column.dtype,
+                ),
+                method.value,
+            )
+        else:
+            reject(
+                "the captured unary scale or binary add/subtract topology",
+                str(len(method.terms)),
+                "Preserve original ordered linear operations.",
+                "frame.method_facts",
+            )
+
+
+def _target(metric: FrameAttributeMetric) -> None:
+    method = metric.method
+    if isinstance(
+        method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod)
+    ):
+        _level(method)
+        _equal(_value(method.value), metric.total)
+    else:
+        _method(method)
+        if metric.kind == "relative":
+            baseline = _value(method.right)
+            baseline = _Value(baseline.values.abs(), baseline.column)
+            _equal(
+                _numeric_binary(
+                    "div", _value(method.change), baseline, output=metric.total.column.dtype
+                ),
+                metric.total,
+            )
+        else:
+            _equal(_value(method.change), metric.total)
+
+
 def validate_method_facts(facts: FrameMethodFacts) -> None:
     """Validate saved endpoint/change consistency without executing a decomposition."""
     if type(facts) is not FrameMethodFacts:
@@ -124,7 +196,10 @@ def validate_method_facts(facts: FrameMethodFacts) -> None:
     try:
         for parent in facts.parents:
             for metric in parent.metrics:
-                _method(metric.method)
+                if isinstance(metric, FrameAttributeMetric):
+                    _target(metric)
+                else:
+                    _method(metric.method)
     except (
         SemanticExpressionError,
         pa.ArrowException,

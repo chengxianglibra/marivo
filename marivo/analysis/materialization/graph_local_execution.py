@@ -66,7 +66,13 @@ def run_local(
 
         attribute_methods: tuple[AttributeMethodPayload, ...] = ()
         attachments: tuple[OutputAttachment, ...]
-        if isinstance(stage.program, AttributeContributionProgram):
+        from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
+
+        if isinstance(stage.program, AttributeMergeProgram):
+            from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
+
+            frame, attachments = merge_attribute_data(stage.program, inputs)
+        elif isinstance(stage.program, AttributeContributionProgram):
             from marivo.analysis.methods.frame_attribute_contribution import (
                 attribute_contribution_data,
             )

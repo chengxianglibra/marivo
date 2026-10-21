@@ -72,6 +72,7 @@ def saved_method_facts(facts: FrameMethodFacts, payload: SavedAttachment) -> Sav
         sum(len(item.rows) for item in facts.coordinates),
         _digest(facts),
         payload,
+        facts.targets,
     )
 
 
@@ -106,6 +107,7 @@ def decode_method_payload(saved: SavedFrameMethodFacts, rows: pd.DataFrame) -> F
         coordinates=tuple(coordinates),
         parent_axis_count=saved.parent_axis_count,
         parents=tuple(parents),
+        targets=saved.targets,
     )
     if _digest(facts) != saved.facts_digest:
         raise invalid("method logical digest differs from its exact descriptor")
