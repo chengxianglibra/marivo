@@ -10,7 +10,7 @@ import pytest
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import source_time
-from marivo.semantic.ir import TimestampParse
+from marivo.semantic.ir import StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 
 
@@ -41,6 +41,61 @@ def test_aware_source_rejects_any_parser_timezone_and_repair_runs(declared: str)
         ]
     finally:
         backend.disconnect()
+
+
+def test_zoned_strptime_from_string_uses_declared_authority() -> None:
+    table = ibis.memtable({"point": ["2026-08-01 12:30:00"]}, schema={"point": "string"})
+    field = replace(
+        axis("%Y-%m-%d %H:%M:%S"),
+        parse=StrptimeParse("%Y-%m-%d %H:%M:%S", timezone="UTC"),
+    )
+    prepared, authority = source_time(
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        read_timezone="UTC",
+        engine="clickhouse",
+    )
+
+    assert prepared.type().timezone == "UTC"
+    assert authority.physical_type == str(table.point.type())
+    assert authority.kind == "localizable"
+    assert authority.source == "declared"
+    assert authority.read_timezone == "UTC"
+
+    # Re-preparing a frozen carrier must use its recorded source category;
+    # the carrier's zoned Ibis type is not the original physical column type.
+    _, retained = source_time(
+        prepared,
+        field,
+        boundary_timezone="UTC",
+        read_timezone="UTC",
+        engine="clickhouse",
+        frozen=authority,
+    )
+    assert retained == authority
+
+
+def test_aware_physical_source_rejects_strptime_timezone() -> None:
+    table = ibis.memtable(
+        {"point": [datetime(2026, 8, 1, tzinfo=timezone.utc)]},
+        schema={"point": dt.Timestamp(timezone="UTC")},
+    )
+    field = replace(
+        axis("%Y-%m-%d %H:%M:%S"),
+        parse=StrptimeParse("%Y-%m-%d %H:%M:%S", timezone="UTC"),
+    )
+
+    with pytest.raises(DatasetCompilationError) as caught:
+        source_time(
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            read_timezone="UTC",
+            engine="clickhouse",
+        )
+
+    assert "Remove timezone" in caught.value.repair.action
 
 
 def test_native_date_is_prepared_as_date_without_guessing_timestamp() -> None:

@@ -353,6 +353,20 @@ def _retain_authority(
     return frozen
 
 
+def _frozen_time_origin(
+    authority: SourceTimeAuthority,
+) -> Literal["physical", "declared", "engine", "system_fallback"]:
+    if authority.source == "physical":
+        return "physical"
+    if authority.source == "declared":
+        return "declared"
+    if authority.source == "engine":
+        return "engine"
+    if authority.source == "system_fallback":
+        return "system_fallback"
+    raise compilation_error("a frozen timestamp source authority", "civil date authority changed")
+
+
 def source_time(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -376,6 +390,18 @@ def source_time(
     physical = value.type()
     parse = axis.parse
     declared = parse.timezone if isinstance(parse, (TimestampParse, StrptimeParse)) else None
+    physical_is_aware = (
+        frozen.source == "physical"
+        if frozen is not None
+        else isinstance(physical, dt.Timestamp) and physical.timezone is not None
+    )
+    if declared is not None and physical_is_aware:
+        raise DatasetCompilationError(
+            expected="an aware source without parser timezone",
+            received="timezone declared on an already-aware physical source",
+            repair="Remove timezone from ms.timestamp() or ms.strptime(...); the aware physical source already owns its clock.",
+            location="analysis.source_time",
+        )
     if isinstance(parse, HourPrefixParse):
         if prefix is None:
             raise compilation_error("a bound civil-date hour prefix", "missing prefix axis")
@@ -417,6 +443,10 @@ def source_time(
     if not isinstance(value, ir.TimestampValue):
         raise compilation_error("a declared date or timestamp parser", "non-temporal source")
     kind = value.type()
+    if frozen is not None and frozen.source == "civil_date":
+        raise compilation_error(
+            "a frozen timestamp source authority", "civil date authority changed"
+        )
     origin: Literal["physical", "declared", "engine", "system_fallback"]
     if kind.timezone is not None:
         if kind.scale is not None and kind.scale > 6:
@@ -424,27 +454,38 @@ def source_time(
                 "exact native timezone conversion precision",
                 "submicrosecond conversion unsupported",
             )
-        if declared is not None:
-            raise DatasetCompilationError(
-                expected="an aware source without parser timezone",
-                received="timezone declared on an already-aware physical source",
-                repair="Remove timezone from ms.timestamp() or ms.strptime(...); the aware physical source already owns its clock.",
-                location="analysis.source_time",
-            )
-        adopted, origin = kind.timezone, "physical"
+        if frozen is not None:
+            adopted = frozen.read_timezone
+            if adopted is None:
+                raise compilation_error(
+                    "a frozen timestamp read timezone", "missing read authority"
+                )
+            origin = _frozen_time_origin(frozen)
+        elif declared is not None:
+            adopted, origin = declared, "declared"
+        else:
+            adopted, origin = kind.timezone, "physical"
         instant = value
         if engine == "mysql" and adopted == "UTC" and boundary_timezone == "UTC":
-            # The physical type already owns UTC. Rendering UTC is identity;
-            # these engines have no DuckDB/PostgreSQL timezone() function.
+            # The UTC-zoned value already represents UTC. Rendering UTC is
+            # identity; these engines have no DuckDB/PostgreSQL timezone().
             value = timestamp(value.cast(dt.Timestamp(scale=6)))
             instant = None
         elif engine in ("clickhouse", "trino") and adopted == "UTC" and boundary_timezone == "UTC":
-            # Preserve the physical UTC type so Ibis also labels boundary
-            # literals UTC. A naive cast would adopt a session zone or an unsupported timezone function.
+            # Preserve the UTC-zoned value so Ibis labels boundary literals
+            # UTC. A naive cast would adopt a session zone or unsupported function.
             instant = None
     else:
-        adopted = declared or read_timezone
-        origin = "declared" if declared is not None else read_source
+        if frozen is not None:
+            adopted = frozen.read_timezone
+            if adopted is None:
+                raise compilation_error(
+                    "a frozen timestamp read timezone", "missing read authority"
+                )
+            origin = _frozen_time_origin(frozen)
+        else:
+            adopted = declared or read_timezone
+            origin = "declared" if declared is not None else read_source
         if adopted is None:
             raise compilation_error(
                 "execution-resolved source read timezone", "missing wall-clock authority"
@@ -480,7 +521,7 @@ def source_time(
     authority = SourceTimeAuthority(
         axis=axis.ref.path,
         physical_type=str(physical),
-        kind="instant" if kind.timezone is not None else "localizable",
+        kind="instant" if origin == "physical" else "localizable",
         read_timezone=adopted,
         source=origin,
         boundary_timezone=boundary_timezone,
