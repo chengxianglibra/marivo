@@ -20,7 +20,6 @@ class MaterializationError(DatasetConstructionError):
         received: str,
         repair: str,
         stage: str = "materialization",
-        run_ref: str | None = None,
         help_target: str = "analysis_frame.compute",
         attribute_context: AttributeFailureContext | None = None,
     ) -> None:
@@ -33,17 +32,15 @@ class MaterializationError(DatasetConstructionError):
             location=f"dataset.{stage}",
             message="Dataset materialization contract failed.",
             help_target=help_target,
-            run_ref=run_ref,
         )
 
 
-def _execution_error(stage: str, run_ref: str | None = None) -> MaterializationError:
+def _execution_error(stage: str) -> MaterializationError:
     return MaterializationError(
         expected="a supported and complete registered Dataset execution",
         received="the admitted action could not complete its current phase; remote read status may be unknown",
-        repair="Inspect the safe Run phase, correct its source or resource requirement, and retry.",
+        repair="Correct the reported source or resource requirement, then explicitly resubmit the analysis.",
         stage=stage,
-        run_ref=run_ref,
     )
 
 

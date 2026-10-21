@@ -20,6 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -1097,7 +1098,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         )
         result = logical.persist()
         assert sorted(_value(result).tolist()) == [0, 2]
-        run = session.runs().items[-1]
+        run = terminal_runs(session)[-1]
         assert run.lifecycle == "succeeded"
         with session._runtime.store._read() as connection:
             assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1

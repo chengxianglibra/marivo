@@ -24,7 +24,7 @@ Analysis 使用项目本地 SQLite 保存元数据，与数据源支持无关。
 
 ## 准入具体数值路线
 
-数值来源路线按所选 backend、来源形式、真实 schema 和具体方法准入。模板在 Run 准入前由实际后端编译；依赖实例化后仍在消费前校验。datasource 访问成功本身不构成数值 Runtime 资格。
+数值来源路线按所选 backend、来源形式、真实 schema 和具体方法准入。模板在 提交前由实际后端编译；依赖实例化后仍在消费前校验。datasource 访问成功本身不构成数值 Runtime 资格。
 
 {/* example: csv-semantic-model */}
 
@@ -50,7 +50,7 @@ def total():
     return amount.sum(time=happened)
 ```
 
-此处声明字段和命名 Metric。声明或成功 preview 不授予所有 CSV/JSON/HTTP 分析形态资格；不支持的路线在受影响业务读取前拒绝。来源模板在 Run 准入前预验证，实际实例化输入仍会再次校验。
+此处声明字段和命名 Metric。声明或成功 preview 不授予所有 CSV/JSON/HTTP 分析形态资格；不支持的路线在受影响业务读取前拒绝。来源模板在 提交前预验证，实际实例化输入仍会再次校验。
 
 ## 来源和本地执行
 
@@ -66,9 +66,9 @@ DuckDB 的受治理 `SourceSession` 读取与合格的 typed PostgreSQL Analysis
 
 DuckDB 原生 INTERVAL 仅在来源侧检查拒绝 year、month、day 分量后按微秒准入，不能仅靠 cast 当作 elapsed time，也不会产生纳秒精度。合格文件路线中的 Arrow Duration 保留文件声明的 tick 单位。
 
-PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表达式准入 count、count_distinct、sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 当前仅准入 DuckDB 和 PostgreSQL。MySQL、Trino 和 ClickHouse 在 Run 前按具体方法拒绝；ClickHouse 的 Ibis Quantile lowering 是近似算法，不能满足精确请求。精确/近似规约保留定义所属算法。缺必需映射、非有限、溢出及必要覆盖错误阻止发布。
+PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表达式准入 count、count_distinct、sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 当前仅准入 DuckDB 和 PostgreSQL。MySQL、Trino 和 ClickHouse 在 发布前按具体方法拒绝；ClickHouse 的 Ibis Quantile lowering 是近似算法，不能满足精确请求。精确/近似规约保留定义所属算法。缺必需映射、非有限、溢出及必要覆盖错误阻止发布。
 
-ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN/JOIN 的来源路线（包括按键交接的 `Session.read`）因尚未具备 `distributed_product_mode` 下的 join 资格而在 Run 前拒绝。MergeTree join 单独准入，不隐式扩展到 view 或其它 engine 拓扑。Marivo 不修改服务器设置或替换为本地表。
+ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN/JOIN 的来源路线（包括按键交接的 `Session.read`）因尚未具备 `distributed_product_mode` 下的 join 资格而在 发布前拒绝。MergeTree join 单独准入，不隐式扩展到 view 或其它 engine 拓扑。Marivo 不修改服务器设置或替换为本地表。
 
 ## 显式 Attribute 资格
 

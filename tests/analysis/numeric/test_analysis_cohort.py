@@ -4,7 +4,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.column import row_count
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -110,7 +110,7 @@ def spending_amount():
         {"value": session.catalog.metrics.get("sales.spending_amount")},
         by=mv.product(session.time_scope(start="2026-08-10", end="2026-08-17"), eligible),
     )
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     frame = spending.compute().to_pandas()
     assert frame.set_index(frame.columns[1])[("value", "value")].to_dict() == {"A": 100, "C": 300}
 
@@ -142,6 +142,7 @@ def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory
 import sys
 import duckdb
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 def unavailable(*args, **kwargs):
     raise AssertionError("exported cohort cannot reopen sources or Semantic")
@@ -154,7 +155,7 @@ assert len(frame) == len(targets.to_pandas()) * 3
 member = frame.columns[0]
 active = frame.loc[frame[("value", "value")] > 0].groupby(member).size()
 assert set(active.loc[active >= 1].index) == set(saved.to_pandas().iloc[:, 0])
-assert len(session.runs().items) == 3
+assert len(terminal_runs(session)) == 3
 """
     try:
         completed = subprocess.run(

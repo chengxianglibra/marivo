@@ -4,22 +4,21 @@ title: Marivo 0.6.0
 description: Release notes for Marivo 0.6.0.
 ---
 
-Marivo 0.6.0 introduces a Run-first public Session runtime read surface.
+Marivo 0.6.0 centers analysis on AnalysisFrame, Session and Artifact identities.
 
 ## Highlights
 
-- `session.runs()` and `session.get_run()` expose a closed immutable lifecycle:
-  `IncompleteRun`, `SucceededRun`, or `FailedRun`.
-- `session.artifact(ref)` restores one exact committed Artifact, while
-  `session.graph()` projects bounded factual producer, consumer, reuse, head,
-  failed, and incomplete state.
-- Every Artifact exposes `finding_count`, `findings()`, and `finding(id)`.
-  Finding audit is Artifact-owned and retains complete derivation data.
-- `mv.session.inspect()` now returns only a Session summary and bounded Run page.
-- Runtime and Graph reads explicitly do not check current semantic authority or
-  datasource freshness; use `session.revalidate(ref)` for the authority and
-  Evidence-integrity check.
+- `compute()` returns complete fixed memory data; `persist()` returns a committed Frame.
+- Retain the Session ID and `saved.artifact.id`. Resume the Session and use
+  `session.persisted_frame(artifact_id)` for exact data; `.artifact` owns saved audit.
+- `mv.session.inspect(session_id)` returns a SessionSummary without recovery.
+- Run types, history, targeted reconciliation and error Run identities are removed
+  from the public API. Atomic publication and guarded recovery remain internal.
+- If the returned Artifact ID is lost, explicitly resubmit. This may create duplicate
+  outputs; rebuilding source inputs may read changed data. There is no result directory.
+- Structured errors provide the failed phase and concrete repair. Unknown publication
+  outcomes require Session recovery before resubmission.
 
-This is an atomic cutover. Frame/job reads, the Session Evidence namespace,
-digest pages, derivation traces, Finding-selection compatibility, and their
-Help routes have no aliases or migration path.
+This is a breaking cutover without compatibility aliases or Store migration.
+Store 15 reads require the current format; preserve older data with a compatible
+reading environment or an export made with its original version.

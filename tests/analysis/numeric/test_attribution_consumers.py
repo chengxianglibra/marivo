@@ -17,6 +17,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.attribution_workflows import allocation
 from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -117,7 +118,7 @@ def test_source_and_retained(
                 if axis_kind == "null"
                 else ("channel",)
             )
-            runs_before = session.runs().items
+            runs_before = terminal_runs(session)
             if axis_kind == "null":
                 # Nullable source Fields are legal. This explicit external recipe
                 # requires a complete non-null classification for allocation.
@@ -127,7 +128,7 @@ def test_source_and_retained(
                 )
                 with pytest.raises(ValueError, match="non-null labels"):
                     allocation(current_frame, baseline_frame, method="sum", axes=axes, parents=())
-                assert session.runs().items == runs_before
+                assert terminal_runs(session) == runs_before
                 continue
             result = allocation(
                 current_frame, baseline_frame, method=metric_kind, axes=axes, parents=()
@@ -165,7 +166,7 @@ def test_source_and_retained(
                         parents=(),
                     )
                     pd.testing.assert_frame_equal(restored, result)
-                assert session.runs().items == runs_before
+                assert terminal_runs(session) == runs_before
                 assert session._runtime.store.resources(session.id) == ()
             source_trace.save(
                 f"c09-source-{backend}-{metric_kind}-{axis_kind}",

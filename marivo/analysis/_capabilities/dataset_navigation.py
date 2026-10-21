@@ -51,7 +51,6 @@ _GROUPS = (
     ("methods.rows.expressions", "methods.rows", "Compose nullable pointwise result expressions."),
     ("runtime.sessions", "runtime", "Find, inspect or activate an existing Session."),
     ("session.namespace", "runtime.sessions", "Create, resume or inspect project-local Sessions."),
-    ("runtime.runs", "runtime", "Read bounded Run history or one exact Run."),
     ("runtime.values", "runtime", "Render a retained Runtime or Evidence value."),
 )
 
@@ -116,8 +115,8 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Cold recovery: resume a Session, inspect bounded Run history, then session.persisted_frame(id) for its exact committed data; .artifact is audit. Older Store generations require a compatible environment or prior export; old bytes are not migrated.",
-            "Use a scoped graph only for factual adjacency; recovery does not execute origin queries.",
+            "Cold recovery: retain the Session and Artifact IDs, resume the Session, then session.persisted_frame(id) for exact committed data; .artifact is audit. Older Store generations require a compatible environment or prior export; old bytes are not migrated.",
+            "Recovery does not execute origin queries. If the return reference was lost, explicitly resubmit; this may create duplicate saved outputs or read changed source data.",
         ),
     ),
 )

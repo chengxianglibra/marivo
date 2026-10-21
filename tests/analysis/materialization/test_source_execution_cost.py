@@ -23,6 +23,7 @@ from tests.analysis.materialization.test_population_membership import _session
 from tests.analysis.materialization.test_source_original_recompute import (
     original_session as original_session,
 )
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.slow
@@ -33,19 +34,19 @@ def _measure(
 ) -> dict[str, object]:
     with monkeypatch.context() as scoped:
         trace = capture_source(scoped, measure_cost=True)
-        runs = len(session.runs().items)
+        runs = len(terminal_runs(session))
         started = perf_counter()
         completed = frame.compute()
         evaluated = perf_counter()
         rows = completed.to_pandas()
-        assert len(session.runs().items) == runs
+        assert len(terminal_runs(session)) == runs
         saved = completed.persist()
         published = perf_counter()
         submitted = len(trace.native_sql)
         reopened = session.persisted_frame(saved.artifact.id).to_pandas()
         pd.testing.assert_frame_equal(reopened, rows, check_exact=True)
         assert len(trace.native_sql) == submitted
-        assert len(session.runs().items) == runs + 1
+        assert len(terminal_runs(session)) == runs + 1
         assert all(owner._closed for owner in trace.owners)
         assert session._runtime.store.resources(session.id) == ()
         return {

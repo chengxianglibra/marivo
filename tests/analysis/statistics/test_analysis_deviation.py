@@ -20,7 +20,7 @@ from tests.analysis.statistics.pandas_workflows import (
     orders,
     plain,
 )
-from tests.shared_fixtures import DslCaseFactory, run_ids
+from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
 def test_exported_comparison_supports_pandas_deviation_selection(
@@ -244,8 +244,8 @@ def test_export_phase_failure_is_atomic(
     with pytest.raises(AnalysisError):
         query.persist()
     assert_clean(case.session, artifacts=0)
-    assert len(case.session.runs(status="failed").items) == 1
-    assert case.session.runs(status="succeeded").items == ()
+    assert len(terminal_runs(case.session, status="failed")) == 1
+    assert terminal_runs(case.session, status="succeeded") == ()
 
 
 @pytest.mark.slow

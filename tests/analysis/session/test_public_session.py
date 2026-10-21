@@ -11,6 +11,7 @@ from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 def test_new_public_session_starts_with_empty_v15_store(
@@ -18,19 +19,19 @@ def test_new_public_session_starts_with_empty_v15_store(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.create("fresh-generation", timezone="UTC")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
     with pytest.raises(ArtifactNotFoundError):
         session.persisted_frame("old-artifact")
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("old-session")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     pending = session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
     memory = pending.compute()
     assert isinstance(memory, mv.AnalysisFrame)
     assert memory.compute() is memory
     assert memory.to_pandas()[("value", "answer")].tolist() == [7]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     saved = memory.persist()
     assert isinstance(saved, mv.AnalysisFrame)
     artifact_id = saved.artifact.id
@@ -38,7 +39,7 @@ def test_new_public_session_starts_with_empty_v15_store(
     assert isinstance(restored, mv.AnalysisFrame)
     assert restored.artifact.id == artifact_id
     assert restored.persist() is restored
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
 
 
 def test_public_session_rejects_existing_store_without_modifying_it(
@@ -107,4 +108,4 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
     frame = session.observe({"gmv": metric}, by=(scope.by(grain),))
     assert isinstance(frame, mv.AnalysisFrame)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()

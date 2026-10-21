@@ -18,7 +18,7 @@ from marivo.datasource import engines
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.semantic.ir import TargetDimensionContract
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -386,5 +386,5 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
         second.location,
         second.repair,
     )
-    assert first.run_ref is second.run_ref is None
-    assert case.session.runs().items == ()
+    assert not hasattr(first, "run_ref") and not hasattr(second, "run_ref")
+    assert terminal_runs(case.session) == ()

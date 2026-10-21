@@ -650,7 +650,7 @@ def test_failed_session_question_update_reports_not_applied(
     assert calls[-1]["marivo.operation.status"] == "error"
     assert calls[-1]["marivo.session.question_applied"] is False
     session_id = mv.session.recent().items[0].id
-    assert mv.session.inspect(session_id).summary.question == "Original question"
+    assert mv.session.inspect(session_id).question == "Original question"
 
 
 def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(

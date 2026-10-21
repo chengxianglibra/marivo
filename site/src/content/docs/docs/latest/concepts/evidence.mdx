@@ -5,8 +5,8 @@ description: Read exact fixed data and audit without current sources.
 
 Store 15 saves Frame data under `.marivo/analysis/generations/v15/`. One
 SQLite publication transaction commits manifest, receipts, Findings, Evidence
-and Run success after durable data. Compute creates no Run; persist evaluates
-before admission, then publishes an existing result ID. Memory persist never
+after durable data. Persist evaluates completely before publishing an existing
+result ID; its submission protocol remains internal. Memory persist never
 reevaluates; stored persist validates commit metadata and returns itself.
 All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`.
 Complete method tables, when present, and their receipts share this same atomic
@@ -26,8 +26,6 @@ complete = reopened.compute()
 page = reopened.artifact.findings(limit=20)
 digest = reopened.artifact.evidence_digest()
 print(digest.items)
-for run in session.runs(limit=5).items:
-    run.show()
 ```
 
 Ordinary observe produces no Findings. One audit retains actual inherited
@@ -70,7 +68,9 @@ new source facts require explicit construction.
 
 ## Keep publication and data history distinct
 
-Use runs/get_run and output references for publication history. Session has no graph or roots/heads interface. Current evaluation
+Retain Session and Artifact IDs for exact reopening. If the return reference was
+lost, explicitly resubmit; this may duplicate saved outputs, and reevaluation may
+read changed data. There is no result directory or implicit latest result. Current evaluation
 records direct stored inputs actually consumed; carrier copying adds no fake
 read or lineage edge. Reconciliation resolves the original transaction rather
 than evaluating again. A full memory result stays independent after old files

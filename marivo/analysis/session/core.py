@@ -10,11 +10,6 @@ from typing import TYPE_CHECKING, Literal
 from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.session._lazy_read_model import (
-    RunLifecycle,
-    RunPage,
-    RunRecord,
-)
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
@@ -599,31 +594,6 @@ class Session:
             self._runtime.local, self.catalog._state if on else None, frame, on=on
         )
 
-    def runs(
-        self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
-    ) -> RunPage:
-        """Read a bounded page of this Session's Runs.
-
-        Args:
-            status: Optional exact lifecycle filter.
-            limit: Page size from 1 through 100.
-            cursor: Previous page's next_cursor with the same filter.
-        Returns: A newest-first RunPage.
-        Example: ``session.runs(limit=5).show()``.
-        Constraints: This read performs no activation or reconciliation.
-        """
-        return self._runtime.runs(status=status, limit=limit, cursor=cursor)
-
-    def get_run(self, run_id: str) -> RunRecord:
-        """Read an exact same-Session Run.
-
-        Args: run_id: Exact incomplete, failed or succeeded Run identity.
-        Returns: The closed incomplete, failed or succeeded Run variant.
-        Example: ``session.get_run(run_id).show()``.
-        Constraints: Foreign Run identities are rejected.
-        """
-        return self._runtime.get_run(run_id)
-
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Render a bounded metadata recap.
 
@@ -632,9 +602,9 @@ class Session:
         Example: ``text = session.render()``.
         Constraints: No current catalog or source reads occur.
         """
-        from marivo.analysis.session._lazy_runtime_reads import recap
+        from marivo.analysis.session._lazy_history import inspect
 
-        return recap(self._runtime.store, self.id).render(max_output_bytes=max_output_bytes)
+        return inspect(self._runtime.store, self.id).render(max_output_bytes=max_output_bytes)
 
     def show(self, *, max_output_bytes: int | None = 8192) -> None:
         """Print a bounded Session recap.

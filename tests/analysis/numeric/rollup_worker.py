@@ -14,6 +14,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, obj, read
 
 DAY_ROWS = (
@@ -145,7 +146,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(session_id)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         artifacts = obj(state["artifacts"])
         for item in artifacts.values():
             saved = obj(item)
@@ -156,7 +157,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         assert isinstance(monthly_id, str)
         monthly = session.persisted_frame(monthly_id)
         values, dtypes = _values(monthly), _dtypes(monthly)
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
     return {"pid": os.getpid(), "values": values, "dtypes": dtypes}
 
 

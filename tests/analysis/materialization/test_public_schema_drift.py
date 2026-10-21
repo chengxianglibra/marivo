@@ -12,7 +12,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 def _publications(session: mv.Session) -> tuple[int, ...]:
@@ -45,7 +45,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
     changed = logical.persist()
     assert changed.to_pandas()[("value", "value")].tolist() == [1000.0]
-    before = session.runs().items
+    before = terminal_runs(session)
     published_before = _publications(session)
     calls: list[str] = []
 
@@ -66,7 +66,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         assert cause.expected == f"a numeric physical type for {n.domain}.{n.order}.{n.amount}"
         assert cause.received == "string"
         assert cause.repair
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
         assert _publications(session) == published_before
         assert calls == []
         assert previous.artifact._manifest == manifest
@@ -78,7 +78,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
             connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE BIGINT')
     retried = logical.persist()
     assert retried.to_pandas()[("value", "value")].tolist() == [1000]
-    assert len(session.runs().items) == len(before) + 1
+    assert len(terminal_runs(session)) == len(before) + 1
     assert session._runtime.store.resources(session.id) == ()
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         report = {

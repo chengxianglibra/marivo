@@ -16,12 +16,12 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.session._lazy_read_model import SessionInspection, SessionSummaryPage
+from marivo.analysis.session._lazy_read_model import SessionSummary, SessionSummaryPage
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.project import resolve_project_root
 
-__all__ = ["create", "inspect", "recent", "reconcile_run", "resume"]
+__all__ = ["create", "inspect", "recent", "resume"]
 
 
 def _invalid(expected: str, received: str) -> DatasetConstructionError:
@@ -172,7 +172,7 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     from marivo.analysis.session import _lazy_history
     from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    after = page_after(limit, cursor, operation="recent")
+    after = page_after(limit, cursor)
     store = _existing_store(resolve_project_root())
     if store is None:
         return SessionSummaryPage(items=(), limit=limit, has_more=False, next_cursor=None)
@@ -183,64 +183,30 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     )
 
 
-def inspect(
-    session_id: str, *, run_limit: int = 5, run_cursor: str | None = None
-) -> SessionInspection:
-    """Read a Session summary and one bounded Run page without recovery.
+def inspect(session_id: str) -> SessionSummary:
+    """Read one existing Session summary without recovery.
 
     Args:
         session_id: Exact existing Session ID.
-        run_limit: Run page size from 1 through 100.
-        run_cursor: The previous Run page's next_cursor, or None.
-    Returns: The typed SessionInspection.
+    Returns: The immutable SessionSummary with basic metadata and Artifact count.
     Example: ``mv.session.inspect(session_id).show()``.
-    Constraints: This metadata read never consults current datasource state.
+    Constraints: Reads no result identities, result rows or current datasource state.
     """
     from marivo.analysis.session import _lazy_history
-    from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    after = page_after(run_limit, run_cursor, operation="inspect")
-    return _lazy_history.inspect(
-        SessionStore.open_existing(resolve_project_root()),
-        session_id,
-        run_limit=run_limit,
-        after=after,
-    )
-
-
-def reconcile_run(*, session_id: str, run_id: str) -> None:
-    """Reconcile one incomplete or failed Run under its Session's writer guard.
-
-    Args:
-        session_id: Exact owning Session identity.
-        run_id: Exact same-Session incomplete or already failed Run identity.
-    Returns: None after guarded reconciliation succeeds.
-    Example: ``mv.session.reconcile_run(session_id=session_id, run_id=run_id)``.
-    Constraints: Local publication safety is mandatory; remote read status may remain unknown. Committed success cannot be reconciled as failure.
-    """
-    store = SessionStore.open_existing(resolve_project_root())
-    with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
-        reconcile_session(
-            store,
-            session_id,
-            event=lambda point: None,
-            run_ref=run_id,
-        )
+    return _lazy_history.inspect(SessionStore.open_existing(resolve_project_root()), session_id)
 
 
 def _install_telemetry() -> None:
     from marivo.telemetry import tracked_capability
 
-    global create, resume, reconcile_run
+    global create, resume
     create = tracked_capability(
         surface="analysis", capability_id="session.create", capability_kind="callable"
     )(create)
     resume = tracked_capability(
         surface="analysis", capability_id="session.resume", capability_kind="callable"
     )(resume)
-    reconcile_run = tracked_capability(
-        surface="analysis", capability_id="session.reconcile_run", capability_kind="callable"
-    )(reconcile_run)
 
 
 _install_telemetry()

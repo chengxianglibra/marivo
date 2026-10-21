@@ -6,7 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import DslCaseFactory, rendered_help
+from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
 
 
 def test_removed_action_contract_is_not_public() -> None:
@@ -50,7 +50,7 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
     assert rendered_help(receiver.show) == rendered_help(target)
     receiver.show()
     assert capsys.readouterr().out == text
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 @pytest.mark.parametrize("selection", ("members", "where"))
@@ -88,7 +88,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
             if isinstance(receiver, mv.AnalysisFrame):
                 assert "south" in card and "west" in card
             assert len(card.encode()) <= 8193
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
 
     saved = selected.persist()
     artifact = saved.artifact
@@ -151,7 +151,7 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     scope = capsys.readouterr().out
     assert "east" in scope and "south" in scope
     assert "union" in scope.lower() and "difference" in scope.lower()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_unicode_scope_keeps_every_continuation_visible(
@@ -200,7 +200,7 @@ def test_output_names_and_column_show_preserve_complete_metadata(
     assert "name=amount_19" in card and "role=value" in card
     assert "kind=unresolved" in card and "unit=CNY" in card
     assert "Help: analysis.column" in card
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_long_captured_output_facts_are_explicitly_omitted(
@@ -220,7 +220,7 @@ def test_long_captured_output_facts_are_explicitly_omitted(
     card = capsys.readouterr().out
     assert "name=omitted" in card and "unit=omitted" in card
     assert len(card.encode()) <= 8192
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_frame_and_audit_cards_advertise_only_actual_state_continuations(
@@ -247,5 +247,7 @@ def test_frame_and_audit_cards_advertise_only_actual_state_continuations(
     assert "Artifact.to_pandas" not in audit and "artifact.show(n=" not in audit
     case.session.show()
     recap = capsys.readouterr().out
-    assert f".persisted_frame({saved.artifact.id!r}).artifact" in recap
+    assert saved.artifact.id not in recap
+    assert "artifacts: 1" in recap
+    assert "run" not in recap.lower()
     assert ".artifact(ref)" not in recap

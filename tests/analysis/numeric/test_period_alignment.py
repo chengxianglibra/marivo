@@ -14,7 +14,7 @@ from marivo._temporal import CalendarAxis
 from marivo.analysis.core.data_schema import CalendarComparisonBinding, CalendarDataAxis, DataSchema
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
 
 
 def period(
@@ -139,7 +139,7 @@ def test_period_exact_rejects_unequal_calendars_before_execution(
             match={"reference": mv.ordinal()},
             on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         ).compute()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_selected_periods_keep_original_positions_and_nullable_values(

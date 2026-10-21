@@ -96,10 +96,6 @@ ANALYSIS_PUBLIC = (
     "ArtifactRef",
     "Finding",
     "FindingPage",
-    "FailedRun",
-    "IncompleteRun",
-    "SucceededRun",
-    "RunPage",
     "Session",
     "session",
 )

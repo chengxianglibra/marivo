@@ -114,7 +114,7 @@ def test_history_cursor_is_decoded_once_per_public_read(
             run_id,
             "result_" + run_id,
         )
-        mv.session.reconcile_run(session_id=session.id, run_id=run_id)
+        mv.session.resume(session.id)
     cursor = mv.session.recent(limit=1).next_cursor
     assert cursor is not None
     from marivo.analysis._pages import decode_keyset_cursor
@@ -133,9 +133,8 @@ def test_history_cursor_is_decoded_once_per_public_read(
     assert calls == 1
 
 
-@pytest.mark.parametrize("entry", ["recent", "inspect"])
 def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
 
@@ -148,16 +147,12 @@ def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(
         SessionStore, "open_existing", lambda _root: pytest.fail("inspect opened a Store")
     )
     with pytest.raises(mv.errors.SessionStateError) as caught:
-        if entry == "recent":
-            mv.session.recent(cursor="invalid")
-        else:
-            mv.session.inspect("missing", run_cursor="invalid")
+        mv.session.recent(cursor="invalid")
     error = caught.value
-    parameter = "cursor" if entry == "recent" else "run_cursor"
-    assert error.location == f"session.{entry}.{parameter}"
+    assert error.location == "session.recent.cursor"
     assert error.received == "cursor is not a supported keyset encoding"
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == f"session.{entry}"
+    assert error.repair.help_target.canonical_id == "session.recent"
     assert _project_state(tmp_path) == before
 
 

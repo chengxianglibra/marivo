@@ -1,4 +1,4 @@
-"""Lock the agent-advertised Run-first Session surface."""
+"""Lock the public analysis Session surface without publication bookkeeping."""
 
 from __future__ import annotations
 
@@ -22,14 +22,15 @@ def test_dir_advertises_intents_and_hides_plumbing(
     for advertised in (
         "observe",
         "members",
-        "runs",
-        "get_run",
         "frame",
         "persisted_frame",
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
     for hidden in (
+        "runs",
+        "get_run",
+        "artifacts",
         "artifact",
         "population",
         "layout",
@@ -57,3 +58,25 @@ def test_dir_advertises_intents_and_hides_plumbing(
         "_evidence_store",
     ):
         assert hidden not in names, f"plumbing leaked into dir(): {hidden}"
+
+
+def test_run_types_and_help_are_removed() -> None:
+    import marivo
+    from marivo._help.model import MarivoHelpTargetError
+
+    for name in ("FailedRun", "IncompleteRun", "SucceededRun", "RunPage"):
+        assert not hasattr(mv, name)
+    assert not hasattr(mv.session, "reconcile_run")
+    for target in (
+        "failed_run",
+        "incomplete_run",
+        "succeeded_run",
+        "run_page",
+        "session.runs",
+        "session.get_run",
+        "session.reconcile_run",
+        "runtime.runs",
+        "runtime.session_inspection",
+    ):
+        with pytest.raises(MarivoHelpTargetError):
+            marivo.help("analysis." + target)

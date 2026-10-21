@@ -18,6 +18,7 @@ from tests.analysis.numeric.comparison_fixtures import (
     comparison_queries,
 )
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -50,7 +51,7 @@ def test_complete_keys_source_and_fixed(
         if operation == "ratio":
             assert not hasattr(query, "rollup")
         native = len(source_trace.native_sql)
-        before = session.runs().items
+        before = terminal_runs(session)
 
         def forbid_source(*args: object, **kwargs: object) -> NoReturn:
             pytest.fail("Terminal comparison read touched a source")
@@ -62,7 +63,7 @@ def test_complete_keys_source_and_fixed(
         assert frame[("value", "value")].dropna().sum() == (
             6 if operation == "nested" else 2 if operation == "ratio" else 0
         )
-        assert len(source_trace.native_sql) == native and session.runs().items == before
+        assert len(source_trace.native_sql) == native and terminal_runs(session) == before
         assert session._runtime.store.resources(session.id) == ()
         source_trace.save(
             "comparison-consumer-" + operation,

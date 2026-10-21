@@ -37,7 +37,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ def test_compare_check_cannot_be_hidden_by_select(local: LocalFrameServices) -> 
         combined.select({"constant": 1}).compute()
     error = failure.value
     cause = error.__cause__
-    assert error.stage == "numeric_value" and error.run_ref is None
+    assert error.stage == "numeric_value" and not hasattr(error, "run_ref")
     assert isinstance(cause, SemanticExpressionError)
     assert error.expected == cause.expected == "a nonzero denominator"
     assert error.received == cause.received == "metric.divide(zero_denominator='error')"
@@ -451,7 +451,7 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
     assert len(schedules) == 1 and FrameInput in schedules[0] and FrameCompute in schedules[0]
     assert _values(result, "amount") == [1176]
     assert _values(result, "reference.absolute.amount") == [0]
-    assert len(session.runs().items) == 0
+    assert len(terminal_runs(session)) == 0
 
 
 def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServices) -> None:
@@ -656,7 +656,7 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
         source.compare({"reference": zero}, zero_denominator="error").select(
             {"ignored": 1}
         ).compute()
-    assert closed and session.runs().items == ()
+    assert closed and terminal_runs(session) == ()
 
 
 def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices) -> None:

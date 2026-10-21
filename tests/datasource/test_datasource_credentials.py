@@ -25,6 +25,7 @@ from marivo.datasource import backends, credentials, manage, secrets
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import CredentialFailureReason, DatasourceConnectionError
 from marivo.datasource.runtime import DatasourceConnectionService, load_datasource, open_backend
+from tests.shared_fixtures import terminal_runs
 
 
 class HostResolver:
@@ -314,7 +315,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
         return original_table(self, name, **kwargs)
 
     monkeypatch.setattr(Backend, "table", fail_table)
-    before_runs = session.runs().items
+    before_runs = terminal_runs(session)
     before = publication_counts(session)
     try:
         with pytest.raises(DatasourceConnectionError) as captured:
@@ -323,7 +324,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
                 by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
             ).compute()
         assert "<redacted>" in str(captured.value)
-        assert session.runs().items == before_runs and publication_counts(session) == before
+        assert terminal_runs(session) == before_runs and publication_counts(session) == before
         assert session._runtime.store.resources(session.id) == ()
         assert resolver.value not in "".join(traceback.format_exception(captured.value))
         assert resolver.value not in caplog.text
@@ -501,7 +502,7 @@ def test_public_semantic_analysis_and_resume(
         )
         frame = query.compute()
         assert not frame.to_pandas().empty
-        before_runs = session.runs().items
+        before_runs = terminal_runs(session)
         before = publication_counts(session)
         with (
             md.credential_scope(resolver=HostResolver()),
@@ -521,7 +522,7 @@ def test_public_semantic_analysis_and_resume(
         assert scope_failure.value.repair is not None
         assert scope_failure.value.repair.help_target.canonical_id == "credential_scope"
         assert "original resolver context" in scope_failure.value.repair.action
-        assert session.runs().items == before_runs and publication_counts(session) == before
+        assert terminal_runs(session) == before_runs and publication_counts(session) == before
         assert session._runtime.store.resources(session.id) == ()
         session_id = session.id
         from ibis.backends.duckdb import Backend

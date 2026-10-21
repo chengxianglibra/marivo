@@ -20,6 +20,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -64,14 +65,14 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
         if path.is_file()
     }
     pending = values(local, columns={"value": "USD"}, rows=(((), {"value": 7}),))
-    before = tuple(local.runs().items)
+    before = tuple(terminal_runs(local))
     with pytest.raises(CoreRuleError, match="compute"):
         pending.to_pandas()
     memory = pending.compute()
     assert memory.compute() is memory
     assert memory._input_id != pending._input_id
     assert memory.to_pandas()[("value", "value")].tolist() == [7]
-    assert tuple(local.runs().items) == before
+    assert tuple(terminal_runs(local)) == before
     assert isinstance(memory._backing, MemoryFrameBacking)
     assert memory._backing.metadata.audit.evaluation.operations == ("literal",)
     assert memory._backing.metadata.audit.source_facts == ()

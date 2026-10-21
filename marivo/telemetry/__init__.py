@@ -687,7 +687,6 @@ def _capture_policy(
         if capability_id in {
             "session.create",
             "session.resume",
-            "session.reconcile_run",
             "session.delete",
         }:
             return "short"

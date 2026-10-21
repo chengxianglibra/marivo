@@ -13,7 +13,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticError
 from tests.analysis.graph.execution_fixtures import source_graph
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 def test_identity_grouping_and_domain_have_distinct_completion(
@@ -27,7 +27,7 @@ def test_identity_grouping_and_domain_have_distinct_completion(
     region = session.catalog.fields.get("sales.customer.region")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
     members = session.members(session.catalog.entities.get("sales.customer"))
-    before = session.runs().items
+    before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Grouping construction must not access source rows")
@@ -47,7 +47,7 @@ def test_identity_grouping_and_domain_have_distinct_completion(
             left = session.observe({"value": metric}, by=(period, *by))
             right = session.observe({"value": metric}, by=(period, *reuse))
             assert source_graph(left).signature == source_graph(right).signature
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
     observed = session.observe({"value": metric}, by=(period, grouping))
     complete = session.observe({"value": metric}, by=mv.product(period, members))
     inferred = session.observe(

@@ -12,7 +12,7 @@ from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -35,7 +35,7 @@ def test_source_and_python_failures_preserve_atomic_publication(
     prior = logical.persist()
     prior_frame = prior.to_pandas()
     runtime = session._runtime
-    before_runs = session.runs().items
+    before_runs = terminal_runs(session)
     with runtime.store._connection() as connection:
         before = connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0]
 
@@ -69,12 +69,12 @@ def test_source_and_python_failures_preserve_atomic_publication(
                 logical.persist()
     finally:
         monkeypatch.undo()
-    runs = session.runs().items
+    runs = terminal_runs(session)
     if phase == "source_execute":
         assert runs == before_runs
     else:
         assert len(runs) == len(before_runs) + 1
-        added = [run for run in runs if run.run_id not in {old.run_id for old in before_runs}]
+        added = [run for run in runs if run.run_ref not in {old.run_ref for old in before_runs}]
         assert len(added) == 1
         assert added[0].lifecycle == ("succeeded" if phase == "after_commit" else "failed")
     assert prior.to_pandas().equals(prior_frame)
@@ -113,7 +113,7 @@ def test_graph_has_no_hidden_600_second_expiry(
     monkeypatch.setattr(time, "monotonic", clock)
     monkeypatch.setattr(SourceSession, "execute", delayed)
     result = logical.compute()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
     assert ticks[0] > 600
     assert len(result.to_pandas()) > 0
     assert case.session._runtime.store.resources(case.session.id) == ()
@@ -157,6 +157,6 @@ def test_fresh_worker_contender_only_rejects_publication(
     assert report["pid"] != os.getpid()
     assert report["artifact"] == saved.artifact.id
     assert report["before"] == report["after"]
-    assert len(case.session.runs().items) == 1
+    assert len(terminal_runs(case.session)) == 1
     assert store.resources(case.session.id) == ()
     assert saved.to_pandas()[("value", "value")].tolist() == [1000]

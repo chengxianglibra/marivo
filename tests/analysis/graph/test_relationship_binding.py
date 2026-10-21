@@ -16,7 +16,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 CUSTOMER = ms.ref.entity("sales.customer")
@@ -273,8 +273,8 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
             session.members(session.catalog.entities.get(LINE.path)), {"category": category}
         ).persist()
     assert missing.value.expected and missing.value.received and missing.value.repair
-    assert missing.value.run_ref is None
-    assert session.runs().items == ()
+    assert not hasattr(missing.value, "run_ref")
+    assert terminal_runs(session) == ()
     # The separate observation consumes only August contributions, so a bad July
     # relationship is outside this read scope.
     frame = (

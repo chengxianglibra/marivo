@@ -277,7 +277,7 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "entry",
             (
-                "No Run or Artifact is created. Stored loading validates current data and all owned method facts; use handles from the returned Frame. Explicit source leaves may read changing sources.",
+                "No Artifact is created. Stored loading validates current data and all owned method facts; use handles from the returned Frame. Explicit source leaves may read changing sources.",
             ),
         ),
         (
@@ -291,7 +291,7 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "entry",
             (
-                "A stored root checks commit metadata and returns itself. Evaluation finishes before publication admission; failures and unknown publication outcomes require their structured repair, never an automatic recomputation.",
+                "A stored root checks commit metadata and returns itself. Evaluation finishes before publication admission; failures and unknown publication outcomes require their structured repair, never an automatic recomputation. Retain Session and Artifact IDs; lost return references require explicit resubmission, which may duplicate saved outputs or read changed sources.",
             ),
         ),
         (

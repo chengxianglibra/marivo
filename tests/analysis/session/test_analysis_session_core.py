@@ -10,6 +10,7 @@ import marivo.analysis as mv
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
+from tests.shared_fixtures import terminal_runs
 
 
 def test_session_public_fields_are_read_only(
@@ -162,4 +163,4 @@ def test_session_observe_uses_external_layer_datasource(
     frame = session.observe({"refunds": metric}).compute()
 
     assert frame.to_pandas()[("value", "refunds")].tolist() == [150.0]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()

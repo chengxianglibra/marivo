@@ -8,12 +8,6 @@ from typing import TYPE_CHECKING
 from marivo._definition.types import Owner
 from marivo.analysis.materialization.contracts import SessionRecord, invalid
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.session import _lazy_runtime_reads
-from marivo.analysis.session._lazy_read_model import (
-    RunLifecycle,
-    RunPage,
-    RunRecord,
-)
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_data import (
@@ -93,13 +87,3 @@ class LocalFrameServices:
         from marivo.analysis.materialization.terminal_publication import publish_completed
 
         return publish_completed(self, result)
-
-    def runs(
-        self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
-    ) -> RunPage:
-        return _lazy_runtime_reads.runs(
-            self.store, self.session_ref, status=status, limit=limit, cursor=cursor
-        )
-
-    def get_run(self, run_id: str) -> RunRecord:
-        return _lazy_runtime_reads.get_run(self.store, self.session_ref, run_id)

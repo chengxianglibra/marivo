@@ -19,6 +19,7 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -366,7 +367,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
             assert backend == "clickhouse"
             native: object = case.session._backend.execute(expression)
             assert native == -float(2**62)
-        before_runs = session.runs().items
+        before_runs = terminal_runs(session)
         before_publication = publication_counts(session)
         trace = capture_source(monkeypatch)
         if backend == "trino":
@@ -388,7 +389,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
         assert len(submissions) == 1
         assert submissions[0].state == ("failed" if backend == "trino" else "succeeded")
         assert submissions[0].connection_disconnected
-        assert session.runs().items == before_runs
+        assert terminal_runs(session) == before_runs
         assert publication_counts(session) == before_publication
         assert session._runtime.store.resources(session.id) == ()
 

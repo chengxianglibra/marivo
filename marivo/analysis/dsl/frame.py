@@ -792,7 +792,7 @@ class AnalysisFrame:
             ``fixed = frame.compute()``.
 
         Constraints: Reads only explicit inputs, closes sources before success, and creates no
-        persistent Run, Artifact or result files. Stored loading preserves result facts.
+        Artifact or result files. Stored loading preserves result facts.
         """
         if isinstance(self._backing, MemoryFrameBacking):
             return self
@@ -832,6 +832,8 @@ class AnalysisFrame:
         Example: ``saved = frame.compute().persist()``.
         Constraints: Pending evaluation completes before publication admission;
         memory publication does not reevaluate, and stored idempotence reads metadata only.
+        Retain the returned Session and Artifact IDs. Lost return references require explicit
+        resubmission, which may duplicate saved outputs or read changed sources.
         """
         if isinstance(self._backing, StoredFrameBacking):
             selected = self._local.open_frame(self._backing.artifact_id)
@@ -916,7 +918,7 @@ class AnalysisFrame:
             ``saved.show(n=0)``.
 
         Constraints: Pending display never prepares schema; positive stored previews bound
-        decoded output, not receipt hashing or Parquet IO. No Run, full-export/head, ancestor
+        decoded output, not receipt hashing or Parquet IO. No publication, full-export/head, ancestor
         rows, complete-result cache or fallback after a read error. Method facts
         show only counts/origins and a .method_facts pointer; no method payload read.
         """

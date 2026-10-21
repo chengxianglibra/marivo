@@ -15,6 +15,7 @@ from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import Case, SourceData, source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -401,7 +402,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert native == expected
 
         trace = capture_source(monkeypatch)
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         left = mv.attribute_endpoint({"q": metric}, during=current)
         right = mv.attribute_endpoint({"q": metric}, during=baseline)
         pending = session.attribute(
@@ -413,10 +414,10 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             parent_how="exact",
         )
         assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         pending.show(n=0)
         assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         assert pending.output_names == ("left.q", "right.q", "absolute.q")
         assert pending.presence_names == ("left_present", "right_present")
 
@@ -426,7 +427,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         completed_reads = (tuple(trace.native_sql), tuple(trace.returned_rows))
         rows = fixed.to_pandas()
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         assert fixed.method_facts == ()
         actual = [
             tuple(None if pd.isna(value) else value for value in row)
@@ -475,7 +476,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert isinstance(caught.value, AttributeInputError)
         assert caught.value.reason == "unqualified_contribution_route"
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
 
 
 def _native_scalar(

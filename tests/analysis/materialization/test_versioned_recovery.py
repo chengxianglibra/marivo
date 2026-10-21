@@ -19,6 +19,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -105,7 +106,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = ms.ref.entity("sales.subjects_" + kind)
-            before = session.runs().items
+            before = terminal_runs(session)
             with monkeypatch.context() as construction:
                 construction.setattr(SourceSession, "execute", forbidden)
                 construction.setattr(SourceSession, "compile", forbidden)
@@ -122,13 +123,13 @@ def test_native_versioned_members_independent_fixed_and_cold(
                         entity,
                         at=mv.InstantAnchor(2026, 9, 1),  # type: ignore[arg-type]
                     )
-            assert session.runs().items == before
+            assert terminal_runs(session) == before
             with monkeypatch.context() as preparation:
                 preparation.setattr(SourceSession, "execute", forbidden)
                 with pytest.raises(AnalysisError) as refused:
                     missing.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
-            assert session.runs().items == before
+            assert terminal_runs(session) == before
             for label, point in (
                 ("august", august),
                 ("september", boundary.end),
@@ -245,6 +246,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -254,7 +256,7 @@ root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 state = read(root / 'r94-versions.json')
 with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
     session = mv.session.resume(state['session'])
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     for name, item in obj(state['outputs']).items():
         value = session.persisted_frame(item['artifact'])
         assert snapshot(value) == item['snapshot']
@@ -262,7 +264,7 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
             assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
         if name.startswith('snapshot:grid_read:'):
             assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
 output.write_bytes(encode({'pid':os.getpid(), 'phase':phase}))
 """
     reports: list[Json] = []

@@ -18,6 +18,7 @@ from tests.shared_fixtures import (
     DslCaseFactory,
     analysis_dsl_rows,
     export_dsl_parquet_models,
+    terminal_runs,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -111,7 +112,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     ).persist()
     assert plain(ratio)["value"].isna().sum() == 4
     assert plain(category)["value"].tolist() == ["retained" * 200] * 11
-    runs = len(session.runs().items)
+    runs = len(terminal_runs(session))
     read = OutputRead.read
     decoded: list[int] = []
 
@@ -142,7 +143,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     assert len(text.encode()) <= 8192 and "retained" * 200 not in text
     ratio.show(n=0)
     assert "rows: 11" in capsys.readouterr().out
-    assert len(session.runs().items) == runs
+    assert len(terminal_runs(session)) == runs
 
 
 def test_business_display_identifies_current_and_baseline_windows(
@@ -314,7 +315,7 @@ def test_static_display_errors_are_zero_read(
     fixed = values.compute()
     other = analysis_dsl_case_factory("j2")
     foreign = _values(other)
-    before = len(case.session.runs().items)
+    before = len(terminal_runs(case.session))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("static display admission read business data")
@@ -338,7 +339,7 @@ def test_static_display_errors_are_zero_read(
         values.top(1, by=foreign["value"])
     # The retired partitioned receiver is owned by the public signature snapshot;
     # explicit pandas partition ranking remains covered below.
-    assert len(case.session.runs().items) == before
+    assert len(terminal_runs(case.session)) == before
 
 
 @pytest.mark.slow
@@ -378,6 +379,7 @@ def test_cold_display_continuations_and_corruption(
 import json, sys
 from pathlib import Path
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -390,7 +392,7 @@ SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 state = json.loads(Path('display.json').read_text())
 session = mv.session.resume(state['session'])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 for name in ('selected', 'terminal'):
     saved = state[name]
     result = session.persisted_frame(saved['artifact'])
@@ -401,7 +403,7 @@ assert selected['key_0'].tolist() == ['C','D']
 assert selected['value'].tolist() == [3,2]
 selected['rank'] = selected['value'].rank(method='dense', ascending=False)
 assert selected['rank'].tolist() == [1,2]
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

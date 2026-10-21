@@ -1,7 +1,5 @@
 """Structured string template for analysis errors."""
 
-import pytest
-
 from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization.errors import MaterializationError
@@ -54,28 +52,17 @@ def test_base_template_omits_missing_optional_sections() -> None:
     assert "Received:" not in rendered
     assert "Hint:" not in rendered
     assert "Repair:" not in rendered
-    assert err.run_ref is None
+    assert not hasattr(err, "run_ref")
     assert "get_run" not in rendered
 
 
-@pytest.mark.parametrize("with_repair", (False, True))
-def test_error_instance_owns_exact_run_inspection(with_repair: bool) -> None:
-    error = (
-        MaterializationError(
-            expected="complete input",
-            received="partial input",
-            repair="Restore the input.",
-            run_ref="run_exact",
-        )
-        if with_repair
-        else AnalysisError(message="execution failed", run_ref="run_exact")
+def test_error_contract_omits_internal_publication_identity() -> None:
+    error = MaterializationError(
+        expected="complete input", received="partial input", repair="Restore the input."
     )
-    rendered = str(error)
-    assert "Run: run_exact" in rendered
-    assert "session.get_run('run_exact').show()" in rendered
-    assert "marivo.help('analysis.session.get_run')" in rendered
-    assert "optional run_ref" in render_help_text(AnalysisError)[0]
-    assert "run_exact" not in render_help_text(type(error))[0]
+    assert not hasattr(error, "run_ref")
+    assert "run_ref" not in render_help_text(AnalysisError)[0]
+    assert "get_run" not in str(error)
 
 
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:

@@ -27,12 +27,8 @@ from marivo.analysis.session.core import Session
 READ_TYPES: tuple[type[object], ...] = (
     e.ArtifactDigest,
     ArtifactRef,
-    r.FailedRun,
     e.Finding,
     e.FindingPage,
-    r.IncompleteRun,
-    r.RunPage,
-    r.SucceededRun,
 )
 
 
@@ -49,7 +45,7 @@ def provider() -> DisclosureProvider:
                 producers=("attribute_endpoint.define",),
                 consumers=("session.attribute",),
                 constraints=(
-                    "metrics is a nonempty ordered mapping of resolved Metrics; during uses the existing time authority; where is a native Deferred predicate and memberships supplies explicit Grouping allocation rules. Construction performs no business reads or Run creation.",
+                    "metrics is a nonempty ordered mapping of resolved Metrics; during uses the existing time authority; where is a native Deferred predicate and memberships supplies explicit Grouping allocation rules. Construction performs no business reads or publication.",
                     "This input record is not a source handle and cannot recover historical Metric definitions.",
                 ),
             ),
@@ -74,7 +70,7 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Direct AttributeEndpoint construction is unsupported. Session.attribute validates Metrics, ownership, binding and contribution eligibility.",
                 ),
-                effects="Capture only: no Session opening, Catalog loading, schema/business read or Run.",
+                effects="Capture only: no Session opening, Catalog loading or schema/business read.",
                 failures=(
                     "AnalysisError: supply a nonempty named Metric mapping; resolve Metrics before capture.",
                 ),
@@ -159,33 +155,12 @@ def provider() -> DisclosureProvider:
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read run.output_artifact_ref, finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
+            "Read finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
             (
-                "succeeded_run.output_artifact_ref",
                 "finding.artifact_ref",
                 "artifact_digest.artifact_ref",
             ),
             ("session.persisted_frame",),
-        ),
-        "FailedRun": (
-            "Select a failed Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
-            ("session.runs", "session.get_run"),
-            ("runtime.values.render", "runtime.values.show"),
-        ),
-        "IncompleteRun": (
-            "Select an incomplete Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
-            ("session.runs", "session.get_run"),
-            ("session.reconcile_run",),
-        ),
-        "SucceededRun": (
-            "Select a succeeded Run from session.runs().items, session.get_run(id), or inspect(id).runs.items.",
-            ("session.runs", "session.get_run"),
-            ("session.persisted_frame",),
-        ),
-        "RunPage": (
-            "Call session.runs() or read mv.session.inspect(id).runs; use next_cursor for the identical selection.",
-            ("session.runs", "runtime.session_inspection.runs"),
-            ("session.runs", "session.get_run", "SucceededRun", "FailedRun", "IncompleteRun"),
         ),
         "Finding": (
             "Select an exact self-contained output item from artifact.findings().items.",
@@ -259,23 +234,16 @@ def provider() -> DisclosureProvider:
         (
             session_namespace,
             "inspect",
-            "SessionInspection",
+            "SessionSummary",
             "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_id)",
             "Read one existing Session snapshot; no recovery or activation.",
-        ),
-        (
-            session_namespace,
-            "reconcile_run",
-            "None",
-            "import marivo.analysis as mv\nresult = mv.session.reconcile_run(session_id=session.id, run_id=pending_run)",
-            "Reconcile one Run under its writer guard; local publication must be safe while remote read status may remain unknown.",
         ),
         (
             Session,
             "members",
             "Population",
             "result = session.members(entity)",
-            "Capture source Entity identities with their own exact anchor and condition; no schema, business rows or Run. Use session.frame(population) for complete keys.",
+            "Capture source Entity identities with their own exact anchor and condition; no schema or business rows. Use session.frame(population) for complete keys.",
         ),
         (
             Session,
@@ -318,20 +286,6 @@ def provider() -> DisclosureProvider:
             "Population",
             "result = session.population_from(frame, on=((frame.axes[0], target),))",
             "Bind selected complete ordinary Frame keys to explicit caller semantic targets for a new source Population; construction reads no rows.",
-        ),
-        (
-            Session,
-            "runs",
-            "RunPage",
-            "result = session.runs(limit=5)",
-            "Read a bounded newest-first page without reconciling work.",
-        ),
-        (
-            Session,
-            "get_run",
-            "IncompleteRun | FailedRun | SucceededRun",
-            "result = session.get_run(run_id)",
-            "Read one exact same-Session Run.",
         ),
         (
             Session,
@@ -386,14 +340,10 @@ def provider() -> DisclosureProvider:
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
-        "run_limit": "Choose the bounded embedded Run-page size.",
-        "run_cursor": "Use the preceding inspection's runs.next_cursor.",
         "session_id": "Use the exact existing Session id.",
-        "run_id": "Use an exact incomplete, failed or succeeded Run id from session.runs().",
         "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
         "metrics": "Pass a nonempty ordered mapping from output names to resolved Metric expressions; Artifact objects and IDs are rejected.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
-        "status": "Choose incomplete, failed, succeeded or None.",
     }
     for receiver, name, output, code, effect in operations:
         value = getattr(receiver, name)
@@ -418,11 +368,9 @@ def provider() -> DisclosureProvider:
                 if receiver is session_namespace
                 else "runtime.sessions"
                 if name in ("show", "render")
-                else "runtime.runs"
-                if name in ("runs", "get_run")
                 else "runtime",
                 related=("session.resume",)
-                if name in ("runs", "get_run", "persisted_frame")
+                if name == "persisted_frame"
                 else ("analysis_frame.compute", "analysis_frame.persist", "TimeScope.by")
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
@@ -431,9 +379,7 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     P(
                         n,
-                        "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
-                        if n == "run_id" and name == "reconcile_run"
-                        else "Empty () is one zero-axis cell. Pass fields, non-membership Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
+                        "Empty () is one zero-axis cell. Pass fields, non-membership Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
@@ -460,7 +406,7 @@ def provider() -> DisclosureProvider:
                 )
                 else (effect,),
                 effects=effect,
-                telemetry=name in ("create", "resume", "reconcile_run"),
+                telemetry=name in ("create", "resume"),
                 failures=(
                     "AnalysisError: read its fields and repair."
                     if name == "members"
@@ -474,8 +420,6 @@ def provider() -> DisclosureProvider:
                     if name == "resume"
                     else ("saved_session_id",)
                     if name == "inspect"
-                    else ("session", "pending_run")
-                    if name == "reconcile_run"
                     else ("session", "artifact_id")
                     if name == "persisted_frame"
                     else ("session", "frame", "target")
@@ -486,8 +430,6 @@ def provider() -> DisclosureProvider:
                     if name == "frame"
                     else ("session", "population", "fields")
                     if name == "read"
-                    else ("session", "run_id")
-                    if name == "get_run"
                     else ("session", "entity")
                     if name == "members"
                     else ("session", "buyer", "members", "window")
@@ -521,15 +463,9 @@ def provider() -> DisclosureProvider:
             ("runtime.SessionSummary", "session.resume", "session.inspect"),
         ),
         (
-            r.SessionInspection,
-            "Call mv.session.inspect(identity) without activating a Session.",
-            ("session.inspect",),
-            ("runtime.SessionSummary", "RunPage"),
-        ),
-        (
             r.SessionSummary,
-            "Read a selected recent().items entry or inspect(identity).summary; retain its id/name.",
-            ("runtime.session_summary_page.items", "runtime.session_inspection.summary"),
+            "Read a selected recent().items entry or inspect(identity); retain its id/name.",
+            ("runtime.session_summary_page.items", "session.inspect"),
             ("session.resume",),
         ),
     )
@@ -550,7 +486,6 @@ def provider() -> DisclosureProvider:
             for value in (
                 *READ_TYPES,
                 r.SessionSummaryPage,
-                r.SessionInspection,
                 r.SessionSummary,
                 e.OutputEvidence,
                 e.OutputCoordinate,

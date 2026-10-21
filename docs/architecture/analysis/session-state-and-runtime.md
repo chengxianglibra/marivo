@@ -42,15 +42,15 @@ fails. `session.timezone` returns the saved normalized name.
 
 `mv.session.resume(session_id)` opens only that exact existing identity and performs
 necessary recovery under the writer guard. `recent()` is bounded read-only
-name/ID discovery; `inspect(session_id)` is exact-ID read-only inspection, including
-bounded Run pages. Neither discovery nor inspection recovers a Run. There is no
-implicit current Session or activation. A resume with no recovery work, an inspect,
+name/ID discovery; `inspect(session_id)` is exact-ID read-only inspection, returning
+a SessionSummary with basic metadata and Artifact count. Neither discovery nor
+inspection performs recovery. There is no implicit current Session or activation. A resume with no recovery work, an inspect,
 or compute does not refresh updated_at; it records committed state changes.
 
-`mv.session.reconcile_run(session_id=..., run_id=...)` checks the original publishing
-transaction and owned resources without source recomputation. It checks Run
-ownership and refuses an active writer. `session.members(entity, ...)` accepts a
-resolved Entity with the existing identity/version/at contract. `values` defaults
+Session recovery checks the original publishing transaction and owned resources
+without source recomputation and refuses an active writer. Run records and
+identities remain internal; no public Run history or targeted reconciliation is
+exposed. `session.members(entity, ...)` accepts a resolved Entity with the existing identity/version/at contract. `values` defaults
 to `by=()`. Source-free typed literal frames and `population_from(..., on=())` need
 no unrelated Catalog load. Session has no source_bindings or graph method.
 
@@ -109,8 +109,12 @@ Retain the existing Store writer guard, resource journal and success transaction
 Failures clean only their Run's resources. Unknown commit acknowledgement is
 reconciled against that same transaction and identity; never reevaluate to settle
 it. Stored persist is idempotent only for that stored commit; publishing a memory
-root again may create a new commit without new evaluation. Use runs/get_run
-and output references for publication history; there is no public Session graph.
+root again may create a new commit without new evaluation. Retain the returned
+Session and Artifact IDs for exact reopening. Lost return references require
+explicit resubmission, accepting duplicate Artifacts and possible source changes;
+there is no result directory, public Run history or implicit latest result.
+Unknown outcomes must first pass Session recovery; resubmission never bypasses
+active writers, unresolved ownership or integrity checks.
 
 ## Resource lifetime and native cancellation
 

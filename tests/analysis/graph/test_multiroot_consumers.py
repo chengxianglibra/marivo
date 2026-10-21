@@ -21,6 +21,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -289,7 +290,7 @@ def test_independent_roots_and_temporal_fold(
             )
             assert "left" in str(refused_route.value) or "right" in str(refused_route.value)
             assert set(root.rglob("*.parquet")) == before
-            assert session.runs().items == ()
+            assert terminal_runs(session) == ()
             assert not source_trace.native_sql
             return
         values = session.observe(

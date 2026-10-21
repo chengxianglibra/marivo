@@ -200,18 +200,19 @@ family with ``marivo.help("analysis.frame_method_facts")``.
 Evaluation, publication and recovery
 ------------------------------------
 
-Compute creates no Run, Artifact or temporary saved result. Expression persist
+Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 15 writer transaction. Run means publication; evaluation can precede
-admission. Memory persist never reevaluates. Stored persist validates commit
-metadata and returns itself without another Run. A derived Frame never exposes
-an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
+single Store 15 writer transaction. Memory persist never reevaluates. Stored
+persist validates commit metadata and returns itself without another publication.
+A derived Frame never exposes an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
 
 Completed data owns source-free values, coordinates, presence and one audit:
 inherited source facts plus the current evaluation. It retains no producer,
 semantic graph, connection or hidden aggregate components. Read, evaluation and
-commit times remain separate. Session Run records retain publication references
-without promising complete data lineage.
+commit times remain separate. Publication records remain internal and do not
+promise complete data lineage. Retain Session and Artifact IDs for exact reopening.
+Lost return references require explicit resubmission, accepting duplicate saved
+outputs and possibly changed source data. There is no public result directory.
 
 Store 15 uses ``marivo.frame_output/v4``, ``frame.v4`` and ``frame-output-v4`` for
 all Frames, under ``.marivo/analysis/generations/v15/``. Owned method files share
@@ -312,18 +313,6 @@ Canonical public exports
 .. autoclass:: FindingPage
    :members:
 
-.. autoclass:: FailedRun
-   :members:
-
-.. autoclass:: IncompleteRun
-   :members:
-
-.. autoclass:: SucceededRun
-   :members:
-
-.. autoclass:: RunPage
-   :members:
-
 .. autoclass:: Session
    :members:
 
@@ -351,7 +340,6 @@ Schema, grid and saved Runtime boundaries
 ``calendar_axis.scope`` reads the original scope after ``scope.by(grain)``;
 a shifted axis may have None, which is never filled from a grid envelope.
 ``finding.value`` is saved content selected by finding_type/kind, including lag
-facts where applicable. ``run.dataset_input.result_id`` identifies an existing
-completed result submitted for publication, not an execution recipe.
-``failed_run.failure`` retains its failure and optional original repair Help.
+facts where applicable. Publication failures expose their phase and concrete
+repair directly through structured errors.
 These read-only paths do not open constructors for nested implementation types.

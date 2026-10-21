@@ -149,8 +149,9 @@ producer graph, original semantic object, connection or hidden aggregate state.
 One audit contains inherited source facts (exact-value dedup only) plus current
 evaluation. It does not accumulate all intermediate history. Source read,
 evaluation and commit times remain distinct; a recent commit is not refreshed
-data. Use runs/get_run and output references for publishing history; there is no
-public Session graph or latest-answer selector. RawSqlResult stays on its independent datasource reader and
+data. Retain the Session and Artifact IDs for exact reopening. Lost return references
+require explicit resubmission, which may duplicate outputs or read changed data;
+there is no result directory, public Run history or latest-answer selector. RawSqlResult stays on its independent datasource reader and
 does not enter Frame Store, typed operands or a new importer.
 
 ## Session and observe inputs
@@ -158,8 +159,8 @@ does not enter Frame Store, typed operands or a new importer.
 Use strict `mv.session.create(name, timezone=None)` for a new name. Omission freezes
 the creation-time system zone; exact-ID `resume` restores that value, regardless of
 later TZ changes. `recent` discovers names/IDs, `inspect(session_id)` reads bounded
-metadata, and `reconcile_run(session_id=..., run_id=...)` checks an original publish
-transaction. There is no implicit current Session, graph or Session source_bindings.
+metadata as a SessionSummary. Resume checks original publication transactions
+and owned resources internally without source recomputation. There is no implicit current Session, graph or Session source_bindings.
 
 TimeScope/CalendarAxis belong in observe.by. An interval is a real output axis,
 including single-bucket results. P.count() captures a complete Entity identity

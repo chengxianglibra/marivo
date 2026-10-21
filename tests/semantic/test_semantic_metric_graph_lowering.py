@@ -19,6 +19,7 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 
@@ -115,7 +116,7 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
         resolve=dict(graph.signature.declared_metrics).get,
     )
     assert any(isinstance(node, SourceAggregate) for node in closure.order)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_temporal_sample_fold_remains_explicit_in_definition_order(

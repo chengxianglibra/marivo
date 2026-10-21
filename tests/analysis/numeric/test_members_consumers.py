@@ -14,6 +14,7 @@ from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -99,7 +100,7 @@ def test_complete_versioned_members(
         session = mv.session.create("c03-versions", timezone="UTC")
         entity = session.catalog.entities.get("sales.subjects")
         august = session.instant("2026-08-01")
-        before_runs = len(session.runs().items)
+        before_runs = len(terminal_runs(session))
         calls: list[str] = []
 
         def no_construction_read(*args: object, **kwargs: object) -> None:
@@ -114,12 +115,12 @@ def test_complete_versioned_members(
                 unanchored, {"amount": session.catalog.fields.get("sales.subjects.amount")}
             )
             current = session.members(entity, at=august)
-        assert calls == [] and len(session.runs().items) == before_runs
+        assert calls == [] and len(terminal_runs(session)) == before_runs
         with monkeypatch.context() as preparation:
             preparation.setattr(SourceSession, "execute", no_construction_read)
             with pytest.raises(AnalysisError) as missing_version:
                 unanchored_read.compute()
-        assert calls == [] and len(session.runs().items) == before_runs
+        assert calls == [] and len(terminal_runs(session)) == before_runs
         assert (
             missing_version.value.expected
             and missing_version.value.received

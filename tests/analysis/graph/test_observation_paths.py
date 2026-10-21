@@ -20,6 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -210,12 +211,12 @@ def test_long_path_sum_and_count(
                 outputs["sliced"] = selected
         assert trace.native_sql
         assert trace.owners and all(owner._closed for owner in trace.owners)
-        before = session.runs().items
+        before = terminal_runs(session)
         snapshots = {name: snapshot(value) for name, value in outputs.items()}
         with monkeypatch.context() as offline:
             offline.setattr(ms, "load", forbidden)
             offline.setattr("marivo.datasource.adapters.SourceSession.execute", forbidden)
             for name, value in outputs.items():
                 assert snapshot(session.persisted_frame(value.artifact.id)) == snapshots[name]
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
         assert session._runtime.store.resources(session.id) == ()

@@ -26,6 +26,7 @@ from marivo.semantic._deferred_semantics import consume_field, consume_metric, c
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.expressions import Entity
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 class ProjectFactory(Protocol):
@@ -172,7 +173,7 @@ def test_execute_checks_every_repeated_field_anchor(
     assert observation is not None
     reads = observation.contributions[0].reads
     assert {read.at for read in reads} == {None, session.instant("2026-01-01")}
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
@@ -212,12 +213,12 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert isinstance(binding.coordinates.axes[0], CalendarCoordinate)
     assert isinstance(binding.coordinates.axes[1], AxisBinding)
     assert len(binding.coordinates.axes[0].cells) == 31
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     query.show()
     shown = capsys.readouterr().out
     assert "net" in shown and "branches" in shown
     assert "rows: pending; no input rows read" in shown
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     with pytest.raises(FrozenInstanceError):
         frozen_attribute = "period"
         setattr(binding, frozen_attribute, None)
@@ -235,7 +236,7 @@ def test_each_root_must_have_an_unambiguous_directed_path(
     assert caught.value.expected and caught.value.received and caught.value.repair
     if problem == "alternate":
         assert caught.value.repair.candidates
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_explicit_field_routes_and_during_none_are_frozen(
@@ -311,7 +312,7 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     assert contribution.time.field == consume_field(time).reference
     assert contribution.time.path == (buyer.ref,)
     assert contribution.root == consume_field(amount).root
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_same_path_definition_versions_are_not_an_admission_gate(
@@ -333,7 +334,7 @@ def test_same_path_definition_versions_are_not_an_admission_gate(
     contribution = _captured_observation(query).contributions[0]
     assert contribution.root == current.root
     assert {read.field.ref for read in contribution.reads} >= {current.reference.ref}
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_exact_boundaries_calendar_and_host_independence(
@@ -373,7 +374,7 @@ def test_exact_boundaries_calendar_and_host_independence(
         by("day")
     with pytest.raises(AnalysisError):
         session.time_scope(start="2026-01-01", end="2026-01-01")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_attribute_anchor_preserves_exact_exclusive_endpoint(
@@ -398,7 +399,7 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(
     assert original.field_read is not None
     assert consume_field(field).reference == original.reference
     assert original.field_read.at is None
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_to_many_scalar_path_is_rejected_without_source_reads(
@@ -411,7 +412,7 @@ def test_to_many_scalar_path_is_rejected_without_source_reads(
         consume_field(region.via((buyer,)))
     with pytest.raises(AnalysisError):
         session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}, by=(region,))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_sampled_time_requirement_survives_nested_declarations_and_zero(
@@ -421,7 +422,7 @@ def test_sampled_time_requirement_survives_nested_declarations_and_zero(
     net = session.catalog.metrics.get("sales.net")
     with pytest.raises(CoreRuleError, match="sampled time"):
         session.observe({"zero": net * 0})
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
@@ -466,7 +467,7 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
         certified_scope.by(
             semantic_grain(calendar=other.calendar_ref, level="week", snapshot=other)
         )
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("field_kind", ("dimension", "measure"))
@@ -515,7 +516,7 @@ def filtered():
     )
     with pytest.raises(SemanticError, match="native field"):
         consume_metric(routed.count())
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_explicit_count_capture_keeps_each_domain_without_reading(
@@ -548,6 +549,6 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     assert {node.population for node in counts} == {p._definition, q._definition}
     assert len(_captured_observation(frame).count_populations) == 2
     assert frame.axes[0].role == "interval"
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     with pytest.raises(AnalysisError, match="at most one output time axis"):
         session.observe({"p": p.count()}, by=(scope, scope.by(mv.grain("day"))))

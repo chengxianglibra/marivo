@@ -16,6 +16,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.reference_recovery_worker import recipes
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -135,7 +136,7 @@ def test_native_reference_independent_fixed_and_cold(
         reports.append(read(output))
     assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
     assert all(obj(report)["derived"] == derived for report in reports)
-    assert all(obj(report)["run_count"] == len(session.runs().items) for report in reports)
+    assert all(obj(report)["run_count"] == len(terminal_runs(session)) for report in reports)
     if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(destination, "reference-recovery-" + backend + ".json").write_bytes(
             encode(

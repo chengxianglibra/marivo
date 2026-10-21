@@ -8,7 +8,7 @@ import pytest
 import marivo
 from marivo._help import help as help_coordinator
 from tests.analysis.numeric.test_period_alignment import period
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,7 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
         axis.shift(mv.ordinal())
     for name in ("period_offset", "previous_year"):
         assert not hasattr(mv, name)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_compare_help_discloses_accepted_exact_duration_contract(
@@ -156,4 +156,4 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     assert data[("value", "reference.relative.elapsed")].tolist() == [1.0]
     assert data.attrs["units"][-1] == ("reference.relative.elapsed", None)
     assert result.presence_names == ("current.present", "reference.present")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()

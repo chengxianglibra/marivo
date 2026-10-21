@@ -31,7 +31,7 @@ from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, N
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.graph_reading import OutputRead, ReadLayout
 from marivo.analysis.materialization.store import SessionStore
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
@@ -84,7 +84,7 @@ def test_projection_reads_each_receipt_once_per_call(
         return original(reader, layout)
 
     monkeypatch.setattr(OutputRead, "_open", counted)
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     for _ in range(2):
         opened.clear()
@@ -95,7 +95,7 @@ def test_projection_reads_each_receipt_once_per_call(
         # Post-export projection is pandas work and performs no second receipt read.
         assert frame["value"].equals(expected["value"])
         assert len(opened) == count
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
     for handle in handles:
         path = (
             case.root
@@ -113,7 +113,7 @@ def test_projection_reads_each_receipt_once_per_call(
     opened.clear()
     with pytest.raises(AnalysisError):
         foreign.persisted_frame(artifact.artifact.id)
-    assert opened == [] and case.session.runs().items == before
+    assert opened == [] and terminal_runs(case.session) == before
 
 
 def _finding_output(session: mv.Session) -> mv.Artifact:
@@ -212,12 +212,13 @@ def test_cold_projection_reads_once_without_source(
     expected = frame.to_json(orient="split", date_format="iso")
     assert isinstance(artifact._backing, StoredFrameBacking)
     expected_reads = 1 + len(artifact._backing.data.attachments)
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     code = """
 import sys
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.analysis.materialization.graph_reading import OutputRead
@@ -235,12 +236,12 @@ def counted(reader,layout):
     reads.append(layout.handle)
     return original(reader,layout)
 OutputRead._open = counted
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 for _ in range(2):
     reads.clear()
     assert artifact.to_pandas().to_json(orient='split',date_format='iso') == sys.argv[3]
     assert len(reads) == int(sys.argv[4])
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
         [
@@ -259,4 +260,4 @@ assert len(session.runs().items) == before
         timeout=60,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before

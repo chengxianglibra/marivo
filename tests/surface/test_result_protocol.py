@@ -166,7 +166,6 @@ def _session_summary() -> SessionSummary:
         question=None,
         created_at=datetime(2026, 6, 13, tzinfo=UTC),
         updated_at=datetime(2026, 6, 13, tzinfo=UTC),
-        run_count=1,
         artifact_count=2,
     )
 
@@ -221,29 +220,15 @@ def test_terminal_type_protocol_and_byte_contract(builder: Callable[[], object])
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
 
 
-def test_committed_runtime_projections_satisfy_terminal_protocol(
+def test_session_metadata_satisfies_terminal_protocol(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.materialization import terminal_store
-    from marivo.analysis.materialization.contracts import RunFailure
+    import marivo.analysis as mv
 
     case = analysis_dsl_case_factory("j2")
     output = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).persist()
-    runtime = case.session._runtime
-    store = runtime.store
     assert case.session.persisted_frame(output.artifact.id).artifact.id == output.artifact.id
-    terminal_store.admit(store, case.session.id, "failed", "result_failed")
-    store.fail(
-        "failed",
-        RunFailure(
-            "stage_execution", "execution_failed", "fixture stopped", None, "success", "stop", None
-        ),
-    )
-    terminal_store.admit(store, case.session.id, "pending", "result_pending")
-    page = runtime.runs()
-    assert {item.lifecycle for item in page.items} == {"succeeded", "failed", "incomplete"}
-    candidates = (*page.items, page, _artifact_digest())
-    for candidate in candidates:
+    for candidate in (mv.session.inspect(case.session.id), mv.session.recent(), _artifact_digest()):
         assert_conforms(candidate)
         assert candidate.render() == candidate.render()
 

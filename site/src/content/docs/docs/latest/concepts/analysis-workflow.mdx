@@ -24,10 +24,10 @@ new project-unique name; duplicates report the existing ID. The normalized domai
 and timezone freeze at creation. Omitted timezone captures the system zone once;
 explicit invalid zones fail. `session.timezone` exposes the saved name.
 `mv.session.resume(session_id)` recovers that exact existing identity;
-`recent()` discovers bounded name/ID pages and `inspect(session_id)` reads metadata
+`recent()` discovers bounded name/ID pages and `inspect(session_id)` returns a SessionSummary
 without recovery. There is no implicit current Session. Pure resume/inspect/compute
-does not refresh updated_at. `reconcile_run(session_id=..., run_id=...)` checks the
-original publishing transaction and owned resources, refusing an active writer.
+does not refresh updated_at. Session recovery checks original publication
+transactions and owned resources without source reevaluation; an active writer prevents recovery.
 
 ## Construct explicit source inputs
 
@@ -37,7 +37,7 @@ complete Entity identity domain. values declares literal coordinates/values;
 frame binds a general Population key domain, including zero axes/no named values.
 attribute binds explicit current/baseline `AttributeEndpoint` inputs, parent
 correspondence and new classifications; optional contribution is an explicit choice.
-Construction and inspection read no business rows/schema and create no Run.
+Construction and inspection read no business rows/schema and do not publish results.
 Resolve unknown inputs through bounded Catalog discovery; known names use exact
 lookup. There is no top-level execution Session alias.
 
@@ -184,8 +184,9 @@ access requires compute/persist. Stored compute and evaluated derivatives consum
 both data and method facts. A bad method file may leave export/metadata usable
 while full consumers fail. Artifact.show(), findings and evidence_digest read audit
 only, with no n or to_pandas on Artifact. Source read, evaluation and commit times
-differ. Run means publication of an existing result ID after evaluation; compute
-failure creates no Run. Reconciliation never recomputes an unknown commit.
+differ. Publication saves an existing result ID after evaluation. Session recovery
+never recomputes an unknown commit. Lost return references require explicit
+resubmission, accepting duplicate saved outputs and possible source changes.
 
 Typed data operations can continue after recovery. Unsupported external methods
 need explicit fixed input, assumptions and rerunnable arithmetic. Export attrs

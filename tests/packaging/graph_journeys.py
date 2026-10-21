@@ -34,6 +34,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     export_dsl_parquet_models,
     seed_analysis_dsl_database,
+    terminal_runs,
 )
 from tests.support.json import Json, checked, obj, read
 from tests.support.source_trace import capture_source
@@ -192,7 +193,7 @@ def _association(left: pd.DataFrame, right: pd.DataFrame) -> dict[str, Json]:
 
 def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.AnalysisFrame]:
     members, current, baseline, count = _observations(session)
-    before_runs = len(session.runs().items)
+    before_runs = len(terminal_runs(session))
     before = publication_counts(session)
     with pytest.MonkeyPatch.context() as patch:
         trace = capture_source(patch)
@@ -267,7 +268,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
                 columns={"coefficient": None, "pairs": None},
                 rows=(((), {"coefficient": coefficient, "pairs": pairs}),),
             ).compute()
-        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before
         assert trace.native_sql and all(owner._closed for owner in trace.owners)
         source_reads = tuple(trace.native_sql)
         saved = {name: frame.persist() for name, frame in completed.items()}
@@ -472,7 +473,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                 identity = state["session"]
                 assert isinstance(identity, str)
                 session = mv.session.resume(identity)
-                before = len(session.runs().items)
+                before = len(terminal_runs(session))
                 artifacts = {}
                 for name, reference in obj(state["artifacts"]).items():
                     assert isinstance(reference, str)
@@ -483,16 +484,16 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                     assert snapshot(value, frame=exports[name]) == obj(state["snapshots"])[name]
                 derived = _verify(artifacts, scenario, exports=exports)
                 assert derived == state["derived"]
-                assert len(session.runs().items) == before
+                assert len(terminal_runs(session)) == before
         saved = artifacts["value"]
         saved.show(n=2)
         assert all(callable(getattr(saved, name)) for name in ("where", "compare", "reduce"))
         assert not hasattr(saved.artifact, "to_pandas")
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         if "value" in saved.output_names:
             continued = saved.select({"value": saved["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports["value"])
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
         return {
             "phase": phase,
@@ -506,7 +507,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             "rows": obj(obj(state["snapshots"])["value"])["rows"],
             "snapshots": state["snapshots"],
             "derived": derived,
-            "run_count": len(session.runs().items),
+            "run_count": len(terminal_runs(session)),
             "oracle": _oracle(scenario),
             "facts_sha256": hashlib.sha256(
                 json.dumps(asdict(analysis_dsl_rows(scenario)), sort_keys=True).encode()

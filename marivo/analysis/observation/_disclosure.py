@@ -48,7 +48,7 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(guidance,),
-                effects="Construct an immutable Grain; no query, Run, or Artifact publication.",
+                effects="Construct an immutable Grain; no query or Artifact publication.",
                 failures=("ValueError: choose a supported built-in unit and count.",),
                 example=ExampleInput("result = " + call, (target,), "result", output),
             )

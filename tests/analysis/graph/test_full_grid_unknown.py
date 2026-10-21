@@ -21,7 +21,7 @@ from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.pandas_workflows import forecast, receipt_paths
 from tests.analysis.statistics.runs_worker import segments
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.json import encode
 from tests.support.paths import PROJECT_ROOT
 
@@ -81,7 +81,7 @@ def test_public_full_grid_unknown(
     # The terminal source result has no external business-completeness claim.
     # The mask belongs to this pandas workflow and never changes saved values.
     assert artifact.to_pandas().equals(raw)
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("business-mask consumer accessed its source")
@@ -99,7 +99,7 @@ def test_public_full_grid_unknown(
     with pytest.raises(ValueError):
         forecast(frame[("value", "value")])
     assert len(forecast(raw[("value", "value")])) == 2
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
     for path in receipt_paths(case.root, artifact):
         contents = path.read_bytes()
         try:
@@ -124,6 +124,7 @@ def test_public_full_grid_unknown(
 import json
 from pathlib import Path
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -139,13 +140,13 @@ SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 state = json.loads(Path('business-mask.json').read_text())
 session = mv.session.resume(state['session'])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 output = session.persisted_frame(state['artifact'])
 assert snapshot(output) == state['snapshot']
 masked = _mask(output.to_pandas())
 assert masked[('value','value')].isna().sum() == 3
 assert segments(masked, threshold=-1)['count'].tolist() == [1]*6
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 """
     cold = subprocess.run(
         [sys.executable, "-c", script],
@@ -178,7 +179,7 @@ def test_public_duration_business_coverage(
     dtype = original_values.dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("us")
     assert _mask(original.to_pandas())[("value", "value")].isna().sum() == 3
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Duration business mask touched its source")
@@ -187,7 +188,7 @@ def test_public_duration_business_coverage(
     frame = _mask(ratio.to_pandas())
     assert frame[("value", "value")].isna().sum() == 7
     assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
 
 
 def test_business_coverage_source_selection_keeps_original_support(

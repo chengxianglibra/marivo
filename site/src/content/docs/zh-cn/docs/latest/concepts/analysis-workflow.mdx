@@ -21,15 +21,15 @@ Catalog 定义卡、readiness、真实来源求值与保存数据证明不同事
 同名错误给出现存真实 ID。规范化 domains 与 timezone 在创建时冻结；省略时区只在创建时解析
 系统时区，显式非法时区失败。`session.timezone` 返回保存的名称。
 `mv.session.resume(session_id)` 只恢复该精确已有身份；`recent()` 有界发现名称与 ID，
-`inspect(session_id)` 只读元数据、不恢复。没有隐含 current Session。
+`inspect(session_id)` 返回 SessionSummary、不恢复。没有隐含 current Session。
 纯 resume/inspect/compute 不刷新 updated_at。
-`reconcile_run(session_id=..., run_id=...)` 核对原发布事务和资源，活动 writer 冲突会拒绝。
+Session 恢复在内部核对原发布事务和资源，不重新读取来源；活动 writer 冲突会拒绝。
 
 ## 显式构造来源输入
 
 所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 by/where；TimeScope 与 CalendarAxis 都放入 by；
 read 将非空字段绑定到一个完整 Entity 身份域；values 声明字面量坐标与值；frame 绑定一般
-Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不创建 Run。
+Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不保存结果。
 attribute 绑定显式当前/基准 AttributeEndpoint、父对应与新增分类；贡献是显式可选请求。
 未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
 
@@ -145,8 +145,9 @@ Frame.show(n=0) 仅元数据，正 n 读取有序前缀与所需冻结标签、�
 不读当前主表、Catalog 或来源。pending 访问需先 compute/persist。stored compute 与派生求值
 消费数据及方法事实；坏方法文件可使完整消费失败，而导出/元数据仍可用。
 Artifact.show/findings/evidence_digest 只读审计，
-Artifact 没有 n 或 to_pandas。来源读取、求值与提交时间不同；Run 是求值完成后对已有
-result ID 的发布，compute 失败不创建 Run。未知提交通过 reconciliation 解决，不重新计算。
+Artifact 没有 n 或 to_pandas。来源读取、求值与提交时间不同；发布在求值完成后保存已有
+result ID。Session 恢复不重新计算未知提交。返回引用丢失时显式重新提交，接受重复保存输出
+和可能变化的来源数据。
 
 恢复后仍可继续类型化数据操作；未支持的外部方法需要固定输入、假设与可复算算术。
 导出 attrs 不能回灌为计算合同；新的原来源问题保持显式。

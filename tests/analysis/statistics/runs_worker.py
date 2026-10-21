@@ -18,6 +18,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
@@ -175,12 +176,12 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             session = mv.session.resume(manifest["session"])
             result = session.persisted_frame(manifest["artifact"])
             frame = result.to_pandas()
-            before = len(session.runs().items)
+            before = len(terminal_runs(session))
             selected = segments(frame, threshold=1)
             assert selected["count"].tolist() == [2]
             assert selected["duration"].tolist() == [timedelta(days=5 if calendar else 2)]
             assert segments(frame, threshold=2)["count"].tolist() == [1]
-            assert len(session.runs().items) == before
+            assert len(terminal_runs(session)) == before
     assert session._runtime.store.resources(session.id) == ()
 
 

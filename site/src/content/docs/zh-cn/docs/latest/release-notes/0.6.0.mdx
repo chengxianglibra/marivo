@@ -4,19 +4,17 @@ title: Marivo 0.6.0
 description: Marivo 0.6.0 发布说明。
 ---
 
-Marivo 0.6.0 一次性公开 Run-first 的 Session runtime 读取界面。
+Marivo 0.6.0 以 AnalysisFrame、Session 和 Artifact 身份组织分析。
 
-## 重点
+## 主要变化
 
-- `session.runs()` 与 `session.get_run()` 公开闭合、不可变的生命周期：
-  `IncompleteRun`、`SucceededRun` 或 `FailedRun`。
-- `session.artifact(ref)` 恢复一项精确 Artifact；`session.graph()` 有界投影
-  producer、consumer、reuse、head、失败与未完成状态。
-- 每个 Artifact 提供 `finding_count`、`findings()` 和 `finding(id)`，并保留完整
-  derivation 审计信息。
-- `mv.session.inspect()` 只返回 Session summary 与有界 Run page。
-- Runtime 与 Graph 读取不检查当前语义权威或数据源新鲜度；权威与 Evidence 完整性
-  使用 `session.revalidate(ref)` 检查。
+- `compute()` 返回完整固定内存数据；`persist()` 返回已提交的 Frame。
+- 保留 Session ID 与 `saved.artifact.id`，恢复 Session 后通过
+  `session.persisted_frame(artifact_id)` 精确打开数据，`.artifact` 拥有保存的审计。
+- `mv.session.inspect(session_id)` 返回 SessionSummary，不执行恢复。
+- 公开 API 删除 Run 类型、历史、定向协调和错误中的 Run 身份；原子提交和受保护的恢复保留内部实现。
+- 返回的 Artifact ID 丢失时显式重新提交，接受重复输出；重新构建来源输入可能读取变化的数据。不提供结果目录。
+- 结构化错误直接给出失败阶段和具体修复。提交结果未知时，先恢复 Session，再重新提交。
 
-这是原子切换。旧 Frame/job 读取、Session Evidence namespace、digest page、
-derivation trace、Finding selection compatibility 与对应 Help route 均无别名或迁移路径。
+这是破坏性切换，不保留兼容别名或提供 Store 迁移。Store 15 读取要求当前格式；
+旧数据应保留兼容读取环境，或使用原版本预先导出。

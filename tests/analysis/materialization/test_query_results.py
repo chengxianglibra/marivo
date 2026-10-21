@@ -17,6 +17,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.expressions import Entity
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 def _population(
@@ -77,7 +78,7 @@ def test_constructor_mapping_refusal_precedes_source_io(
 
     for name in ("__enter__", "bind", "compile", "execute"):
         monkeypatch.setattr(SourceSession, name, forbidden)
-    before = session.runs().items
+    before = terminal_runs(session)
     with pytest.raises(AnalysisError) as failure:
         if entry == "read":
             session.read(people, mapping)  # type: ignore[arg-type]  # Deliberately malformed public mapping.
@@ -91,8 +92,8 @@ def test_constructor_mapping_refusal_precedes_source_io(
     else:
         assert error.expected == "named columns and finite typed literal rows"
         assert "literal row" in error.repair.action
-    assert error.run_ref is None and calls == []
-    assert session.runs().items == before == ()
+    assert not hasattr(error, "run_ref") and calls == []
+    assert terminal_runs(session) == before == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -145,8 +146,8 @@ def test_actual_source_failure_compute_help_resolves_without_run(
     else:
         assert error.expected == "value.0: a native numeric column"
         assert error.received == "string"
-    assert error.run_ref is None
-    assert session.runs().items == ()
+    assert not hasattr(error, "run_ref")
+    assert terminal_runs(session) == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -284,7 +285,7 @@ def test_result_division_policy_and_exact_domain_binding(result_session: Session
     with pytest.raises(AnalysisError) as failure:
         q.select({"ratio": q["sum"].divide(0, zero_denominator="error")}).compute()
     _assert_compute_repair(failure.value)
-    assert failure.value.run_ref is None and session.runs().items == ()
+    assert not hasattr(failure.value, "run_ref") and terminal_runs(session) == ()
     other = session.observe({"sum": amount.sum()}, by=(region,))
     # Independent captures require explicit Frame correspondence before composition.
     with pytest.raises(AnalysisError):

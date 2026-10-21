@@ -26,7 +26,7 @@ typed repair naming the required extra.
 
 ## Qualify a numerical source route
 
-Numerical source routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before Run admission; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
+Numerical source routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before publication; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
 
 {/* example: csv-semantic-model */}
 
@@ -52,7 +52,7 @@ def total():
     return amount.sum(time=happened)
 ```
 
-This declares fields and a named Metric. A declaration or successful preview does not qualify every CSV/JSON/HTTP analysis shape; unsupported routes reject before their business reads. Runtime source templates are prevalidated before Run admission and actual instantiated inputs are checked again.
+This declares fields and a named Metric. A declaration or successful preview does not qualify every CSV/JSON/HTTP analysis shape; unsupported routes reject before their business reads. Runtime source templates are prevalidated before publication and actual instantiated inputs are checked again.
 
 ## Source and local execution
 
@@ -68,9 +68,9 @@ Time preparation and temporal rewrites use the actual selected engine. Remote so
 
 DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.
 
-Ordinary PostgreSQL, MySQL, Trino and ClickHouse templates admit count, count_distinct, sum, min, max, mean and weighted_mean subject to actual type and expression qualification. Exact source median/quantile currently admit only DuckDB and PostgreSQL. MySQL, Trino and ClickHouse reject those methods before Run admission; ClickHouse's Ibis Quantile lowering is approximate and cannot satisfy an exact request. Exact/approximate reductions retain their definition-owned algorithm. Typed missing mappings, nonfinite values, overflow and required coverage failures prevent publication.
+Ordinary PostgreSQL, MySQL, Trino and ClickHouse templates admit count, count_distinct, sum, min, max, mean and weighted_mean subject to actual type and expression qualification. Exact source median/quantile currently admit only DuckDB and PostgreSQL. MySQL, Trino and ClickHouse reject those methods before publication; ClickHouse's Ibis Quantile lowering is approximate and cannot satisfy an exact request. Exact/approximate reductions retain their definition-owned algorithm. Typed missing mappings, nonfinite values, overflow and required coverage failures prevent publication.
 
-ClickHouse Distributed admits qualified ordinary grouped aggregation. Source routes requiring a Distributed IN/JOIN, including keyed `Session.read`, reject before Run admission because that join route is not qualified under `distributed_product_mode`. MergeTree joins have separate qualification; views and other engine topologies are not implicitly admitted. Marivo does not change server settings or substitute local tables.
+ClickHouse Distributed admits qualified ordinary grouped aggregation. Source routes requiring a Distributed IN/JOIN, including keyed `Session.read`, reject before publication because that join route is not qualified under `distributed_product_mode`. MergeTree joins have separate qualification; views and other engine topologies are not implicitly admitted. Marivo does not change server settings or substitute local tables.
 
 ## Explicit Attribute qualification
 

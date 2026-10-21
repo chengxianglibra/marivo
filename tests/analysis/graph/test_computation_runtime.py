@@ -25,6 +25,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from tests.datasource.source_cases import source_params
+from tests.shared_fixtures import terminal_runs
 
 _ROWS = "INSERT INTO orders VALUES (1,'2026-07-01',15.75,5.25,3), (2,'2026-07-01',4.25,1.75,1)"
 
@@ -526,6 +527,6 @@ def test_computed_measure_graph_reads_only_at_execute(
             {"value": computation_session.catalog.metrics.get(f"sales.{metric}")}
         )
         query.show()
-        assert computation_session.runs().items == ()
+        assert terminal_runs(computation_session) == ()
     expected = Decimal("51.50") if metric == "net_total" else 36.5
     assert query.persist().to_pandas()[("value", "value")].iloc[0] == expected

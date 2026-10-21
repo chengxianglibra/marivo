@@ -9,14 +9,12 @@ from marivo.analysis.errors import AnalysisRepair, SessionNotFoundError
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
 from marivo.analysis.session._lazy_read_model import (
-    SessionInspection,
     SessionSummary,
     SessionSummaryPage,
 )
 from marivo.analysis.session._lazy_runtime_reads import (
     aware_datetime,
     count,
-    runs_in_snapshot,
 )
 from marivo.introspection.live.model import LiveHelpTarget
 
@@ -29,11 +27,6 @@ def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) ->
         question=record.question,
         created_at=aware_datetime(record.created_at),
         updated_at=aware_datetime(record.updated_at),
-        run_count=count(
-            conn,
-            "SELECT count(*) FROM analysis_action_runs WHERE session_ref=?",
-            (record.session_ref,),
-        ),
         artifact_count=count(
             conn,
             "SELECT count(*) FROM dataset_artifacts WHERE session_ref=?",
@@ -77,9 +70,7 @@ def recent(
         )
 
 
-def inspect(
-    store: SessionStore, session_id: str, *, run_limit: int = 5, after: tuple[str, str] | None
-) -> SessionInspection:
+def inspect(store: SessionStore, session_id: str) -> SessionSummary:
     with store._read() as conn:
         row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_id,))
         if row is None:
@@ -99,11 +90,7 @@ def inspect(
                     candidates=tuple(_text(value, "session_ref") for value in names),
                 ),
             )
-        summary = _summary(store, conn, row)
-        return SessionInspection(
-            summary=summary,
-            runs=runs_in_snapshot(store, conn, summary.id, limit=run_limit, after=after),
-        )
+        return _summary(store, conn, row)
 
 
 __all__: list[str] = []

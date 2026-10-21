@@ -40,6 +40,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     export_dsl_parquet_models,
     seed_analysis_dsl_database,
+    terminal_runs,
 )
 from tests.support.json import Json, arr, checked, encode, obj, read
 from tests.support.source_trace import capture_source
@@ -978,12 +979,12 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         ):
             patch.setattr(owner, name, forbidden)
         patch.setattr(mv.Session, "catalog", property(forbidden))
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         exports = {name: frame.to_pandas() for name, frame in saved.items()}
         snapshots = {name: snapshot(frame, frame=exports[name]) for name, frame in saved.items()}
         derived = _derived(exports, scenario)
         _assert_oracles(saved, exports, scenario, derived)
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
         assert all(isinstance(frame, mv.AnalysisFrame) for frame in saved.values())
         assert all(isinstance(frame.artifact, mv.Artifact) for frame in saved.values())

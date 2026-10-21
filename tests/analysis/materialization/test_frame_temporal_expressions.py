@@ -32,6 +32,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.query_values import _temporal_comparison_values, expression_series
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticExpressionError
+from tests.shared_fixtures import terminal_runs
 
 TimeUnit = Literal["s", "ms", "us", "ns"]
 
@@ -99,7 +100,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
     stored = memory.persist()
     reopened = session.persisted_frame(stored.artifact.id)
     for frame in (memory, stored, reopened):
-        before = session.runs().items
+        before = terminal_runs(session)
         value, coordinate = frame["value"], frame.coord(frame.axes[0])
         result = (
             frame.select(
@@ -146,7 +147,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
             0,
             maximum,
         ]
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
@@ -156,10 +157,10 @@ def test_duration_negation_checks_original_unit_overflow_and_preserves_nulls(
     physical = pa.duration(unit)
     frame = _frame(session, DurationDataType(unit), physical, [-(2**63), 0, None])
     for current in (frame, session.persisted_frame(frame.persist().artifact.id)):
-        before = session.runs().items
+        before = terminal_runs(session)
         with pytest.raises(MaterializationError, match="Duration tick overflow"):
             current.select({"negative": -current["value"]}).compute()
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
     safe = _frame(session, DurationDataType(unit), physical, [-(2**63) + 1, 0, None])
     negated = safe.select({"negative": -safe["value"]}).compute().to_pandas()
     assert pa.array(negated["value", "negative"]).type == physical
@@ -350,6 +351,7 @@ import json, os, sys
 from unittest.mock import patch
 import pyarrow as pa
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -358,7 +360,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('cold temporal continuation attempted source reconstruction')
 with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
     session = mv.session.resume(sys.argv[2])
-    before = session.runs().items
+    before = terminal_runs(session)
     for artifact in json.loads(sys.argv[3]):
         frame = session.persisted_frame(artifact)
         value = frame['value']
@@ -366,7 +368,7 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
         assert pa.array(output['value', 'same']).to_pylist() == [True, True, None]
         assert output['value', 'null'].tolist() == [False, False, True]
         assert len(frame.where(value == value).compute().to_pandas()) == 2
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
 print('cold-temporal-expressions-exact')
 """
     result = subprocess.run(

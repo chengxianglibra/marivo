@@ -184,7 +184,10 @@ queries or reconstruct displayed rows to conceal missing retained state. Local
 committed results are trusted; recovery does not establish current semantic
 authority, source freshness, causality, or suitability for the question. If a
 current observation is needed, make it explicit. If recovery fails, disclose the
-affected branch and continue independent work.
+affected branch and continue independent work. If a returned Artifact identity
+was lost, explicitly resubmit the analysis rather than claiming recovery. This
+may create duplicate saved outputs; a new source evaluation may return changed
+data. Reuse complete memory data when exact prior values remain available.
 
 ### Scope and resources
 
@@ -204,7 +207,7 @@ state the supported direction and magnitude or uncertainty; distinguish computed
 facts, interpretation, recommendations, and hypotheses; disclose material
 warnings, omissions, terminal exits, and unresolved semantic persistence needs.
 
-Keep supporting definitions, scope, Session, Run, and Artifact identities
+Keep supporting definitions, scope, Session and Artifact identities
 recoverable without exposing runtime bookkeeping unless an audit is requested.
 Stop exploring once answers and limitations are complete. Delivery or publication
 uses an independent capability when requested.

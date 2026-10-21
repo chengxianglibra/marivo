@@ -21,6 +21,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -425,7 +426,7 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
         population, {"d": core_session.catalog.fields.get("sales.durations.elapsed")}
     )
     invalid = source.reduce({"d": (source["d"] + timedelta(microseconds=3)).sum()})
-    before = core_session.runs().items
+    before = terminal_runs(core_session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Incompatible Duration units crossed preparation")
@@ -438,4 +439,4 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
         caught.value.received == "(DurationDataType(unit='ns'), DurationDataType(unit='us'), 'add')"
     )
     assert caught.value.repair is not None
-    assert core_session.runs().items == before
+    assert terminal_runs(core_session) == before

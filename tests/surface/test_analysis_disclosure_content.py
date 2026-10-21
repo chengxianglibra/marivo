@@ -302,17 +302,12 @@ def test_construction_type_families_and_retired_surface() -> None:
         "attribute_endpoint",
         "artifact_digest",
         "artifact_ref",
-        "failed_run",
         "finding",
         "finding_page",
-        "incomplete_run",
-        "run_page",
-        "succeeded_run",
         "session",
         "runtime.output_evidence",
         "runtime.output_coordinate",
         "runtime.session_summary_page",
-        "runtime.session_inspection",
         "runtime.session_summary",
         "analysis_frame",
         "frame_axis",
@@ -335,7 +330,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 22
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 18
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -383,10 +378,6 @@ def test_nested_metadata_help_keeps_read_boundaries() -> None:
         ("frame_method_coordinate.schema", "complete saved coordinate layout"),
         ("frame_method_value.column", "physical dtype, unit and nullability"),
         ("finding.value", "finding_type/kind"),
-        ("incomplete_run.dataset_input", "not an execution recipe"),
-        ("failed_run.dataset_input", "not an execution recipe"),
-        ("succeeded_run.dataset_input", "not an execution recipe"),
-        ("failed_run.failure", "failure.repair.help_target"),
     ):
         page = render_help_text("analysis." + target)[0]
         assert "Kind: attribute" in page and fact in page

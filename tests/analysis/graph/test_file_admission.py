@@ -15,6 +15,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.materialization.file_fixtures import author_file_case
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import encode
 from tests.support.source_trace import SourceTrace
 
@@ -63,7 +64,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             query = session.observe({"value": metric})
             query.show()
             assert calls == [] and source_trace.native_sql == []
-            assert session.runs().items == ()
+            assert terminal_runs(session) == ()
             assert session._runtime.store.resources(session.id) == ()
         result = query.persist().to_pandas()[("value", "value")].iloc[0]
         assert result == {"metadata": 6, "float-sum": 6.5, "integer-mean": 3.0}[case_kind]
@@ -135,5 +136,5 @@ def test_json_request_sources_are_refused_before_source_open(
         assert target == "analysis.analysis_frame.compute"
         assert f"marivo.help('{target}')" in str(error)
         assert "Target: analysis.analysis_frame.compute" in render_help_text(target)[0]
-        assert calls == [] and session.runs().items == ()
+        assert calls == [] and terminal_runs(session) == ()
         assert session._runtime.store.resources(session.id) == ()

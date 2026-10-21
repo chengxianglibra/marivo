@@ -58,6 +58,7 @@ def _cold_outputs(root: Path, session_id: str, expected: int, artifacts: tuple[s
 import sys
 from unittest.mock import patch
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
@@ -66,11 +67,11 @@ def forbidden(*args, **kwargs):
     raise AssertionError('terminal Count output accessed Semantic or a source')
 with patch.object(ms,'load',forbidden), patch.object(SourceSession,'__enter__',forbidden), patch.object(SourceSession,'execute',forbidden):
     session = mv.session.resume(sys.argv[1])
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     for artifact in sys.argv[3:]:
         frame = session.persisted_frame(artifact).to_pandas()
         assert frame[('value','value')].sum() == int(sys.argv[2])
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
 """
     outcome = subprocess.run(
         [sys.executable, "-c", script, session_id, str(expected), *artifacts],

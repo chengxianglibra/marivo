@@ -7,6 +7,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.mark.parametrize("representation", ["declared_utc", "native_naive", "strptime"])
@@ -65,11 +66,11 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     session = mv.session.create("report-days", timezone="Asia/Shanghai")
     grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     logical = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=(grid,))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     result = logical.compute().to_pandas()
     assert result[("value", "value")].tolist() == [1.0, 2.0]
     assert result.iloc[:, 0].tolist() == [0, 1]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     assert [
         value.isoformat()
         for value in result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]

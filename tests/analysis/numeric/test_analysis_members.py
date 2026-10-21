@@ -21,7 +21,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.expressions import Entity
 from tests.analysis.statistics.pandas_workflows import receipt_paths
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -290,8 +290,8 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     with pytest.raises(MaterializationError) as missing:
         _read(session, members, f"{prefix}.snapshot.amount", at=september, via=route).compute()
     assert missing.value.expected and missing.value.received and missing.value.repair
-    assert missing.value.run_ref is None
-    assert session.runs().items == ()
+    assert not hasattr(missing.value, "run_ref")
+    assert terminal_runs(session) == ()
 
 
 def test_temporal_literals_fixed_recovery_and_foreign_predicates(

@@ -14,6 +14,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.attribution_workflows import allocation, basis
 from tests.analysis.statistics.pandas_workflows import plain
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import encode, obj, read
 
 
@@ -29,7 +30,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(session_id)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
@@ -53,7 +54,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             "c": -5,
         }
         assert plain(outputs["difference"])["reference.absolute.value"].tolist() == [-2]
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert all(not hasattr(value, "attribute") for value in outputs.values())
     output.write_bytes(encode({"phase": phase, "pid": os.getpid()}))
 

@@ -15,7 +15,7 @@ from tests.analysis.statistics.pandas_workflows import (
     monthly,
     plain,
 )
-from tests.shared_fixtures import DslCaseFactory, run_ids
+from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
 @pytest.mark.parametrize("method", ("pearson", "spearman", "kendall"))
@@ -119,7 +119,7 @@ def test_statistical_failure_is_atomic(
         case.session.persisted_frame(previous.artifact.id).to_pandas(), saved
     )
     assert_clean(case.session, artifacts=1)
-    assert len(case.session.runs(status="failed").items) == 1
+    assert len(terminal_runs(case.session, status="failed")) == 1
 
 
 def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(

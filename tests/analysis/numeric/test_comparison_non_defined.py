@@ -10,7 +10,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
 
 
 def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
@@ -161,4 +161,4 @@ def test_nonfinite_operand_still_fails_the_whole_run(
             match={"reference": mv.ordinal()},
         ).compute()
     assert caught.value.expected and caught.value.received
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()

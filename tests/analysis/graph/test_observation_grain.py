@@ -400,6 +400,7 @@ def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslC
     script = """
 import sys
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 def forbidden(*args, **kwargs):
@@ -408,10 +409,10 @@ ms.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 assert session.persisted_frame(sys.argv[2]).to_pandas()[('value','value')].sum() == 1000
 assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, session.id, grouped.artifact.id, total.artifact.id],

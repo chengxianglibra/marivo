@@ -13,7 +13,7 @@ from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DSL_NAMES, DslCase, DslCaseFactory
+from tests.shared_fixtures import DSL_NAMES, DslCase, DslCaseFactory, terminal_runs
 
 
 def _observe(
@@ -140,12 +140,12 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     population = session.members(session.catalog.entities.get("sales.customer")).classify(
         by=(region,)
     )
-    before = session.runs().items
+    before = terminal_runs(session)
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
     frame = query.persist().to_pandas()
     assert dict(zip(frame.iloc[:, 1], frame[("value", "value")], strict=True)) == {
         "east": 600,
@@ -185,13 +185,13 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     case = analysis_dsl_case_factory("j1")
     fixed = _observe(case, "2026-07-01", "2026-08-01").persist()
     live = _observe(case, "2026-08-01", "2026-09-01")
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
         live.compare(
             {"reference": fixed.artifact},
             on={"reference": tuple(zip(live.axes, fixed.axes, strict=True))},
         )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
 
 
 def test_public_comparison_uses_semantic_member_binding_and_checks_units(
@@ -212,13 +212,13 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
     assert len(compared) == 4
     assert not compared[("value", "reference.absolute.value")].isna().any()
     count = _observe(case, "2026-07-01", "2026-08-01", metric=case.names.order_count)
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
         current.compare(
             {"reference": count},
             on={"reference": tuple(zip(current.axes, count.axes, strict=True))},
         )
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
 
 
 def test_public_failed_run_preserves_prior_artifact(
@@ -231,10 +231,10 @@ def test_public_failed_run_preserves_prior_artifact(
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        before = case.session.runs().items
+        before = terminal_runs(case.session)
         with pytest.raises(DatasourceConnectionError):
             logical.persist()
-        assert case.session.runs().items == before
+        assert terminal_runs(case.session) == before
         assert case.session.persisted_frame(first.artifact.id).to_pandas().equals(expected)
     finally:
         offline.rename(case.database_path)
@@ -326,9 +326,9 @@ def test_public_wrong_relationship_rejects_before_execution(
     members = session.members(session.catalog.entities.get("sales.order"))
     wrong = session.catalog.relationships.get("sales.line_order")
     region = session.catalog.fields.get("sales.customer.region")
-    before = session.runs().items
+    before = terminal_runs(session)
     with pytest.raises(SemanticExpressionError) as route:
         session.read(members, {"region": region.via((wrong,))})
     assert route.value.repair is not None
     assert route.value.repair.help_target is not None
-    assert session.runs().items == before
+    assert terminal_runs(session) == before

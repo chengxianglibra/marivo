@@ -13,6 +13,7 @@ from tests.shared_fixtures import (
     DslCaseFactory,
     analysis_dsl_rows,
     export_dsl_parquet_models,
+    terminal_runs,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -120,6 +121,7 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
 import sys
 import duckdb
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 def unavailable(*args, **kwargs):
@@ -131,7 +133,7 @@ values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
 selected = frame.loc[frame[("value", "value")] > 0].reset_index(drop=True)
 assert selected.equals(saved.to_pandas())
-assert len(session.runs().items) == 2
+assert len(terminal_runs(session)) == 2
 """
     try:
         completed = subprocess.run(
@@ -220,7 +222,7 @@ def test_public_duration_field_comparison(
     dtype = frame[("value", "value")].dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("ns")
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
-    runs_before = case.session.runs().items
+    runs_before = terminal_runs(case.session)
     business_calls: list[str] = []
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -238,8 +240,8 @@ def test_public_duration_field_comparison(
     assert error.repair is not None
     assert error.repair.kind == "retry"
     assert error.repair.action == "Compare compatible values."
-    assert error.run_ref is None
-    assert case.session.runs().items == runs_before
+    assert not hasattr(error, "run_ref")
+    assert terminal_runs(case.session) == runs_before
     assert business_calls == []
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 

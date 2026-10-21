@@ -35,7 +35,7 @@ from marivo.datasource.backends import (
 )
 from marivo.datasource.ir import DatasourceIR
 from tests.analysis.materialization.concurrency_worker import observation, snapshot
-from tests.shared_fixtures import DslCase
+from tests.shared_fixtures import DslCase, terminal_run, terminal_runs
 
 
 def _evidence(name: str, value: dict[str, object]) -> None:
@@ -85,7 +85,7 @@ def test_busy_contender_preserves_real_producer(
 
     def check_contender() -> None:
         before = snapshot(runtime)
-        run = case.session.runs().items[0].run_id
+        run = terminal_runs(case.session)[0].run_ref
         assert run is not None
         read_count = len(reads)
         assert read_count > initial_reads
@@ -123,10 +123,10 @@ def test_busy_contender_preserves_real_producer(
                 contender.persist()
             assert rejected.value.session_ref == runtime.session_ref
             assert str(case.root) not in str(rejected.value)
-            assert rejected.value.run_ref is None
+            assert not hasattr(rejected.value, "run_ref")
         assert snapshot(runtime) == before
         assert len(reads) == read_count
-        assert case.session.get_run(run).lifecycle == "incomplete"
+        assert terminal_run(case.session, run).lifecycle == "incomplete"
         assert case.session.persisted_frame(committed.artifact.id).to_pandas().shape[0] == 3
         evidence.update({"before": before, "run": run})
 
@@ -418,7 +418,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
     }
     assert all(result.to_pandas()[("value", "value")].sum() == 147.0 for result in results)
     assert all(snapshot(runtime)["analysis_action_run_terminals"] == 2 for runtime in runtimes)
-    assert all(len(session.runs().items) == 1 for session in sessions)
+    assert all(len(terminal_runs(session)) == 1 for session in sessions)
     _evidence(
         "backend-overlap",
         {

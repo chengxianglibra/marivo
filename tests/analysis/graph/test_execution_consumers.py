@@ -14,6 +14,7 @@ from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -82,7 +83,7 @@ def test_public_source_reexecution_and_terminal_read(
         _assert_ratio(mixed_result)
         assert sum("SUM(" in sql.upper() for sql in source_trace.native_sql[before_mixed:]) == 1
         before_native = len(source_trace.native_sql)
-        before_runs = session.runs().items
+        before_runs = terminal_runs(session)
 
         def forbidden(*args: object, **kwargs: object) -> NoReturn:
             raise AssertionError("Terminal read opened a business source")
@@ -95,7 +96,7 @@ def test_public_source_reexecution_and_terminal_read(
         values = exported[("value", "value")]
         assert values[values > 0].tolist() == [2, 4]
         assert len(source_trace.native_sql) == before_native
-        assert session.runs().items == before_runs
+        assert terminal_runs(session) == before_runs
         assert session._runtime.store.resources(session.id) == ()
         assert source_trace.qualifications
         source_trace.save(

@@ -14,7 +14,7 @@ from marivo.analysis.materialization.errors import (
     RecoveryPendingError,
 )
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.execution_logs import execution_records
 
 
@@ -52,7 +52,7 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         patch.setattr(SourceSession, "execute", forbidden)
         logical = _members(case)
         logical.show()
-        assert case.session.runs().items == ()
+        assert terminal_runs(case.session) == ()
     captured = logical.compute()
     frame = captured.to_pandas()
     assert set(frame.iloc[:, 0]) == {"A", "B", "C", "D"}
@@ -66,10 +66,10 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
     preview = capsys.readouterr().out
     assert "rows: 4" in preview and ".to_pandas()" in preview
     assert len(frame) == 4
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
     saved = captured.persist()
     pd.testing.assert_frame_equal(saved.to_pandas(), frame)
-    assert len(case.session.runs().items) == 1
+    assert len(terminal_runs(case.session)) == 1
 
 
 def test_source_failure_retries_have_no_publication_runs(
@@ -89,11 +89,11 @@ def test_source_failure_retries_have_no_publication_runs(
             with pytest.raises(MaterializationError) as caught:
                 operation()
             assert isinstance(caught.value.__cause__, RuntimeError)
-            assert caught.value.run_ref is None
+            assert not hasattr(caught.value, "run_ref")
             assert caught.value.expected and caught.value.received and caught.value.repair
-            assert case.session.runs().items == ()
+            assert terminal_runs(case.session) == ()
             assert _result_files(case) == files_before
-            assert case.session.runs(status="succeeded").items == ()
+            assert terminal_runs(case.session, status="succeeded") == ()
             assert case.session._runtime.store.resources(case.session.id) == ()
 
     original = MaterializationError(
@@ -113,14 +113,13 @@ def test_source_failure_retries_have_no_publication_runs(
     assert caught.value is original
     assert original.expected == "the exact synthetic source contract"
     assert original.received == "an incompatible source" and original.repair is repair
-    assert original.run_ref is None and case.session.runs().items == ()
+    assert not hasattr(original, "run_ref") and terminal_runs(case.session) == ()
     assert _result_files(case) == files_before
 
 
-def test_publication_failure_retries_keep_exact_readable_runs(
+def test_publication_failure_retries_keep_internal_records_and_direct_repairs(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     fixed = _members(case).compute()
@@ -132,25 +131,25 @@ def test_publication_failure_retries_keep_exact_readable_runs(
             raise original
 
     monkeypatch.setattr(terminal_publication, "_event", event)
-    run_ids: list[str] = []
+    ids: list[str] = []
     for _ in range(2):
         with pytest.raises(MaterializationError) as caught:
             fixed.persist()
         error = caught.value
         assert error.__cause__ is original
-        assert error.run_ref is not None
-        run_ids.append(error.run_ref)
-        assert case.session.get_run(error.run_ref).lifecycle == "failed"
-        assert error.repair is not None and "original Run" in error.repair.action
-        assert error.run_ref in str(error)
-        case.session.get_run(error.run_ref).show()
-        assert error.run_ref in capsys.readouterr().out
-        assert case.session.runs(status="succeeded").items == ()
+        assert not hasattr(error, "run_ref")
+        record = terminal_runs(case.session)[0]
+        ids.append(record.run_ref)
+        assert record.lifecycle == "failed"
+        assert error.repair is not None
+        assert f"mv.session.resume({case.session.id!r})" in error.repair.action
+        assert record.run_ref not in str(error)
+        assert terminal_runs(case.session, status="succeeded") == ()
         assert case.session._runtime.store.resources(case.session.id) == ()
         assert _result_files(case) == before
-    assert len(set(run_ids)) == 2
-    mv.session.reconcile_run(session_id=case.session.id, run_id=run_ids[0])
-    assert {run.run_id for run in case.session.runs(status="failed").items} == set(run_ids)
+    assert len(set(ids)) == 2
+    mv.session.resume(case.session.id)
+    assert {run.run_ref for run in terminal_runs(case.session, status="failed")} == set(ids)
 
 
 def test_real_pairing_check_failure_has_no_publication_run(
@@ -172,8 +171,8 @@ def test_real_pairing_check_failure_has_no_publication_run(
             {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
         ).persist()
     assert caught.value.expected and caught.value.received
-    assert caught.value.run_ref is None
-    assert session.runs().items == () and session.runs(status="succeeded").items == ()
+    assert not hasattr(caught.value, "run_ref")
+    assert terminal_runs(session) == () and terminal_runs(session, status="succeeded") == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -184,7 +183,7 @@ def test_evaluation_failure_never_inherits_previous_publication(
     case = analysis_dsl_case_factory("j1")
     logical = _members(case)
     previous = logical.persist()
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     for typed in (False, True):
         original = (
             IntegrityError(
@@ -205,26 +204,25 @@ def test_evaluation_failure_never_inherits_previous_publication(
                 logical.persist()
         assert caught.value is original
         if isinstance(caught.value, AnalysisError):
-            assert caught.value.run_ref is None
+            assert not hasattr(caught.value, "run_ref")
             assert "session.get_run(" not in str(caught.value)
-        assert case.session.runs().items == before
+        assert terminal_runs(case.session) == before
         pd.testing.assert_frame_equal(
             case.session.persisted_frame(previous.artifact.id).to_pandas(), previous.to_pandas()
         )
 
 
-def test_unknown_publication_inspects_original_run(
+def test_recovery_error_is_preserved_without_publication_identity(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     fixed = _members(case).compute()
-    previous = fixed.persist()
+    fixed.persist()
     original = RecoveryPendingError(
         expected="an original publication acknowledgement",
         received="unconfirmed acknowledgement",
-        repair="Inspect the original Run without replaying computation.",
-        run_ref=previous.artifact._manifest.run_id,
+        repair="Resume the owning Session before explicitly resubmitting.",
     )
 
     def fail(*args: object, **kwargs: object) -> NoReturn:
@@ -235,8 +233,8 @@ def test_unknown_publication_inspects_original_run(
     with pytest.raises(RecoveryPendingError) as caught:
         fixed.persist()
     assert caught.value is original
-    assert original.run_ref == previous.artifact._manifest.run_id
-    assert len(case.session.runs().items) == 1
+    assert not hasattr(original, "run_ref")
+    assert len(terminal_runs(case.session)) == 1
 
 
 def test_control_exception_keeps_type_and_closes_source_without_run(
@@ -254,5 +252,7 @@ def test_control_exception_keeps_type_and_closes_source_without_run(
     with pytest.raises(KeyboardInterrupt) as caught:
         logical.persist()
     assert caught.value is original
-    assert case.session.runs().items == () and case.session.runs(status="succeeded").items == ()
+    assert (
+        terminal_runs(case.session) == () and terminal_runs(case.session, status="succeeded") == ()
+    )
     assert case.session._runtime.store.resources(case.session.id) == ()

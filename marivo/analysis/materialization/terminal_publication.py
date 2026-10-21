@@ -48,15 +48,13 @@ def _failure(phase: RunFailurePhase) -> RunFailure:
         received="execution or publication did not complete",
         repair=AnalysisRepair(
             kind="inspect",
-            action="Inspect the original Run and its resource obligations before executing a new invocation.",
-            help_target=LiveHelpTarget(surface="analysis", canonical_id="session.get_run"),
+            action="Resume the owning Session to resolve publication resources before explicitly resubmitting.",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="session.resume"),
         ),
     )
 
 
-def reconcile(
-    store: SessionStore, session: str, event: Callable[[str], None], *, run_ref: str | None = None
-) -> None:
+def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -> None:
     """Resolve original transaction outcomes before deleting exactly owned paths."""
     event("reconciliation")
     if store.session(session) is None:
@@ -73,16 +71,6 @@ def reconcile(
             or sum(run is not None and run.lifecycle == "incomplete" for run in runs) > 1
         ):
             raise invalid("inconsistent incomplete terminal Runs")
-        if run_ref is not None:
-            selected = terminal_store.run(store, conn, run_ref)
-            if (
-                selected is None
-                or selected.session_ref != session
-                or selected.lifecycle == "succeeded"
-            ):
-                raise invalid(
-                    "reconciliation requires an exact incomplete or failed Run of this Session"
-                )
         for run in runs:
             assert run is not None
             if run.lifecycle == "succeeded":
@@ -102,8 +90,6 @@ def reconcile(
                 raise invalid("non-success Run has conflicting publication metadata")
     for run in runs:
         assert run is not None
-        if run_ref is not None and run.run_ref != run_ref:
-            continue
         owned = tuple(
             resource for resource in store.resources(session) if resource.run_ref == run.run_ref
         )
@@ -244,10 +230,9 @@ def publish_completed(
                     raise RecoveryPendingError(
                         expected="a confirmed original terminal publication outcome",
                         received="commit acknowledgement or read-back is unavailable",
-                        repair="Preserve the original Run and journal; reconcile without replaying computation.",
+                        repair=f"Publication may already have succeeded. Call mv.session.resume({session!r}) before explicitly resubmitting; resubmission may create duplicate saved outputs and reevaluation may read changed source data.",
                         stage="terminal_commit_unknown",
-                        run_ref=run_ref,
-                        help_target="session.get_run",
+                        help_target="session.resume",
                     ) from error
             if run_ref is not None:
                 try:
@@ -264,16 +249,13 @@ def publish_completed(
                 except BaseException as cleanup_error:
                     raise failure from cleanup_error
             if isinstance(failure, AnalysisError):
-                if failure.run_ref is None:
-                    failure.run_ref = run_ref
                 raise
             if not isinstance(failure, Exception):
                 raise
             raise MaterializationError(
                 expected="one atomic publication of the existing completed result",
                 received=f"Publication failed during {phase}: {type(failure).__name__}",
-                repair="Inspect the original Run and its owned resources before publishing again.",
+                repair=f"Call mv.session.resume({session!r}) before explicitly resubmitting. Reuse the complete memory Frame when available; rebuilding may read changed sources.",
                 stage=phase,
-                run_ref=run_ref,
-                help_target="session.get_run",
+                help_target="session.resume",
             ) from failure

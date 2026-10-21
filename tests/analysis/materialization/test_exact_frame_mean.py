@@ -15,7 +15,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import checked_sum
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -61,7 +61,7 @@ def test_integer_mean_uses_exact_wide_total(
         for candidate in (total, total.top(0, by=total["sum"])):
             with pytest.raises(MaterializationError, match="int64 state overflow"):
                 candidate.compute()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 @pytest.mark.parametrize(
@@ -96,7 +96,7 @@ def test_decimal_mean_finishes_only_after_exact_division(
     for candidate in (total, total.top(0, by=total["sum"])):
         with pytest.raises(MaterializationError, match="Decimal state precision overflow"):
             candidate.compute()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_wide_mean_pending_completed_and_persisted_are_identical(
@@ -108,7 +108,7 @@ def test_wide_mean_pending_completed_and_persisted_are_identical(
     stored = memory.persist()
     reopened = case.session.persisted_frame(stored.artifact.id)
     assert isinstance(memory._backing, MemoryFrameBacking)
-    published_runs = case.session.runs().items
+    published_runs = terminal_runs(case.session)
     expected = _mean(pending).to_pandas()
     for frame in (memory, stored, reopened):
         result = _mean(frame)
@@ -118,12 +118,12 @@ def test_wide_mean_pending_completed_and_persisted_are_identical(
             result._backing.metadata.audit.source_facts
             == memory._backing.metadata.audit.source_facts
         )
-    assert case.session.runs().items == published_runs
+    assert terminal_runs(case.session) == published_runs
     saved_mean = _mean(memory).persist()
     pd.testing.assert_frame_equal(
         case.session.persisted_frame(saved_mean.artifact.id).to_pandas(), expected
     )
-    assert len(case.session.runs().items) == len(published_runs) + 1
+    assert len(terminal_runs(case.session)) == len(published_runs) + 1
 
 
 @pytest.mark.parametrize("value", (2**62, Decimal("999.99")))
@@ -167,7 +167,7 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     empty = nullable.top(0, by=nullable["y"])
     grouped = empty.reduce({"mean": empty["x"].mean()}, by=(empty.axes[0],)).compute()
     assert grouped.to_pandas().empty
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
@@ -200,7 +200,7 @@ def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
             total.top(0, by=total["sum"]).compute()
     assert trace.returned_rows == [2, 2]
     assert all(owner._closed for owner in trace.owners)
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_mean_keeps_invalid_types_and_shared_stored_state_checks_strict(
@@ -223,7 +223,7 @@ def test_mean_keeps_invalid_types_and_shared_stored_state_checks_strict(
     ):
         with pytest.raises((ValueError, OverflowError)):
             checked_sum(values, physical)
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_float_mean_keeps_compensated_sum_and_finite_policy(
@@ -235,7 +235,7 @@ def test_float_mean_keeps_compensated_sum_and_finite_policy(
     overflow = _values(case, (1e308, 1e308)).compute()
     with pytest.raises(MaterializationError, match="overflow"):
         _mean(overflow)
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_wide_mean_does_not_admit_overflowed_row_expression(
@@ -246,4 +246,4 @@ def test_wide_mean_does_not_admit_overflowed_row_expression(
     invalid = frame.select({"x": frame["x"] + frame["x"]})
     with pytest.raises(MaterializationError, match="overflow"):
         _mean(invalid)
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()

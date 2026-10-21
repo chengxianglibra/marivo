@@ -50,7 +50,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import numeric_literal_node, numeric_program_frame
+from tests.shared_fixtures import numeric_literal_node, numeric_program_frame, terminal_runs
 
 BIG = 9007199254740993
 
@@ -204,7 +204,7 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     assert output.table["value.0"].tolist() == [BIG]
     assert output.columns[-1].unit == "CNY"
     assert str(output.table["value.0"].dtype) == "int64[pyarrow]"
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
@@ -286,8 +286,8 @@ def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: S
     first = session.observe({"revenue": revenue}).persist()
     second = session.observe({"revenue": revenue}, by=(segment,)).persist()
     assert first.artifact.id != second.artifact.id
-    assert len(session.runs().items) == 2
-    assert all(run.lifecycle == "succeeded" for run in session.runs().items)
+    assert len(terminal_runs(session)) == 2
+    assert all(run.lifecycle == "succeeded" for run in terminal_runs(session))
 
 
 def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session) -> None:
@@ -460,7 +460,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
             ),
         ):
             pytest.fail("lossy source metadata was ignored")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def _numeric_inputs(session: Session) -> tuple[Deferred, Deferred]:
@@ -637,7 +637,7 @@ def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> N
     assert (
         preview.kind == "semantic_metric" and preview.sample_policy.method == "pre_aggregate_limit"
     )
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("grouped", (False, True))
@@ -673,7 +673,7 @@ def test_nonfinite_and_overflow_fail_without_a_run(warehouse_session: Session) -
         _compute(session, {"mean": weight.mean()})
     with pytest.raises(SemanticExpressionError, match="integer overflow"):
         _compute(session, {"overflow": amount.sum() * (2**62)})
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_decimal_source_and_mixed_local_arithmetic(warehouse_session: Session) -> None:
@@ -735,7 +735,7 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
         plan, forbidden, lambda stage, inputs: run_local(stage, inputs), lambda check, output: None
     )
     assert output.table["value.0"].tolist() == [7]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_entity_count_and_distinct_classification(warehouse_session: Session) -> None:
@@ -809,7 +809,7 @@ def test_weighted_mean_checks_reduced_denominator(warehouse_session: Session) ->
     assert isinstance(tiny, Deferred)
     with pytest.raises(SemanticExpressionError, match="weight sum"):
         session.catalog.preview(tiny, scope=md.unpruned(max_rows=100, timeout_seconds=10))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_source_free_constant_keeps_calendar(warehouse_session: Session) -> None:

@@ -15,7 +15,7 @@ from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.pandas_workflows import receipt_paths
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -271,6 +271,7 @@ import sys
 import duckdb
 import ibis
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
 
@@ -281,10 +282,10 @@ duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame[('value','sum')].sum() / frame[('value','count')].sum() == 49
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, case.session.id, saved.artifact.id],
@@ -457,12 +458,12 @@ def test_duplicate_classification_rejects_source_and_fixed(
     case = retained_coordinates_case
     region = case.session.catalog.fields.get("sales.customer.region")
     values = _observe(case, classified=True)
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
         _source(case, case.session.catalog.metrics.get("sales.revenue"), by=(region, region))
     with pytest.raises(AnalysisError):
         values.reduce({"count": mv.row_count()}, by=(values.axes[1], values.axes[1]))
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
 
 
 def test_terminal_schema_version_and_binding_mismatch_reject(

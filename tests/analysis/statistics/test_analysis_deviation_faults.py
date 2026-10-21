@@ -10,12 +10,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.storage import _open_payload
 from tests.analysis.statistics.pandas_workflows import assert_clean, deviation, orders, plain
-from tests.shared_fixtures import DslCaseFactory, run_ids
+from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
 def test_terminal_reader_failure_stops_pandas_scoring_without_run(
@@ -160,7 +159,7 @@ def test_transaction_failure_has_no_partial_success(
     with pytest.raises(AnalysisError):
         orders(case).persist()
     assert injected == [point]
-    assert len(case.session.runs(status="failed").items) == 1
+    assert len(terminal_runs(case.session, status="failed")) == 1
     assert_clean(case.session, artifacts=0)
     with runtime.store._read() as connection:
         assert (
@@ -199,11 +198,11 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
     artifact = orders(case).persist()
     assert reads and committed == [len(reads)]
     assert len(plain(artifact)) == 11
-    runs = case.session.runs(status="succeeded").items
+    runs = terminal_runs(case.session, status="succeeded")
     assert len(runs) == 1
-    assert isinstance(runs[0], mv.SucceededRun)
-    assert runs[0].output_artifact_ref.ref == artifact.artifact.id
-    assert artifact.artifact._manifest.run_id == runs[0].run_id
+    assert runs[0].lifecycle == "succeeded"
+    assert runs[0].output_artifact_ref == artifact.artifact.id
+    assert artifact.artifact._manifest.run_id == runs[0].run_ref
     assert artifact.artifact.evidence_digest().finding_count == 0
     assert_clean(case.session, artifacts=1)
     before = run_ids(case.session)

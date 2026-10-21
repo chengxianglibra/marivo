@@ -13,6 +13,8 @@ import sys
 from enum import Enum
 from pathlib import Path
 
+from tests.shared_fixtures import terminal_runs
+
 DRIVERS = {
     "duckdb": "duckdb",
     "postgres": "psycopg",
@@ -215,10 +217,10 @@ def saved_read(project: Path) -> dict[str, object]:
     session = mv.session.resume(session_id)
     artifact = session.persisted_frame(artifact_ref)
     assert isinstance(artifact, mv.AnalysisFrame)
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     receipt = snapshot(artifact)
     assert receipt == obj(state["snapshots"])["value"]
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
     assert session._runtime.store.resources(session.id) == ()
     artifact.show(n=0)
     artifact.artifact.show()

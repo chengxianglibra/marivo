@@ -19,6 +19,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 
 
 def _scalar_output(result: mv.AnalysisFrame, total: int) -> None:
@@ -63,7 +64,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         first, second = results
         assert first.artifact.id != second.artifact.id
         assert first.artifact._manifest.run_id != second.artifact._manifest.run_id
-        assert len(work.session.runs().items) == 2
+        assert len(terminal_runs(work.session)) == 2
         assert _support(work).persist().to_pandas()[("value", "count")].tolist() == [61]
         captured = work.values().persist()
         frame = captured.to_pandas()
@@ -120,7 +121,7 @@ def test_native_late_invalid_source_frame_never_publishes(
             logical.persist()
         assert corrupted == ["schema"]
         assert publication_counts(work.session) == before
-        runs = work.session.runs().items
+        runs = terminal_runs(work.session)
         assert runs == ()
         assert work.session._runtime.store.resources(work.session.id) == ()
 

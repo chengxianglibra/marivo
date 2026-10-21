@@ -121,6 +121,13 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
         or producer.terminal_at != _text(row, "committed_at")
     ):
         raise invalid("terminal Artifact and succeeded producer differ")
+    producers = _rows(
+        conn,
+        "SELECT run_ref FROM analysis_action_run_terminals WHERE output_artifact_ref=?",
+        (ref,),
+    )
+    if len(producers) != 1 or _text(producers[0], "run_ref") != value.run_id:
+        raise invalid("terminal Artifact has a different or duplicate producer")
     prefix = store.layout.relative_path(store.layout.artifact_dir(value.session_id, ref))
     handles = (
         value.data.rows,

@@ -692,10 +692,10 @@ Run 只有“发布”一种语义，输入标识已有 result_id；求值时间
 不在 InvocationInput 再保存一份。
 删除 evaluate_and_publish/publish_existing 分支；不因调用者省略 compute 就改变 Run 类型。
 求值在 Run admission 前完成，求值失败不创建 Run；发布失败和未知提交按现有事务协议处理。
-新 Artifact 的 producing_run_ref 表示发布者，不声称此 Run 计算了值。
+新 Artifact 的内部 Run 身份只用于原子提交与校验，不公开，也不声称此 Run 计算了值。
 求值时间可早于 admission；提交时间位于该 Run 内，不能再用生产 Run admission 限制原求值时间。
 
-使用 runs/get_run 与输出引用查询发布事实；Session 不提供 graph/roots/heads 接口。
+保留 Session ID 与 Artifact ID 后精确打开；返回引用丢失时显式重新提交，接受重复 Artifact 和可能变化的来源数据。Session 不提供 Run 历史、结果目录或 graph/roots/heads 接口。
 显式派生计算直接消费存储根 A 时，在新结果的求值摘要记录 A，不在发布 Run 中伪造输入读取。
 A.compute() 只是载体转换；得到 m 后再 persist 为 B 不新建求值事实，也不额外保存 A→B 边。
 这意味着摘要不保证追踪载体复制链，这是删除边界注记的明确取舍。
@@ -833,7 +833,7 @@ StageOutput 的公开物化提取需要逐项处理 layout/components/population
 核对当前消费者后，Artifact.findings/evidence_digest 经 TerminalReader 只读取提交、Finding/Evidence
 记录，不调用表格预览或导出；Session Run 记录保留发布引用。因此保留这些审计路线，
 将 TerminalReader 的数据读取实现移交 Frame reader。移除 session.artifact/Artifact.to_pandas、
-修改 Artifact.show 时同步更新 ArtifactRef、SucceededRun、FindingPage 等动态引导及相关示例，
+修改 Artifact.show 时同步更新 ArtifactRef、FindingPage 等动态引导及相关示例，
 不能留下“获得 ID 后恢复 Artifact 读表”的旧指引。RawSqlResult 不进入这次保存协议。
 
 本次需要提升 Store generation。切换后旧 generation 的全部 Session、Artifact 和所属

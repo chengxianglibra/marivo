@@ -22,6 +22,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, datasource, source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -136,13 +137,13 @@ def test_native_distributions_independent_fixed_and_cold(
                 ),
             )
             if kind == "approx_quantile":
-                before = session.runs().items
+                before = terminal_runs(session)
                 with pytest.raises((AnalysisError, SemanticExpressionError)) as refused:
                     query.persist()
                 error = refused.value
                 assert isinstance(error, (AnalysisError, SemanticExpressionError))
                 assert error.expected and error.received and error.repair
-                assert session.runs().items == before
+                assert terminal_runs(session) == before
                 continue
             value = query.persist()
             frame = value.to_pandas()
@@ -187,6 +188,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pandas as pd
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
@@ -197,7 +199,7 @@ root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 state = read(root / 'r94-distribution.json')
 with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
     session = mv.session.resume(state['session'])
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     for name, item in obj(state['outputs']).items():
         value = session.persisted_frame(item['artifact'])
         assert snapshot(value) == item['snapshot']
@@ -207,7 +209,7 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
             assert values['a'] == 4 and values['b'] == 6 and pd.isna(values['c'])
         else:
             assert values == {'a':4 if name=='identity' else 2,'b':1,'c':0}
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
 output.write_bytes(encode({'pid':os.getpid(), 'phase':phase}))
 """
     reports: list[Json] = []

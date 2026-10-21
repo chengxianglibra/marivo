@@ -6,6 +6,7 @@ import pytest
 
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -22,11 +23,11 @@ def test_duckdb_cost_routes_keep_the_original_exact_sum(
             first = query.persist()
             assert work.validate(first)["passed"] is True
             references.append(first.artifact.id)
-            before = len(work.session.runs().items)
+            before = len(terminal_runs(work.session))
             second = query.persist()
             assert work.validate(second)["passed"] is True
             assert second.artifact.id != first.artifact.id
-            assert len(work.session.runs().items) == before + 1
+            assert len(terminal_runs(work.session)) == before + 1
             source_trace.record(first)
             submitted = len(source_trace.native_sql)
             assert (

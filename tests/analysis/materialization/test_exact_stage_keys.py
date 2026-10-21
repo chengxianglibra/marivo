@@ -30,6 +30,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput, normalize_stage_frame
+from tests.shared_fixtures import terminal_runs
 
 _UNITS: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
 _TEMPORAL_TYPES = tuple(
@@ -243,7 +244,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
     assert continued.to_pandas()["value", "next"].tolist() == [2, 3, 4, 5]
     assert isinstance(loaded._backing, MemoryFrameBacking)
     assert loaded._backing.metadata == metadata
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
 
 
 def test_zero_axis_stage_and_column_order_rules_are_unchanged() -> None:

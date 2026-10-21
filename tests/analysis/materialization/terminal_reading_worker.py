@@ -12,9 +12,9 @@ import pandas as pd
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.analysis.session._lazy_read_model import SucceededRun
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
+from tests.shared_fixtures import terminal_runs
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -80,7 +80,7 @@ def period_read(name: str, identities: list[str]) -> None:
         # continuations below must not resolve that timezone authority again.
         patches.enter_context(patch.object(_timezones, "ZoneInfo", forbidden))
         current, baseline, report = (session.persisted_frame(value) for value in identities)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         recomputed = current.compare({"base": baseline}).compute()
         assert recomputed._schema == report._schema
         pd.testing.assert_frame_equal(recomputed.to_pandas(), report.to_pandas())
@@ -115,7 +115,7 @@ def period_read(name: str, identities: list[str]) -> None:
         reduced = selected.reduce({"total_delta": selected["delta"].sum()}).compute()
         assert reduced.to_pandas()["value", "total_delta"].tolist() == [60]
         assert reduced._schema.comparisons == () and reduced.presence_names == ()
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
     print("period-cold-ok")
 
 
@@ -155,7 +155,7 @@ def main() -> None:
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))
         session = mv.session.resume(name)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         artifact = session.persisted_frame(sys.argv[4])
         assert artifact.artifact.id in repr(artifact.artifact)
         assert "backing=stored" in repr(artifact) and ".show()" in repr(artifact)
@@ -172,11 +172,11 @@ def main() -> None:
         facts = artifact.artifact.evidence_digest()
         assert any(item.kind == "read" for item in facts.items)
         facts.show()
-        published = session.runs(status="succeeded").items
+        published = terminal_runs(session, status="succeeded")
         assert len(published) == 1
-        assert isinstance(published[0], SucceededRun)
-        assert published[0].output_artifact_ref.ref == artifact.artifact.id
-        assert len(session.runs().items) == before
+        assert published[0].lifecycle == "succeeded"
+        assert published[0].output_artifact_ref == artifact.artifact.id
+        assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
         fixed = artifact.compute()
         positive = artifact.where(artifact["total"] > 0).compute()
@@ -187,12 +187,12 @@ def main() -> None:
         assert comparison.to_pandas()[("value", "base.absolute.total")].tolist() == [0, 0]
         reduced = artifact.reduce({"rows": mv.row_count()}).compute()
         assert reduced.to_pandas()[("value", "rows")].tolist() == [2]
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         copied = fixed.persist()
         assert isinstance(copied._backing, StoredFrameBacking)
         assert isinstance(fixed._backing, MemoryFrameBacking)
         assert copied._backing.metadata == fixed._backing.metadata
-        assert len(session.runs().items) == before + 1
+        assert len(terminal_runs(session)) == before + 1
         print("public-cold-ok")
 
 

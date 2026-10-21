@@ -8,7 +8,7 @@ import pytest
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 @pytest.mark.parametrize("decimal", (False, True))
@@ -51,7 +51,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
     assert frame[("value", "reference.absolute.sales")].iloc[2:].isna().all()
     assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
     assert frame[("presence", "reference.present")].tolist() == [True, True, False, True]
-    before = session.runs(status="succeeded").items
+    before = terminal_runs(session, status="succeeded")
     with pytest.raises(AnalysisError):
         current.compare(
             {"reference": baseline},
@@ -59,4 +59,4 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
             how="outer",
             zero_denominator="error",
         ).persist()
-    assert session.runs(status="succeeded").items == before
+    assert terminal_runs(session, status="succeeded") == before

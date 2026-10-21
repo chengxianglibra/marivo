@@ -15,6 +15,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.attribution_workflows import Method, allocation, basis
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, arr, encode, obj, read
 
 
@@ -33,7 +34,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(session_id)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         inputs: list[mv.AnalysisFrame] = []
         for saved in arr(state["inputs"]):
             item = obj(saved)
@@ -60,7 +61,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             )
             outputs[method] = result.to_json(orient="split", date_format="iso", double_precision=15)
         assert outputs == obj(state["recipe_outputs"])
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert all(
             not hasattr(value, "attribute") and not hasattr(value, "drill") for value in inputs
         )

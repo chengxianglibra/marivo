@@ -61,9 +61,9 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
-from marivo.analysis.session._lazy_read_model import SucceededRun
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.terminal_recovery_worker import method_result
+from tests.shared_fixtures import terminal_run, terminal_runs
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
@@ -186,10 +186,10 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
     assert first.artifact.id != second.artifact.id
     assert "AnalysisFrame" in repr(first) and "\n" not in repr(first)
     assert stored_frame(session, first)["value.0"].tolist() == [7]
-    assert len(session.runs().items) == 2
-    assert all(run.lifecycle == "succeeded" for run in session.runs().items)
+    assert len(terminal_runs(session)) == 2
+    assert all(run.lifecycle == "succeeded" for run in terminal_runs(session))
     assert (
-        session.get_run(committed(first).run_id).dataset_input.result_id
+        terminal_run(session, committed(first).run_id).dataset_input.result_id
         == committed(first).metadata.result_id
     )
     assert records(session, first, "finding") == ()
@@ -201,9 +201,9 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         digest = artifact.artifact.evidence_digest()
         assert digest.digest_version == "frame-output-v4"
         assert not any(item.kind == "read" for item in digest.items)
-    published = session.runs(status="succeeded").items
-    assert all(isinstance(run, SucceededRun) for run in published)
-    assert {run.output_artifact_ref.ref for run in published if isinstance(run, SucceededRun)} == {
+    published = terminal_runs(session, status="succeeded")
+    assert all(run.lifecycle == "succeeded" for run in published)
+    assert {run.output_artifact_ref for run in published if run.lifecycle == "succeeded"} == {
         first.artifact.id,
         second.artifact.id,
     }
@@ -437,7 +437,7 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
         AnalysisFrame._from_memory(session._runtime.local, method_result()).persist()
     monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     assert stored_frame(session, saved)["value.0"].tolist() == [7]
-    assert {run.lifecycle for run in session.runs().items} == {"succeeded", "failed"}
+    assert {run.lifecycle for run in terminal_runs(session)} == {"succeeded", "failed"}
     assert session._runtime.store.resources(session.id) == ()
     with session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
@@ -459,7 +459,7 @@ def test_lost_commit_ack_returns_original_without_reexecution(
     artifact = AnalysisFrame._from_memory(session._runtime.local, method_result()).persist()
     assert artifact.method_facts == method_result().method_facts
     assert calls.count("publication_admitted") == 1 and calls.count("terminal_primary_written") == 1
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
     assert stored_frame(session, artifact)["contribution"].tolist() == [60]
 
 
@@ -744,8 +744,8 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
         count_before = conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
     assert count_before == (2 if point == "after_commit" else 1)
     reopened = mv.session.resume(session.id)._runtime
-    assert len(reopened.runs().items) == 2
-    assert reopened.runs().items[0].lifecycle == (
+    assert len(terminal_runs(reopened)) == 2
+    assert terminal_runs(reopened)[0].lifecycle == (
         "succeeded" if point == "after_commit" else "failed"
     )
     assert reopened.store.resources(session.id) == ()
@@ -771,12 +771,12 @@ def test_process_writer_contention_does_not_admit_contender(session: Session) ->
             command, cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True
         )
     assert result.returncode == 38, result.stderr
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     result = subprocess.run(
         command, cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
 
 
 def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
@@ -804,7 +804,7 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
     assert len(list(store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
     reconcile(store, session.id, lambda point: None)
     assert store.resources(session.id) == ()
-    assert session.runs().items[0].lifecycle == "failed"
+    assert terminal_runs(session)[0].lifecycle == "failed"
 
 
 def test_obsolete_output_envelope_is_rejected_without_rewrite() -> None:
@@ -863,8 +863,8 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
     assert caught.value.stage == "numeric_value"
     assert caught.value.repair is not None
     assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
-    assert caught.value.run_ref is None
-    assert source_session.runs().items == ()
+    assert not hasattr(caught.value, "run_ref")
+    assert terminal_runs(source_session) == ()
     assert source_session._runtime.store.resources(source_session.id) == ()
     with source_session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
@@ -877,8 +877,8 @@ def test_preparation_failure_creates_no_run(source_session: Session) -> None:
         conn.execute("ALTER TABLE orders ALTER region TYPE UBIGINT USING 1")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"revenue": metric}, by=(region,)).persist()
-    assert caught.value.run_ref is None
-    assert source_session.runs().items == ()
+    assert not hasattr(caught.value, "run_ref")
+    assert terminal_runs(source_session) == ()
     assert source_session._runtime.store.resources(source_session.id) == ()
 
 
@@ -897,8 +897,8 @@ def test_source_disconnect_failure_prevents_publication(
     metric = source_session.catalog.metrics.get("sales.revenue")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"revenue": metric}).persist()
-    assert caught.value.run_ref is None
-    assert source_session.runs().items == ()
+    assert not hasattr(caught.value, "run_ref")
+    assert terminal_runs(source_session) == ()
     assert source_session._runtime.store.resources(source_session.id) == ()
     with source_session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
@@ -921,7 +921,7 @@ def test_lost_ack_with_missing_records_is_recovery_pending(
     monkeypatch.setattr(terminal_publication, "_event", corrupt)
     with pytest.raises(RecoveryPendingError):
         fixed.persist()
-    assert session.runs().items[0].lifecycle == "succeeded"
+    assert terminal_runs(session)[0].lifecycle == "succeeded"
     assert len(list(store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
 
 
@@ -962,7 +962,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     artifact = session.observe({"total": amount.sum()}).persist()
-    before = session.runs().items
+    before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("metadata and record reads must not consume Parquet or current semantics")
@@ -978,12 +978,12 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     assert reopened.artifact.findings().items == ()
     facts = reopened.artifact.evidence_digest().items
     assert any(item.kind == "read" for item in facts)
-    publishing = session.get_run(committed(artifact).run_id)
-    assert isinstance(publishing, SucceededRun)
-    assert publishing.output_artifact_ref.ref == artifact.artifact.id
+    publishing = terminal_run(session, committed(artifact).run_id)
+    assert publishing.lifecycle == "succeeded"
+    assert publishing.output_artifact_ref == artifact.artifact.id
     assert session.id in session.render()
-    assert session.get_run(committed(artifact).run_id).lifecycle == "succeeded"
-    assert session.runs().items == before
+    assert terminal_run(session, committed(artifact).run_id).lifecycle == "succeeded"
+    assert terminal_runs(session) == before
 
 
 def test_public_read_isolated_copy_and_historical_values(source_session: Session) -> None:
@@ -1425,5 +1425,28 @@ def test_malformed_method_numeric_facts_fail_before_admission(session: Session) 
     )
     with pytest.raises(AnalysisError, match="saved method totals"):
         frame.persist()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     assert session._runtime.store.resources(session.id) == ()
+
+
+def test_manifest_rejects_foreign_duplicate_internal_producer(session: Session) -> None:
+    saved = constant(session).persist()
+    store = session._runtime.store
+    value = committed(saved)
+    foreign = mv.session.create("foreign-producer", timezone="UTC")
+    terminal_store.admit(store, foreign.id, "duplicate_producer", value.result_id)
+    # Corrupt the Store outside its foreign-key-enforcing writer to test read validation.
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
+            (
+                "duplicate_producer",
+                foreign.id,
+                "succeeded",
+                "2099-01-01T00:00:00+00:00",
+                value.artifact_id,
+                None,
+            ),
+        )
+    with pytest.raises(IntegrityError, match="duplicate producer"):
+        session.persisted_frame(value.artifact_id)

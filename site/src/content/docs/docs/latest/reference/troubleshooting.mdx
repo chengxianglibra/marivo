@@ -88,13 +88,16 @@ row export usable but block full consumption. Preserve the original files and
 repair the reported owned payload; do not reconstruct it from current sources.
 See `marivo.help("analysis.analysis_frame.method_facts")`.
 
-## Exact data recovery and publishing Runs
+## Exact data recovery and resubmission
 
 Keep Session ID and frame.artifact.id. Resume that Session and call
 `session.persisted_frame(id)` with the string ID. Frame owns data operations;
 `.artifact` owns audit. Artifact/ID objects and RawSqlResult are not operands.
-Compute failure creates no Run. A publishing failure's run_ref identifies the
-exact Run; reconciliation resolves that original commit without recomputation.
+Publishing errors provide the failed phase and a concrete repair. If the commit
+outcome is unknown, resume the owning Session before explicitly resubmitting;
+the original may already have succeeded, so resubmission may create duplicates.
+If the returned Artifact ID was lost, explicitly resubmit. Complete memory data
+can be saved again without reevaluation; rebuilding source inputs may read changed data.
 Missing/corrupt consumed data is not a cache miss and must not trigger replay.
 
 Store 15 refuses every older generation's data unchanged, without migration or

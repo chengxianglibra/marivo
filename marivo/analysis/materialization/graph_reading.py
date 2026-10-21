@@ -452,7 +452,6 @@ class TerminalReader:
             .field("result_id", metadata.result_id)
             .field("evaluated_at", metadata.evaluated_at.isoformat())
             .field("committed_at", str(producer.terminal_at))
-            .field("publishing_run", manifest.run_id)
             .field("inputs", repr(metadata.audit.evaluation.inputs)[:1200])
             .field("operations", repr(metadata.audit.evaluation.operations)[:600])
             .field("source_facts", str(len(metadata.audit.source_facts)))

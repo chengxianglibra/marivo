@@ -14,6 +14,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, obj, read
 
 
@@ -61,7 +62,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             {"value": session.catalog.fields.get("sales.order.amount")},
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         try:
             session.observe(
                 {"value": session.catalog.metrics.get("sales.approx_quantile")}, by=(scope,)
@@ -70,7 +71,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             assert error.expected and error.received and error.repair
         else:
             raise AssertionError("An unqualified approximate quantile route executed")
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         output: dict[str, Json] = {
             name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in results.items()
@@ -84,13 +85,13 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             patch.object(SourceSession, "__enter__", forbidden),
             patch.object(SourceSession, "execute", forbidden),
         ):
-            before = len(session.runs().items)
+            before = len(terminal_runs(session))
             for value in output.values():
                 saved = obj(value)
                 artifact = saved["artifact"]
                 assert isinstance(artifact, str)
                 result = session.persisted_frame(artifact)
                 assert snapshot(result) == saved["snapshot"]
-            assert len(session.runs().items) == before
+            assert len(terminal_runs(session)) == before
     assert session._runtime.store.resources(session.id) == ()
     print(json.dumps({"pid": os.getpid(), "results": sorted(output), "phase": phase}))

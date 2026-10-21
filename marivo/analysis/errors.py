@@ -69,9 +69,7 @@ class _DerivedFields(TypedDict, total=False):
 class AnalysisError(MarivoError):
     """Call marivo.help(AnalysisError) for its public consumption contract.
 
-    Base class for all analysis errors. ``run_ref`` identifies the exact Run
-    when known; failures before admission normally have no Run. Use the owning
-    Session's ``get_run(run_ref).show()`` to inspect recorded work.
+    Base class for analysis errors. Read the structured fields and owning repair.
     """
 
     def __init__(
@@ -84,7 +82,6 @@ class AnalysisError(MarivoError):
         repair: AnalysisRepair | None = None,
         hint: str | None = None,
         context: Mapping[str, object] | None = None,
-        run_ref: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -98,7 +95,6 @@ class AnalysisError(MarivoError):
         self.repair: AnalysisRepair | None = repair if repair is not None else derived.get("repair")
 
         self.hint = hint
-        self.run_ref = run_ref
 
     @property
     def kind(self) -> str:
@@ -109,16 +105,6 @@ class AnalysisError(MarivoError):
         """Override in subtypes to derive stable fields from ``_context``."""
 
         return _DerivedFields()
-
-    def _run_guidance(self) -> tuple[str, ...]:
-        """Render exact same-Session recovery through the shared error template."""
-        if self.run_ref is None:
-            return ()
-        return (
-            f"Run: {self.run_ref}",
-            f"Inspect: session.get_run({self.run_ref!r}).show()",
-            "Run help: marivo.help('analysis.session.get_run')",
-        )
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
@@ -132,7 +118,6 @@ class AnalysisError(MarivoError):
             context_lines.append(f"Received: {self.received}")
         if self.hint:
             context_lines.append(f"Hint: {self.hint}")
-        context_lines.extend(self._run_guidance())
         if context_lines:
             lines.append("")
             lines.extend(context_lines)
@@ -255,24 +240,8 @@ class ArtifactNotFoundError(AnalysisError):
             received=ref,
             location="session.persisted_frame(artifact_id)",
             repair=_runtime_read_repair(
-                action="Inspect bounded Run history, then retry one exact ref.",
-                target="session.runs",
-                snippet="page = session.runs(limit=20)\nframe = session.persisted_frame('<ref>')",
-            ),
-        )
-
-
-class RunNotFoundError(AnalysisError):
-    @classmethod
-    def for_id(cls, run_id: str) -> RunNotFoundError:
-        return cls(
-            message=f"Run {run_id!r} does not exist in the current Session",
-            expected="an exact Run id owned by the current Session",
-            received=run_id,
-            location="session.get_run(run_id)",
-            repair=_runtime_read_repair(
-                action="Read a bounded Run page and retry one returned Run id.",
-                target="session.runs",
-                snippet="page = session.runs(limit=20)\nrun = session.get_run(page.items[0].run_id)",
+                action="Use a retained Artifact ID from this Session. If the ID was lost, explicitly resubmit the analysis; results may differ and duplicate saved outputs.",
+                target="session.persisted_frame",
+                snippet="frame = session.persisted_frame('<retained_artifact_id>')",
             ),
         )

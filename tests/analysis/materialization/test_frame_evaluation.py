@@ -36,7 +36,7 @@ from marivo.refs import ref
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session as membership_session
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.json import arr, checked
 
 
@@ -187,7 +187,7 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
         _memory(reduced).metadata.audit.source_facts == _memory(fixed).metadata.audit.source_facts
     )
     assert _memory(reduced).metadata.audit.evaluation != _memory(fixed).metadata.audit.evaluation
-    assert len(session.runs().items) == 0
+    assert len(terminal_runs(session)) == 0
 
 
 def test_current_row_mean_does_not_recover_original_ratio(session: Session) -> None:
@@ -228,7 +228,7 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
     invalid = source.select({"invalid": source["ratio"].divide(0, zero_denominator="error")})
     with pytest.raises(MaterializationError, match="nonzero denominator"):
         invalid.compute()
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
     close = SourceSession.close
 
     def fail_close(self: SourceSession) -> None:
@@ -238,7 +238,7 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
     monkeypatch.setattr(SourceSession, "close", fail_close)
     with pytest.raises(MaterializationError, match="source cleanup"):
         source.compute()
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
     with pytest.raises(MaterializationError, match="source cleanup") as failure:
         invalid.compute()
     assert failure.value.stage == "frame_compute"
@@ -247,7 +247,7 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
     numeric = cleanup.__context__
     assert isinstance(numeric, MaterializationError)
     assert isinstance(numeric.__cause__, SemanticExpressionError)
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
 
 
 def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
@@ -279,7 +279,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
     error = failure.value
     cause = error.__cause__
     assert isinstance(cause, SemanticExpressionError)
-    assert error.stage == "numeric_value" and error.run_ref is None
+    assert error.stage == "numeric_value" and not hasattr(error, "run_ref")
     assert error.expected == cause.expected and error.received == cause.received
     assert error.repair is not None and cause.repair is not None
     assert error.repair.action == cause.repair.action
@@ -287,7 +287,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
     assert error.received is not None
     assert "source=sales.facts" in error.received
     assert closed
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
 
 
 def test_pending_source_show_discloses_captured_scope_without_execution(
@@ -315,7 +315,7 @@ def test_pending_source_show_discloses_captured_scope_without_execution(
     assert "scope:" in web_text and "Web" in web_text and "Store" not in web_text
     assert "scope:" in store_text and "Store" in store_text and "Web" not in store_text
     assert "source" in web_text and "operation: observe" in web_text
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
 
 
 def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_without_reads(
@@ -351,7 +351,7 @@ def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_witho
         if value is counted:
             assert "count[0].domain" in text and "count[1].domain" in text
             assert "('t2', 2)" in text
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
 
 
 def test_pending_count_scope_distinguishes_literal_entities_with_the_same_keys(
@@ -380,7 +380,7 @@ def test_pending_count_scope_distinguishes_literal_entities_with_the_same_keys(
     assert "count[0].domain" in text and "count[1].domain" in text
     assert "identity:sales.customer" in text and "identity:sales.order" in text
     assert "('same',)" in text
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_pending_count_scope_distinguishes_fixed_frame_inputs_without_reading_rows(
@@ -415,7 +415,7 @@ def test_pending_count_scope_distinguishes_fixed_frame_inputs_without_reading_ro
     assert first._input_id in text and second._input_id in text
     assert "FrameKeys input=" in text and "identity:sales.customer" in text
     assert "axis.0" in text and "customer_id" in text
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_source_fact_filters_and_special_complete_keys_are_lossless(
@@ -529,7 +529,7 @@ def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) ->
         connection.execute("UPDATE facts SET tenant=NULL WHERE tenant='t1'")
     with pytest.raises((AnalysisError, SemanticExpressionError), match=r"key|identity"):
         source.compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None:
@@ -700,10 +700,10 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     card = capsys.readouterr().out
     assert "MembershipBinding" in card and "sales.tags.label" in card
     assert "sales.order_links" in card and "sales.link_tags" in card
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
     fixed = pending.compute()
     assert fixed.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
-    assert _inventory(session) == before and session.runs().items == ()
+    assert _inventory(session) == before and terminal_runs(session) == ()
     metadata = _memory(fixed).metadata
     facts = metadata.audit.source_facts
     scope = json.loads(source_scope(buckets))
@@ -719,15 +719,15 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     aligned = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
     assert _memory(aligned).metadata.audit.source_facts == facts
     assert len(_memory(aligned).metadata.audit.source_facts) == len(set(facts))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     saved = fixed.persist()
     assert isinstance(saved._backing, StoredFrameBacking)
     assert saved._backing.metadata == metadata
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
     reopened = session.persisted_frame(saved._backing.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
     assert reopened._backing.metadata == metadata
     loaded = reopened.compute()
     assert _memory(loaded).metadata == metadata
     assert loaded.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1

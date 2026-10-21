@@ -70,7 +70,7 @@ class Artifact:
 
         Args: None.
         Returns: The exact Session identity captured by this committed output.
-        Example: ``session = mv.session.resume(artifact.session_id, by='id')``.
+        Example: ``session = mv.session.resume(artifact.session_id)``.
         Constraints: Reads metadata without loading result rows or semantic definitions.
         """
         return self._manifest.session_id

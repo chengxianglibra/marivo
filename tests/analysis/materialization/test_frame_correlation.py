@@ -40,7 +40,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
 from tests.support.source_trace import capture_source
 
 Number = int | float | Decimal | None
@@ -612,7 +612,7 @@ def test_pending_correlate_shares_one_mutable_source_batch(
     assert trace.returned_rows == [3]
     assert completed.to_pandas()["value", "coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
     assert completed.to_pandas()["value", "n_pairs"].tolist() == [3]
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_effective_source_float_types_and_nonfinite_validation(

@@ -16,6 +16,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, encode, obj, read
 
 
@@ -57,7 +58,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(identity)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
@@ -68,7 +69,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             outputs[name] = value
         derived = verify(outputs)
         assert derived == obj(state["derived"])
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase, "derived": derived}))
 
 

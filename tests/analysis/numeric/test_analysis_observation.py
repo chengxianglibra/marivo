@@ -19,7 +19,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 from tests.analysis.statistics.pandas_workflows import receipt_paths
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -124,7 +124,7 @@ def test_explicit_field_paths_preserve_hop_order_without_source_read(
     read = consume_field(region.via((line_order, buyer))).field_read
     assert read is not None
     assert tuple(item.ref.path for item in read.path) == ("sales.line_order", "sales.order_buyer")
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
     with pytest.raises(SemanticError):
         consume_field(region.via((buyer, line_order)))
 
@@ -442,7 +442,7 @@ def test_observation_rejects_wrong_or_extra_root_routes(
     for path in ((line_order, buyer), (buyer, line_order), (buyer, buyer)):
         with pytest.raises((AnalysisError, SemanticError)):
             session.observe({"value": metric}, by=(region.via(path),))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_linear_rejects_incommensurable_units(analysis_dsl_case_factory: DslCaseFactory) -> None:

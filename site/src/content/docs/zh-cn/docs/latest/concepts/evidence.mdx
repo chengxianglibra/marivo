@@ -4,8 +4,8 @@ description: 无需当前来源读取精确固定数据与审计。
 ---
 
 Store 15 在 `.marivo/analysis/generations/v15/` 保存 Frame 数据。数据持久后，一个
-SQLite 发布事务同时提交 manifest、收据、Findings、Evidence 与 Run 成功。
-compute 不创建 Run；persist 在准入前完成求值，再发布已有 result ID。
+SQLite 发布事务同时提交 manifest、收据、Findings 和 Evidence。
+persist 完成求值后发布已有 result ID，提交协议保持内部实现。
 内存 persist 不重新求值，存储根 persist 验证提交元数据并返回自身。
 所有 Frame 使用 `marivo.frame_output/v4`、`frame.v4` 和 `frame-output-v4`。
 存在完整方法表时，其文件和收据共享这一个原子事务；manifest 只保存有界方法描述符。
@@ -24,8 +24,6 @@ complete = reopened.compute()
 page = reopened.artifact.findings(limit=20)
 digest = reopened.artifact.evidence_digest()
 print(digest.items)
-for run in session.runs(limit=5).items:
-    run.show()
 ```
 
 普通 observe 没有 Findings。一份审计保留继承的实际来源事实与本次求值，不累计中间操作历史。
@@ -55,10 +53,10 @@ pending 访问需先 compute/persist。stored compute 与派生求值消费当�
 命名比较说明保存惰性的精确值/presence 绑定和已消费端点映射，不是重读来源的许可。
 恢复后的 Frame 可继续数据操作，新来源事实需要显式构造。
 
-## 区分发布图与数据历史
+## 区分提交与数据历史
 
-使用 runs/get_run 与输出引用查询发布历史；Session 不提供 graph/roots/heads。
-也不承诺完整数据血缘。本次求值记录实际直接消费的存储输入；载体复制不伪造读取或血缘边。
+保留 Session ID 与 Artifact ID 后精确打开。返回引用丢失时显式重新提交，接受重复保存输出；
+重新求值可能读取变化的数据。不提供结果目录或隐含最新结果，也不承诺完整数据血缘。本次求值记录实际直接消费的存储输入；载体复制不伪造读取或血缘边。
 reconciliation 解决原事务，不重新求值。完整内存结果在旧文件删除后仍独立可用；旧存储句柄
 若再次读取已删除数据仍会失败。
 

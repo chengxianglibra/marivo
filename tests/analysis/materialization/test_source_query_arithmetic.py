@@ -14,6 +14,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 CASES = [("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -195,7 +196,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         # operation can hide them; unary score evaluation itself adds no check.
         with pytest.raises(MaterializationError, match="nonfinite"):
             query.compute()
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         from marivo._definition.query import (
             FilterValues,
             TopValues,
@@ -255,7 +256,7 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
             query = query.top(0, by=query["value"])
         with pytest.raises(MaterializationError, match="nonfinite"):
             query.compute()
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram
         from marivo.analysis.core.data_schema import DataSchema

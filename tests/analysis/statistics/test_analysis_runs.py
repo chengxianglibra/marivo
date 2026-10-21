@@ -6,7 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from tests.analysis.statistics.runs_worker import segments
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 
 
 def _daily(case: DslCase) -> mv.AnalysisFrame:
@@ -36,14 +36,14 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     fixed = daily.compute()
     frame = fixed.to_pandas()
     assert frame[("value", "value")].tolist() == [60, 0, 0]
-    before = len(case.session.runs().items)
+    before = len(terminal_runs(case.session))
     result = segments(frame)
     assert result["count"].tolist() == [1]
     assert result["duration"].tolist() == [timedelta(days=1)]
     assert result.loc[result["count"] > 0].equals(result)
     assert result.loc[result["duration"] > timedelta(hours=12), "start"].equals(result["start"])
     assert segments(frame, threshold=-1)["count"].tolist() == [3]
-    assert len(case.session.runs().items) == before
+    assert len(terminal_runs(case.session)) == before
 
 
 @pytest.mark.slow
@@ -108,8 +108,8 @@ def test_new_grid_after_subject_selection(
     receiver = session.persisted_frame(artifact.artifact.id) if fixed else artifact
     frame = receiver.to_pandas()
     assert frame[("value", "value")].tolist() == [60, 0, 0]
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     assert segments(frame)["count"].tolist() == [1]
     ranked = frame.assign(rank=frame[("value", "value")].rank(method="dense", ascending=False))
     assert ranked[("value", "value")].loc[ranked["rank"] == 1].tolist() == [60]
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before

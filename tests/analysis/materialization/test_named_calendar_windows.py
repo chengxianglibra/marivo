@@ -21,6 +21,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     fiscal_analysis_project_files,
     publish_fiscal_calendar_artifact,
+    terminal_runs,
 )
 
 
@@ -211,7 +212,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
                 session.observe(
                     {"total": metric}, by=(scope.by(mv.grain("day")) if bucketed else scope,)
                 )
-            assert not session.runs().items
+            assert not terminal_runs(session)
 
     assert _source_graph(query_a).fingerprint == original_fingerprint
     for query, expected, snapshot in (
@@ -246,7 +247,7 @@ def test_unusable_calendar_rejects_before_business_reads(
         session.observe(
             {"total": metric}, by=(session.time_scope(start="2026-01-20", end="2026-02-01"),)
         )
-    assert not session.runs().items
+    assert not terminal_runs(session)
 
 
 @pytest.mark.parametrize("case", ["level", "timezone", "coverage", "containment"])
@@ -269,4 +270,4 @@ def test_calendar_window_validates_consumed_authority(
         session.observe(
             {"total": metric}, by=(scope.by(mv.grain("week")) if case == "containment" else scope,)
         )
-    assert not session.runs().items
+    assert not terminal_runs(session)

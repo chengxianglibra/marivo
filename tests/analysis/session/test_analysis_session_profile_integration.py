@@ -10,6 +10,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.semantic.errors import SemanticLoadFailed
+from tests.shared_fixtures import terminal_runs
 
 
 def test_model_qualified_datasource_name_is_rejected(
@@ -28,12 +29,12 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     monkeypatch.chdir(authoring_evidence_project)
     (authoring_evidence_project / "models" / "datasources" / "warehouse.py").unlink()
     session = mv.session.create("missing-source")
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     with pytest.raises(SemanticLoadFailed) as caught:
         session.observe({"revenue": session.catalog.metrics.get("sales.revenue")})
     assert "warehouse" in str(caught.value)
     assert "unknown datasource" in str(caught.value)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_observe_uses_registered_global_datasource(
@@ -65,7 +66,7 @@ def test_observe_uses_registered_global_datasource(
     session = mv.session.create("registered", timezone="UTC")
     output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).compute()
     assert output.to_pandas()[("value", "revenue")].tolist() == [expected]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     saved = output.persist()
     artifact_id = saved.artifact.id
     assert session.persisted_frame(artifact_id).artifact.id == artifact_id

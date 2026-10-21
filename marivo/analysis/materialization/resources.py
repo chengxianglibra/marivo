@@ -57,7 +57,6 @@ def reserve_output(
                 received="an existing output location",
                 repair="Inspect the selected generation integrity before retrying.",
                 stage="storage_staging",
-                run_ref=run_ref,
             )
     for record in records:
         store.reserve(record)
@@ -94,10 +93,9 @@ def discharge_resources(
             raise RecoveryPendingError(
                 expected=f"confirmed owned {provider} control connection release",
                 received="the original control close acknowledgement is unavailable",
-                repair="Inspect the original Run and its control connection obligation; do not replay or cancel a different connection.",
+                repair=f"Restore confirmation of the original {provider} control connection release; do not cancel another connection. Then call mv.session.resume({_resource_session(store, resource)!r}).",
                 stage="reconciliation",
-                help_target="session.get_run",
-                run_ref=resource.run_ref,
+                help_target="session.resume",
             )
         if resource.cleanup_capability_id == _READ_CAPABILITY:
             parts = resource.safe_locator.split("/")
@@ -113,10 +111,9 @@ def discharge_resources(
         raise RecoveryPendingError(
             expected="resolved local publication ownership and resource cleanup",
             received="an unsupported resource obligation",
-            repair="Inspect the recorded resource obligation before retrying Session recovery.",
+            repair=f"Restore support for resource kind {resource.resource_kind!r} and cleanup capability {resource.cleanup_capability_id!r}, then call mv.session.resume({_resource_session(store, resource)!r}).",
             stage="reconciliation",
-            help_target="session.get_run",
-            run_ref=resource.run_ref,
+            help_target="session.resume",
         )
     resolved: list[ResourceRecord] = []
     for resource in resources:
@@ -127,10 +124,9 @@ def discharge_resources(
             raise RecoveryPendingError(
                 expected="the registered exact resource cleanup capability",
                 received="an unsupported resource obligation",
-                repair="Restore the recorded cleanup capability before retrying.",
+                repair=f"Restore cleanup capability {resource.cleanup_capability_id!r}, then call mv.session.resume({_resource_session(store, resource)!r}).",
                 stage="reconciliation",
-                help_target="session.get_run",
-                run_ref=resource.run_ref,
+                help_target="session.resume",
             )
         relative = PurePosixPath(resource.safe_locator)
         run = store._resource_run(resource.run_ref)
@@ -161,10 +157,16 @@ def discharge_resources(
 
 def _invalid_resource(resource: ResourceRecord) -> IntegrityError:
     return IntegrityError(
-        expected="an exact Run-owned local path with matching ownership nonce",
+        expected="an exactly owned local path with matching ownership nonce",
         received="an inconsistent resource obligation",
         repair="Inspect the selected generation integrity; do not delete guessed resources.",
         stage="reconciliation",
-        help_target="session.get_run",
-        run_ref=resource.run_ref,
+        help_target="session.resume",
     )
+
+
+def _resource_session(store: SessionStore, resource: ResourceRecord) -> str:
+    run = store._resource_run(resource.run_ref)
+    if run is None:
+        raise _invalid_resource(resource)
+    return run.session_ref

@@ -49,7 +49,7 @@ from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import numeric_literal_node, numeric_program_frame
+from tests.shared_fixtures import numeric_literal_node, numeric_program_frame, terminal_runs
 
 
 def _metric(value: int) -> MetricNode:
@@ -110,13 +110,13 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     query.show()
     rendered = capsys.readouterr().out
     assert "revenue" in rendered and "aov" in rendered and "pending" in rendered
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     assert query.compute().to_pandas()[("value", "revenue")].tolist() == [10]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     artifacts = [query.persist() for _ in range(2)]
     assert len({artifact.artifact.id for artifact in artifacts}) == 2
-    assert len(session.runs().items) == 2
-    assert all(run.lifecycle == "succeeded" for run in session.runs().items)
+    assert len(terminal_runs(session)) == 2
+    assert all(run.lifecycle == "succeeded" for run in terminal_runs(session))
     assert session._sources_value is None and session._catalog_value is None
     with pytest.raises(FrozenInstanceError):
         query._backing = query._backing  # type: ignore[misc]  # Verify frozen backing at runtime.
@@ -143,7 +143,7 @@ def test_definition_ownership_is_checked_without_source_reads(
     )
     with pytest.raises(CoreRuleError, match="Session"):
         session.frame(domain)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("composition", ("direct", "scale", "reverse", "ratio", "negate"))
@@ -207,7 +207,7 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
         )
     assert _graph(query).signature.declared_metrics
     assert _graph(query).fingerprint
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("bad", ("artifact_exact", 1, None))
@@ -218,7 +218,7 @@ def test_observe_does_not_resolve_ids_or_other_values(
     session = mv.session.create("reject-input")
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": bad})  # type: ignore[dict-item]  # Deliberately invalid Metric input.
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_terminal_artifact_has_only_identity_and_reader(
@@ -320,7 +320,7 @@ def test_session_reopen_remains_same_generation(
     named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
     assert MaterializationLayout(tmp_path).generation == 15
-    assert resumed.runs().items == ()
+    assert terminal_runs(resumed) == ()
 
 
 def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
@@ -390,9 +390,9 @@ def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
     assert error.expected == "named columns and finite typed literal rows"
     assert error.received and error.repair is not None and error.repair.action
     assert "literal row" in error.repair.action
-    assert error.run_ref is None
+    assert not hasattr(error, "run_ref")
     assert session._catalog_value is None and session._sources_value is None
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -434,7 +434,7 @@ def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
     for target in ("analysis.analysis_frame.compute", mv.AnalysisFrame.compute):
         public_help(target)
         text = capsys.readouterr().out
-        assert "No Run or Artifact is created" in text
+        assert "No Artifact is created" in text
         assert "memory" in text and "stored" in text
     for target in ("analysis.analysis_frame.persist", mv.AnalysisFrame.persist):
         public_help(target)

@@ -50,7 +50,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 @pytest.fixture
@@ -529,7 +529,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
     assert rows[result._schema.values[0].slot_id].tolist() == [60, 120]
     assert rows[result._schema.values[2].slot_id].tolist() == [0, 0]
     assert rows[result._schema.presence[1].slot_id].tolist() == [True, True]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_generated_pair_tokens_and_names_avoid_independent_input_names(
@@ -714,7 +714,7 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
     binding.calendars[0].directory.rows.loc[30, "ordinal"] = 99
     with pytest.raises(AnalysisError, match="original ordinal"):
         source.top(0, by=source["amount"]).compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_empty_actual_domains_keep_nominal_map_without_synthetic_rows(

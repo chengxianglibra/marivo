@@ -22,6 +22,8 @@ from tests.shared_fixtures import (
     DslCaseFactory,
     analysis_dsl_rows,
     export_dsl_parquet_models,
+    terminal_run,
+    terminal_runs,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -134,7 +136,7 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
     current, _ = _observations(case)
     saved = current.persist()
     store = case.session._runtime.store
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     if corruption == "rows":
         receipt = saved.artifact._manifest.data.rows.receipt
         (
@@ -164,10 +166,10 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
         with pytest.raises(AnalysisError) as caught:
             case.session.persisted_frame(saved.artifact.id)
         assert caught.value.expected and caught.value.received and caught.value.repair
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
 
 
-def test_public_history_and_guarded_abandonment_use_query_runs(
+def test_session_recovery_retains_internal_publication_safety(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,23 +177,16 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
     current, _ = _observations(case)
     saved = current.persist()
     session, store = case.session, case.session._runtime.store
-    run = session.get_run(saved.artifact._manifest.run_id)
+    run = terminal_run(session, saved.artifact._manifest.run_id)
     assert run.lifecycle == "succeeded"
     assert isinstance(run.dataset_input, InvocationInput)
     assert mv.session.resume(session.id).id == session.id
-    assert mv.session.inspect(session.id).runs.items[0].run_id == run.run_id
-    latest = session.runs().items[0]
-    assert isinstance(latest, mv.SucceededRun)
-    assert latest.output_artifact_ref.ref == saved.artifact.id
-    session.show()
-    run.show()
-    with pytest.raises(AnalysisError):
-        mv.session.reconcile_run(session_id=session.id, run_id=run.run_id)
+    assert mv.session.inspect(session.id).artifact_count == 1
+    assert run.output_artifact_ref == saved.artifact.id
     terminal_store.admit(store, session.id, "pending", run.dataset_input.result_id)
-    mv.session.reconcile_run(session_id=session.id, run_id="pending")
-    assert session.get_run("pending").lifecycle == "failed"
+    mv.session.resume(session.id)
+    assert terminal_run(session, "pending").lifecycle == "failed"
     terminal_store.admit(store, session.id, "other", run.dataset_input.result_id)
-    mv.session.reconcile_run(session_id=session.id, run_id="pending")
 
     def unavailable(*args: object, **kwargs: object) -> None:
         raise RuntimeError("proof unavailable")
@@ -200,8 +195,8 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
         "marivo.analysis.materialization.terminal_publication.discharge_resources", unavailable
     )
     with pytest.raises(RuntimeError, match="proof unavailable"):
-        mv.session.reconcile_run(session_id=session.id, run_id="other")
-    assert session.get_run("other").lifecycle == "incomplete"
+        mv.session.resume(session.id)
+    assert terminal_run(session, "other").lifecycle == "incomplete"
 
 
 def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
@@ -276,7 +271,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     fixed = current.persist()
     other_session = mv.session.create("foreign", timezone="UTC")
     foreign = other_session.observe({"value": other_session.catalog.metrics.get("sales.revenue")})
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("rejected composition read an input")
@@ -295,7 +290,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
         )
     with pytest.raises(AnalysisError):
         baseline.align(foreign, on=tuple(zip(baseline.axes, foreign.axes, strict=False)))
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
 
 
 def test_members_schema_preflight_does_not_submit_business_rows(
@@ -312,7 +307,7 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     current, _ = _observations(case)
     assert current.output_names
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 @pytest.mark.parametrize("threshold", [float("nan"), 10**38])
@@ -330,7 +325,7 @@ def test_invalid_threshold_rejects_without_another_run(
         predicate = difference["reference.absolute.value"] < threshold
         difference.where(predicate).persist()
     assert current._local.owner == baseline._local.owner
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_large_integer_threshold_retains_exact_comparison(

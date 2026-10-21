@@ -15,7 +15,7 @@ import marivo.semantic as ms
 from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
@@ -66,13 +66,13 @@ def test_named_distribution_carriers_recover_independently(
             median=amount_field.median(time=time),
             approx_median=amount_field.approx_median(time=time),
         )
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         with pytest.raises(SemanticExpressionError, match="qualified approximate quantile route"):
             session.observe(
                 {"value": amount_field.approx_quantile(0.25, time=time)},
                 by=session.members(session.catalog.entities.get("sales.customer")),
             ).persist()
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
     originals: dict[str, Json] = {}
     for name, metric in methods.items():
         value = session.observe(

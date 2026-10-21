@@ -70,12 +70,14 @@ pending `method_facts` 访问需先 compute/persist。存储 getter 校验完整
 派生求值会消费它；坏方法文件可使当前行仍可导出而完整消费失败。保留原文件，按错误修复
 报告的 owned 载荷，不用当前来源重建。见 `marivo.help("analysis.analysis_frame.method_facts")`。
 
-## 精确数据恢复与发布 Run
+## 精确数据恢复与重新提交
 
 保留 Session ID 与 frame.artifact.id，恢复该 Session 后用字符串调用
 `session.persisted_frame(id)`。Frame 拥有数据操作，`.artifact` 拥有审计；
-Artifact/ID 对象及 RawSqlResult 不是计算操作数。compute 失败不创建 Run；发布失败的
-run_ref 指向精确 Run，reconciliation 解决原提交而不重算。
+Artifact/ID 对象及 RawSqlResult 不是计算操作数。保存错误直接给出失败阶段与具体修复。
+提交结果未知时，先恢复所属 Session，再显式重新提交；原提交可能已成功，因此可能重复保存。
+返回的 Artifact ID 丢失时也采用显式重新提交。完整内存数据可再次保存而不求值；
+重新构建来源输入可能读取变化的数据。
 缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
 Store 15 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的

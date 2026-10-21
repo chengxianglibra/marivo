@@ -9,6 +9,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import CoreRuleError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
+from tests.shared_fixtures import terminal_runs
 
 _MODEL = 'import marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders", columns={\n        "order_id": "order_id",\n        "region": "region"}), primary_key=["order_id"])\nevents = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("events", columns={\n        "event_id": "event_id",\n        "order_id": "order_id",\n        "kind": "kind",\n        "occurred_at": "occurred_at"}),\n    primary_key=["event_id"])\nsubject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")\nparticipant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")\nregion = ms.dimension_column(name="region", entity=orders, column="region")\nevent_key = ms.dimension_column(name="event_key", entity=events, column="event_id")\nkind = ms.dimension_column(name="kind", entity=events, column="kind")\ninstant = ms.time_dimension_column(name="instant", entity=events, column="occurred_at",\n    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)\nevent_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,\n    keys=[ms.join_on(participant_key, subject_key)])\nfinalized = ms.finalize()\nevents_value = finalized.resolve(events)\ninstant_value = finalized.resolve(instant)\n@ms.metric()\ndef event_count():\n    return events_value.count(time=instant_value)\n'
 
@@ -92,4 +93,4 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
         == "Resolve the Entity with session.catalog.entities.get(path)."
     )
     assert isinstance(session.members(session.catalog.entities.get("sales.events")), mv.Population)
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()

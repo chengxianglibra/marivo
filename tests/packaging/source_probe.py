@@ -27,6 +27,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.packaging.graph_journeys import _frame
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.source_trace import capture_source
 
@@ -392,7 +393,7 @@ def produce(project: Path) -> dict[str, object]:
     ms.load()
     rows, totals = _raw(project)
     session = mv.session.create("installed", timezone="UTC")
-    before_runs = len(session.runs().items)
+    before_runs = len(terminal_runs(session))
     before = publication_counts(session)
     assert before_runs == 0 and _artifact_count(session) == 0
     native_oracle = _native_weighted(session, project)
@@ -408,7 +409,7 @@ def produce(project: Path) -> dict[str, object]:
             ).compute()
         exports = {name: result.to_pandas() for name, result in completed.items()}
         receipts = _numeric_receipts(completed, exports, native_weighted=native_weighted)
-        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before
         assert trace.native_sql and all(owner._closed for owner in trace.owners)
         submitted = tuple(trace.native_sql)
         saved = {name: result.persist() for name, result in completed.items()}
@@ -425,7 +426,7 @@ def produce(project: Path) -> dict[str, object]:
             "snapshots": receipts,
             "descriptors": descriptors,
             "native_oracle": native_oracle,
-            "run_count": len(session.runs().items),
+            "run_count": len(terminal_runs(session)),
             "publication_counts": checked(publication_counts(session)),
         }
         (project / "source-results.json").write_bytes(encode(state))
@@ -472,7 +473,7 @@ def cold(project: Path) -> dict[str, object]:
             patch.setattr(owner, name, forbidden)
         patch.setattr(mv.Session, "catalog", property(forbidden))
         session = mv.session.resume(identity)
-        before_runs = len(session.runs().items)
+        before_runs = len(terminal_runs(session))
         before = publication_counts(session)
         assert before_runs == state["run_count"] and before == state["publication_counts"]
         saved: dict[str, mv.AnalysisFrame] = {}
@@ -492,7 +493,7 @@ def cold(project: Path) -> dict[str, object]:
             result.artifact.evidence_digest()
             continued = result.select({"value": result["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])
-        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before
         assert session._runtime.store.resources(session.id) == ()
     return {
         "session": session.id,

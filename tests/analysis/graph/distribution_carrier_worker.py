@@ -16,6 +16,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import encode, obj, read
 
 
@@ -52,7 +53,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(session_id)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         for name, item in obj(state["originals"]).items():
             saved = obj(item)
             artifact = saved["artifact"]
@@ -61,7 +62,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             exported = result.to_pandas()
             assert snapshot(result, frame=exported) == saved["snapshot"]
             check_original(result, physical, name, exported=exported)
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
 
 

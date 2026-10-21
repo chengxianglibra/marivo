@@ -12,7 +12,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.store import SessionStore
 from tests.analysis.materialization.state_fixtures import _values
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 def test_read_factory_never_initializes_missing_or_unversioned_state(tmp_path: Path) -> None:
@@ -40,7 +40,7 @@ def test_current_continuation_registry_resolves_to_actual_bound_methods(
     case = analysis_dsl_case_factory("j2")
     logical = _values(case)
     fixed = logical.compute()
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
     assert len(fixed.to_pandas()) == 4
     for value in (
         logical,
@@ -101,7 +101,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
         audit_only.setattr(pq, "ParquetFile", forbidden)
         value.show()
         assert case.session.persisted_frame(value.id).artifact.id == value.id
-    assert len(case.session.runs().items) == 1
+    assert len(terminal_runs(case.session)) == 1
     assert not hasattr(value, "to_pandas")
     assert case.session.persisted_frame(value.id).to_pandas()[("value", "value")].tolist() == [
         450,

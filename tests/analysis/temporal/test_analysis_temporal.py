@@ -23,6 +23,7 @@ from tests.shared_fixtures import (
     analysis_dsl_project_files,
     analysis_dsl_rows,
     seed_analysis_dsl_database,
+    terminal_runs,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -492,8 +493,8 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
     assert isinstance(cause, SemanticExpressionError)
     assert cause.expected == "finite numeric values"
     assert cause.received == "sum; coordinates=[{'key.0': 0}]"
-    assert failure.value.run_ref is None
-    assert session.runs().items == ()
+    assert not hasattr(failure.value, "run_ref")
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
@@ -759,7 +760,7 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
         how="outer",
     ).compute()
     top = outer.top(2, by=outer["value"]).compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     outer_rows, top_rows = outer.to_pandas(), top.to_pandas()
     assert outer_rows.iloc[:, 1].tolist() == ["c", "a", "b"]
     assert top_rows.iloc[:, 1].tolist() == ["c", "a"]

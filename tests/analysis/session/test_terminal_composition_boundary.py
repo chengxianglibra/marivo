@@ -6,6 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from tests.shared_fixtures import terminal_runs
 
 
 def test_artifact_exposes_only_terminal_output_reads() -> None:
@@ -44,7 +45,7 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
     query = session.values(by=(), columns={"value": None}, rows=(((), {"value": 7}),))
     saved = query.persist()
     reopened = session.persisted_frame(saved.artifact.id)
-    runs = session.runs().items
+    runs = terminal_runs(session)
     sources, catalog = session._sources_value, session._catalog_value
     for result in (saved.artifact, reopened.artifact):
         with pytest.raises(AnalysisError):
@@ -55,11 +56,11 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
             query.align(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
         with pytest.raises(AnalysisError):
             query.select({"value": result})  # type: ignore[dict-item]  # Deliberately pass terminal output as Column input.
-    assert session.runs().items == runs
+    assert terminal_runs(session) == runs
     assert session._sources_value is sources and session._catalog_value is catalog
     assert reopened.to_pandas().equals(saved.to_pandas())
 
     assert reopened.select({"double": reopened["value"] * 2}).compute().to_pandas()[
         ("value", "double")
     ].tolist() == [14]
-    assert session.runs().items == runs
+    assert terminal_runs(session) == runs

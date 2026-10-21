@@ -17,6 +17,7 @@ import marivo.analysis as mv
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 
 CASES = [
     ("duckdb", "table"),
@@ -300,10 +301,10 @@ def test_public_native_numeric_query(
         if profile == "distributed":
             from marivo.analysis.errors import AnalysisStageUnavailableError
 
-            before = session.runs().items
+            before = terminal_runs(session)
             with pytest.raises(AnalysisStageUnavailableError, match="Distributed join route"):
                 direct_query.compute()
-            assert session.runs().items == before
+            assert terminal_runs(session) == before
             return
         direct = direct_query.compute()
         returned = direct.to_pandas()[("value", "big")]
@@ -364,10 +365,10 @@ def test_public_native_numeric_methods(
         if backend not in ("duckdb", "postgres"):
             from marivo.analysis.errors import AnalysisStageUnavailableError
 
-            before = session.runs().items
+            before = terminal_runs(session)
             with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
                 quantile.compute()
-            assert session.runs().items == before
+            assert terminal_runs(session) == before
         else:
             assert float(quantile.compute().to_pandas()[("value", "q")].iloc[0]) == 2.0
 

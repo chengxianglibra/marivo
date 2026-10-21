@@ -13,7 +13,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -207,7 +207,7 @@ def test_terminal_relation_returns_only_selected_rows(
             assert pd.isna(rows["value", "amount"].iloc[3])
     assert trace.returned_rows == [4]
     assert trace.uploaded_key_rows == []
-    assert source_query_session.runs().items == ()
+    assert terminal_runs(source_query_session) == ()
 
 
 def test_top_and_where_keep_call_order(source_query_session: Session) -> None:
@@ -255,7 +255,7 @@ def test_empty_selection_retains_full_identity_checks(
         db.execute("INSERT INTO orders VALUES (1,'different',99,0)")
     with pytest.raises(MaterializationError, match="exactly one attribute row"):
         query.compute()
-    assert source_query_session.runs().items == ()
+    assert terminal_runs(source_query_session) == ()
 
 
 def test_cell_sum_overflow_is_checked_before_empty_filter(
@@ -328,7 +328,7 @@ def test_aggregate_selection_retains_parent_strict_null_check(
     )
     with pytest.raises(MaterializationError, match="non-NA"):
         query.compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_aggregate_top_population_keeps_original_parent_ranking(
@@ -589,4 +589,4 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
         if start.month == 9:
             assert "paid" in str(read["filters"])
     assert starts == {(9, 10), (10, 11)}
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1

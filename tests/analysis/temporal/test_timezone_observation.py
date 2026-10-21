@@ -22,6 +22,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _ROWS = (
@@ -265,7 +266,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     )
     pq.write_table(table, path)
     session = mv.session.create("unsupported-conversion", timezone="Asia/Shanghai")
-    before = session.runs().items
+    before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("business reads must not precede exact conversion admission")
@@ -276,7 +277,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
         match="submicrosecond conversion unsupported",
     ):
         _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02")).compute()
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
 
 
 def test_exact_mean_qualification_missing_still_rejects_before_run(
@@ -300,7 +301,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(AnalysisError, match="qualification unavailable"):
         value.compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_explicit_instant_bounds_do_not_erase_report_identity(
@@ -348,7 +349,7 @@ def test_failed_reader_timezone_probe_does_not_fall_back(
     monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", failed)
     with pytest.raises(AnalysisError, match="timezone probe unavailable"):
         value.compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
     assert _values(value) == {"A": 465, "B": 60}
 

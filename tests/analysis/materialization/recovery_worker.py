@@ -12,6 +12,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import arr, encode, obj, read
 
 
@@ -27,7 +28,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(session_id)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         for artifact, saved in zip(
             arr(state["inputs"]), arr(state["input_snapshots"]), strict=True
         ):
@@ -39,7 +40,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             assert frame[("value", "value")].sum() == 6
             assert frame.loc[frame[("value", "value")] > 0].shape[0] == 2
             result.show(n=1)
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
 

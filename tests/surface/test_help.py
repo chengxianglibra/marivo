@@ -209,7 +209,6 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
         "analysis.evidence",
         "analysis.runtime",
         "analysis.runtime.sessions",
-        "analysis.runtime.runs",
     ),
 )
 def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
@@ -223,7 +222,6 @@ def test_slice3_bounded_target_projections_resolve_independently() -> None:
         "evidence",
         "runtime",
         "runtime.sessions",
-        "runtime.runs",
     ):
         from marivo.analysis._capabilities.dataset_model import NavigationInput
 

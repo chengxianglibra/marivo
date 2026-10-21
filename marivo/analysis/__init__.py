@@ -38,10 +38,6 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import Finding as Finding
     from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
     from marivo.analysis.refs import ArtifactRef as ArtifactRef
-    from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
-    from marivo.analysis.session._lazy_read_model import IncompleteRun as IncompleteRun
-    from marivo.analysis.session._lazy_read_model import RunPage as RunPage
-    from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
     from marivo.analysis.session.core import Session as Session
 
 

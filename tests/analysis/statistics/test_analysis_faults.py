@@ -17,7 +17,7 @@ from tests.analysis.statistics.pandas_workflows import (
     plain,
     receipt_paths,
 )
-from tests.shared_fixtures import DslCaseFactory, run_ids
+from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
 def test_terminal_schema_and_manifest_authority_rejects_damage(
@@ -185,4 +185,4 @@ def test_resources_atomic_publication_and_native_failure(
         assert run_ids(case.session) == before
     else:
         assert len(run_ids(case.session) - before) == 1
-        assert len(case.session.runs(status="failed").items) == 1
+        assert len(terminal_runs(case.session, status="failed")) == 1

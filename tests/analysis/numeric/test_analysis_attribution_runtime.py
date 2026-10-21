@@ -36,6 +36,7 @@ from tests.shared_fixtures import (
     DslCaseFactory,
     analysis_dsl_rows,
     export_dsl_parquet_models,
+    terminal_runs,
 )
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
@@ -140,12 +141,12 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         assert {(r.key_0, r.key_1): r.value for r in direct.itertuples()} == expected
     selected = frame.loc[frame.contribution > 0]
     assert selected[["current"]].shape == selected[["baseline"]].shape
-    before = len(case.session.runs().items)
+    before = len(terminal_runs(case.session))
     restored = tuple(case.session.persisted_frame(value.artifact.id) for value in inputs)
     pd.testing.assert_frame_equal(
         allocation(*(basis(value) for value in restored), method="count"), frame
     )
-    assert len(case.session.runs().items) == before
+    assert len(terminal_runs(case.session)) == before
     assert all(not hasattr(value, "attribute") for value in restored)
 
 
@@ -327,7 +328,7 @@ def test_static_refusals_and_shared_compiled_submissions(
     monkeypatch.setattr(SourceSession, "execute", audited)
     inputs = _inputs(case)
     current, baseline = (basis(value) for value in inputs)
-    before = (len(issued), len(case.session.runs().items))
+    before = (len(issued), len(terminal_runs(case.session)))
     for bad in (True, False, 0, -1, 1001, 1.5):
         with pytest.raises(ValueError, match="top_k"):
             allocation(current, baseline, top_k=bad)  # type: ignore[arg-type]  # Runtime validation of explicit pandas parameters.
@@ -339,10 +340,10 @@ def test_static_refusals_and_shared_compiled_submissions(
     result = allocation(current, baseline, method="count")
     views = result[["current", "baseline", "contribution"]]
     assert views.shape == (4, 3)
-    assert issued and before == (len(issued), len(case.session.runs().items))
+    assert issued and before == (len(issued), len(terminal_runs(case.session)))
     assert all("reconciled AS" not in sql and "attributed AS" not in sql for sql in issued)
     assert not hasattr(inputs[0], "drill")
-    assert before == (len(issued), len(case.session.runs().items))
+    assert before == (len(issued), len(terminal_runs(case.session)))
 
 
 def test_period_buckets_and_retained_coarsened_partition(
@@ -429,10 +430,10 @@ def test_zero_component_basis_cannot_hide_under_other(
     )
     ms.load(workspace_dir=case.root)
     inputs = _inputs(case, weight=True)
-    before = len(case.session.runs().items)
+    before = len(terminal_runs(case.session))
     with pytest.raises(ValueError, match="nonzero category numerator"):
         allocation(*(basis(value) for value in inputs), method="ratio", top_k=1)
-    assert len(case.session.runs().items) == before
+    assert len(terminal_runs(case.session)) == before
     assert basis(inputs[0]).amount.tolist() == [1, 0]
 
 
@@ -484,11 +485,11 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
     ms.load(workspace_dir=case.root)
     inputs = _inputs(case)
     assert basis(inputs[0]).amount.tolist() == [Decimal("1.000000")] * 3
-    before = case.session.runs().items
+    before = terminal_runs(case.session)
     # Three separately rounded 1/3 contributions total .999999, not the parent's 1.
     with pytest.raises(ValueError, match="reconcile"):
         allocation(*(basis(value) for value in inputs), method="mean")
-    assert case.session.runs().items == before
+    assert terminal_runs(case.session) == before
     assert basis(inputs[0]).amount.tolist() == [Decimal("1.000000")] * 3
 
 
@@ -562,7 +563,7 @@ def test_attribution_publication_cleans_only_failed_run(
     expected = fixed.to_pandas()
     for point in ("terminal_primary_written", "terminal_files_published"):
         before = set((case.root / ".marivo").rglob("*.parquet"))
-        succeeded = case.session.runs(status="succeeded").items
+        succeeded = terminal_runs(case.session, status="succeeded")
 
         def fail(event: str, stage: str = point) -> None:
             if event == stage:
@@ -575,7 +576,7 @@ def test_attribution_publication_cleans_only_failed_run(
             with pytest.raises((AnalysisError, RuntimeError)):
                 query.persist()
         assert set((case.root / ".marivo").rglob("*.parquet")) == before
-        assert case.session.runs(status="succeeded").items == succeeded
+        assert terminal_runs(case.session, status="succeeded") == succeeded
         pd.testing.assert_frame_equal(fixed.to_pandas(), expected)
         with case.session._runtime.store._read() as conn:
             assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0

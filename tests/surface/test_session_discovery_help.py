@@ -14,7 +14,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.expressions import Entity
-from tests.shared_fixtures import DslCaseFactory, rendered_help
+from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
 
 
 @pytest.mark.parametrize(
@@ -82,7 +82,7 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
     civil = time_scope(start="2026-01-01", end="2026-02-01")
     with pytest.raises(ValueError, match="frozen timezone"):
         civil.by(mv.grain("day"))
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_catalog_discovery_separates_definitions_from_execution_values(
@@ -130,7 +130,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     population = case.session.members(entity)
     assert isinstance(query, mv.AnalysisFrame) and query.output_names
     assert population.axes
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_catalog_focused_help_preserves_owning_output_families() -> None:

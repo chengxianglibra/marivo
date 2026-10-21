@@ -17,6 +17,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.statistics.pandas_workflows import plain
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, encode, obj, read
 
 KEYS = (("a", 9007199254740992, 1), ("a", 9007199254740993, 2), ("b", 9007199254740993, 1))
@@ -100,7 +101,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "execute", forbidden),
     ):
         session = mv.session.resume(identity)
-        before = len(session.runs().items)
+        before = len(terminal_runs(session))
         outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
@@ -111,7 +112,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             outputs[name] = value
         derived = recipes(outputs)
         assert derived == obj(state["derived"])
-        assert len(session.runs().items) == before
+        assert len(terminal_runs(session)) == before
         assert all(
             not hasattr(value, "standardize") and not hasattr(value, "execute")
             for value in outputs.values()

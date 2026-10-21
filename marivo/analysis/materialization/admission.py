@@ -16,13 +16,6 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.session._lazy_read_model import (
-    RunLifecycle,
-    RunPage,
-)
-from marivo.analysis.session._lazy_read_model import (
-    RunRecord as ReadRunRecord,
-)
 from marivo.analysis.session._lazy_sources import make_source_owner
 from marivo.datasource import credentials as cr
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
@@ -50,7 +43,6 @@ class DatasetRuntime:
             resolution=session_record.report_timezone_resolution,
         )
         self._hook = event
-        self.last_run_ref: str | None = None
         self.connection_config = DatasourceConnectionConfig(
             store.project_root, cr.current_resolver()
         )
@@ -149,13 +141,3 @@ class DatasetRuntime:
     def _event(self, point: str) -> None:
         if self._hook is not None:
             self._hook(point)
-
-    def runs(
-        self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
-    ) -> RunPage:
-        """Read a bounded newest-first page without admitting or reconciling work."""
-        return self.local.runs(status=status, limit=limit, cursor=cursor)
-
-    def get_run(self, run_id: str) -> ReadRunRecord:
-        """Read one exact Run owned by this execution Session."""
-        return self.local.get_run(run_id)

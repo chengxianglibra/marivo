@@ -24,6 +24,10 @@ if TYPE_CHECKING:
     from marivo._temporal import TimeScope
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.materialization.frame_services import LocalFrameServices
+    from marivo.analysis.materialization.store import SessionStore
+    from marivo.analysis.materialization.terminal_store import TerminalRun
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic.catalog import SemanticCatalog
@@ -883,15 +887,57 @@ def seed_multi_metric_tables(con: ibis.duckdb.DuckDBBackend) -> None:
     con.raw_sql("INSERT INTO users VALUES (100, DATE '2026-07-01'), (200, DATE '2026-07-03')")
 
 
+def _publication_store(
+    owner: Session | DatasetRuntime | LocalFrameServices,
+) -> tuple[SessionStore, str]:
+    from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.session.core import Session
+
+    local = (
+        owner._runtime.local
+        if isinstance(owner, Session)
+        else owner.local
+        if isinstance(owner, DatasetRuntime)
+        else owner
+    )
+    return local.store, local.session_ref
+
+
+def terminal_runs(
+    owner: Session | DatasetRuntime | LocalFrameServices,
+    *,
+    status: Literal["incomplete", "succeeded", "failed"] | None = None,
+) -> tuple[TerminalRun, ...]:
+    """Inspect internal publication records without a public history API."""
+    from marivo.analysis.materialization.terminal_store import run
+
+    store, session_id = _publication_store(owner)
+    with store._read() as conn:
+        refs = conn.execute(
+            "SELECT run_ref FROM analysis_action_runs WHERE session_ref=? ORDER BY admitted_at DESC,run_ref DESC",
+            (session_id,),
+        ).fetchall()
+        values = tuple(run(store, conn, row[0]) for row in refs)
+    assert all(value is not None for value in values)
+    return tuple(
+        value
+        for value in values
+        if value is not None and (status is None or value.lifecycle == status)
+    )
+
+
+def terminal_run(owner: Session | DatasetRuntime | LocalFrameServices, run_id: str) -> TerminalRun:
+    from marivo.analysis.materialization.terminal_store import run
+
+    store, session_id = _publication_store(owner)
+    with store._read() as conn:
+        value = run(store, conn, run_id)
+    assert value is not None and value.session_ref == session_id
+    return value
+
+
 def run_ids(session: Session) -> set[str]:
-    identities: set[str] = set()
-    cursor: str | None = None
-    while True:
-        page = session.runs(limit=100, cursor=cursor)
-        identities.update(item.run_id for item in page.items)
-        cursor = page.next_cursor
-        if cursor is None:
-            return identities
+    return {item.run_ref for item in terminal_runs(session)}
 
 
 def numeric_program_frame(

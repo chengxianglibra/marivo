@@ -17,6 +17,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -142,7 +143,7 @@ def test_native_float_read_pending_chain_and_reducers(
             ScalarDataType("int64"),
         )
     assert calls == [4, 4, 4]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("operation", ("align", "compare"))
@@ -212,7 +213,7 @@ def test_native_types_empty_all_null_persist_and_reopen(
     continued = _chain(reopened).compute()
     assert _schema(continued) == (ScalarDataType("float64"),) * 2
     assert len(calls) == read_count
-    assert len(session.runs().items) == 1
+    assert len(terminal_runs(session)) == 1
 
 
 def test_duckdb_exact_integer_and_native_decimal_remain_exact(session: Session) -> None:
@@ -274,7 +275,7 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
         with pytest.raises(MaterializationError, match="integer keys"):
             source = _read(session)
             source.top(0, by=source["big"]).compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     with monkeypatch.context() as patch:
         _native_float(patch, nonfinite=True)
         source = _read(session)
@@ -284,10 +285,10 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
     source = session.observe({"strict": big.sum(nulls="error")})
     with pytest.raises(MaterializationError, match="non-NA"):
         source.top(0, by=source["strict"]).compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     _native_float(monkeypatch)
     source = _read(session)
     invalid = source.select({"bad": source["big"].divide(0, zero_denominator="error")})
     with pytest.raises(MaterializationError, match="nonzero denominator"):
         invalid.top(0, by=invalid["bad"]).compute()
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()

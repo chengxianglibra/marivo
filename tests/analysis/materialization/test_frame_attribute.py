@@ -12,6 +12,7 @@ from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 def _flat(rows: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +96,7 @@ def test_default_q_major_outer_presence_canonical_and_continuation(session: Sess
     )
     pd.testing.assert_frame_equal(rows.loc[:, list(expected)], expected)
     assert fixed.top(0, by=fixed["absolute.q"]).compute().to_pandas().empty
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +128,7 @@ def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.Monk
         assert caught.value.repair is not None
         assert "nonempty" in caught.value.expected or "non-empty" in caught.value.expected
     assert reads == []
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_ordinary_compare_population_bridge_uses_fixed_keys_and_fresh_values(
@@ -1096,7 +1097,7 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     trace = capture_source(monkeypatch)
     pending = session.attribute(left, right, by=(channel,))
     pending.show(n=0)
-    assert trace.native_sql == [] and session.runs().items == ()
+    assert trace.native_sql == [] and terminal_runs(session) == ()
     originals = tuple(
         session.observe({"q": metric}, where=condition, by=axes).compute()
         for condition in (current, baseline)
@@ -1119,7 +1120,7 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
             dict.fromkeys(parameter.stage_id for parameter in stage.parameters)
         )
         assert stage.native_reads
-    assert fixed.method_facts == () and session.runs().items == ()
+    assert fixed.method_facts == () and terminal_runs(session) == ()
     assert all(
         column.dtype == DecimalDataType(38, 9) and column.unit == "USD" and column.nullable
         for column in fixed._schema.values
@@ -1162,7 +1163,7 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     unit = session.values(by=(), columns={"parent": "1"}, rows=(((), {"parent": 1}),)).compute()
     empty = unit.where(unit["parent"] < 0).compute()
     assert session.attribute(left, right, by=(channel,), parents=empty).compute().to_pandas().empty
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_fixed_attribute_method_facts_survive_named_multi_baseline_compare(

@@ -56,7 +56,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
 
 
 @pytest.fixture
@@ -714,7 +714,7 @@ def test_source_per_group_keeps_middle_overflow_before_cancellation(
             _execute(session, query, optimized=optimized)
         errors.append((type(error.value), str(error.value)))
     assert errors[0] == errors[1]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_multiple_current_consumers_preserve_filter_barriers(optimization_session: Session) -> None:
@@ -1141,7 +1141,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     composite = session.catalog.entities.get("sales.composite_orders")
     members = session.members(session.catalog.entities.get("sales.composite_orders"))
     query = session.frame(members)
-    runs_before = session.runs().items
+    runs_before = terminal_runs(session)
     calls: list[str] = []
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -1159,7 +1159,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
         assert error.value.received == repr(query.axes[0].key_names)
         assert error.value.repair is not None
         assert "complete axis" in error.value.repair.action
-        assert session.runs().items == runs_before
+        assert terminal_runs(session) == runs_before
     assert calls == []
     exported = query.compute().to_pandas()
     assert exported.iloc[:, 0].tolist() == [(1, "x"), (2, "y"), (3, "x"), (4, "z")]
@@ -1181,7 +1181,7 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
 
     session = optimization_session
     entity = session.catalog.entities.get("sales.composite_orders")
-    before = session.runs().items
+    before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Literal identities must not read a business source")
@@ -1200,7 +1200,7 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
         assert error.value.received == "Ref"
         assert error.value.repair is not None
         assert "mv.identity(entity)" in error.value.repair.action
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
     assert session.frame(domain).compute().to_pandas().iloc[:, 0].tolist() == [
         (1, "x"),
         (999, "unconfirmed"),

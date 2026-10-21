@@ -13,7 +13,7 @@ from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameB
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.ir import AggKind
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -83,7 +83,7 @@ def test_direct_distribution(
         assert caught.value.expected == "a qualified approximate quantile route"
         assert caught.value.received == "Ibis 12 has no approximate quantile operation"
         assert caught.value.repair is not None
-        assert case.session.runs().items == ()
+        assert terminal_runs(case.session) == ()
         # Choose the supported exact algorithm explicitly on the same input rows.
         agg = ("percentile", agg[1])
         observed = _distribution(case, agg)
@@ -806,7 +806,7 @@ def test_definition_quantile_checks_q_and_accepts_endpoints(
         for expression in (value.quantile(q, time=time), value.approx_quantile(q, time=time)):
             with pytest.raises(ms.errors.SemanticExpressionError):
                 session.observe({"value": expression})
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     for q, expected in ((0, 150), (1, 450)):
         result = session.observe(
             {"value": value.quantile(q, time=time)},
@@ -836,7 +836,7 @@ def test_exact_and_approximate_definition_identities_never_alias(
         assert isinstance(backing.root, SourceFrameBinding)
         fingerprints.add(backing.root.graph.fingerprint)
     assert len(fingerprints) == len(variants)
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 @pytest.mark.parametrize("floating", [False, True])
@@ -883,12 +883,12 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
             original,
             session.observe({"value": first + small - cancel}, where=mv.in_population(members)),
         ):
-            before = session.runs().items
+            before = terminal_runs(session)
             with pytest.raises(AnalysisError) as caught:
                 query.compute()
             assert isinstance(caught.value.__cause__, ms.errors.SemanticExpressionError)
             assert caught.value.__cause__.expected == "signed int64 arithmetic"
-            assert session.runs().items == before
+            assert terminal_runs(session) == before
     # This distinct bounded expression preserves the business cancellation.
     logical = (
         original if floating else session.observe({"value": (first - cancel) + small}, by=members)
@@ -938,11 +938,11 @@ def test_current_row_counts_keep_numeric_null_policy(
         raise AssertionError("Invalid statistic read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    before = session.runs().items
+    before = terminal_runs(session)
     with pytest.raises(AnalysisError) as caught:
         logical.reduce({"invalid": object()})  # type: ignore[dict-item]  # Exercise the runtime statistic boundary.
     error = caught.value
     assert error.expected == "an unfinished Column statistic or row_count()"
     assert error.received == "object"
     assert error.repair is not None and "statistic" in error.repair.action
-    assert session.runs().items == before
+    assert terminal_runs(session) == before

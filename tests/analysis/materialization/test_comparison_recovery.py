@@ -58,6 +58,7 @@ def test_native_comparison_independent_fixed_and_cold(
 import json, os, sys
 from pathlib import Path
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -72,12 +73,12 @@ SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 state = json.loads(Path('comparison-recovery.json').read_text())
 session = mv.session.resume(state['session'])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 for name, item in state['originals'].items():
     result = session.persisted_frame(item['artifact'])
     assert snapshot(result) == item['snapshot']
     assert_comparison(result, name)
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'phase':sys.argv[1]}))
 """
     reports = []

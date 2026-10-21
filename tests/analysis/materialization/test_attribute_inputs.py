@@ -13,6 +13,7 @@ from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -1047,7 +1048,7 @@ def test_endpoint_factory_preserves_capture_without_execution(
     condition = region == "east"
     memberships = (mv.identity(session.catalog.entities.get("sales.facts")),)
     metrics = {"sum": first, "mean": second}
-    before = session.runs().items
+    before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Endpoint capture must not read a source or Catalog")
@@ -1071,4 +1072,4 @@ def test_endpoint_factory_preserves_capture_without_execution(
     assert default.during is None and default.where is None and default.memberships == ()
     with pytest.raises(TypeError):
         endpoint.metrics["new"] = first
-    assert session.runs().items == before
+    assert terminal_runs(session) == before

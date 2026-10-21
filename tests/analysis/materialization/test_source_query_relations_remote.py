@@ -15,6 +15,7 @@ from marivo.analysis.materialization.query_key_fusion import _outer_join_value
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
 
 CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -248,4 +249,4 @@ def test_remote_multiple_shared_parameters_are_replaced_atomically(
         )
         rows = query.compute().to_pandas()
         assert rows["value", "n"].tolist() == [2]
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()

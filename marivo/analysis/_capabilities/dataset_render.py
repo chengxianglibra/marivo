@@ -26,7 +26,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         lines = [
             resolved.error_name or "AnalysisError",
             "  Analysis error contract.",
-            "  Fields: message, expected, received, location, optional run_ref and repair. Inspect the instance facts before choosing a repair.",
+            "  Fields: message, expected, received, location and repair. Inspect the instance facts before choosing a repair.",
         ]
         text = "\n".join(lines) + "\n"
         budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]

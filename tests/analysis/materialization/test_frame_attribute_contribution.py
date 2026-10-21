@@ -11,6 +11,7 @@ import marivo.analysis as mv
 from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -263,7 +264,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
         monkeypatch.setattr(SourceSession, "execute", read)
         pending.show(n=0)
         assert reads == []
-        assert session.runs().items == ()
+        assert terminal_runs(session) == ()
     with pytest.raises(MaterializationError) as failure:
         pending.compute()
     error = failure.value

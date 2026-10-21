@@ -33,6 +33,7 @@ from marivo.analysis.methods.query_population import _token, evaluate_population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import terminal_runs
 
 
 @pytest.fixture
@@ -163,7 +164,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     integer = pa.int32() if physical == pa.date32() else pa.int64()
     for frame in (memory, stored, reopened):
-        before = session.runs().items
+        before = terminal_runs(session)
         selected = _population(session, frame, joint=True)
         result = session.frame(selected).compute().to_pandas()
         assert pa.array(result.iloc[:, 0]).type == physical
@@ -186,7 +187,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
             maximum,
         ]
         assert _ticks(session, projected.where(~mv.in_population(projected)), integer) == []
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
 
 
 @pytest.mark.parametrize(
@@ -285,6 +286,7 @@ import os, sys
 from unittest.mock import patch
 import pyarrow as pa
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from marivo.analysis.materialization import frame_evaluation
 from marivo.datasource.adapters import SourceSession
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
@@ -293,12 +295,12 @@ def forbidden(*args, **kwargs):
 with patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
-    before = session.runs().items
+    before = terminal_runs(session)
     target = session.catalog.fields.get('sales.facts.t')
     population = session.population_from(saved, on=((saved.axes[0], target),))
     result = session.frame(population).compute()
     assert pa.array(result.to_pandas().iloc[:, 0]).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
 print('cold-frame-keys-temporal-exact')
 """
     result = subprocess.run(
@@ -346,7 +348,7 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     assert transported[0].column(0).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]
     assert transported[0].column(1).to_pylist() == ["A", "B", "C"]
     assert computed.to_pandas()["value", "amount"].tolist() == [50]
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
     facts = computed._backing.metadata.audit.source_facts
     selections = [
         json.loads(item[1])

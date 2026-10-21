@@ -12,11 +12,11 @@ import marivo.analysis as mv
 from marivo.analysis.errors import SessionAlreadyExistsError, SessionNotFoundError
 from marivo.analysis.materialization.terminal_store import admit
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
 
 
 def test_lifecycle_surface_has_one_explicit_entrypoint() -> None:
-    assert set(mv.session.__all__) == {"create", "resume", "recent", "inspect", "reconcile_run"}
+    assert set(mv.session.__all__) == {"create", "resume", "recent", "inspect"}
     assert tuple(signature(mv.session.create).parameters) == (
         "name",
         "question",
@@ -48,7 +48,7 @@ def test_create_is_strict_and_preserves_frozen_metadata(
     assert original._record() == before
     assert original.domains == ("sales",)
     assert mv.session.resume(original.id)._record() == before
-    assert mv.session.inspect(original.id).summary.question == "Why?"
+    assert mv.session.inspect(original.id).question == "Why?"
     for field in ("id", "name", "question", "timezone", "domains", "created_at", "updated_at"):
         with pytest.raises(AttributeError):
             setattr(original, field, "changed")
@@ -88,7 +88,7 @@ def test_exact_id_cannot_be_confused_with_another_name(
     first = mv.session.create("first")
     mv.session.create(first.id)
     assert mv.session.resume(first.id).id == first.id
-    assert mv.session.inspect(first.id).summary.id == first.id
+    assert mv.session.inspect(first.id).id == first.id
     for read in (mv.session.resume, mv.session.inspect):
         with pytest.raises(SessionNotFoundError):
             read("first")
@@ -123,7 +123,7 @@ def test_resume_recovers_pending_run_without_loading_catalog(
     admit(session._runtime.store, session.id, "run_pending", "output_pending")
     monkeypatch.setattr(mv.Session, "_sources", lambda _: pytest.fail("recovery loaded semantics"))
     recovered = mv.session.resume(session.id)
-    assert recovered.get_run("run_pending").lifecycle == "failed"
+    assert terminal_run(recovered, "run_pending").lifecycle == "failed"
     stable = recovered._record()
     assert mv.session.resume(session.id)._record() == stable
 
@@ -135,8 +135,8 @@ def test_recovery_respects_active_writer_and_run_ownership(
     session = mv.session.create("guarded")
     other = mv.session.create("other")
     admit(session._runtime.store, session.id, "run_pending", "output_pending")
-    with pytest.raises(mv.errors.AnalysisError):
-        mv.session.reconcile_run(session_id=other.id, run_id="run_pending")
+    mv.session.resume(other.id)
+    assert terminal_run(session, "run_pending").lifecycle == "incomplete"
     with (
         session_writer_guard(
             session._runtime.store.layout.lock_path(session.id), session_ref=session.id
@@ -144,13 +144,13 @@ def test_recovery_respects_active_writer_and_run_ownership(
         pytest.raises(mv.errors.AnalysisError),
     ):
         mv.session.resume(session.id)
-    mv.session.reconcile_run(session_id=session.id, run_id="run_pending")
-    assert session.get_run("run_pending").lifecycle == "failed"
+    mv.session.resume(session.id)
+    assert terminal_run(session, "run_pending").lifecycle == "failed"
 
 
 @pytest.mark.parametrize(
     "read",
-    [lambda: mv.session.recent(limit=0), lambda: mv.session.inspect("missing", run_limit=101)],
+    [lambda: mv.session.recent(limit=0), lambda: mv.session.recent(limit=101)],
 )
 def test_invalid_page_is_rejected_before_store_creation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read: Callable[[], object]
@@ -176,7 +176,7 @@ def test_literal_frame_and_empty_bridge_do_not_load_catalog(
     values = session.values(columns={"answer": None}, rows=(((), {"answer": 7}),))
     bridged = session.population_from(values, on=())
     assert len(session.frame(bridged).compute().to_pandas()) == 1
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_members_consumes_resolved_entity_without_original_version_gate(

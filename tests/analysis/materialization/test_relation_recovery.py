@@ -17,7 +17,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.packaging.relation_journeys import Scenario
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
 from tests.support.json import Json, read
 from tests.support.paths import PROJECT_ROOT
 
@@ -94,7 +94,7 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     previous_rows = previous.to_pandas()
     assert expected[("value", "reference.absolute.value")].tolist() == [0, 0, 0, 0]
     assert previous_rows[("value", "value")].tolist() == [1, 1, 1, 1]
-    runs_before = session.runs().items
+    runs_before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("damaged terminal output replayed its source")
@@ -118,10 +118,10 @@ def test_required_terminal_receipts_reject_corruption_without_source(
             with pytest.raises(AnalysisError):
                 difference.to_pandas()
             pd.testing.assert_frame_equal(previous.to_pandas(), previous_rows)
-            assert session.runs().items == runs_before
+            assert terminal_runs(session) == runs_before
         finally:
             primary.write_bytes(contents)
         pd.testing.assert_frame_equal(
             session.persisted_frame(difference.artifact.id).to_pandas(), expected
         )
-    assert session.runs().items == runs_before
+    assert terminal_runs(session) == runs_before

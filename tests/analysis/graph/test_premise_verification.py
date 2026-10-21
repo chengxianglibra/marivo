@@ -13,7 +13,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
 def _reads(monkeypatch: pytest.MonkeyPatch) -> list[CompiledRead]:
@@ -84,10 +84,10 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     assert reads
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
-    before = session.runs().items
+    before = terminal_runs(session)
     with pytest.raises(AnalysisError):
         values.where(values["value"] == "east").persist()
-    assert session.runs().items == before
+    assert terminal_runs(session) == before
     assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
 
@@ -118,9 +118,9 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         left = values.where(values["value"] > 20)
         unequal = values.where(values["value"] > 16)
         matching = values.where(values["value"] > 20)
-        before = session.runs().items
+        before = terminal_runs(session)
         paired = left.align(matching, on=tuple(zip(left.axes, matching.axes, strict=True)))
-        assert session.runs().items == before
+        assert terminal_runs(session) == before
         with pytest.raises(AnalysisError, match="equal actual complete row-key domains"):
             left.align(unequal, on=tuple(zip(left.axes, unequal.axes, strict=True))).persist()
         ratios = paired.select({"value": paired["left.value"] / paired["right.value"]}).persist()
@@ -198,6 +198,7 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
                     """
 import json, os, sys
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
@@ -208,13 +209,13 @@ ms.load = forbidden
 SourceSession.bind = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1])
-before = len(session.runs().items)
+before = len(terminal_runs(session))
 saved = session.persisted_frame(sys.argv[2])
 frame = saved.to_pandas()
 assert frame[('value','value')].tolist() == [1.0] * int(sys.argv[4])
 assert frame[('value','value')].sum() == int(sys.argv[4])
 assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','count')].tolist() == [int(sys.argv[4])]
-assert len(session.runs().items) == before
+assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'rows':len(frame)}))
 """,
                     session.id,

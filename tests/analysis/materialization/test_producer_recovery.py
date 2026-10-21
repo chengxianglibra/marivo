@@ -23,6 +23,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.file_fixtures import author_file_case, author_http_case
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -212,7 +213,7 @@ def test_http_source_remains_a_datasource_boundary(
         assert "existing_local_file=False" in error.received
         assert "query_parameters=0" in error.received
         assert error.repair is not None
-        assert not session.runs().items
+        assert not terminal_runs(session)
         assert session._runtime.store.resources(session.id) == ()
         assert source_trace.native_sql == []
         report = {

@@ -67,7 +67,7 @@ from marivo.analysis.materialization.terminal_protocol import (
 from marivo.analysis.materialization.terminal_storage import POLICY
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
 
 
 @pytest.fixture
@@ -366,6 +366,7 @@ from unittest.mock import patch
 import pandas as pd
 import pyarrow as pa
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -385,13 +386,13 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     assert table["value", "coefficient"].isna().tolist() == [True, False]
     assert abs(table["value", "coefficient"].iloc[1] - 1.0) < 1e-12
     assert table["value", "n_pairs"].tolist() == [0, 2]
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     filtered = saved.where(saved["n_pairs"] >= 2)
     derived = filtered.select({"twice": filtered["coefficient"] * 2}).compute()
     assert abs(derived.to_pandas()["value", "twice"].iloc[0] - 2.0) < 1e-12
     copied = derived.persist()
     pd.testing.assert_frame_equal(copied.to_pandas(), derived.to_pandas())
-    assert len(session.runs().items) == before + 1
+    assert len(terminal_runs(session)) == before + 1
 """
     cold = subprocess.run(
         [
@@ -418,9 +419,9 @@ def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> Non
     assert value.result_id == value.metadata.result_id
     assert value.metadata == metadata()
     assert tuple(field.name for field in fields(InvocationInput)) == ("result_id",)
-    run = local.get_run(value.run_id)
+    run = terminal_run(local, value.run_id)
     assert run.dataset_input == InvocationInput(metadata().result_id)
-    assert value.metadata.evaluated_at < run.admitted_at
+    assert value.metadata.evaluated_at < datetime.fromisoformat(run.admitted_at)
     assert counts(local) == (1, 1)
     assert "display_order" not in encode(value)
 
@@ -646,7 +647,7 @@ def test_publication_fault_is_atomic_and_preserves_original_memory(
     assert local.store.resources(local.session_ref) == ()
     pd.testing.assert_frame_equal(previous.to_pandas(), before)
     pd.testing.assert_frame_equal(memory.to_pandas(), before)
-    assert any(run.lifecycle == "failed" for run in local.runs().items)
+    assert any(run.lifecycle == "failed" for run in terminal_runs(local))
 
 
 def test_lost_commit_ack_returns_original_without_evaluation(
@@ -665,29 +666,49 @@ def test_lost_commit_ack_returns_original_without_evaluation(
     assert local.store.resources(local.session_ref) == ()
 
 
-def test_unknown_outcome_preserves_original_until_readback(
-    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("commit_point", ("before_commit", "after_commit"))
+def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, commit_point: str
 ) -> None:
+    import marivo.analysis as mv
+
+    monkeypatch.chdir(local.store.project_root)
     store = local.store
     original = store._read
+    memory = ordinary(local)
 
     def unavailable() -> None:
         raise OSError("readback unavailable")
 
     def fault(event: str) -> None:
-        if event == "before_commit":
+        if event == commit_point:
             monkeypatch.setattr(store, "_read", unavailable)
             raise OSError("acknowledgement unknown")
 
     monkeypatch.setattr(terminal_publication, "_event", fault)
-    with pytest.raises(RecoveryPendingError):
-        ordinary(local).persist()
+    with pytest.raises(RecoveryPendingError) as caught:
+        memory.persist()
+    error = caught.value
+    assert error.stage == "terminal_commit_unknown"
+    assert not hasattr(error, "run_ref") and not hasattr(error, "artifact_id")
+    assert error.repair is not None
+    assert f"mv.session.resume({local.session_ref!r})" in error.repair.action
+    assert "duplicate" in error.repair.action and "changed source data" in error.repair.action
     monkeypatch.setattr(store, "_read", original)
-    assert counts(local) == (1, 0)
-    assert store.resources(local.session_ref)
-    terminal_publication.reconcile(store, local.session_ref, lambda event: None)
-    assert counts(local) == (1, 0)
+    monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
+    committed_before = int(commit_point == "after_commit")
+    assert counts(local) == (1, committed_before)
+    if not committed_before:
+        assert store.resources(local.session_ref)
+    monkeypatch.setattr(Session, "_sources", lambda _: pytest.fail("recovery accessed sources"))
+    recovered = mv.session.resume(local.session_ref)
+    assert recovered.id == local.session_ref
+    assert counts(local) == (1, committed_before)
     assert store.resources(local.session_ref) == ()
+    saved = memory.persist()
+    assert counts(local) == (2, committed_before + 1)
+    assert saved._backing.metadata == memory._backing.metadata
+    pd.testing.assert_frame_equal(saved.to_pandas(), memory.to_pandas())
 
 
 def test_sequence_spans_batches_and_row_groups(
@@ -940,7 +961,6 @@ def test_every_old_generation_entry_preserves_old_tree(
         lambda: mv.session.resume("original"),
         lambda: mv.session.resume("session_original"),
         lambda: mv.session.inspect("original"),
-        lambda: mv.session.reconcile_run(session_id="session_original", run_id="run_original"),
         lambda: SessionStore.open_existing(tmp_path),
     )
     for attempt in attempts:
@@ -1423,6 +1443,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
 import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation
@@ -1434,18 +1455,18 @@ def forbidden(*args, **kwargs):
 with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_calendar", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     derived = saved.where(saved["amount"] > 0)
     result = derived.top(2, by=derived["amount"]).compute()
     assert result.to_pandas()[("value", "amount")].tolist() == [2, 1]
     compared = (saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
                 if sys.argv[4] == "ordinary" else saved.compare({"base": saved}, match={"base": mv.ordinal()})).compute()
     assert len(compared.to_pandas()) == 3
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
     copied = result.persist()
     assert copied._backing.metadata == result._backing.metadata
     assert copied.to_pandas()[("value", "amount")].tolist() == [2, 1]
-    assert len(session.runs().items) == before + 1
+    assert len(terminal_runs(session)) == before + 1
 """
     cold = subprocess.run(
         [
@@ -1534,7 +1555,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
         monkeypatch.setattr(CompletedFrameData, name, forbidden)
     for name in ("open_frame", "read_complete", "preview"):
         monkeypatch.setattr(LocalFrameServices, name, forbidden)
-    before = tuple(case.session.runs().items)
+    before = tuple(terminal_runs(case.session))
     for pending in (deep, shared):
         calls.clear()
         pending.show(n=20)
@@ -1555,7 +1576,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
         assert "scope:" not in card and "period:" not in card
         assert "east" not in card
         assert "memory" in card or "stored" in card
-    assert tuple(case.session.runs().items) == before
+    assert tuple(terminal_runs(case.session)) == before
 
 
 def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
@@ -1625,7 +1646,7 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     card = capsys.readouterr().out
     assert "anchors:" in card and "2026-08-01T00:00:00+00:00" in card
     assert "reduce" in card and "pending" in card
-    assert case.session.runs().items == ()
+    assert terminal_runs(case.session) == ()
 
 
 def test_attachment_preview_filters_arrow_before_python_key_materialization(
@@ -1853,6 +1874,7 @@ def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrame
 import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
+from tests.shared_fixtures import terminal_runs
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation
@@ -1864,7 +1886,7 @@ def forbidden(*args, **kwargs):
 with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_interval", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
     session = mv.session.resume(sys.argv[2])
     sparse, original, paired = (session.persisted_frame(value) for value in sys.argv[3:])
-    before = len(session.runs().items)
+    before = len(terminal_runs(session))
     for frame, expected in ((sparse, 2), (original, 1), (paired, 1)):
         table = frame.to_pandas()
         assert len(table) == 1
@@ -1881,7 +1903,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         pass
     else:
         raise AssertionError("ordinal admitted the filtered two-interval directory")
-    assert len(session.runs().items) == before
+    assert len(terminal_runs(session)) == before
 """
     cold = subprocess.run(
         [

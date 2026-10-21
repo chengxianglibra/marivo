@@ -28,6 +28,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.session.core import Session
 from marivo.datasource import credentials as cr
 from marivo.semantic import catalog
+from tests.shared_fixtures import terminal_run, terminal_runs
 
 
 @pytest.fixture
@@ -90,9 +91,11 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     reopened = saved.artifact
     assert reopened._manifest == artifact._manifest
     assert local.artifact(artifact.id)._manifest == reopened._manifest
-    assert local.runs() == session.runs()
-    assert local.get_run(artifact._manifest.run_id) == session.get_run(artifact._manifest.run_id)
-    assert local.runs() == session.runs()
+    assert terminal_runs(local) == terminal_runs(session)
+    assert terminal_run(local, artifact._manifest.run_id) == terminal_run(
+        session, artifact._manifest.run_id
+    )
+    assert terminal_runs(local) == terminal_runs(session)
     backing = local.open_frame(artifact.id)
     assert local.preview(backing, 0).rows.empty
     saved.show(n=0)
@@ -256,7 +259,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
 
 def test_retained_authority_uses_original_writer_exclusion(session: Session) -> None:
     local = session._runtime.local
-    before = session.runs()
+    before = terminal_runs(session)
     with (
         session_writer_guard(
             local.store.layout.lock_path(local.session_ref), session_ref=local.session_ref
@@ -269,6 +272,6 @@ def test_retained_authority_uses_original_writer_exclusion(session: Session) -> 
         ).compute()
         assert memory.to_pandas()[("value", "answer")].tolist() == [7]
         memory.persist()
-    assert session.runs() == before
+    assert terminal_runs(session) == before
     assert local.store.resources(local.session_ref) == ()
     assert _publish(session).session_id == local.session_ref
