@@ -5,7 +5,6 @@ from typing import Literal
 import pandas as pd
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 
@@ -15,7 +14,7 @@ DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): 0, ("b", 2**53 + 1, 1): 4}
 
 
 def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]:
-    members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+    members = session.members(session.catalog.entities.get("sales.facts"))
     metric = session.catalog.metrics.get("sales.total")
 
     def observe(month: int) -> mv.AnalysisFrame:

@@ -92,7 +92,7 @@ def test_baseline_retains_complete_outputs() -> None:
 def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.order_count")
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
     values = session.observe({"value": metric}, by=mv.product(august, members))

@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -31,7 +30,7 @@ def _scalar_output(result: mv.AnalysisFrame, total: int) -> None:
 
 def _support(work: Workload) -> mv.AnalysisFrame:
     raw = work.session.read(
-        work.session.members(work.session.catalog.require(ms.ref.entity("cost.facts"))),
+        work.session.members(work.session.catalog.entities.get("cost.facts")),
         {"value": work.session.catalog.fields.get("cost.facts.amount")},
     )
     return raw.where(~raw["value"].is_null()).reduce({"count": mv.row_count()})
@@ -138,7 +137,7 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         session = mv.session.create("native-hybrid", timezone="UTC")
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            by=session.members(session.catalog.entities.get("sales.facts")),
         )
         result = values.select({"ratio": values["value"] / values["value"]}).persist()
         frame = result.to_pandas()

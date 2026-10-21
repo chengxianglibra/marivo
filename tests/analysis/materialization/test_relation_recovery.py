@@ -74,7 +74,7 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.order_count")
     current = session.observe(
         {"value": metric},

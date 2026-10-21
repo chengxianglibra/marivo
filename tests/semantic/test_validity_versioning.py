@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.expressions import Entity
@@ -45,7 +44,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
         }
     )
 
-    dataset = SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+    dataset = SemanticCatalog(project).entities.get("sales.user_history")
     assert isinstance(dataset, Entity)
     versioning = project._registry.entities["sales.user_history"].versioning
     assert versioning is not None
@@ -88,7 +87,7 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+        SemanticCatalog(project).entities.get("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -128,7 +127,7 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+        SemanticCatalog(project).entities.get("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -156,7 +155,7 @@ def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+        SemanticCatalog(project).entities.get("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -184,7 +183,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+        SemanticCatalog(project).entities.get("sales.user_history")
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_target_semantics"
     assert "does_not_exist" in str(error)

@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.compiler.source_predicates import query_numeric_value
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
@@ -94,7 +93,7 @@ def test_native_numeric_field_filters_and_top_keep_nan_as_missing(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("numeric-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         queries = (
@@ -166,9 +165,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         # This is now an explicit source row predicate, independently checked
         # before its admitted native pandas handoff, not a Frame fusion claim.
         source = session.read(
-            session.members(
-                session.catalog.require(ms.ref.entity("sales.facts")), where=big > 2**53
-            ),
+            session.members(session.catalog.entities.get("sales.facts"), where=big > 2**53),
             {"big": big},
         )
         table = case.session.bind(case.source, source_identity="integer-predicate-oracle").relation
@@ -255,7 +252,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("decimal-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
@@ -285,7 +282,7 @@ def test_numeric_attribute_cardinality_failure_survives_empty_top(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("numeric-attribute-error", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         filtered = source.where(source["amount"] > 100.5)
@@ -317,7 +314,7 @@ def test_nonnullable_float_source_uses_nullable_nan_branch(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("nonnull-float-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)

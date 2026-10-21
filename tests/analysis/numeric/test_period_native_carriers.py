@@ -7,7 +7,6 @@ from typing import Literal
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.errors import AnalysisError
@@ -49,7 +48,7 @@ def test_period_alignment_native_carriers(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
         session = mv.session.create("period-native", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         metric = session.catalog.metrics.get("sales.total")
         current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         baseline_axis = (

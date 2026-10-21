@@ -125,7 +125,7 @@ from typing_extensions import assert_type
 session = mv.session.create('static', timezone='UTC')
 population = session.members(session.catalog.entities.get('sales.customer'))
 assert_type(population, mv.Population)
-resolved_entity = session.catalog.entities.get(ms.ref.entity('sales.customer'))
+resolved_entity = session.catalog.entities.get('sales.customer')
 assert_type(resolved_entity, Entity)
 assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population)
 amount: Deferred

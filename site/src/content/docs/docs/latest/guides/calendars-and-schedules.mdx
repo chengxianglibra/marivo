@@ -26,7 +26,7 @@ calendar_ref = ms.period_calendar(
     coverage=(date(2026, 1, 1), date(2027, 1, 1)),
     levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
 )
-catalog.require(calendar_ref)
+calendar = catalog.period_calendars.get(calendar_ref.path)
 catalog.preview(
     calendar_ref,
     scope=md.unpruned(max_rows=400, timeout_seconds=30),

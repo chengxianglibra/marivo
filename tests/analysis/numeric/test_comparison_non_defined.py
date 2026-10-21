@@ -32,7 +32,7 @@ def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.
         {"value": amount.sum(time=time, empty="null")},
         by=mv.product(
             during.by(mv.grain("day")) if daily else during,
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 
@@ -120,7 +120,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         },
         by=mv.product(
             session.time_scope(start="2026-09-01", end="2026-10-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})

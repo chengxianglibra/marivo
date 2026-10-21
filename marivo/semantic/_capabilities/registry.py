@@ -168,7 +168,7 @@ INPUT_FAMILIES = frozenset(
         "tuple[Grouping, ...]",
         "CatalogEntry | Ref",
         "CatalogCollection",
-        "CatalogLookupKey | Ref",
+        "str",
         "SemanticCatalog",
         "SemanticKind",
         "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
@@ -3335,31 +3335,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
             see_also=(LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),),
         ),
         _capability(
-            "SemanticCatalog.require",
-            "marivo.semantic.catalog.SemanticCatalog.require",
-            "Resolve one exact ref into its catalog value or entry.",
-            kind="method",
-            output="CatalogEntry | Entity | Deferred | Relationship",
-            inputs=(
-                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "Ref", "ref"),
-            ),
-            effects=_LOCAL,
-            example="amount = catalog.require(ms.ref.measure('sales.orders.amount'))",
-            public_entrypoint="catalog.require",
-        ),
-        _capability(
             "CatalogCollection.get",
             "marivo.semantic.catalog.CatalogCollection.get",
-            "Select one current value or entry from a catalog collection.",
+            "Select one current value or entry by a plain local name or full semantic path string. A local name must be unique; full paths retain the collection scope. Refs and kind-prefixed strings are rejected. The consuming operation checks its required semantic kind.",
             kind="method",
             output="CatalogEntry | Entity | Deferred | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="CatalogCollection"),
-                _parameter_input("subject", "CatalogLookupKey | Ref", "key"),
+                _parameter_input("subject", "str", "key"),
             ),
             effects=_LOCAL,
-            example="collection.get('metric:sales.revenue')",
+            example="collection.get('sales.revenue')",
             public_entrypoint="collection.get",
         ),
     )
@@ -3604,7 +3590,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("load",),
         properties=CATALOG_COLLECTION_PROPERTIES,
         methods=(
-            "require",
             "preview",
             "preview_many",
             "source_health",
@@ -3616,7 +3601,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         CatalogEntry,
         "CatalogEntry",
-        ("SemanticCatalog.require",),
+        ("CatalogCollection.get",),
         properties=("ref",),
         methods=("details", "show", "render"),
     )
@@ -3925,7 +3910,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
-            "SemanticCatalog.require",
             "preview",
             "preview_many",
             "source_health",

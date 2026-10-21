@@ -36,7 +36,7 @@ def _values(
 ) -> mv.AnalysisFrame:
     session = case.session
     members = (
-        session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        session.members(session.catalog.entities.get("sales.customer"))
         if members is None
         else members
     )
@@ -101,7 +101,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel = ?', ["retained" * 200])
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     logical = session.read(members, {"value": session.catalog.fields.get("sales.order.amount")})
     values = logical.persist()
     ratio = logical.select({"value": logical["value"] / logical["value"]}).persist()
@@ -150,7 +150,7 @@ def test_business_display_identifies_current_and_baseline_windows(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     current_scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-08-01")
     metric = session.catalog.metrics.get("sales.revenue")
@@ -499,7 +499,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     ms.load(workspace_dir=case.root)
     session = case.session
     query = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.display"))),
+        session.members(session.catalog.entities.get("sales.display")),
         {
             name: session.catalog.fields.get("sales.display." + name)
             for name in ("moment", "day", "region", "amount", "enabled")
@@ -587,7 +587,7 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
     assert ranking["rank"].tolist() == [1, 2, 2]
     assert group_values["value"].tolist() == [2, 1, 1]
     period = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
         by=(period, members.axes[0], region),

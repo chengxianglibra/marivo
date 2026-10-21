@@ -14,10 +14,9 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
         member.property_name: f"CatalogCollection[{member.item_type_name}]"
         for member in CATALOG_MEMBER_CONTRACTS
     }
-    for name, target in (("require", "semantic_catalog.require"), ("readiness", "readiness")):
-        contract = SEMANTIC_REGISTRY.by_canonical_id(target)
-        assert isinstance(contract, AuthoringCapability) and contract.output_family is not None
-        outputs[name] = contract.output_family
+    readiness = SEMANTIC_REGISTRY.by_canonical_id("readiness")
+    assert isinstance(readiness, AuthoringCapability) and readiness.output_family is not None
+    outputs["readiness"] = readiness.output_family
     catalog_specs: tuple[tuple[str, str, str, str], ...] = (
         *(
             (
@@ -27,12 +26,6 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
                 f"Browse catalog {member.property_name}.",
             )
             for member in CATALOG_MEMBER_CONTRACTS
-        ),
-        (
-            "catalog.require",
-            "catalog.require(ref)",
-            "catalog.require",
-            "Require one exact ref in the compiled catalog.",
         ),
         (
             "catalog.readiness",
@@ -138,7 +131,6 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     descriptors.extend(temporal_catalog_reads)
 
     examples = {
-        "catalog.require": 'result = catalog.require(ms.ref.metric("sales.revenue"))',
         "catalog.readiness": 'result = catalog.readiness(refs=[ms.ref.entity("sales.orders")])',
         "catalog.period_calendars.grain": 'result = calendar.grain("fiscal_week")',
         "catalog.period_calendars.period": 'scope = calendar.period("fiscal_week", "FY2026-W01")',
@@ -152,9 +144,9 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     for descriptor in descriptors:
         preparation = ""
         if descriptor.receiver_family == "PeriodCalendarEntry":
-            preparation = 'calendar = catalog.require(ms.ref.period_calendar("sales.fiscal"))\n'
+            preparation = 'calendar = catalog.period_calendars.get("sales.fiscal")\n'
         elif descriptor.receiver_family == "TemporalSetEntry":
-            preparation = 'temporal_set = catalog.require(ms.ref.temporal_set("sales.campaigns"))\n'
+            preparation = 'temporal_set = catalog.temporal_sets.get("sales.campaigns")\n'
         example = examples.get(descriptor.id, "result = " + descriptor.public_entrypoint)
         result.append(
             replace(

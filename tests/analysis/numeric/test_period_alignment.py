@@ -28,7 +28,7 @@ def period(
     axis = session.time_scope(
         start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
     ).by(mv.grain("day"))
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     domain = (
         members.classify(by=(session.catalog.fields.get("sales.customer.region"),))
         if grouped

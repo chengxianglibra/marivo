@@ -59,9 +59,7 @@ def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
             customer,
             channel,
         ),
-        where=mv.in_population(
-            session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-        ),
+        where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
     )
     return values
 
@@ -361,9 +359,7 @@ def test_period_buckets_and_retained_coarsened_partition(
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
             by=(calendar, customer, channel),
-            where=mv.in_population(
-                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-            ),
+            where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
         )
         return values
 

@@ -8,7 +8,6 @@ import sys
 import pandas as pd
 import pytest
 
-import marivo.semantic as ms
 from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
@@ -30,7 +29,7 @@ def test_source_and_python_failures_preserve_atomic_publication(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     logical = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        session.members(session.catalog.entities.get("sales.order")),
         {"value": session.catalog.fields.get("sales.order.amount")},
     )
     prior = logical.persist()
@@ -94,7 +93,7 @@ def test_graph_has_no_hidden_600_second_expiry(
 
     case = analysis_dsl_case_factory("j2")
     logical = case.session.read(
-        case.session.members(case.session.catalog.require(ms.ref.entity("sales.order"))),
+        case.session.members(case.session.catalog.entities.get("sales.order")),
         {"value": case.session.catalog.fields.get("sales.order.amount")},
     )
     ticks = [0.0]

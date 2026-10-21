@@ -8,7 +8,6 @@ from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.semantic.expressions import Entity, Relationship
 
 if TYPE_CHECKING:
@@ -44,7 +43,7 @@ if TYPE_CHECKING:
     def population_contract(
         entity: Entity, region: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        members = session.members(session.catalog.entities.get("sales.customer"))
         assert_type(members, mv.Population)
         assert_type(members.axes, tuple[mv.Grouping, ...])
         assert_type(
@@ -127,14 +126,14 @@ if TYPE_CHECKING:
     def explicit_identity(
         metric: Deferred, field: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        people = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        people = session.members(session.catalog.entities.get("sales.customer"))
         assert_type(mv.identity(session.catalog.entities.get("sales.customer")), mv.Grouping)
         assert_type(people.classify(by=(people.axes[0], field)), mv.Population)
         assert_type(people.project(by=(people.axes[0],)), mv.Population)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(
             session.members(
-                session.catalog.require(ms.ref.entity("sales.customer")),
+                session.catalog.entities.get("sales.customer"),
                 where=mv.in_population(people),
             ),
             mv.Population,

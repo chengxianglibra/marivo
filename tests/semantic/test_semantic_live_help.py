@@ -240,8 +240,8 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
     catalog = ms.load()
-    entry = catalog.require(ms.ref.domain("sales"))
-    revenue = catalog.require(ms.ref.metric("sales.revenue"))
+    entry = catalog.domains.get("sales")
+    revenue = catalog.metrics.get("sales.revenue")
 
     def fail(*args: object, **kwargs: object) -> object:
         raise AssertionError("reference help must not load or query")
@@ -491,7 +491,7 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
     from marivo.semantic.expressions import Entity, ExpressionContract, Relationship
 
     catalog = ms.load()
-    orders = catalog.require(ms.ref.entity("sales.orders"))
+    orders = catalog.entities.get("sales.orders")
     contract = catalog.describe(ms.ref.metric("sales.revenue"))
     for target, receivers in (
         ("semantic.entity.show", (Entity.show, Relationship.show, orders.show)),

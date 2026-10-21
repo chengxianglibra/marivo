@@ -473,7 +473,7 @@ def test_common_condition_reaches_each_leaf_before_reduction(
         {"value": composite},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
         where=channel == "web",
     )

@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -52,7 +51,7 @@ baseline = ms.measure_column(name='baseline', entity=orders, column='baseline', 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.orders"))),
+        session.members(session.catalog.entities.get("sales.orders")),
         {
             "amount": session.catalog.fields.get("sales.orders.amount"),
             "region": session.catalog.fields.get("sales.orders.region"),
@@ -230,7 +229,7 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
     fixed = source.top(1, by=source["amount"]).compute()
     keys = _identities(session, fixed)
     members = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=mv.in_population(keys)
+        session.catalog.entities.get("sales.orders"), where=mv.in_population(keys)
     )
     trace = capture_source(monkeypatch)
     rows = (
@@ -417,7 +416,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=9007199254740993, baseline=9007199254740992")
     source = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.orders"))),
+        session.members(session.catalog.entities.get("sales.orders")),
         {
             "amount": session.catalog.fields.get("sales.orders.amount"),
             "baseline": session.catalog.fields.get("sales.orders.baseline"),
@@ -468,7 +467,7 @@ def test_population_set_algebra_keeps_complete_frame_keys(
 ) -> None:
     session = source_query_session
     members = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")),
+        session.catalog.entities.get("sales.orders"),
         where=mv.in_population(_sets(session, operation)),
     )
     rows = (
@@ -535,9 +534,9 @@ def test_frame_key_product_projection_and_filter_preserve_domain(
     source = _attributes(session)
     selected = _identities(session, source.where(source["amount"] >= 20).compute())
     region = session.catalog.fields.get("sales.orders.region")
-    classifications = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders"))
-    ).classify(by=(region,))
+    classifications = session.members(session.catalog.entities.get("sales.orders")).classify(
+        by=(region,)
+    )
     product = mv.product(selected, classifications)
     population = (
         product.project(by=(region,))

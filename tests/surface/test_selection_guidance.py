@@ -3,7 +3,6 @@
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
@@ -13,7 +12,7 @@ def test_selection_discloses_explicit_source_bridge_for_complete_identity(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),

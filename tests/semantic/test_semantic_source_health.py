@@ -265,7 +265,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     relationship = ms.ref.relationship("sales.orders_to_customers")
     before = catalog.readiness(refs=[relationship])
-    details = catalog.require(relationship)
+    details = catalog.relationships.get(relationship.path)
     assert details.cardinality == "many_to_one"
 
     connection = duckdb.connect(str(database_path))
@@ -291,7 +291,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     assert check.user_data_queried is True
     assert check.observed["from_unmatched_count"] == 2
     assert len(check.scopes) == 2
-    assert catalog.require(relationship).cardinality == "many_to_one"
+    assert catalog.relationships.get(relationship.path).cardinality == "many_to_one"
     assert catalog.readiness(refs=[relationship]).to_dict() | {"checked_at": None} == (
         before.to_dict() | {"checked_at": None}
     )

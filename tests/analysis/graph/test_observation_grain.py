@@ -21,7 +21,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    return case.session.members(case.session.catalog.entities.get("sales.customer"))
 
 
 def _august(case: DslCase) -> mv.TimeScope:
@@ -283,7 +283,7 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     case = analysis_dsl_case_factory("j1")
     session = case.session
     metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     with pytest.raises(AnalysisError):
         session.observe(
             {"value": metric},
@@ -452,7 +452,7 @@ def test_complete_member_entity_keeps_compound_key(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.create("compound-grain", timezone="UTC")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     observed = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=members)
     result = observed.persist()
     assert len(result.artifact._manifest.data.schema.axes[0].columns) == 2

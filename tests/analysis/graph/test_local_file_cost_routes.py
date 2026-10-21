@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
@@ -63,7 +62,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         }
         assert frame[("value", "value")].tolist() == [0, 2, 3, 4]
         raw = work.session.read(
-            work.session.members(work.session.catalog.require(ms.ref.entity("cost.facts"))),
+            work.session.members(work.session.catalog.entities.get("cost.facts")),
             {"amount": work.session.catalog.fields.get("cost.facts.amount")},
         )
         support = raw.where(~raw["amount"].is_null()).reduce({"support": mv.row_count()})

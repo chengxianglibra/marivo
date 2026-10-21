@@ -458,8 +458,8 @@ def _render_type(type_name: str, original: object | None) -> str:
                 "ms.ref.dimension('sales.orders.region').",
                 "  Persisted/config identity: "
                 "domain = catalog.domains.get('sales'); domain_ref = domain.ref.",
-                "  Membership: catalog.require(ref) resolves the exact ref to the current "
-                "catalog; catalog.describe(ref) reads its definition.",
+                "  Definition: catalog.describe(ref) reads an exact identity in the current "
+                "catalog; select values with collection.get(path).",
                 "  Field application: capture typed Refs with physical constructors, "
                 "then call ms.finalize() and finalized.resolve(ref) before composition.",
             )
@@ -484,9 +484,8 @@ def _render_type(type_name: str, original: object | None) -> str:
     if type_name == "CatalogCollection":
         lines.extend(
             (
-                "  Lookup: pass a local name, full semantic path, displayed same-kind "
-                "typed key, or exact same-kind Ref.",
-                "  Copyable key example: catalog.metrics.get('metric:sales.revenue').",
+                "  Lookup: pass a plain local name or full semantic path string.",
+                "  Copyable key example: catalog.metrics.get('sales.revenue').",
                 "  Handoff: inspect the selected entry with entry.show(), then "
                 "pass the entry or entry.ref to its consuming capability.",
             )

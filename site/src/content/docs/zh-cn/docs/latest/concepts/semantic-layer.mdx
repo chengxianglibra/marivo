@@ -1,6 +1,6 @@
 ---
 title: 语义层
-description: 在 Python 中定义可复用业务含义，通过 typed refs 消费。
+description: 在 Python 中定义可复用业务含义，通过 Catalog 集合获取对象。
 ---
 
 语义层为业务对象提供稳定名称。Datasource 元数据说明物理数据，已确认的定义建立业务含义。
@@ -22,6 +22,21 @@ description: 在 Python 中定义可复用业务含义，通过 typed refs 消�
 只认证分析所需的根对象。
 
 参见[语义建模](/zh-cn/docs/latest/guides/semantic-modeling/)与[Readiness](/zh-cn/docs/latest/concepts/readiness/)。Python 声明是共享的事实依据，项目本地 `.marivo/`状态不能替代它们。
+
+## 获取已加载对象
+
+通过各个 Catalog 集合的 `get()` 获取对象，参数只接受普通的本地名称或完整语义路径字符串。
+可复用脚本建议使用完整路径；短名称必须在当前集合内唯一。获取到的值保留其语义事实。
+
+```python
+orders = catalog.entities.get("sales.orders")
+customer_id = catalog.fields.get("sales.orders.customer_id")
+revenue = catalog.metrics.get("sales.revenue")
+```
+
+Ref 和 `dimension:sales.orders.customer_id` 这样的 kind 前缀字符串不能作为查找输入。
+限定范围的集合只暴露自身成员。具体消费操作检查所需的 kind、贡献根、粒度、单位和时间角色；
+typed Ref 继续用于声明、定义检查和持久化记录中的身份。
 
 ## 确定业务依据
 

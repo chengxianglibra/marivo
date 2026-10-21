@@ -17,7 +17,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
@@ -111,9 +110,7 @@ def _project(
 def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get("sales.average")},
-        by=mv.product(
-            scope, session.members(session.catalog.require(ms.ref.entity("sales.customers")))
-        ),
+        by=mv.product(scope, session.members(session.catalog.entities.get("sales.customers"))),
     )
 
 
@@ -234,7 +231,7 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     assert (scope.end - scope.start).total_seconds() == hours * 3600
     assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
     grid = scope.by(mv.grain("day"))
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customers")))
+    members = session.members(session.catalog.entities.get("sales.customers"))
     gridded = _observe(session, grid)
     assert _values(gridded) == {"A": 20, "B": 60}
     running = session.observe(
@@ -451,7 +448,7 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     time = session.catalog.fields.get("sales.orders.happened")
     metric = session.catalog.metrics.get("sales.total")
     members = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=time.within(scope)
+        session.catalog.entities.get("sales.orders"), where=time.within(scope)
     )
     assert case_members(session, members) == expected_ids
     for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):

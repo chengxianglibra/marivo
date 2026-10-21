@@ -1564,7 +1564,6 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     import marivo.analysis as mv
-    import marivo.semantic as ms
     from marivo._definition.graph import DefinitionNode
     from marivo._definition.observations import ObservationBinding
     from marivo.analysis.core.frame_source_facts import captured_source_scopes
@@ -1576,13 +1575,13 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     case = analysis_dsl_case_factory("j2")
     region = case.catalog.fields.get("sales.customer.region")
     members = case.session.members(
-        case.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+        case.catalog.entities.get("sales.customer"), where=region == "east"
     )
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
     anchored = case.session.frame(
-        case.session.members(case.catalog.require(ms.ref.entity("sales.customer")), at=instant)
+        case.session.members(case.catalog.entities.get("sales.customer"), at=instant)
     ).reduce({"rows": mv.row_count()})
 
     capture = frame_module.scope_summary

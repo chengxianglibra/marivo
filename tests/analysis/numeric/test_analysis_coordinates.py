@@ -20,7 +20,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    return case.session.members(case.session.catalog.entities.get("sales.customer"))
 
 
 def _observe(
@@ -416,7 +416,7 @@ def test_numeric_read_grouping_creates_only_row_statistics(
     session = case.session
     channel = session.catalog.fields.get("sales.order.channel")
     raw = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        session.members(session.catalog.entities.get("sales.order")),
         {"amount": session.catalog.fields.get("sales.order.amount"), "channel": channel},
     )
     # Field values are explicit output; pandas owns post-export classification.

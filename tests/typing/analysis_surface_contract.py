@@ -5,11 +5,10 @@ from typing import TYPE_CHECKING
 from typing_extensions import assert_type
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 
 if TYPE_CHECKING:
     session = mv.session.create("recovery-typing")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     assert_type(members, mv.Population)
     assert_type(session.frame(members), mv.AnalysisFrame)
     recovered = session.persisted_frame("artifact_current")

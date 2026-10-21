@@ -397,25 +397,35 @@ def test_temporal_artifact_certification_and_failed_previews(
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     with pytest.raises(SemanticRuntimeError, match="exhaustive explicit scope"):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=3), limit=1)
-    assert catalog.period_calendars.get(calendar_ref).details().snapshot_status == "missing"
+    assert catalog.period_calendars.get(calendar_ref.path).details().snapshot_status == "missing"
 
-    for artifact_ref, missing_kind, max_rows in (
-        (calendar_ref, "period_calendar_artifact_missing", 4),
-        (ms.ref.temporal_set("sales.named_campaigns"), "temporal_set_artifact_missing", 2),
-        (ms.ref.work_schedule("sales.schedule"), "work_schedule_artifact_missing", 4),
+    for collection, artifact_ref, missing_kind, max_rows in (
+        (catalog.period_calendars, calendar_ref, "period_calendar_artifact_missing", 4),
+        (
+            catalog.temporal_sets,
+            ms.ref.temporal_set("sales.named_campaigns"),
+            "temporal_set_artifact_missing",
+            2,
+        ),
+        (
+            catalog.work_schedules,
+            ms.ref.work_schedule("sales.schedule"),
+            "work_schedule_artifact_missing",
+            4,
+        ),
     ):
         before = catalog.readiness(refs=[artifact_ref])
         assert missing_kind in {issue.kind for issue in before.blockers}
         preview = catalog.preview(artifact_ref, scope=default_scope(max_rows=max_rows), limit=1)
         assert preview.returned_row_count == 1
-        assert catalog.require(artifact_ref).details().snapshot_status == "current"
+        assert collection.get(artifact_ref.path).details().snapshot_status == "current"
         assert missing_kind not in {
             issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
         }
 
     with pytest.raises(PreviewLimitError):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=4), limit=0)
-    assert catalog.period_calendars.get(calendar_ref).details().snapshot_status == "current"
+    assert catalog.period_calendars.get(calendar_ref.path).details().snapshot_status == "current"
 
 
 def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
@@ -441,9 +451,9 @@ def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
         assert collection.refs == (ref,)
         entry = collection[0]
         assert tuple(collection) == (entry,)
-        for key in (ref.name, ref.path, ref.key, ref):
+        for key in (ref.name, ref.path):
             assert collection.get(key) is entry
-        assert catalog.require(ref) is entry
+        assert collection.get(ref.path) is entry
         assert "count=1" in repr(collection)
 
 
@@ -470,7 +480,7 @@ def test_temporal_details_observe_state_changes_after_navigation(
     entry = collection.get(path)
     assert entry.details().snapshot_status == "missing"
     catalog.preview(entry.ref, scope=default_scope(max_rows=max_rows), limit=1)
-    assert collection.get(entry.ref) is entry
+    assert collection.get(entry.ref.path) is entry
     assert entry.details().snapshot_status == "current"
 
     manifests = tuple((catalog.workspace_dir / ".marivo" / "temporal").rglob("current.json"))

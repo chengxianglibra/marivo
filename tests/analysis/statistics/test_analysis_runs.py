@@ -5,7 +5,6 @@ from datetime import timedelta
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.analysis.statistics.runs_worker import segments
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
@@ -93,7 +92,7 @@ def test_new_grid_after_subject_selection(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     scope = session.time_scope(start="2026-08-01", end="2026-08-04")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     revenue = session.catalog.metrics.get("sales.revenue")
     values = session.observe({"value": revenue}, by=mv.product(scope, members))
     selection = values.where(values["value"] > 0)

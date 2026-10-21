@@ -180,8 +180,8 @@ def test_description_does_not_change_fingerprint(
     ref = ms.ref.dimension("sales.rows.literal_values")
     assert current.definition_fingerprint == catalog.definition_fingerprint
     assert (
-        consume_field(current.require(ref)).reference
-        == consume_field(catalog.require(ref)).reference
+        consume_field(current.fields.get(ref.path)).reference
+        == consume_field(catalog.fields.get(ref.path)).reference
     )
     assert _description(current, ref).status == "unsupported"
     assert _expression_fact(current, ref) is None
@@ -190,7 +190,7 @@ def test_description_does_not_change_fingerprint(
 
 
 def test_nonfinite_comparison_is_rejected_during_authoring(catalog: ms.SemanticCatalog) -> None:
-    region = catalog.require(ms.ref.dimension("sales.rows.region"))
+    region = catalog.fields.get("sales.rows.region")
     for value in (float("nan"), float("inf"), float("-inf")):
         with pytest.raises(SemanticExpressionError) as exc:
             consume_predicate(region == value)

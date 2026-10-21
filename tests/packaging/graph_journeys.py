@@ -155,7 +155,7 @@ def _offline(project: Path) -> Iterator[None]:
 def _observations(
     session: mv.Session,
 ) -> tuple[mv.Population, mv.AnalysisFrame, mv.AnalysisFrame, mv.AnalysisFrame]:
-    members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
+    members = session.members(session.catalog.entities.get("operations.device"))
     metric = session.catalog.metrics.get("operations.energy_total")
     current = session.observe(
         {"value": metric},

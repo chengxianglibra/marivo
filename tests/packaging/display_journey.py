@@ -14,7 +14,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.core.frozen_calendar import read_calendar_directory
@@ -103,7 +102,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
     state_path = project / "display.json"
     if phase == "produce":
         session = _create(project, "j2", "parquet")
-        members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
+        members = session.members(session.catalog.entities.get("operations.device"))
         grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         values = session.observe(
             {"value": session.catalog.metrics.get("operations.reading_count")},

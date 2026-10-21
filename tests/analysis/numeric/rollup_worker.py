@@ -124,9 +124,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         scope = session.time_scope(start="2026-07-01", end="2026-08-01")
         original = session.observe(
             metrics_by_name,
-            by=mv.product(
-                scope, session.members(session.catalog.require(ms.ref.entity("sales.orders")))
-            ),
+            by=mv.product(scope, session.members(session.catalog.entities.get("sales.orders"))),
         ).persist()
         monthly = session.observe(metrics_by_name, by=(scope,)).persist()
         artifacts: dict[str, Json] = {

@@ -95,7 +95,7 @@ def test_observation_preserves_population_windows_and_query_count(
         return original(self, read)
 
     monkeypatch.setattr(SourceSession, "execute", traced)
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
     def observe(start: str, end: str) -> pd.DataFrame:
         return (
@@ -146,7 +146,7 @@ def test_observation_preserves_population_windows_and_query_count(
     assert september.value.iloc[1:].eq(0).all()
     # When the member source is the event source, the window still restricts
     # contributions only; identities before/after the window remain present.
-    orders = case.session.members(case.session.catalog.require(ms.ref.entity("sales.order")))
+    orders = case.session.members(case.session.catalog.entities.get("sales.order"))
     direct = (
         case.session.observe(
             {"value": case.session.catalog.metrics.get("sales.revenue")},
@@ -176,7 +176,7 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
 
     monkeypatch.setattr(SourceSession, "execute", traced)
     grid = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
     def execute() -> pd.DataFrame:
         rows = (
@@ -286,7 +286,7 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
 ) -> None:
     case = analysis_dsl_case_factory("j3")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
@@ -318,7 +318,7 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
     _encode_orders(case, "%Y%m%d")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET customer_id='missing' WHERE order_id='j1_july'")
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
@@ -362,7 +362,7 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
             'INSERT INTO "order" VALUES '
             "('overflow','A','web','paid','20260815',9223372036854775807)"
         )
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
     def execute() -> None:
         case.session.observe(

@@ -84,7 +84,6 @@ from marivo.refs import (
     TemporalSetKind,
     TimeDimensionKind,
     WorkScheduleKind,
-    _decode_ref_key,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -1689,13 +1688,11 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         index = self._catalog._require_index()
         return tuple(self._member(index.item(ref)) for ref in self.refs)
 
-    def get(self, key: str | Ref[SemanticKindTag]) -> ItemT:
-        """Return one visible member by local name, full path, typed key, or ref.
+    def get(self, key: str) -> ItemT:
+        """Return one visible member by local name or full semantic path.
 
         Args:
-            key: A local name, an exact full semantic path, a displayed typed
-                key such as ``metric:sales.revenue``, or an exact Ref whose
-                kind belongs to this collection.
+            key: A plain string containing a local name or exact full semantic path.
 
         Returns:
             The member visible within this collection's scope: an expression
@@ -1704,11 +1701,11 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
 
         Example:
             >>> amount = catalog.fields.get("sales.orders.amount")
-            >>> revenue = catalog.metrics.get(ms.ref.metric("sales.revenue"))
+            >>> revenue = catalog.metrics.get("sales.revenue")
 
         Constraints:
-            Full paths, typed keys, and refs do not widen a scoped collection.
-            Ambiguous local names require an explicit full path or typed key.
+            Full paths do not widen a scoped collection. Ambiguous local names
+            require an explicit full path. Refs and kind-prefixed strings are rejected.
         """
         return self._member(
             self._catalog._get_from_collection(cast("CatalogCollection[object]", self), key)
@@ -1738,7 +1735,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         return "collection.get"
 
     def _card(self) -> Card:
-        rows = [(ref.key, ref.name) for ref in self.refs]
+        rows = [(ref.path, ref.key, ref.name) for ref in self.refs]
         card = Card(
             identity=self._repr_identity(),
             available=(
@@ -1747,7 +1744,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
                 ".show()",
             ),
         ).table(
-            columns=("ref", "name"),
+            columns=("path", "ref", "name"),
             rows=rows,
             row_count=len(rows),
         )
@@ -1755,7 +1752,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         if rows:
             return card.field(
                 "selection",
-                f"{entrypoint}(<displayed ref>) -> {_MEMBER_ITEM_TYPES[self._property_name]}",
+                f"{entrypoint}(<displayed path>) -> {_MEMBER_ITEM_TYPES[self._property_name]}",
             )
         return card.field(
             f"{entrypoint}(...)",
@@ -3001,7 +2998,7 @@ class SemanticCatalog(RenderableResult):
 
     Returns:
         SemanticCatalog with typed collection properties (domains, metrics, etc.),
-        require(), preview(), readiness(), and verify() methods.
+        collection get(), preview(), source_health(), and readiness() methods.
 
     Example:
         >>> catalog = ms.load()
@@ -3122,128 +3119,63 @@ class SemanticCatalog(RenderableResult):
             card = card.field("empty_collections", ", ".join(empty_collections))
         return card
 
-    def _get_exact_from_collection(
-        self,
-        collection: CatalogCollection[object],
-        ref: Ref[SemanticKindTag],
-        *,
-        full_path: str | None = None,
-    ) -> CatalogItem:
-        expected = " or ".join(kind.value for kind in collection._kinds)
-        if ref.kind not in collection._kinds:
-            correct_collection = CATALOG_COLLECTION_BY_KIND[ref.kind]
-            _raise(
-                ErrorKind.INVALID_REF,
-                "CatalogCollection.get(...) received the wrong ref kind. "
-                f"Expected {expected}, received {ref.kind.value}. "
-                f"Inspect catalog.{correct_collection} for this ref kind.",
-                cls=SemanticRuntimeError,
-                refs=(ref.key,),
-                expected=f"Ref[{expected}]",
-                received=f"Ref[{ref.kind.value}]",
-                repair_value=repair(
-                    kind="inspect",
-                    canonical_id="load",
-                    action=(
-                        f"Inspect catalog.{correct_collection}; do not substitute it "
-                        f"for the {collection._property_name} input."
-                    ),
-                ),
-            )
-        index = self._require_index()
-        match = index.require(ref)
-        if match is not None:
-            if index.contains(ref, scope_ref=collection._scope_ref):
-                return match
-            scope = collection._scope_ref.key if collection._scope_ref is not None else "catalog"
-            label = f"Path {full_path!r}" if full_path is not None else f"Ref {ref.key!r}"
-            _raise(
-                ErrorKind.NOT_FOUND,
-                f"{label} exists but is outside collection scope {scope}. "
-                "The collection scope is a hard visibility boundary. Use "
-                f"catalog.require(ms.ref.{ref.kind.value}({ref.path!r})) "
-                "only for an intentional global lookup.",
-                cls=SemanticRuntimeError,
-                refs=(ref.key,),
-                repair_value=repair(
-                    kind="inspect",
-                    canonical_id="semantic_catalog.require",
-                    action="Inspect the exact global object without widening this collection.",
-                    candidates=(ref.key,),
-                ),
-            )
-        available = tuple(item.key for item in collection.refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
-        label = f"Full path {full_path!r}" if full_path is not None else f"Ref {ref.key!r}"
-        _raise(
-            ErrorKind.NOT_FOUND,
-            f"{label} was not found in catalog.{collection._property_name}. "
-            f"Current candidates: {available!r}.",
-            cls=SemanticRuntimeError,
-            refs=(full_path if full_path is not None else ref.key,),
-            repair_value=repair(
-                kind="inspect",
-                canonical_id="load",
-                action="Inspect current collection members.",
-                candidates=available,
-            ),
-        )
-
     def _get_from_collection(
         self,
         collection: CatalogCollection[object],
-        key: str | Ref[SemanticKindTag],
+        key: str,
     ) -> CatalogItem:
         index = self._require_index()
-        expected = " or ".join(kind.value for kind in collection._kinds)
-        if type(key) is str and ":" in key:
-            typed_key = key
-            try:
-                key = _decode_ref_key(typed_key)
-            except (TypeError, ValueError) as exc:
-                candidates = collection.refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
-                scope = (
-                    collection._scope_ref.key if collection._scope_ref is not None else "catalog"
-                )
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"CatalogCollection.get(...) received an invalid typed ref key. {exc}",
-                    cls=SemanticRuntimeError,
-                    refs=(typed_key,),
-                    expected=f"{expected}:<path>",
-                    received=typed_key,
-                    constraint_id=ConstraintId.REF_SHAPE,
-                    repair_value=_semantic_input_inspection_repair(
-                        action=(
-                            "Inspect current collection members and retry with one displayed "
-                            "typed ref key."
-                        ),
-                        candidates=candidates,
-                    ),
-                    details={
-                        "operation": "CatalogCollection.get",
-                        "collection": collection._property_name,
-                        "scope": scope,
-                        "candidates": tuple(candidate.key for candidate in candidates),
-                    },
-                )
-        if type(key) is Ref:
-            return self._get_exact_from_collection(collection, key)
-
-        if type(key) is not str:
+        if type(key) is not str or ":" in key:
+            candidates = tuple(
+                ref.path for ref in collection.refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+            )
             _raise(
                 ErrorKind.INVALID_REF,
-                "CatalogCollection.get(...) expected a local/full path string or an "
-                f"exact Ref; received {type(key).__name__}.",
+                "CatalogCollection.get(...) requires a plain local name or full semantic "
+                "path string. Refs and kind-prefixed strings are not accepted.",
                 cls=SemanticRuntimeError,
+                expected="a plain local name or full semantic path string",
+                received=key if isinstance(key, str) else type(key).__name__,
+                hint=f"Browse catalog.{collection._property_name}.show() and pass a displayed plain path.",
+                repair_value=repair(
+                    kind="inspect",
+                    canonical_id="catalog_collection.get",
+                    action="Choose a displayed path from this collection.",
+                    candidates=candidates,
+                ),
             )
         if "." in key:
             exact = tuple(
                 ref for ref in index.refs if ref.kind in collection._kinds and ref.path == key
             )
             if exact:
-                return self._get_exact_from_collection(collection, exact[0], full_path=key)
+                ref = exact[0]
+                if index.contains(ref, scope_ref=collection._scope_ref):
+                    return index.item(ref)
+                scope = (
+                    collection._scope_ref.key if collection._scope_ref is not None else "catalog"
+                )
+                _raise(
+                    ErrorKind.NOT_FOUND,
+                    f"Path {key!r} exists but is outside collection scope {scope}. "
+                    "The collection scope is a hard visibility boundary. "
+                    f"Use catalog.{collection._property_name}.get({key!r}) "
+                    "only for an intentional global lookup.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref.key,),
+                    repair_value=repair(
+                        kind="inspect",
+                        canonical_id="catalog_collection.get",
+                        action="Inspect the global collection without widening this collection.",
+                        candidates=(key,),
+                    ),
+                )
             available = tuple(
-                item.key for item in collection.refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+                ref.path
+                for ref in sorted(
+                    collection.refs,
+                    key=lambda ref: (-SequenceMatcher(None, key, ref.path).ratio(), ref.key),
+                )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
             )
             _raise(
                 ErrorKind.NOT_FOUND,
@@ -3251,10 +3183,18 @@ class SemanticCatalog(RenderableResult):
                 f"Current candidates: {available!r}.",
                 cls=SemanticRuntimeError,
                 refs=(key,),
+                expected="an existing full path in this collection",
+                received=key,
+                hint=f"Browse catalog.{collection._property_name}.show() for current paths.",
                 repair_value=repair(
                     kind="inspect",
-                    canonical_id="load",
-                    action="Inspect current collection members.",
+                    canonical_id="catalog_collection.get",
+                    action="Choose an existing path from this collection; no replacement was applied.",
+                    snippet=(
+                        f"{collection._public_get_entrypoint()}({available[0]!r})"
+                        if available
+                        else None
+                    ),
                     candidates=available,
                 ),
             )
@@ -3268,6 +3208,9 @@ class SemanticCatalog(RenderableResult):
                 str(exc),
                 cls=SemanticRuntimeError,
                 refs=(key,),
+                expected="a valid plain local name",
+                received=key,
+                hint=f"Browse catalog.{collection._property_name}.show() and pass a displayed plain path.",
             )
         refs = collection.refs
         matches = tuple(ref for ref in refs if ref.name == key)
@@ -3287,7 +3230,7 @@ class SemanticCatalog(RenderableResult):
                     kind="inspect",
                     canonical_id="load",
                     action="Choose one exact full path from the current collection.",
-                    candidates=tuple(ref.key for ref in matches),
+                    candidates=tuple(ref.path for ref in matches),
                 ),
             )
         available = tuple(ref.name for ref in refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
@@ -3345,90 +3288,34 @@ class SemanticCatalog(RenderableResult):
         """Work schedules as navigation entries."""
         return CatalogCollection(self, "work_schedules")
 
-    @overload
-    def require(self, ref: Ref[EntityKind], /) -> Entity: ...
-    @overload
-    def require(self, ref: Ref[DimensionKind], /) -> Deferred: ...
-    @overload
-    def require(self, ref: Ref[TimeDimensionKind], /) -> Deferred: ...
-    @overload
-    def require(self, ref: Ref[MeasureKind], /) -> Deferred: ...
-    @overload
-    def require(self, ref: Ref[MetricKind], /) -> Deferred: ...
-    @overload
-    def require(self, ref: Ref[RelationshipKind], /) -> Relationship: ...
-    @overload
-    def require(self, ref: Ref[DomainKind], /) -> DomainEntry: ...
-    @overload
-    def require(self, ref: Ref[DatasourceKind], /) -> DatasourceEntry: ...
-    @overload
-    def require(self, ref: Ref[PeriodCalendarKind], /) -> PeriodCalendarEntry: ...
-    @overload
-    def require(self, ref: Ref[TemporalSetKind], /) -> TemporalSetEntry: ...
-    @overload
-    def require(self, ref: Ref[WorkScheduleKind], /) -> WorkScheduleEntry: ...
-    @overload
-    def require(self, ref: Ref[SemanticKindTag], /) -> CatalogItem: ...
-    def require(self, ref: Ref[SemanticKindTag], /) -> CatalogItem:
-        """Resolve one exact typed ref in this compiled catalog.
-
-        Args:
-            ref: Current semantic identity, including its kind and full path.
-
-        Returns:
-            The expression value of an Entity, field, Metric or Relationship, or
-            the catalog entry of a domain, datasource, calendar, temporal set or
-            work schedule.
-
-        Example:
-            >>> amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-            >>> catalog.describe(ms.ref.measure("sales.orders.amount")).show()
-
-        Constraints:
-            Strings, wrong-kind refs, and absent refs are rejected with a
-            structured repair. This lookup does not query a datasource or
-            certify the value for analysis.
-        """
-        exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
+    def _require_ref(self, ref: Ref[SemanticKindTag]) -> None:
+        """Validate exact internal identity in this compiled scope."""
+        exact_ref = _require_semantic_ref(ref, parameter="semantic identity")
         index = self._require_index()
-        found = index.require(exact_ref)
-        if found is not None:
-            from marivo.semantic.expressions import author_value
-
-            return found if isinstance(found, CatalogEntry) else author_value(found)
-        same_kind = tuple(item for item in index.refs if item.kind is exact_ref.kind)
-        candidates = tuple(
-            sorted(
-                same_kind,
-                key=lambda item: (
-                    -SequenceMatcher(None, exact_ref.path, item.path).ratio(),
-                    item.key,
-                ),
-            )
-        )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
-        calls = tuple(
-            f"ms.ref.{candidate.kind.value}({candidate.path!r})" for candidate in candidates
-        )
+        if index.require(exact_ref) is not None:
+            return
+        collection = CATALOG_COLLECTION_BY_KIND[exact_ref.kind]
+        candidates = tuple(item.path for item in index.refs if item.kind is exact_ref.kind)[
+            :_SEMANTIC_INPUT_CANDIDATE_LIMIT
+        ]
         _raise(
             ErrorKind.NOT_FOUND,
-            f"Ref {exact_ref.key!r} is not present in this compiled catalog. "
-            f"Loaded {exact_ref.kind.value} candidates: {calls!r}.",
+            f"Ref {exact_ref.key!r} is not present in this compiled catalog.",
             cls=SemanticRuntimeError,
             refs=(exact_ref.key,),
-            expected=f"an existing Ref[{exact_ref.kind.value}] in this compiled catalog",
+            expected=f"an existing {exact_ref.kind.value} in this compiled catalog",
             received=exact_ref.key,
-            hint=f"Browse catalog.{CATALOG_COLLECTION_BY_KIND[exact_ref.kind]}.show() for more choices.",
+            hint=f"Browse catalog.{collection}.show() for current paths.",
             repair_value=repair(
-                kind="retry",
-                canonical_id="SemanticCatalog.require",
-                action="Choose an exact existing same-kind ref; no replacement was applied.",
-                snippet=f"catalog.require({calls[0]})" if calls else None,
-                candidates=tuple(candidate.key for candidate in candidates),
+                kind="inspect",
+                canonical_id="catalog_collection.get",
+                action=f"Choose an existing path from catalog.{collection}.",
+                candidates=candidates,
             ),
             details={
                 "catalog_definition_fingerprint": self.definition_fingerprint,
                 "filtered_domains": self._project._filtered_domains,
-                "candidates": tuple(candidate.key for candidate in candidates),
+                "candidates": candidates,
             },
         )
 
@@ -3777,7 +3664,7 @@ class SemanticCatalog(RenderableResult):
         """Execute the existing one-object preview contract."""
         reg = self._require_ready()
         ref_obj = _require_semantic_ref(ref, parameter="preview(ref)")
-        self.require(ref_obj)
+        self._require_ref(ref_obj)
         ref_str = ref_obj.path
         kind = ref_obj.kind
         sidecar = self._project._expression_sidecar
@@ -4158,7 +4045,7 @@ class SemanticCatalog(RenderableResult):
             _require_semantic_ref(value, parameter="preview_many(refs)") for value in refs
         )
         for ref_obj in ref_objects:
-            self.require(ref_obj)
+            self._require_ref(ref_obj)
         seen_refs: set[Ref[SemanticKindTag]] = set()
         duplicate_seen: set[Ref[SemanticKindTag]] = set()
         duplicate_list: list[Ref[SemanticKindTag]] = []

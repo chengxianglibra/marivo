@@ -60,9 +60,9 @@ def test_deferred_capture_declaration_collection_and_native_composition(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    revenue = catalog.require(ms.ref.metric("sales.revenue"))
-    margin = catalog.require(ms.ref.measure("sales.orders.margin"))
+    amount = catalog.fields.get("sales.orders.amount")
+    revenue = catalog.metrics.get("sales.revenue")
+    margin = catalog.fields.get("sales.orders.margin")
     assert isinstance(amount, Deferred)
     assert isinstance(revenue, Deferred)
     assert isinstance(margin, Deferred)
@@ -137,8 +137,8 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    cost = catalog.require(ms.ref.measure("sales.orders.cost"))
+    amount = catalog.fields.get("sales.orders.amount")
+    cost = catalog.fields.get("sales.orders.cost")
     positive = ibis.ifelse(amount > cost, amount - cost, 0)
     assert consume_row(positive).unit == "CNY"
     with pytest.raises(SemanticExpressionError):
@@ -150,7 +150,7 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     }
     with pytest.raises(SemanticExpressionError):
         consume_metric(amount.sum() + amount)
-    status = catalog.require(ms.ref.dimension("sales.orders.status"))
+    status = catalog.fields.get("sales.orders.status")
     with pytest.raises(SemanticExpressionError):
         consume_row(status.cast("float64"))
 
@@ -214,8 +214,8 @@ def test_native_selection_units_and_reciprocal_authorization(
         'column="cost", unit="CNY"', 'column="cost", unit="USD"'
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    cost = catalog.require(ms.ref.measure("sales.orders.cost"))
+    amount = catalog.fields.get("sales.orders.amount")
+    cost = catalog.fields.get("sales.orders.cost")
     for expression in (amount > cost, ibis.least(amount, cost), amount.clip(lower=cost)):
         with pytest.raises(SemanticExpressionError, match="incompatible units"):
             consume_row(expression)
@@ -244,7 +244,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     from marivo.semantic._deferred_semantics import consume_metric_in_state
 
     original = _catalog(semantic_project_factory)
-    revenue = original.require(ms.ref.metric("sales.revenue"))
+    revenue = original.metrics.get("sales.revenue")
     old_reference = root_declaration(revenue).reference
     changed_root = tmp_path / "changed"
     changed_root.mkdir()
@@ -256,7 +256,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
         workspace_dir=changed_root,
     )
     changed = SemanticCatalog(project)
-    current = changed.require(ms.ref.metric("sales.revenue"))
+    current = changed.metrics.get("sales.revenue")
     rebound = consume_metric_in_state(revenue, changed._state)
     assert rebound.node == consume_metric(current).node
     assert rebound._declared == consume_metric(current)._declared
@@ -268,8 +268,8 @@ def test_sum_defaults_are_normalized_at_each_reduction(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    status = catalog.require(ms.ref.dimension("sales.orders.status"))
+    amount = catalog.fields.get("sales.orders.amount")
+    status = catalog.fields.get("sales.orders.status")
     for expression in (amount.sum(), amount.sum().per(status).sum()):
         node = consume_metric(expression).node
         assert isinstance(node, (SourceAggregate, PerReduce)) and node.empty == "null"

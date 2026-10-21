@@ -8,7 +8,6 @@ from pathlib import Path
 import pandas as pd
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import (
     _create,
@@ -80,7 +79,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "hierarchy.json"
     if phase == "produce":
         session = _create(root, "j1", "parquet")
-        members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
+        members = session.members(session.catalog.entities.get("operations.device"))
         category = session.catalog.fields.get("operations.device.zone")
         amount = session.catalog.fields.get("operations.reading.energy")
         time = session.catalog.fields.get("operations.reading.recorded_at")

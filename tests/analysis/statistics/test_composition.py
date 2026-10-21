@@ -99,7 +99,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     query = session.read(members, {"value": session.catalog.fields.get("sales.order.profile_0")})
     artifact = query.persist()
     frame = plain(artifact)
@@ -189,7 +189,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "parquet")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     field = session.catalog.fields.get("sales.order.profile_0")
     captured = session.read(members, {"value": field}).persist()
     frame = deviation(plain(captured), method)

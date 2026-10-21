@@ -15,7 +15,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import (
     OutputEvidence,
     OutputFinding,
@@ -40,7 +39,7 @@ _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
 
 def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.revenue")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"value": metric}, by=mv.product(scope, members))

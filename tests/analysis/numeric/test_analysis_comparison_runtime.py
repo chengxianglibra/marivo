@@ -182,7 +182,7 @@ def test_public_numeric_difference_source_and_fixed(
             {"value": amount.sum(time=time, empty="null")},
             by=mv.product(
                 session.time_scope(start="2026-09-01", end="2026-10-01"),
-                session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+                session.members(session.catalog.entities.get("sales.customer")),
             ),
         )
         null_saved = nullable.compare(
@@ -356,7 +356,7 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "BIGINT", True)
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
@@ -415,9 +415,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
         ).by(mv.grain("day"))
         return session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            by=mv.product(
-                axis, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-            ),
+            by=mv.product(axis, session.members(session.catalog.entities.get("sales.customer"))),
         )
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
@@ -477,7 +475,7 @@ finalized = ms.finalize()
     ms.load(workspace_dir=case.root)
     session = case.session
     customer, account = (
-        session.members(session.catalog.require(ms.ref.entity("sales." + name)))
+        session.members(session.catalog.entities.get("sales." + name))
         for name in ("customer", "account")
     )
     scope = (
@@ -554,7 +552,7 @@ def test_float_sum_and_native_mean_comparison_values(
         )
     session = case.session
     identities = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        session.members(session.catalog.entities.get("sales.customer")),
         {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
     selection_values = identities.where(identities["id"] == "A")
@@ -627,7 +625,7 @@ def test_comparison_of_float_original_expression_operands(
     _numeric_source(case, "DOUBLE", False)
     session = case.session
     identities = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        session.members(session.catalog.entities.get("sales.customer")),
         {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
     selection_values = identities.where(identities["id"] == "A")
@@ -675,7 +673,7 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
@@ -738,7 +736,7 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     time = session.catalog.fields.get("sales.order.ordered_at")
     denominator = session.catalog.fields.get("sales.order.denominator").sum(time=time)
     q = session.observe(
@@ -763,7 +761,7 @@ def test_ordinary_ratio_over_untimed_numeric_read(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     values = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        session.members(session.catalog.entities.get("sales.order")),
         {"value": session.catalog.fields.get("sales.order.amount")},
     )
     saved = values.select({"value": values["value"] / values["value"]}).persist()
@@ -801,7 +799,7 @@ def test_float_status_fold_comparison_uses_native_values(
         },
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-08-03"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
     comparison = observed.compare(
@@ -875,16 +873,12 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
         ).by(mv.grain("day"))
         observed = session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            by=mv.product(
-                axis, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-            ),
+            by=mv.product(axis, session.members(session.catalog.entities.get("sales.customer"))),
         )
         return session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
             by=(axis,),
-            where=mv.in_population(
-                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-            ),
+            where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
         )
 
     left, right = grouped(8, 14), grouped(7, 9)

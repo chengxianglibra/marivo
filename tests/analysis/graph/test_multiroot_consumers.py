@@ -15,7 +15,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -275,7 +274,7 @@ def test_independent_roots_and_temporal_fold(
             {name.removeprefix("semantic/"): content for name, content in files.items()}
         )
         session = mv.session.create("r93-multiroot", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         metrics = session.catalog.metrics
         left_total, right_total = metrics.get("sales.left_total"), metrics.get("sales.right_total")
         expression = left_total / right_total if ratio else left_total + right_total

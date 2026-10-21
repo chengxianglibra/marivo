@@ -98,8 +98,9 @@ with participating fields, or a derived object with new governed dependencies.
 It is not a one-object checkpoint loop.
 
 Author the whole slice in Python, then run one `ms.load()`. Repair its structural
-failures together, reload, and call `catalog.require(ref)` for every authored
-root. Do not add a separate verification checkpoint.
+failures together, reload, and select every authored root by plain path through
+its corresponding catalog collection, for example `catalog.entities.get(path)`.
+Do not add a separate verification checkpoint.
 
 For analysis handoff, resolve every requested definition, then run scoped
 readiness on its physical inputs. Published Metrics and declared row expressions

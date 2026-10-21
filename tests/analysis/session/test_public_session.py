@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -92,7 +91,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     publish_fiscal_calendar_artifact(catalog)
     monkeypatch.chdir(catalog.workspace_dir)
     session = mv.session.create("calendar", timezone="UTC")
-    calendar = session.catalog.require(ms.ref.period_calendar("sales.fiscal"))
+    calendar = session.catalog.period_calendars.get("sales.fiscal")
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
     metric = session.catalog.metrics.get("sales.gmv")

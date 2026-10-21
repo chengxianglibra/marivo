@@ -11,7 +11,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
-from marivo.refs import DimensionKind, Ref, SemanticKind
+from marivo.refs import SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
@@ -147,7 +147,7 @@ def test_every_displayed_collection_key_round_trips_through_get(
     for member in CATALOG_MEMBER_CONTRACTS:
         collection = getattr(catalog, member.property_name)
         for ref, item in zip(collection.refs, collection.items, strict=True):
-            value = collection.get(ref.key)
+            value = collection.get(ref.path)
             if isinstance(item, Deferred) and ref.kind.value != "metric":
                 assert consume_field(value) == consume_field(item)
             else:
@@ -184,8 +184,8 @@ def test_collection_show_uses_one_receiver_qualified_selection_template(
     global_rendered = catalog.metrics.render()
     scoped_rendered = catalog.domains.get("sales").metrics.render()
 
-    assert global_rendered.count("catalog.metrics.get(<displayed ref>)") == 1
-    assert scoped_rendered.count("collection.get(<displayed ref>)") == 1
+    assert global_rendered.count("catalog.metrics.get(<displayed path>)") == 1
+    assert scoped_rendered.count("collection.get(<displayed path>)") == 1
     assert "metric:sales.revenue" in global_rendered
 
 
@@ -299,30 +299,6 @@ def test_relationship_endpoints_disclose_exact_entity_refs(semantic_project_fact
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_require_rejects_raw_short_name_and_teaches_exact_typed_lookup(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require("revenue")  # type: ignore[arg-type]
-
-    message = str(exc_info.value)
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "requires an exact Ref[kind]" in message
-    assert "ms.ref.<kind>(path)" in message
-
-
-def test_catalog_require_remains_ref_only(semantic_project_factory) -> None:
-    catalog = _catalog(semantic_project_factory)
-    revenue = catalog.metrics.get("sales.revenue")
-
-    with pytest.raises(SemanticRuntimeError, match="requires an exact Ref") as exc_info:
-        catalog.require(revenue)  # type: ignore[arg-type]
-
-    assert "Pass entry.ref" in str(exc_info.value)
-
-
 def test_collection_get_reports_missing_full_path(
     semantic_project_factory,
 ) -> None:
@@ -357,51 +333,20 @@ def test_collection_get_accepts_exact_full_path(semantic_project_factory) -> Non
     assert consume_metric(metric).node.ref.ref.key == "metric:sales.revenue"
 
 
-def test_collection_get_accepts_displayed_typed_key_in_scope(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    metric = catalog.domains.get("sales").metrics.get("metric:sales.revenue")
-
-    assert metric is catalog.metrics.get("sales.revenue")
-
-
-def test_collection_get_reports_missing_displayed_typed_key(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.metrics.get("metric:sales.missing")
-
-    assert exc_info.value.kind == ErrorKind.NOT_FOUND
-    assert exc_info.value.semantic_refs == ("metric:sales.missing",)
-    assert "metric:sales.revenue" in str(exc_info.value)
-
-
-@pytest.mark.parametrize(
-    "key",
-    (
-        "unknown:sales.revenue",
-        "metric:sales",
-    ),
-)
-def test_collection_get_rejects_malformed_typed_key_with_current_candidates(
+@pytest.mark.parametrize("key", ("metric:sales.revenue", "unknown:sales.revenue", "metric:sales"))
+def test_collection_get_rejects_kind_prefixed_strings(
     semantic_project_factory,
     key: str,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.metrics.get(key)
-
     error = exc_info.value
     assert error.kind == ErrorKind.INVALID_REF
-    assert error.expected == "metric:<path>"
+    assert error.expected == "a plain local name or full semantic path string"
     assert error.received == key
     assert error.repair is not None
-    assert error.repair.candidates == ("metric:sales.revenue",)
+    assert error.repair.candidates == ("sales.revenue",)
 
 
 def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
@@ -424,18 +369,6 @@ def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_fac
     assert consume_field(region).reference.ref.key == "dimension:sales.orders.region"
 
 
-def test_collection_get_accepts_exact_same_kind_ref_globally_and_in_scope(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-    region_ref = ms.ref.dimension("sales.orders.region")
-
-    global_region = catalog.fields.get(region_ref)
-    scoped_region = catalog.domains.get("sales").fields.get(region_ref)
-
-    assert consume_field(global_region) == consume_field(scoped_region)
-
-
 def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
@@ -444,55 +377,26 @@ def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> 
     assert consume_field(region).reference.ref.key == "dimension:sales.orders.region"
 
 
-@pytest.mark.parametrize(
-    "key",
-    (
-        "ops.events.region",
-        "dimension:ops.events.region",
-        ms.ref.dimension("ops.events.region"),
-    ),
-)
-def test_collection_get_full_path_and_ref_cannot_escape_scope(
-    semantic_project_factory,
-    key: str | Ref[DimensionKind],
-) -> None:
+def test_collection_get_full_path_cannot_escape_scope(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    sales_dimensions = catalog.domains.get("sales").fields
-
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        sales_dimensions.get(key)  # type: ignore[arg-type]
-
+        catalog.domains.get("sales").fields.get("ops.events.region")
     message = str(exc_info.value)
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
     assert "outside collection scope domain:sales" in message
     assert "hard visibility boundary" in message
-    assert "catalog.require(ms.ref.dimension('ops.events.region'))" in message
+    assert "catalog.fields.get('ops.events.region')" in message
 
 
-def test_collection_get_wrong_kind_ref_names_correct_collection(
-    semantic_project_factory,
-) -> None:
+@pytest.mark.parametrize(
+    "key", (ms.ref.metric("sales.revenue"), ms.ref.entity("sales.orders"), 1, None)
+)
+def test_collection_get_rejects_non_string_inputs(semantic_project_factory, key: object) -> None:
     catalog = _catalog(semantic_project_factory)
-
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.metrics.get(ms.ref.entity("sales.orders"))  # type: ignore[arg-type]
-
+        catalog.metrics.get(key)  # type: ignore[arg-type]  # Exercise runtime input validation.
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "Expected metric, received entity" in str(exc_info.value)
-    assert "catalog.entities" in str(exc_info.value)
-
-
-def test_collection_get_wrong_kind_typed_key_names_correct_collection(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.metrics.get("entity:sales.orders")
-
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert exc_info.value.semantic_refs == ("entity:sales.orders",)
-    assert "Expected metric, received entity" in str(exc_info.value)
-    assert "catalog.entities" in str(exc_info.value)
+    assert "plain local name or full semantic path string" in str(exc_info.value)
 
 
 def test_semantic_input_normalization_accepts_values_like_their_refs(
@@ -769,17 +673,12 @@ def test_object_and_collection_repr_are_bounded(semantic_project_factory) -> Non
     assert "\n" not in repr(catalog.metrics)
 
 
-@pytest.mark.parametrize("key_shape", ("path", "typed_key", "ref"))
 def test_exact_collection_lookup_does_not_enumerate_members(
-    semantic_project_factory, monkeypatch: pytest.MonkeyPatch, key_shape: str
+    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     revenue = catalog.metrics.get("sales.revenue")
-    key = {
-        "path": consume_metric(revenue).node.ref.ref.path,
-        "typed_key": consume_metric(revenue).node.ref.ref.key,
-        "ref": consume_metric(revenue).node.ref.ref,
-    }[key_shape]
+    key = "sales.revenue"
     global_collection = catalog.metrics
     scoped_collection = catalog.domains.get("sales").metrics
 
@@ -799,7 +698,7 @@ def test_collection_with_unknown_scope_remains_empty(semantic_project_factory) -
     with pytest.raises(
         SemanticRuntimeError, match=r"outside collection scope entity:sales\.missing"
     ):
-        collection.get(ms.ref.metric("sales.revenue"))
+        collection.get("sales.revenue")
 
 
 def test_navigation_preserves_declared_ownership_and_relationship_order(

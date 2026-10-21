@@ -638,7 +638,7 @@ than ordinary semantic objects.
 The canonical workflow is:
 
 ```text
-inspect -> author -> load -> catalog.require
+inspect -> author -> load -> collection.get
         -> catalog.preview(scope=explicit_complete_coverage) -> readiness
 ```
 

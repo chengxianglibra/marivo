@@ -1135,12 +1135,11 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
     from marivo.analysis.materialization import terminal_store
 
     session = optimization_session
     composite = session.catalog.entities.get("sales.composite_orders")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.composite_orders")))
+    members = session.members(session.catalog.entities.get("sales.composite_orders"))
     query = session.frame(members)
     runs_before = session.runs().items
     calls: list[str] = []
@@ -1167,7 +1166,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     requested = mv.coordinates(by=(mv.identity(composite),), keys=(((1, "x"),), ((2, "x"),)))
     selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
-    scalar_members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    scalar_members = session.members(session.catalog.entities.get("sales.orders"))
     scalar = session.frame(scalar_members)
     assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
         ("value", "identity")

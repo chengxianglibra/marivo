@@ -545,7 +545,7 @@ def build_readiness_report(
                 repair(
                     kind="inspect",
                     canonical_id="load",
-                    action="Browse loaded refs with catalog.domains.show() or catalog.fields.show(), then inspect a known identity with catalog.require(ms.ref.<kind>(path)).show().",
+                    action="Browse loaded refs with catalog.domains.show() or catalog.fields.show(), then select a displayed path with the corresponding collection.get(path).",
                 ),
             )
         )

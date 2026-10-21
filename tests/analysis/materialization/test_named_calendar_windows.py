@@ -162,7 +162,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
     session_a = mv.session.create("calendar-a", timezone="UTC")
-    calendar_a = session_a.catalog.period_calendars.get(calendar_ref)
+    calendar_a = session_a.catalog.period_calendars.get(calendar_ref.path)
     grain_a = calendar_a.grain("fiscal_month")
     scope_a = session_a.time_scope(start="2026-01-20", end="2026-02-01")
     query_a = session_a.observe(
@@ -183,7 +183,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
         )
     catalog.preview(calendar_ref, scope=acquisition)
     session_b = mv.session.create("calendar-b", timezone="UTC")
-    grain_b = session_b.catalog.period_calendars.get(calendar_ref).grain("fiscal_month")
+    grain_b = session_b.catalog.period_calendars.get(calendar_ref.path).grain("fiscal_month")
     assert grain_a._snapshot is not None and grain_b._snapshot is not None
     assert grain_a._snapshot.snapshot_digest != grain_b._snapshot.snapshot_digest
     scope_b = session_b.time_scope(start="2026-01-20", end="2026-02-01")

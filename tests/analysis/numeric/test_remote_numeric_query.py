@@ -14,7 +14,6 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
@@ -177,7 +176,7 @@ def test_mysql_direct_declared_utc_time_preserves_instants(
         native = case.session._backend.execute(table.order_by("id"))
         assert isinstance(native, pd.DataFrame)
         session = mv.session.create("mysql_utc_read", timezone="America/New_York")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         artifact = session.read(
             members, {"happened": session.catalog.fields.get("sales.facts.happened")}
         ).persist()
@@ -296,7 +295,7 @@ def test_public_native_numeric_query(
         assert len(frame) == 2
         assert frame.loc[frame[("coordinate", "axis.0")].isna(), ("value", "total")].isna().all()
         assert frame.equals(session.persisted_frame(artifact.artifact.id).to_pandas())
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         direct_query = session.read(members, {"big": session.catalog.fields.get("sales.facts.big")})
         if profile == "distributed":
             from marivo.analysis.errors import AnalysisStageUnavailableError
@@ -389,7 +388,7 @@ def test_native_time_dependencies_and_drill(
         tenant = session.catalog.fields.get("sales.facts.tenant")
         weight = session.catalog.fields.get("sales.facts.weight")
         amount = session.catalog.fields.get("sales.facts.amount")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         identity_axis = members.axes[0]
         assert identity_axis.kind == "identity"
         chosen_values = session.values(
@@ -531,7 +530,7 @@ def test_same_source_read_filter_population_consumer(
         session = mv.session.create("same_source_population", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         attributes = session.read(members, {"category": category})
         predicate = (
             attributes["category"].is_null()
@@ -635,7 +634,7 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
         session = mv.session.create("source_char_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "e").compute()
         selected = session.population_from(
@@ -691,7 +690,7 @@ def test_empty_source_selection_retains_original_identity_check(
         session = mv.session.create("source_check_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "absent")
         selected = session.population_from(

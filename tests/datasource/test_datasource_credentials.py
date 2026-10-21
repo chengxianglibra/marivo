@@ -497,9 +497,7 @@ def test_public_semantic_analysis_and_resume(
         assert catalog.source_health([ms.ref.entity("sales.orders")]).status == "current"
         query = session.observe(
             {"revenue": catalog.metrics.get("sales.revenue")},
-            where=mv.in_population(
-                session.members(session.catalog.require(ms.ref.entity("sales.orders")))
-            ),
+            where=mv.in_population(session.members(session.catalog.entities.get("sales.orders"))),
         )
         frame = query.compute()
         assert not frame.to_pandas().empty
@@ -512,7 +510,7 @@ def test_public_semantic_analysis_and_resume(
             session.observe(
                 {"revenue": catalog.metrics.get("sales.revenue")},
                 where=mv.in_population(
-                    session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+                    session.members(session.catalog.entities.get("sales.orders"))
                 ),
             ).compute()
         assert (
@@ -537,7 +535,7 @@ def test_public_semantic_analysis_and_resume(
                 session.observe(
                     {"revenue": catalog.metrics.get("sales.revenue")},
                     where=mv.in_population(
-                        session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+                        session.members(session.catalog.entities.get("sales.orders"))
                     ),
                 ).compute()
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
@@ -551,7 +549,7 @@ def test_public_semantic_analysis_and_resume(
             not resumed.observe(
                 {"revenue": resumed.catalog.metrics.get("sales.revenue")},
                 where=mv.in_population(
-                    resumed.members(resumed.catalog.require(ms.ref.entity("sales.orders")))
+                    resumed.members(resumed.catalog.entities.get("sales.orders"))
                 ),
             )
             .compute()

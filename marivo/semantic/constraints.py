@@ -570,7 +570,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.metrics.show() and use catalog.require(ms.ref.metric('<semantic_id>')).",
+        "catalog = ms.load(); catalog.metrics.show() and use catalog.metrics.get('<semantic_id>').",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -579,7 +579,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.entities.show() and use catalog.require(ms.ref.entity('<semantic_id>')).",
+        "catalog.entities.show() and use catalog.entities.get('<semantic_id>').",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -588,7 +588,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.fields.show() and use catalog.require(ms.ref.dimension('<semantic_id>')).",
+        "catalog.fields.show() and use catalog.fields.get('<semantic_id>').",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,

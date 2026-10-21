@@ -542,7 +542,7 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     )
     catalog = SemanticCatalog(project)
 
-    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
+    amount = catalog.fields.get("sales.orders.amount")
     assert consume_field(amount).reference.ref.kind == SemanticKind.MEASURE
     assert consume_field(amount).reference.ref.path == "sales.orders.amount"
     assert consume_row(amount).unit == "USD"
@@ -801,7 +801,7 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
     )
     with patch_semantic_connections(project, backend_factory) as connections:
         for operation in (
-            lambda: SemanticCatalog(project).require(ms.ref.metric("sales.nonexistent")),
+            lambda: SemanticCatalog(project).metrics.get("sales.nonexistent"),
             lambda: _materialize_dataset(project, connections, "sales.nonexistent"),
             lambda: _materialize_field(project, connections, "sales.orders.nonexistent"),
         ):

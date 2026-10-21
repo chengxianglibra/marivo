@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -40,7 +39,7 @@ def postgres_query_session(
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+        session.members(session.catalog.entities.get("sales.facts")),
         {
             "category": session.catalog.fields.get("sales.facts.category"),
         },
@@ -126,7 +125,7 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+        session.members(session.catalog.entities.get("sales.facts")),
         {"amount": session.catalog.fields.get("sales.facts.amount")},
     )
     query = (
@@ -146,7 +145,7 @@ def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+        session.members(session.catalog.entities.get("sales.facts")),
         {"big": session.catalog.fields.get("sales.facts.big")},
     )
     query = source.where(source["big"] > 2**53)

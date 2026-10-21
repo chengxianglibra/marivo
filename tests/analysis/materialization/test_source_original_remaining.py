@@ -4,7 +4,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.source_trace import capture_source
 
@@ -24,7 +23,7 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     customer = session.catalog.fields.get("sales.customer.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
     samples = session.members(
-        session.catalog.require(ms.ref.entity("sales.customer")), where=customer != "D"
+        session.catalog.entities.get("sales.customer"), where=customer != "D"
     ).classify(by=(customer,))
     metric = amount.sum(empty=empty).per(samples).mean()
     trace = capture_source(monkeypatch)
@@ -211,9 +210,7 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     amount = session.catalog.fields.get("sales.order.amount")
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
-    samples = session.members(session.catalog.require(ms.ref.entity("sales.order"))).classify(
-        by=(customer,)
-    )
+    samples = session.members(session.catalog.entities.get("sales.order")).classify(by=(customer,))
     metric = amount.sum(empty="zero").per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()

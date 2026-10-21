@@ -11,7 +11,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_plan import FrameKeysInput, QueryPlan
 from marivo.analysis.materialization import frame_evaluation
@@ -125,7 +124,7 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     attributes = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.facts"))), {"amount": amount}
+        session.members(session.catalog.entities.get("sales.facts")), {"amount": amount}
     )
     chosen = attributes.where(attributes["amount"] >= 10)
     keys = session.population_from(

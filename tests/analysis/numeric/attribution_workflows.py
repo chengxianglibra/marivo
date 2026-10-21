@@ -14,7 +14,6 @@ import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.analysis.statistics.pandas_workflows import plain
 from tests.shared_fixtures import DslCase
 
@@ -35,7 +34,7 @@ def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.Analys
     if weight:
         names["weight"] = "weight"
     query = session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        session.members(session.catalog.entities.get("sales.order")),
         {name: session.catalog.fields.get("sales.order." + path) for name, path in names.items()},
     )
     return query.where(

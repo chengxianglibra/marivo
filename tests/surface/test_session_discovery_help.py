@@ -100,7 +100,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     show_help("analysis.catalog")
     guidance = capsys.readouterr().out
-    assert "collection.show()" in guidance and "collection.refs" in guidance
+    assert "collection.show()" in guidance and "displayed plain path" in guidance
     assert "catalog.describe(ref).show()" in guidance
     assert "Deferred" in guidance and "show()/contract()" in guidance
     show_help("semantic.semantic_catalog.describe")
@@ -120,12 +120,12 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
         catalog.describe(ref).show()
         assert ref.path in capsys.readouterr().out
 
-    metric = catalog.metrics.get(metric_ref)
-    field = catalog.fields.get(field_ref)
-    entity = catalog.entities.get(entity_ref)
-    assert isinstance(metric, Deferred) and isinstance(catalog.require(metric_ref), Deferred)
-    assert isinstance(field, Deferred) and isinstance(catalog.require(field_ref), Deferred)
-    assert isinstance(entity, Entity) and isinstance(catalog.require(entity_ref), Entity)
+    metric = catalog.metrics.get(metric_ref.path)
+    field = catalog.fields.get(field_ref.path)
+    entity = catalog.entities.get(entity_ref.path)
+    assert isinstance(metric, Deferred)
+    assert isinstance(field, Deferred)
+    assert isinstance(entity, Entity)
     query = case.session.observe({"revenue": metric}, by=(field,))
     population = case.session.members(entity)
     assert isinstance(query, mv.AnalysisFrame) and query.output_names
@@ -137,7 +137,7 @@ def test_catalog_focused_help_preserves_owning_output_families() -> None:
     for member in CATALOG_MEMBER_CONTRACTS:
         page = rendered_help("analysis.catalog." + member.property_name)
         assert f"Result: CatalogCollection[{member.item_type_name}]\n" in page
-    for name, target in (("require", "semantic_catalog.require"), ("readiness", "readiness")):
+    for name, target in (("readiness", "readiness"),):
         contract = SEMANTIC_REGISTRY.by_canonical_id(target)
         assert isinstance(contract, AuthoringCapability)
         page = rendered_help("analysis.catalog." + name)

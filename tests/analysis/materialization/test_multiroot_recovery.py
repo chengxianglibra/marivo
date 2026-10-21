@@ -13,7 +13,6 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -143,7 +142,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             }
         )
         session = mv.session.create("r94-multiroot", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
             construction.setattr(SourceSession, "execute", forbidden)
@@ -157,7 +156,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             relations["linear_total"] = session.observe({"value": left + right})
             relations["ratio_total"] = session.observe({"value": left / right})
             owner_field = session.catalog.fields.get("sales.subjects.owner")
-            left_members = session.members(session.catalog.require(ms.ref.entity("sales.left")))
+            left_members = session.members(session.catalog.entities.get("sales.left"))
             auto_read = session.read(left_members, {"value": owner_field})
             explicit_read = session.read(
                 left_members,

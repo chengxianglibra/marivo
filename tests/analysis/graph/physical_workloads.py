@@ -445,7 +445,7 @@ class Workload:
             {"value": self.session.catalog.metrics.get("cost.facts_total")},
             by=mv.product(
                 self.session.time_scope(start="2026-08-01", end="2026-08-02"),
-                self.session.members(self.session.catalog.require(ms.ref.entity("cost.facts"))),
+                self.session.members(self.session.catalog.entities.get("cost.facts")),
             ),
         )
 

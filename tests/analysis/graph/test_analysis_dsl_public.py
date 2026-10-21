@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
@@ -30,7 +29,7 @@ def _observe(
     session = case.session if session is None else session
     names = case.names
     population = (
-        session.members(session.catalog.require(ms.ref.entity(f"{names.domain}.{names.customer}")))
+        session.members(session.catalog.entities.get(f"{names.domain}.{names.customer}"))
         if members is None
         else members
     )
@@ -63,7 +62,7 @@ def test_public_contract_actions_and_result_card(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
     assert isinstance(route_help_target("analysis.population"), NativeHelpRoute)
     assert ".show()" in repr(population)
     subject_key = "subject-key-only-private-7b5d4e"
@@ -101,7 +100,7 @@ def test_public_empty_and_undefined_cards(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     empty = analysis_dsl_case_factory("empty_domain")
-    members = empty.session.members(empty.session.catalog.require(ms.ref.entity("sales.customer")))
+    members = empty.session.members(empty.session.catalog.entities.get("sales.customer"))
     saved = empty.session.frame(members).persist()
     assert saved.to_pandas().empty
     saved.show()
@@ -138,7 +137,7 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     region = session.catalog.fields.get("sales.customer.region")
-    population = session.members(session.catalog.require(ms.ref.entity("sales.customer"))).classify(
+    population = session.members(session.catalog.entities.get("sales.customer")).classify(
         by=(region,)
     )
     before = session.runs().items
@@ -301,7 +300,7 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     )
     case = analysis_dsl_case_factory("j4", names=names, revenue_unit="kWh")
     session = case.session
-    devices = session.members(session.catalog.require(ms.ref.entity("telemetry.device")))
+    devices = session.members(session.catalog.entities.get("telemetry.device"))
     query = session.observe(
         {
             "signal": session.catalog.metrics.get("telemetry.signal_sum"),
@@ -324,7 +323,7 @@ def test_public_wrong_relationship_rejects_before_execution(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     wrong = session.catalog.relationships.get("sales.line_order")
     region = session.catalog.fields.get("sales.customer.region")
     before = session.runs().items

@@ -10,7 +10,6 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -55,7 +54,7 @@ def session(
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:
     return session.read(
-        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+        session.members(session.catalog.entities.get("sales.facts")),
         {name: session.catalog.fields.get("sales.facts." + name)},
     )
 
@@ -254,7 +253,7 @@ def test_native_all_null_and_empty_source_carriers(
     big = session.catalog.fields.get("sales.facts.big")
     for condition, count in ((big.isnull(), 2), (big < 0, 0)):
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts")), where=condition),
+            session.members(session.catalog.entities.get("sales.facts"), where=condition),
             {"big": big},
         )
         fixed = source.compute()

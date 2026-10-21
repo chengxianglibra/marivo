@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.store import SessionStore
 from tests.shared_fixtures import DslCase
 
@@ -13,7 +12,7 @@ def _values(case: DslCase) -> mv.AnalysisFrame:
         {"value": case.session.catalog.metrics.get("sales.revenue")},
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer"))),
+            case.session.members(case.session.catalog.entities.get("sales.customer")),
         ),
     )
 

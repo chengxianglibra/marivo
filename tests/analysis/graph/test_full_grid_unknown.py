@@ -34,7 +34,7 @@ def _query(session: mv.Session) -> mv.AnalysisFrame:
         {"value": session.catalog.metrics.get("sales.total_0")},
         by=mv.product(
             period.by(mv.grain("day")),
-            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+            session.members(session.catalog.entities.get("sales.order")),
         ),
     )
 

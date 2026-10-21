@@ -12,7 +12,6 @@ from typing import Literal
 import pandas as pd
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from tests.shared_fixtures import DslCase
 
@@ -48,7 +47,7 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
 
 def orders(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    members = session.members(session.catalog.entities.get("sales.order"))
     return session.read(
         members,
         {
@@ -67,7 +66,7 @@ def monthly(case: DslCase, start: str, end: str) -> mv.AnalysisFrame:
         },
         by=mv.product(
             session.time_scope(start=start, end=end),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 

@@ -4,7 +4,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCaseFactory
@@ -32,7 +31,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}"
     )
     members = session.members(
-        session.catalog.require(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
+        session.catalog.entities.get(f"{case.names.domain}.{case.names.order}")
     )
     observed = session.observe(
         {"value": amount.sum(time=time, empty="null")},

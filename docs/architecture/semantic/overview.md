@@ -195,8 +195,8 @@ Authoring guidance is split so each surface has one job (elaborated in
   bounded rows and profiles; governed raw SQL handles source-specific
   scratch investigation with query size authored in SQL. None of these paths decides business meaning.
 - **Project load, catalog navigation, preview, source health, and readiness — validation.** One
-  `ms.load()` validates a dependency-coherent authored slice. Exact refs are
-  confirmed with `catalog.require(...)`; scoped preview, explicit source health,
+  `ms.load()` validates a dependency-coherent authored slice. Authored objects are
+  selected through their corresponding `collection.get(path)`; scoped preview, explicit source health,
   and readiness keep independent runtime, drift, and static contracts.
 
 The `marivo-semantic` skill owns task exits, reuse and business authority,
@@ -233,6 +233,12 @@ executed by the library. This mirrors the ownership split stated in
 | Ordered routing discipline and readiness policy | `marivo-semantic` skill |
 | Evidence interpretation and technical drafting | agent |
 | Unresolved business meaning and caliber acceptance | user or business owner |
+
+Catalog collection lookup accepts only plain local names or full semantic path
+strings. A short name must be unique in the current view, and a full path cannot
+escape a scoped collection. Refs and kind-prefixed strings are not lookup inputs.
+Consumers enforce their required kind, root, grain, unit, time and null contracts;
+internal identity resolution preserves exact kind/path validation.
 
 The native registries describe callable operations, effects, input facts, and
 constraints without constructing a shared authoring lifecycle graph. They cannot

@@ -1,6 +1,6 @@
 ---
 title: Semantic layer
-description: Reusable business meaning authored in Python and consumed through typed refs.
+description: Reusable business meaning authored in Python and selected through catalog collections.
 ---
 
 The semantic layer gives stable names to business objects. Datasource metadata explains physical data; approved definitions establish business meaning.
@@ -23,6 +23,23 @@ coherent dependency slice under `models/`, load it, repair structural errors and
 certify only the roots needed for analysis.
 
 Follow [semantic modeling](/docs/latest/guides/semantic-modeling/) and [Readiness](/docs/latest/concepts/readiness/). Python declarations are the shared authority; project-local `.marivo/` state is not a replacement for them.
+
+## Select loaded objects
+
+Use each catalog collection's `get()` with a plain local name or full semantic
+path string. Full paths are preferable in reusable scripts; a short name must
+be unique within that collection. The selected value retains its semantic facts.
+
+```python
+orders = catalog.entities.get("sales.orders")
+customer_id = catalog.fields.get("sales.orders.customer_id")
+revenue = catalog.metrics.get("sales.revenue")
+```
+
+Refs and kind-prefixed strings such as `dimension:sales.orders.customer_id` are
+not lookup inputs. Scoped collections only expose their own members. The consuming
+operation checks its required kind, root, grain, unit and time role. Typed Refs
+remain the identity format for declarations, definition inspection and records.
 
 ## Establish business authority
 

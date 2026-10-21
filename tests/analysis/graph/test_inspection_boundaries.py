@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import marivo.semantic as ms
 from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.materialization.store import SessionStore
@@ -21,7 +20,7 @@ def test_missing_backing_discards_native_exception_and_locator(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     result = case.session.frame(
-        case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+        case.session.members(case.session.catalog.entities.get("sales.customer"))
     ).persist()
     receipt = result.artifact._manifest.data.rows.receipt
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path

@@ -70,7 +70,7 @@ def test_require_entity_is_static_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
+    result = ms.SemanticCatalog(project).entities.get("sales.orders")
 
     assert isinstance(result, Entity)
     assert result.ref.ref == ms.ref.entity("sales.orders")
@@ -83,7 +83,7 @@ def test_require_entity_uses_current_loaded_project(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
+    first = ms.SemanticCatalog(project).entities.get("sales.orders")
     assert first.ref.ref == ms.ref.entity("sales.orders")
 
     # Rewrite the entity with a different source table name
@@ -106,7 +106,7 @@ def test_require_entity_uses_current_loaded_project(
         workspace_dir=tmp_path,
     )
 
-    second = ms.SemanticCatalog(project2).require(ms.ref.entity("sales.orders"))
+    second = ms.SemanticCatalog(project2).entities.get("sales.orders")
     assert second.ref.ref == first.ref.ref
     assert second.ref.version != first.ref.version
     assert not (Path(project2.state_root) / "evidence").exists()
@@ -230,7 +230,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = ms.SemanticCatalog(project).require(ms.ref.measure("sales.orders.amount"))
+    result = ms.SemanticCatalog(project).fields.get("sales.orders.amount")
 
     assert isinstance(result, Deferred)
     assert consume_field(result).reference.ref == ms.ref.measure("sales.orders.amount")
@@ -251,5 +251,5 @@ def test_require_unknown_ref_is_not_found_when_loaded(
     assert project.is_ready()
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        ms.SemanticCatalog(project).require(ms.ref.metric("sales.nonexistent_metric"))
+        ms.SemanticCatalog(project).metrics.get("sales.nonexistent_metric")
     assert exc_info.value.kind == "not_found"

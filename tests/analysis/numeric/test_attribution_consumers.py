@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -76,7 +75,7 @@ def test_source_and_retained(
             )
         )
         session = mv.session.create("r93-attribution", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         fields = {
             name: session.catalog.fields.get("sales.facts." + path)
             for name, path in (

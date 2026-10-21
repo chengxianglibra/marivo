@@ -91,11 +91,11 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     case = analysis_dsl_case_factory("j1")
     session = case.session
     customers, orders = (
-        session.members(session.catalog.require(CUSTOMER)),
-        session.members(session.catalog.require(ORDER)),
+        session.members(session.catalog.entities.get(CUSTOMER.path)),
+        session.members(session.catalog.entities.get(ORDER.path)),
     )
     automatic = session.observe(
-        {"value": session.catalog.metrics.get(LINE_REVENUE)},
+        {"value": session.catalog.metrics.get(LINE_REVENUE.path)},
         by=mv.product(_window(session), customers),
     )
     binding = source_graph(automatic).signature.observation
@@ -104,8 +104,8 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         LINE_ORDER.path,
         BUYER.path,
     )
-    region = session.catalog.fields.get(REGION)
-    buyer = session.catalog.relationships.get(BUYER)
+    region = session.catalog.fields.get(REGION.path)
+    buyer = session.catalog.relationships.get(BUYER.path)
     inferred = session.read(orders, {"region": region})
     explicit = session.read(orders, {"region": region.via((buyer,))})
     assert source_graph(inferred).fingerprint == source_graph(explicit).fingerprint
@@ -121,7 +121,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     assert {
         tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
     } == {(LINE_ORDER.path, BUYER.path), (BUYER.path,)}
-    line_order = session.catalog.relationships.get(LINE_ORDER)
+    line_order = session.catalog.relationships.get(LINE_ORDER.path)
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.read(orders, {"region": region.via((line_order, buyer))})
     identity = session.observe({"value": ratio}, by=mv.product(_window(session), orders))
@@ -139,9 +139,10 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    customers = session.members(session.catalog.require(CUSTOMER))
+    customers = session.members(session.catalog.entities.get(CUSTOMER.path))
     original = session.observe(
-        {"value": session.catalog.metrics.get(REVENUE)}, by=mv.product(_window(session), customers)
+        {"value": session.catalog.metrics.get(REVENUE.path)},
+        by=mv.product(_window(session), customers),
     )
     observation = source_graph(original).signature.observation
     assert observation is not None
@@ -158,8 +159,8 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     other = mv.session.create("new-role", timezone="UTC")
     with pytest.raises(AnalysisError):
         other.observe(
-            {"value": other.catalog.metrics.get(REVENUE)},
-            by=mv.product(_window(other), other.members(other.catalog.require(CUSTOMER))),
+            {"value": other.catalog.metrics.get(REVENUE.path)},
+            by=mv.product(_window(other), other.members(other.catalog.entities.get(CUSTOMER.path))),
         )
     assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
     frame = original.persist().to_pandas()
@@ -169,14 +170,14 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
 def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFactory) -> None:
     session = _extend(analysis_dsl_case_factory("j1"), roles=True)
     customers, orders = (
-        session.members(session.catalog.require(CUSTOMER)),
-        session.members(session.catalog.require(ORDER)),
+        session.members(session.catalog.entities.get(CUSTOMER.path)),
+        session.members(session.catalog.entities.get(ORDER.path)),
     )
-    revenue = session.catalog.metrics.get(REVENUE)
+    revenue = session.catalog.metrics.get(REVENUE.path)
     customer_id = session.catalog.fields.get("sales.customer.customer_id")
-    region = session.catalog.fields.get(REGION)
-    buyer = session.catalog.relationships.get(BUYER)
-    recipient = session.catalog.relationships.get(RECIPIENT)
+    region = session.catalog.fields.get(REGION.path)
+    buyer = session.catalog.relationships.get(BUYER.path)
+    recipient = session.catalog.relationships.get(RECIPIENT.path)
     with pytest.raises(AnalysisError) as ambiguous:
         session.observe({"value": revenue}, by=mv.product(_window(session), customers))
     assert ambiguous.value.repair
@@ -231,19 +232,21 @@ def test_classification_scope_and_complete_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = _extend(analysis_dsl_case_factory("j1"))
-    revenue = session.catalog.metrics.get(LINE_REVENUE)
-    category = session.catalog.fields.get(CATEGORY)
+    revenue = session.catalog.metrics.get(LINE_REVENUE.path)
+    category = session.catalog.fields.get(CATEGORY.path)
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe({"value": revenue}, by=(_window(session), category, category))
-    lines = session.members(session.catalog.require(LINE))
+    lines = session.members(session.catalog.entities.get(LINE.path))
     read = session.read(lines, {"category": category})
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         # Intentional runtime negative: a Query cannot be used as an observation axis.
         session.observe({"value": revenue}, by=(_window(session), read))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
     other = mv.session.create("another-session", timezone="UTC")
     with pytest.raises(AnalysisError):
-        session.frame(other.members(other.catalog.require(LINE)))
-    ratio = session.catalog.metrics.get(LINE_REVENUE) / session.catalog.metrics.get(REVENUE)
+        session.frame(other.members(other.catalog.entities.get(LINE.path)))
+    ratio = session.catalog.metrics.get(LINE_REVENUE.path) / session.catalog.metrics.get(
+        REVENUE.path
+    )
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe({"value": ratio}, by=(_window(session), category))
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
@@ -261,13 +264,13 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
-    category = session.catalog.fields.get(CATEGORY)
-    route = session.catalog.relationships.get(LINE_PRODUCT)
+    category = session.catalog.fields.get(CATEGORY.path)
+    route = session.catalog.relationships.get(LINE_PRODUCT.path)
     if explicit:
         category = category.via((route,))
     with pytest.raises(MaterializationError) as missing:
         session.read(
-            session.members(session.catalog.require(LINE)), {"category": category}
+            session.members(session.catalog.entities.get(LINE.path)), {"category": category}
         ).persist()
     assert missing.value.expected and missing.value.received and missing.value.repair
     assert missing.value.run_ref is None
@@ -276,7 +279,8 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     # relationship is outside this read scope.
     frame = (
         session.observe(
-            {"value": session.catalog.metrics.get(LINE_REVENUE)}, by=(_window(session), category)
+            {"value": session.catalog.metrics.get(LINE_REVENUE.path)},
+            by=(_window(session), category),
         )
         .persist()
         .to_pandas()
@@ -292,9 +296,9 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
-    category = session.catalog.fields.get(CATEGORY)
-    route = session.catalog.relationships.get(LINE_PRODUCT)
-    metric = session.catalog.metrics.get(LINE_REVENUE)
+    category = session.catalog.fields.get(CATEGORY.path)
+    route = session.catalog.relationships.get(LINE_PRODUCT.path)
+    metric = session.catalog.metrics.get(LINE_REVENUE.path)
     automatic = session.observe({"value": metric}, by=(_window(session), category))
     explicit = session.observe({"value": metric}, by=(_window(session), category.via((route,))))
     (automatic_axis,) = source_graph(automatic).signature.axes
@@ -352,13 +356,13 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("INSERT INTO product VALUES ('R', 'spare')")
         connection.execute("UPDATE order_line SET product_id='R' WHERE line_id='outside'")
-    category = session.catalog.fields.get(CATEGORY)
-    line_revenue = session.catalog.metrics.get(LINE_REVENUE)
-    revenue = session.catalog.metrics.get(REVENUE)
+    category = session.catalog.fields.get(CATEGORY.path)
+    line_revenue = session.catalog.metrics.get(LINE_REVENUE.path)
+    revenue = session.catalog.metrics.get(REVENUE.path)
     buckets = mv.membership(
         category,
         via=(
-            (session.catalog.relationships.get(LINE_PRODUCT),),
+            (session.catalog.relationships.get(LINE_PRODUCT.path),),
             (session.catalog.relationships.get("sales.order_product"),),
         ),
         unmatched="exclude",
@@ -410,8 +414,8 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         contents.replace("finalized = ms.finalize()", fields + "finalized = ms.finalize()", 1)
     )
     session = mv.session.create("timed-coverage", timezone="UTC")
-    metric = session.catalog.metrics.get(LINE_REVENUE)
-    field = session.catalog.fields.get(CATEGORY)
+    metric = session.catalog.metrics.get(LINE_REVENUE.path)
+    field = session.catalog.fields.get(CATEGORY.path)
     observed = []
     for start, end, instant, key, expected in (
         ("2026-08-01", "2026-09-01", "2026-08-31T23:59:59.999999+00:00", "book", 1000),

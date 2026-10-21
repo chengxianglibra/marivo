@@ -3,7 +3,6 @@
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.dsl.column import row_count
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
 from tests.support.paths import PROJECT_ROOT
@@ -17,7 +16,7 @@ def test_full_entity_time_cohort(
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    targets = session.members(session.catalog.entities.get("sales.customer"))
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
@@ -98,7 +97,7 @@ def spending_amount():
 """
     )
     session = case.session
-    users = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    users = session.members(session.catalog.entities.get("sales.customer"))
     usage = session.observe(
         {"value": session.catalog.metrics.get("sales.avg_usage_hours")},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), users),
@@ -124,7 +123,7 @@ def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    targets = session.members(session.catalog.entities.get("sales.customer"))
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
@@ -185,7 +184,7 @@ def test_no_time_selection_preserves_complete_target_decisions(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    targets = session.members(session.catalog.entities.get("sales.customer"))
     category = session.read(
         targets, {"region": session.catalog.fields.get("sales.customer.region")}
     )

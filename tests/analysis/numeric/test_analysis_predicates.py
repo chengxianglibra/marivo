@@ -5,7 +5,6 @@ from decimal import Decimal
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
@@ -23,7 +22,7 @@ def _amounts(case: DslCase) -> mv.AnalysisFrame:
         {"value": case.session.catalog.metrics.get("sales.revenue")},
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer"))),
+            case.session.members(case.session.catalog.entities.get("sales.customer")),
         ),
     )
 
@@ -39,7 +38,7 @@ def test_numeric_string_category_persists_and_exports(
             f'UPDATE "{case.names.customer}" SET region = ? WHERE "{case.names.customer_id}" = ?',
             ["123", "A"],
         )
-    members = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    members = case.session.members(case.session.catalog.entities.get("sales.customer"))
     category = case.session.read(
         members, {"value": case.session.catalog.fields.get("sales.customer.region")}
     )
@@ -59,7 +58,7 @@ def test_public_multi_input_source_and_exported_pandas(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     revenue = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get(f"sales.{case.names.buyer}")
@@ -250,14 +249,14 @@ def test_foreign_predicate_inputs_reject_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    members = case.session.members(case.session.catalog.entities.get("sales.customer"))
     values = case.session.read(
         members, {"value": case.session.catalog.fields.get("sales.customer.region")}
     )
     fixed = values.compute()
     other_session = mv.session.create("foreign-r63", timezone="UTC")
     other = other_session.read(
-        other_session.members(other_session.catalog.require(ms.ref.entity("sales.customer"))),
+        other_session.members(other_session.catalog.entities.get("sales.customer")),
         {"value": other_session.catalog.fields.get("sales.customer.region")},
     )
 
@@ -275,7 +274,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
         case.session.observe({"bad": fixed})  # type: ignore[dict-item]  # Fixed data is not a source Metric.
     with pytest.raises(AnalysisError, match="a Population from this Store and Session"):
         case.session.frame(
-            other_session.members(other_session.catalog.require(ms.ref.entity("sales.customer")))
+            other_session.members(other_session.catalog.entities.get("sales.customer"))
         )
 
 

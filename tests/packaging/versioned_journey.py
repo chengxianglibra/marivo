@@ -10,7 +10,6 @@ import ibis
 import pyarrow as pa
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _frame, _offline, _ordinary_keys, _remove_sources
 from tests.shared_fixtures import run_ids
@@ -183,12 +182,12 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         queries: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = f"sales.subjects_{kind}"
-            members = session.members(session.catalog.require(ms.ref.entity(entity)), at=august)
+            members = session.members(session.catalog.entities.get(entity), at=august)
             amount = session.catalog.fields.get(entity + ".amount")
             enabled = session.catalog.fields.get(entity + ".enabled")
             queries[kind + "_aug"] = session.read(members, {"value": amount.at(august)})
             queries[kind + "_sep"] = session.read(
-                session.members(session.catalog.require(ms.ref.entity(entity)), at=september),
+                session.members(session.catalog.entities.get(entity), at=september),
                 {"value": amount.at(september)},
             )
             classification = session.read(members, {"enabled": enabled.at(august)})
@@ -218,7 +217,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     {"value": metric},
                     by=mv.product(session.time_scope(start=start, end=end), chosen),
                 )
-        stable = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        stable = session.members(session.catalog.entities.get("sales.subjects"))
         profile = session.catalog.fields.get("sales.subjects_snapshot.amount").via(
             (session.catalog.relationships.get("sales.subject_profiles"),)
         )

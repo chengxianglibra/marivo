@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
@@ -38,7 +37,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
             "INSERT INTO order_line VALUES ('a1','j1_a',100),('a2','j1_a',200),('b1','j1_b',300),('c1','j1_c',400)"
         )
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.line_revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
@@ -57,7 +56,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
     ).persist().to_pandas()[("value", "value")].tolist() == [1000]
     route = session.catalog.relationships.get("sales.order_buyer")
     region = session.catalog.fields.get("sales.customer.region")
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    orders = session.members(session.catalog.entities.get("sales.order"))
     inferred = session.read(orders, {"region": region}).persist().to_pandas()
     explicit = session.read(orders, {"region": region.via((route,))}).persist().to_pandas()
     assert inferred.equals(explicit)
@@ -70,7 +69,7 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("UPDATE customer SET region=NULL WHERE customer_id='B'")
     session = case.session
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.order")))
+    orders = session.members(session.catalog.entities.get("sales.order"))
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get("sales.order_buyer")
     values = session.read(orders, {"value": region.via((buyer,))})
@@ -113,7 +112,7 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
         values = session.read(
-            session.members(session.catalog.require(ms.ref.entity("cost.facts"))),
+            session.members(session.catalog.entities.get("cost.facts")),
             {"value": session.catalog.fields.get("cost.facts.y")},
         )
         left = values.where(values["value"] > 20)
@@ -138,7 +137,7 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
-        members = session.members(session.catalog.require(ms.ref.entity("cost.facts")))
+        members = session.members(session.catalog.entities.get("cost.facts"))
         field = session.catalog.fields.get("cost.subjects.sid")
         relation = session.catalog.relationships.get("cost.facts_subject")
         values = session.read(members, {"value": field.via((relation,))})
@@ -179,7 +178,7 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
         values = session.read(
-            session.members(session.catalog.require(ms.ref.entity("cost.facts"))),
+            session.members(session.catalog.entities.get("cost.facts")),
             {"value": session.catalog.fields.get("cost.facts.y")},
         )
         left, right = values.where(values["value"] > 20), values.where(values["value"] > 20)

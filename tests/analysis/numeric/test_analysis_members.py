@@ -14,7 +14,6 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -132,7 +131,7 @@ def _identity_population(
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     metric = session.catalog.metrics.get(f"{prefix}.observed_total")
     category = session.catalog.fields.get(f"{prefix}.plain.category")
     for axes, expected in (
@@ -172,7 +171,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     metric = session.catalog.metrics.get(f"{prefix}.observed_total")
     route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
     field = session.catalog.fields.get(f"{prefix}.snapshot.category")
@@ -226,7 +225,7 @@ def test_mixed_predicate_checks_scalar_condition_before_member_selection(
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     discounted = session.observe(
         {"value": session.catalog.fields.get(f"{prefix}.plain.discounted").sum()}, by=members
     )
@@ -250,7 +249,7 @@ def test_computed_boolean_dimension(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = members_session
-    members = session.members(session.catalog.require(ms.ref.entity(f"{_domain(session)}.plain")))
+    members = session.members(session.catalog.entities.get(f"{_domain(session)}.plain"))
     relation = _read(session, members, f"{_domain(session)}.plain.positive")
     saved = relation.persist()
     assert _values(saved) == [False, True]
@@ -277,7 +276,7 @@ def _replace_source(session: Session, query: str) -> None:
 def test_read_path_coverage_null_and_consumed_scope(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     category = _read(session, members, f"{prefix}.plain.category")
     chosen_values = category.where(category["value"] == "west")
     chosen = _identity_population(
@@ -300,7 +299,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     logical = _read(session, members, f"{prefix}.plain.moment")
     with pytest.raises((AnalysisError, SemanticExpressionError)):
         logical.where(logical["value"] == datetime(2026, 8, 1))
@@ -314,7 +313,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     other = mv.session.create("other-r52", timezone="UTC")
     foreign = _read(
         other,
-        other.members(other.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
+        other.members(other.catalog.entities.get(f"{prefix}.plain")),
         f"{prefix}.plain.moment",
     )
 
@@ -335,7 +334,7 @@ def test_cold_typed_read_continuation_without_source(members_session: Session) -
     prefix = _domain(session)
     fixed = _read(
         session,
-        session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
+        session.members(session.catalog.entities.get(f"{prefix}.plain")),
         f"{prefix}.plain.moment",
     ).persist()
     shutil.rmtree(session.project_root / "models")
@@ -403,7 +402,7 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 """)
     monkeypatch.chdir(tmp_path)
     session = mv.session.create("subject-image", timezone="UTC")
-    domain = session.members(session.catalog.require(ms.ref.entity("test.instances")))
+    domain = session.members(session.catalog.entities.get("test.instances"))
     image = domain.image(via=(session.catalog.relationships.get("test.to_subject"),))
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
@@ -447,7 +446,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     )
     with pytest.raises(AnalysisError, match="an exact InstantAnchor"):
         session.members(entity, at=datetime(2026, 9, 1))  # type: ignore[arg-type]  # Runtime probe: membership requires an InstantAnchor, not datetime.
-    plain = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    plain = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     integer = _read(session, plain, f"{prefix}.plain.tenant")
     saved = integer.persist()
     assert saved.to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
@@ -469,7 +468,7 @@ def test_wrong_role_and_many_mapping_reject_before_io(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     at = session.instant("2026-08-01")
     field = session.catalog.fields.get(f"{prefix}.snapshot.amount")
     many = session.catalog.relationships.get(f"{prefix}.many_snapshot")
@@ -482,9 +481,7 @@ def test_wrong_role_and_many_mapping_reject_before_io(
         patch.setattr(SourceSession, "bind", forbidden)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(members, {"value": field.via((many,)).at(at)})
-        versioned = session.members(
-            session.catalog.require(ms.ref.entity(f"{prefix}.snapshot")), at=at
-        )
+        versioned = session.members(session.catalog.entities.get(f"{prefix}.snapshot"), at=at)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(versioned, {"value": field.via((route,)).at(at)})
     assert _values(session.read(members, {"value": field.at(at)}).compute()) == [10, 20]
@@ -498,7 +495,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     session = members_session
     prefix = _domain(session)
     members = session.members(
-        session.catalog.require(ms.ref.entity(f"{prefix}.valid")), at=session.instant("2026-08-01")
+        session.catalog.entities.get(f"{prefix}.valid"), at=session.instant("2026-08-01")
     )
     for points, expected in (
         (("2026-08-01", "2026-09-01"), [10, 30, 20, 20]),
@@ -547,7 +544,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     stable = session.catalog.fields.get(f"{prefix}.plain.category")
     with pytest.raises(SemanticExpressionError):
         session.read(
-            session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
+            session.members(session.catalog.entities.get(f"{prefix}.plain")),
             {"value": stable.at(session.instant("2026-08-01"))},
         )
 
@@ -556,9 +553,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
     anchor = session.instant("2026-08-01T00:59:59.999999+00:00")
-    members = session.members(
-        session.catalog.require(ms.ref.entity(f"{prefix}.snapshot")), at=anchor
-    )
+    members = session.members(session.catalog.entities.get(f"{prefix}.snapshot"), at=anchor)
     category = session.catalog.fields.get(f"{prefix}.snapshot.category").at(anchor)
     categories = members.classify(by=(category,))
     grid = session.time_scope(
@@ -581,7 +576,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
 def test_composite_subject_predicates(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
+    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
     fields = {
         name: session.catalog.fields.get(f"{prefix}.plain.{name}")
         for name in ("amount", "enabled", "moment")

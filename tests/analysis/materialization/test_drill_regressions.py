@@ -9,7 +9,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 
@@ -79,14 +78,10 @@ def test_drill_after_original_operations_prepares_related_fields(
     tag = session.catalog.fields.get("sales.orders.tag")
     amount = session.catalog.fields.get("sales.orders.amount")
     members = (
-        session.members(session.catalog.require(ms.ref.entity("sales.orders")))
-        if member_count
-        else None
+        session.members(session.catalog.entities.get("sales.orders")) if member_count else None
     )
     if operation == "rollup" and member_count:
-        members = session.members(
-            session.catalog.require(ms.ref.entity("sales.orders")), where=tag == "keep"
-        )
+        members = session.members(session.catalog.entities.get("sales.orders"), where=tag == "keep")
     if members is not None:
         members = members.classify(by=(members.axes[0], channel))
     metric = members.count() if members is not None else amount.sum()
@@ -117,11 +112,9 @@ def test_drill_after_original_operations_prepares_related_fields(
     if member_count:
         entity = session.catalog.entities.get("sales.orders")
         selected_members = (
-            session.members(session.catalog.require(ms.ref.entity("sales.orders")), where=where)
+            session.members(session.catalog.entities.get("sales.orders"), where=where)
             if operation != "rollup"
-            else session.members(
-                session.catalog.require(ms.ref.entity("sales.orders")), where=tag == "keep"
-            )
+            else session.members(session.catalog.entities.get("sales.orders"), where=tag == "keep")
         )
         selected_ids = session.frame(selected_members).compute()
         expected_ids = (

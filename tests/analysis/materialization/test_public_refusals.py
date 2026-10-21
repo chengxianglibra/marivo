@@ -36,15 +36,15 @@ def test_public_composition_refuses_before_source_or_run(
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
         live = session.read(
-            session.members(session.catalog.require(entity)),
-            {"value": session.catalog.fields.get(measure)},
+            session.members(session.catalog.entities.get(entity.path)),
+            {"value": session.catalog.fields.get(measure.path)},
         )
         previous = live.persist()
         saved = snapshot(previous)
         foreign = mv.session.create("r94-foreign", timezone="UTC")
         other = foreign.read(
-            foreign.members(foreign.catalog.require(entity)),
-            {"value": foreign.catalog.fields.get(measure)},
+            foreign.members(foreign.catalog.entities.get(entity.path)),
+            {"value": foreign.catalog.fields.get(measure.path)},
         )
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -127,7 +127,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.create("required-output", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         metric = session.catalog.metrics.get("sales.total")
         current = session.observe(
             {"value": metric},
@@ -228,7 +228,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             }
         )
         session = mv.session.create("r94-cross-datasource", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         previous = session.read(
             members, {"value": session.catalog.fields.get("sales.subjects.subjects_amount")}
         ).persist()

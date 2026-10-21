@@ -66,7 +66,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     with pytest.raises(SemanticRuntimeError, match=r"missing\.metric") as missing:
         case.session.catalog.metrics.get("missing.metric")
     assert missing.value.repair
-    assert "metric:sales.revenue" in missing.value.repair.candidates
+    assert "sales.revenue" in missing.value.repair.candidates
 
 
 def test_next_observation_rechecks_physical_numeric_type(

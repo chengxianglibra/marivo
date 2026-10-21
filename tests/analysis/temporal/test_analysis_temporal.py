@@ -199,7 +199,7 @@ def _observation(
         {"value": session.catalog.metrics.get("sales.revenue")},
         by=mv.product(
             during.by(mv.grain(grain)) if grain is not None else during,
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 
@@ -208,7 +208,7 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
     case = analysis_dsl_case_factory("j1")
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     result = session.frame(mv.product(calendar, members)).persist()
     frame = result.to_pandas()
     assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
@@ -227,7 +227,7 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.revenue")
     query = session.observe({"value": metric}, by=mv.product(calendar, members))
     saved = query.persist()
@@ -280,7 +280,7 @@ def test_identity_observation_has_no_inferred_relationship(
         {"value": session.catalog.metrics.get("sales.revenue")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+            session.members(session.catalog.entities.get("sales.order")),
         ),
     )
     assert observed.reduce({"value": observed["value"].sum()}).compute().to_pandas()[
@@ -441,7 +441,7 @@ def test_fold_reaggregates_aligned_samples_before_time(
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     revenue = session.catalog.metrics.get("sales.revenue")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     expected = {"first": [10, 0], "last": [0, 10], "mean": [5, 5], "min": [0, 0], "max": [10, 10]}
     for kind, values in expected.items():
         samples = (
@@ -480,7 +480,7 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
         {"value": metric},
         by=mv.product(
             calendar.scope,
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
     assert query.compute().to_pandas()[("value", "value")].tolist() == [1e308, 1e308]
@@ -536,9 +536,7 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
     )
     query = session.observe(
         {"value": ratio.window(mv.all_history())},
-        by=mv.product(
-            calendar, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-        ),
+        by=mv.product(calendar, session.members(session.catalog.entities.get("sales.customer"))),
     )
     result = session.observe({"value": ratio.window(mv.all_history())}, by=(calendar,)).persist()
     assert result.to_pandas()[("value", "value")].tolist() == [269.25, 235.2]
@@ -595,9 +593,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     )
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        by=mv.product(
-            grid, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
-        ),
+        by=mv.product(grid, session.members(session.catalog.entities.get("sales.customer"))),
     )
     frame = (
         session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=(grid,))
@@ -625,7 +621,7 @@ def test_empty_fold_keeps_typed_terminal_output(
             .per(mv.product(mv.coordinates(by=(), keys=((),)), calendar))
             .max()
         },
-        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        by=session.members(session.catalog.entities.get("sales.customer")),
     )
     result = query.persist()
     assert result.to_pandas().empty
@@ -652,7 +648,7 @@ def test_selected_groups_keep_sample_selection_before_execution(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     category = session.read(members, {"region": region})
     selected_rows = category.where(category["region"] == "east")

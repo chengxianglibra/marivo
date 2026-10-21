@@ -65,12 +65,11 @@ class Session:
             with cr.bind_resolver(config.resolver):
                 catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
             from marivo._temporal import PeriodCalendarSnapshotV1
-            from marivo.refs import SemanticKind, _create_ref
             from marivo.semantic.catalog import PeriodCalendarEntry
 
             snapshots: list[PeriodCalendarSnapshotV1] = []
             for identity in sorted(catalog._state.registry.period_calendars):
-                calendar = catalog.require(_create_ref(SemanticKind.PERIOD_CALENDAR, identity))
+                calendar = catalog.period_calendars.get(identity)
                 assert isinstance(calendar, PeriodCalendarEntry)
                 status, snapshot = calendar._snapshot_with_status()
                 if status == "current" and snapshot is not None:
@@ -180,7 +179,7 @@ class Session:
             reject(
                 "a resolved Entity",
                 type(entity).__name__,
-                "Resolve the Entity with session.catalog.require(ms.ref.entity(path)).",
+                "Resolve the Entity with session.catalog.entities.get(path).",
                 "session.members.entity",
             )
         resolved = _Resolver(self.catalog._state).entity(entity.ref.ref.path)

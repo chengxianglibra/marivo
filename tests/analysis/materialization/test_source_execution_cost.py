@@ -17,7 +17,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session
@@ -133,7 +132,7 @@ def test_source_execution_cost(
     channel = session.catalog.fields.get("sales.orders.channel")
     if scenario == "numeric_top":
         parent = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.orders"))),
+            session.members(session.catalog.entities.get("sales.orders")),
             {"metric": amount},
         )
         eligible = parent.where(parent["metric"] >= 5)
@@ -182,7 +181,7 @@ def test_population_source_execution_cost(
         db.execute(f"INSERT INTO orders SELECT i,i%10,1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i,i,i%2+1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i+{facts},i,i%2+1 FROM range({facts}) t(i)")
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -198,7 +197,7 @@ def test_population_source_execution_cost(
         expected = 2
     else:
         fields = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.tags"))),
+            session.members(session.catalog.entities.get("sales.tags")),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         fixed = fields.where(fields["label"] == "A").compute()

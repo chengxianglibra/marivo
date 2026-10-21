@@ -9,7 +9,6 @@ from typing import Literal
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.datasource.adapters import SourceSession
@@ -83,7 +82,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
         logical = []
         for owner in sessions:
             at = owner.instant(point)
-            members = owner.members(owner.catalog.require(ms.ref.entity("sales.subjects")), at=at)
+            members = owner.members(owner.catalog.entities.get("sales.subjects"), at=at)
             logical.append(
                 tuple(
                     owner.read(members, {"value": owner.catalog.fields.get(path).at(at)})

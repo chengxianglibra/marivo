@@ -49,7 +49,7 @@ def _require_kind(
             refs=(ref.key,),
             details={"expected_kind": expected_text, "actual_kind": str(ref.kind)},
         )
-    catalog.require(ref)
+    catalog._require_ref(ref)
     return ref.path
 
 

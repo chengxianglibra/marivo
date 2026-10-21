@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._definition.windows import TrailingDuration
 from marivo.analysis.binding.windows import _reset
 from marivo.analysis.core.data_schema import CalendarDataAxis
@@ -336,7 +335,7 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     session = window_session
     revenue = session.catalog.metrics.get("sales.revenue")
     customer = session.catalog.fields.get("sales.orders.customer")
-    customers = session.members(session.catalog.require(ms.ref.entity("sales.orders"))).classify(
+    customers = session.members(session.catalog.entities.get("sales.orders")).classify(
         by=(customer,)
     )
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))

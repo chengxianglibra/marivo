@@ -100,7 +100,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         )
         ms.load(workspace_dir=tmp_path)
         session = mv.session.create("temporal-int64-recovery", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         total = session.catalog.metrics.get("sales.total")
         time = session.catalog.fields.get("sales.facts.happened")
         amount = session.catalog.fields.get("sales.facts.amount")

@@ -9,7 +9,6 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -183,7 +182,7 @@ def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
             [2**62, 2**62],
         )
     source = case.session.read(
-        case.session.members(case.session.catalog.require(ms.ref.entity("sales.order"))),
+        case.session.members(case.session.catalog.entities.get("sales.order")),
         {"x": case.catalog.fields.get("sales.order.amount")},
     )
     trace = capture_source(monkeypatch)

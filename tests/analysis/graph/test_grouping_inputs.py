@@ -26,7 +26,7 @@ def test_identity_grouping_and_domain_have_distinct_completion(
     metric = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -65,7 +65,7 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
     metric = session.catalog.metrics.get("sales.revenue")
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     captured_calendar = mv.product(members, calendar).axes[1]
     direct = session.observe({"value": metric}, by=(calendar,))
     reused = session.observe({"value": metric}, by=(captured_calendar,))
@@ -88,7 +88,7 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         consume_metric(metric.per(field).mean()).node
         == consume_metric(metric.per(region).mean()).node
     )
-    people = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    people = session.members(session.catalog.entities.get("sales.customer"))
     assert people.project(by=(identity,)).axes == people.axes
     assert people.classify(by=(identity, region)).axes[0].kind == "identity"
     frame = session.values(

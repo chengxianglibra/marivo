@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import SessionAlreadyExistsError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
@@ -40,7 +39,7 @@ def observation(session: Session, metric: str) -> mv.AnalysisFrame:
         {"value": session.catalog.metrics.get(metric)},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 

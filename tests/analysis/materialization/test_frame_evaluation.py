@@ -482,14 +482,11 @@ def test_read_retains_complete_population_scope_without_producer_formula(session
 def test_general_population_zero_axis_preserves_empty_or_singleton(
     session: Session, empty: bool
 ) -> None:
-    import marivo.semantic as ms
 
     if empty:
         with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
             connection.execute("DELETE FROM facts")
-    population = session.members(session.catalog.require(ms.ref.entity("sales.facts"))).project(
-        by=()
-    )
+    population = session.members(session.catalog.entities.get("sales.facts")).project(by=())
     result = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -519,10 +516,9 @@ def test_complete_memory_releases_source_scope_and_runtime(session: Session) -> 
 
 
 def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) -> None:
-    import marivo.semantic as ms
     from marivo.analysis.errors import AnalysisError
 
-    population = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+    population = session.members(session.catalog.entities.get("sales.facts"))
     source = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,

@@ -207,7 +207,7 @@ ORIGINAL_VALUES = {
 
 
 def observed_rows(session: mv.Session, name: str) -> mv.AnalysisFrame:
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customers")))
+    members = session.members(session.catalog.entities.get("sales.customers"))
     return session.observe({"value": session.catalog.metrics.get("sales." + name)}, by=members)
 
 

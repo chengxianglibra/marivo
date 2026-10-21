@@ -4,7 +4,7 @@
 contract in ``catalog_members.py``. These tests lock the closed member contract
 against the live catalog: every declared property exists, returns a
 ``CatalogCollection`` restricted to the declared kinds, and resolves its
-members by local name, full path, typed key, and exact Ref.
+members by local name and full path.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
@@ -21,6 +22,7 @@ from marivo.semantic._capabilities.catalog_members import (
 )
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.catalog import CatalogCollection
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -122,7 +124,7 @@ def test_every_member_property_lists_its_declared_members_in_key_order(tmp_path:
     assert {ref.kind for ref in catalog.datasources.refs} == {SemanticKind.DATASOURCE}
 
 
-def test_every_member_value_round_trips_through_get_by_name_path_key_and_ref(
+def test_every_member_value_round_trips_through_get_by_name_and_path(
     tmp_path: Path,
 ) -> None:
     _write_minimal_project(tmp_path)
@@ -132,19 +134,9 @@ def test_every_member_value_round_trips_through_get_by_name_path_key_and_ref(
         collection = getattr(catalog, member.property_name)
         for ref, item in zip(collection.refs, collection.items, strict=True):
             assert (
-                (consume_field(collection.get(ref.key)) == consume_field(item))
-                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
-                else collection.get(ref.key) is item
-            )
-            assert (
                 (consume_field(collection.get(ref.path)) == consume_field(item))
                 if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
                 else collection.get(ref.path) is item
-            )
-            assert (
-                (consume_field(collection.get(ref)) == consume_field(item))
-                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
-                else collection.get(ref) is item
             )
         names = [ref.name for ref in collection.refs]
         if len(set(names)) == len(names):
@@ -167,7 +159,7 @@ def test_fields_collection_spans_dimension_time_field_and_measure(tmp_path: Path
         "time_dimension",
     ]
     for ref in fields.refs:
-        assert consume_field(fields.get(ref.key)).reference.ref == ref
+        assert consume_field(fields.get(ref.path)).reference.ref == ref
 
 
 def test_scoped_collection_matches_the_global_collection(tmp_path: Path) -> None:
@@ -179,3 +171,16 @@ def test_scoped_collection_matches_the_global_collection(tmp_path: Path) -> None
     assert sales.metrics.refs == catalog.metrics.refs
     assert sales.fields.refs == catalog.fields.refs
     assert sales.metrics.get("sales.revenue") is catalog.metrics.get("sales.revenue")
+
+
+def test_every_collection_rejects_refs_and_kind_prefixed_strings(tmp_path: Path) -> None:
+    _write_minimal_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    for member in CATALOG_MEMBER_CONTRACTS:
+        collection = getattr(catalog, member.property_name)
+        for key in (ms.ref.entity("sales.orders"), "entity:sales.orders"):
+            with pytest.raises(SemanticRuntimeError) as captured:
+                collection.get(key)  # type: ignore[arg-type]  # Deliberately exercise rejected inputs.
+            assert captured.value.kind == ErrorKind.INVALID_REF
+            assert captured.value.repair is not None
+            assert set(captured.value.repair.candidates) <= {ref.path for ref in collection.refs}

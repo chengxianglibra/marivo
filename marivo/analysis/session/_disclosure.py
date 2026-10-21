@@ -562,15 +562,14 @@ def provider() -> DisclosureProvider:
             "catalog",
             "Resolve exact governed inputs and check readiness for the required closure.",
             (
-                "catalog.require",
                 "catalog.readiness",
-                *(t for t in ordinary if t not in ("catalog.require", "catalog.readiness")),
+                *(t for t in ordinary if t != "catalog.readiness"),
                 "catalog.temporal",
             ),
             guidance=(
-                "Acquire catalog = session.catalog. With exact refs, use require; check physical dependencies with readiness. Browse a typed collection only when identity is unknown.",
-                "Discover bounded choices with collection.show() and retain an exact collection.refs Ref. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); marivo.help('semantic.semantic_catalog.describe') owns that contract.",
-                "collection.get(full_path) and catalog.require(ref) return expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming AnalysisFrame.show() explains its captured scope and operations.",
+                "Acquire catalog = session.catalog. Select a value with its collection.get(path); check physical dependencies with readiness.",
+                "Discover bounded choices with collection.show() and copy a displayed plain path. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); marivo.help('semantic.semantic_catalog.describe') owns that contract.",
+                "collection.get(full_path) returns expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming AnalysisFrame.show() explains its captured scope and operations.",
             ),
             discovery_group="inputs",
         )

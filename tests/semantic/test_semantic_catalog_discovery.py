@@ -4,7 +4,7 @@ Covers four related catalog discovery behaviors:
 1. catalog.metrics and catalog.entities return expression values at top level
 2. catalog.relationships returns Relationship values
 3. catalog.fields holds Dimension, TimeField and Measure values
-4. domains/datasources collections and require() resolve only their own kinds
+4. domains/datasources collections resolve only their own member paths
 """
 
 from __future__ import annotations
@@ -184,7 +184,7 @@ def test_discovery_metrics_get_returns_revenue_with_exact_ref(
     assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
     assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
     assert consume_metric(revenue).node.ref.version.startswith("sha256:")
-    assert result.get(ms.ref.metric("sales.revenue")) is revenue
+    assert result.get("sales.revenue") is revenue
 
 
 def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
@@ -252,7 +252,7 @@ def test_discovery_relationships_returns_relationships(
     assert relationship.from_entity.ref == ms.ref.entity("sales.orders")
     assert relationship.to_entity.ref == ms.ref.entity("sales.users")
     assert relationship.cardinality == "many_to_one"
-    assert isinstance(catalog.require(ms.ref.relationship("sales.orders_to_users")), Relationship)
+    assert isinstance(catalog.relationships.get("sales.orders_to_users"), Relationship)
 
 
 # ---------------------------------------------------------------------------
@@ -291,40 +291,40 @@ def test_discovery_domain_and_datasource_scope_their_members(
 
 
 # ---------------------------------------------------------------------------
-# require() membership and NOT_FOUND behavior
+# Collection membership and NOT_FOUND behavior
 # ---------------------------------------------------------------------------
 
 
-def test_discovery_require_resolves_every_expression_member(
+def test_discovery_collection_resolves_every_expression_member(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
     assert catalog.entities.refs
     for ref in catalog.entities.refs:
-        assert isinstance(catalog.require(ref), Entity)
+        assert isinstance(catalog.entities.get(ref.path), Entity)
     assert catalog.fields.refs
     for ref in catalog.fields.refs:
-        assert isinstance(catalog.require(ref), Deferred)
+        assert isinstance(catalog.fields.get(ref.path), Deferred)
     assert catalog.metrics.refs
     for ref in catalog.metrics.refs:
-        assert isinstance(catalog.require(ref), Deferred)
+        assert isinstance(catalog.metrics.get(ref.path), Deferred)
 
 
-def test_discovery_require_resolves_container_entries(
+def test_discovery_collection_resolves_container_entries(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    assert isinstance(catalog.require(ms.ref.domain("sales")), DomainEntry)
-    assert isinstance(catalog.require(ms.ref.datasource("warehouse")), DatasourceEntry)
+    assert isinstance(catalog.domains.get("sales"), DomainEntry)
+    assert isinstance(catalog.datasources.get("warehouse"), DatasourceEntry)
 
 
 def test_discovery_unknown_domain_raises_error(semantic_project_factory: ProjectFactory) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.ref.domain("nonexistent"))
+        catalog.domains.get("nonexistent")
 
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
     assert "sales" in str(exc_info.value)

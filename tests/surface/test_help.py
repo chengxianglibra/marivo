@@ -159,7 +159,7 @@ def test_surface_name_routes_to_the_exact_native_root(owner: HelpSurface) -> Non
 
 @pytest.mark.parametrize(
     "method_name, canonical_target",
-    [("require", "semantic_catalog.require"), ("describe", "semantic_catalog.describe")],
+    [("describe", "semantic_catalog.describe")],
 )
 def test_shared_catalog_callable_uses_its_native_semantic_contract(
     authoring_evidence_project: Path,
@@ -279,7 +279,16 @@ def test_unknown_target_raises_one_bounded_global_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "target", ["Query", "analysis.Query", "mv.Query", " query", "session.get_or_create"]
+    "target",
+    [
+        "Query",
+        "analysis.Query",
+        "mv.Query",
+        " query",
+        "session.get_or_create",
+        "semantic.semantic_catalog.require",
+        "analysis.catalog.require",
+    ],
 )
 def test_legacy_string_aliases_are_rejected(target: str) -> None:
     with pytest.raises(MarivoHelpTargetError):

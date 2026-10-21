@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
@@ -67,7 +66,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
             expected_rows = 1
         else:
             source = session.read(
-                session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+                session.members(session.catalog.entities.get("sales.facts")),
                 {"amount": amount, "big": big, "weight": weight},
             )
             if operation == "na_zero":
@@ -147,7 +146,7 @@ def test_checked_query_arithmetic_fails_before_empty_top(
             )
         else:
             source = session.read(
-                session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+                session.members(session.catalog.entities.get("sales.facts")),
                 {"big": big, "weight": weight},
             )
             source = source.select(
@@ -186,7 +185,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.create("unary-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         score = -source["amount"]
@@ -248,7 +247,7 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.create("finite-select", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         query = source.select({"value": -source["amount"] if negated else source["amount"]})

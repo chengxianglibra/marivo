@@ -28,13 +28,13 @@ from tests.support.paths import PROJECT_ROOT
 
 def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     domain = (
         members
         if not coordinates
         else mv.product(
             members,
-            session.members(session.catalog.require(ms.ref.entity("sales.order"))).classify(
+            session.members(session.catalog.entities.get("sales.order")).classify(
                 by=tuple(session.catalog.fields.get("sales.order." + name) for name in coordinates)
             ),
         )
@@ -47,7 +47,7 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFr
 
 def _observations(case: DslCase) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     current, baseline = tuple(
         session.observe(
             {"value": session.catalog.metrics.get("sales.revenue")},
@@ -213,7 +213,7 @@ def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
         },
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 

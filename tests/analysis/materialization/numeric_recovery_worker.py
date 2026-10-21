@@ -24,7 +24,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
     manifest = root / "numeric-source.json"
     session = mv.session.resume(session_id)
     if phase == "produce":
-        members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        members = session.members(session.catalog.entities.get("sales.customer"))
         region = session.catalog.fields.get("sales.customer.region")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         observed = session.observe(
@@ -57,7 +57,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         assert results["distinct"].to_pandas()[("value", "value")].tolist() == [2, 1, 1]
         assert results["quantile"].to_pandas()[("value", "value")].tolist() == [60, 20, 7]
         results["read"] = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+            session.members(session.catalog.entities.get("sales.order")),
             {"value": session.catalog.fields.get("sales.order.amount")},
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()

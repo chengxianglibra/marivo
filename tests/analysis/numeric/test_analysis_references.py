@@ -48,14 +48,14 @@ def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
         {"value": session.catalog.metrics.get("sales." + metric)},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
 
 
 def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
         by=mv.product(
@@ -244,7 +244,7 @@ def test_original_metric_standardization_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     trace = capture_source(monkeypatch)
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     base = session.catalog.metrics.get("sales.revenue")
     groups = session.observe(
@@ -316,7 +316,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     amount, time = (
         session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
@@ -415,7 +415,7 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     read = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
     saved = read.persist()
     table = _plain(saved).set_index("key_0")
@@ -544,7 +544,7 @@ def test_reference_preparation_captures_independent_source_origins(
 
     case = analysis_dsl_case_factory("j3")
     session = case.session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     counts = session.catalog.metrics.get("sales.order_count")
     lines = session.catalog.metrics.get("sales.line_revenue")

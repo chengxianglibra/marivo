@@ -125,7 +125,9 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
     def reference(*, project_root: Path) -> str:
         raise ValueError("reference failure")
 
-    @tracked_capability(surface="analysis", capability_id="catalog.require", capability_kind="read")
+    @tracked_capability(
+        surface="analysis", capability_id="catalog.readiness", capability_kind="read"
+    )
     def read(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("private detail")
@@ -141,7 +143,7 @@ def test_default_mode_omits_successful_lightweight_calls_and_keeps_failures(
     with pytest.raises(ValueError, match="private detail"):
         read(project_root=telemetry_project, fail=True)
     path = _event_path(telemetry_project)
-    calls = [_attrs(record) for record in _capability_records(path, "catalog.require")]
+    calls = [_attrs(record) for record in _capability_records(path, "catalog.readiness")]
     assert len(calls) == 1
     assert calls[0]["marivo.event.schema_version"] == "3"
     assert calls[0]["marivo.operation.status"] == "error"
@@ -156,7 +158,9 @@ def test_default_mode_short_and_long_operations_keep_only_actionable_events(
 
     monkeypatch.setenv("MARIVO_TELEMETRY", "on")
 
-    @tracked_capability(surface="analysis", capability_id="catalog.require", capability_kind="read")
+    @tracked_capability(
+        surface="analysis", capability_id="catalog.readiness", capability_kind="read"
+    )
     def delegated(*, project_root: Path, fail: bool = False) -> str:
         if fail:
             raise ValueError("nested failure")
@@ -177,11 +181,11 @@ def test_default_mode_short_and_long_operations_keep_only_actionable_events(
     path = _event_path(telemetry_project)
     assert len(_capability_records(path, "observe")) == 2
     assert len(_capability_records(path, "session.resume")) == 1
-    assert _capability_records(path, "catalog.require") == []
+    assert _capability_records(path, "catalog.readiness") == []
 
     with pytest.raises(ValueError, match="nested failure"):
         execute(project_root=telemetry_project, fail=True)
-    child = _attrs(_capability_records(path, "catalog.require")[0])
+    child = _attrs(_capability_records(path, "catalog.readiness")[0])
     parent = _attrs(_capability_records(path, "observe")[-1])
     assert child["marivo.operation.status"] == "error"
     assert child["marivo.operation.parent_id"] == parent["marivo.operation.id"]

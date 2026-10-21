@@ -612,7 +612,7 @@ def membership(
                 reject(
                     "resolved Relationship values in each via path",
                     type(relationship).__name__,
-                    "Resolve each relationship with session.catalog.relationships.get(relationship_ref), "
+                    "Resolve each relationship with session.catalog.relationships.get(relationship_ref.path), "
                     "then pass the resolved values in via=((relationship,),).",
                     "membership.via",
                 )

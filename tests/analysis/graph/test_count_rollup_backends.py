@@ -17,7 +17,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
@@ -126,7 +125,7 @@ def test_native_count_rollup_and_group_state(
         session = mv.session.create("native-count", timezone="UTC")
         metric = session.catalog.metrics.get("counts.event_count")
         category = session.catalog.fields.get("counts.events.category")
-        members = session.members(session.catalog.require(ms.ref.entity("counts.events")))
+        members = session.members(session.catalog.entities.get("counts.events"))
         window = session.time_scope(start="2026-09-01", end="2026-09-02")
         scalar = session.observe({"value": metric}, by=(window,))
         individual = session.observe({"value": metric}, by=mv.product(window, members))

@@ -199,7 +199,7 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     weight = session.catalog.fields.get("sales.order.weight")
     decimal_amount = session.catalog.fields.get("sales.order.decimal_amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     for metric, expected, by_member in (
         (amount.mean(time=time), 4.0, [2.0, 8.0]),
         (amount.weighted_mean(weight=weight, time=time), 20.75 / 4, [2.375, 8.0]),
@@ -282,7 +282,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     weight = session.catalog.fields.get("sales.order.weight")
     floating_value = session.catalog.fields.get("sales.order.float_amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     channel = session.catalog.fields.get("sales.order.channel")
     customer_id = session.catalog.fields.get("sales.order.customer_id")
     numbers = [Fraction(amount) for _, amount, _ in facts if amount is not None]
@@ -461,7 +461,7 @@ def test_duration_matrix(
     weight = session.catalog.fields.get("sales.order.weight")
     time = session.catalog.fields.get("sales.order.ordered_at")
     base = value.sum(time=time)
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     channel = session.catalog.fields.get("sales.order.channel")
     customer_id = session.catalog.fields.get("sales.order.customer_id")
     for kind in kinds:
@@ -558,7 +558,7 @@ def test_typed_temporal_matrix(
     session = case.session
     value = session.catalog.fields.get("sales.order.amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     for kind in kinds:
         base = value.sum(time=time)
         samples = base.per(time)
@@ -874,7 +874,7 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
         session.catalog.fields.get("sales.order." + name).sum(time=time)
         for name in ("amount", "small", "cancel")
     )
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     original = session.observe({"value": first + small - cancel}, by=members)
     if not floating:
         # Each binary node checks its own domain; subtraction cannot erase the
@@ -921,7 +921,7 @@ def test_current_row_counts_keep_numeric_null_policy(
         {"value": value.sum(time=time, empty="null")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
     frame = logical.compute().to_pandas()

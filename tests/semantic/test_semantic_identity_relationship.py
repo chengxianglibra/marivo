@@ -6,7 +6,6 @@ from datetime import datetime
 
 import pytest
 
-import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.expressions import Relationship
@@ -77,7 +76,7 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert mapping.role == "line_to_order"
     assert mapping.to_version_resolution_required is True
     assert mapping.from_version_resolution_required is False
-    relationship = catalog.require(ms.ref.relationship("sales.line_to_order"))
+    relationship = catalog.relationships.get("sales.line_to_order")
     assert isinstance(relationship, Relationship)
     assert relationship.cardinality == "many_to_one"
     assert "many_to_one" in relationship.contract().render()

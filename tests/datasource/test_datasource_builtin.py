@@ -48,7 +48,7 @@ def test_empty_project_discovery_is_pure(
     assert description.literal_fields == {"path": ":memory:", "read_only": False}
     assert description.env_refs == {}
     semantic = ms.load(workspace_dir=project_root)
-    entry = semantic.require(ms.ref.datasource("default"))
+    entry = semantic.datasources.get("default")
     assert entry.details().fields == description.literal_fields
     for result in (catalog, md.list(), catalog.get("default"), description, entry.details()):
         assert "Built-in" in result.render()
@@ -83,8 +83,8 @@ def test_layered_loading_injects_default_once(project_root: Path) -> None:
     assert result.errors == ()
     assert [item.name for item in result.datasource_irs].count("default") == 1
     catalog = ms.load(workspace_dir=project_root)
-    assert catalog.require(ms.ref.datasource("default")).ref.name == "default"
-    assert catalog.require(ms.ref.datasource("warehouse")).ref.name == "warehouse"
+    assert catalog.datasources.get("default").ref.name == "default"
+    assert catalog.datasources.get("warehouse").ref.name == "warehouse"
 
 
 def test_reserved_registration_fails_before_writes(project_root: Path) -> None:
@@ -180,7 +180,7 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
         .replace("md.table('orders')", source_code)
     )
     catalog = ms.load(workspace_dir=project_root)
-    catalog.require(ms.ref.entity("sales.orders"))
+    catalog.entities.get("sales.orders")
     inspection = md.inspect(ms.ref.datasource("default"), source)
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),

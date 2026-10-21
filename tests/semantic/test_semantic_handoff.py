@@ -59,7 +59,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     calendar = ms.ref.period_calendar("sales.fiscal")
     revenue_identity = catalog.describe(revenue).ref
     assert revenue_identity is not None and revenue_identity.ref == revenue
-    assert catalog.require(calendar).ref == calendar
+    assert catalog.period_calendars.get(calendar.path).ref == calendar
 
     baseline = catalog.readiness(refs=[amount])
     assert baseline.analysis_ready_inputs == (amount,)

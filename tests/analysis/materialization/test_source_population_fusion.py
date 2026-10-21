@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -39,7 +38,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     operation: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -61,7 +60,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
                 by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),),)
             )
         else:
-            tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
+            tags = session.members(session.catalog.entities.get("sales.tags"))
             fields = session.read(tags, {"label": session.catalog.fields.get("sales.tags.label")})
             chosen = fields.where(
                 fields["label"] == ("missing" if operation == "empty_query" else "A")
@@ -96,7 +95,7 @@ def test_relationship_population_failures_survive_empty_top(
     boundary: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -121,7 +120,7 @@ def test_relationship_population_failures_survive_empty_top(
         with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
             db.execute("INSERT INTO tags VALUES (1,'corrupt','other')")
         fields = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.tags"))),
+            session.members(session.catalog.entities.get("sales.tags")),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         chosen = fields.where(fields["label"] == "missing")
@@ -148,7 +147,7 @@ def test_relationship_member_count_keeps_its_actual_member_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -241,7 +240,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             }
         )
         session = mv.session.create("remote-population-fusion", timezone="UTC")
-        source = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+        source = session.members(session.catalog.entities.get("sales.orders"))
         path = (
             session.catalog.relationships.get("sales.order_links"),
             session.catalog.relationships.get("sales.link_tags"),
@@ -262,7 +261,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         )
         assert count[("value", "v")].tolist() == [2]
         fields = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.tags"))),
+            session.members(session.catalog.entities.get("sales.tags")),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         for label, expected in (("A", 500), ("missing", 0)):

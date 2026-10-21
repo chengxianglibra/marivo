@@ -51,7 +51,7 @@ def _validate_edges(
     for edge in edges:
         for role, endpoint in (("source", edge.source), ("target", edge.target)):
             try:
-                semantic.require(cast("Ref[SemanticKindTag]", endpoint))
+                semantic._require_ref(cast("Ref[SemanticKindTag]", endpoint))
             except SemanticError:
                 issues.append(
                     _validation_error(

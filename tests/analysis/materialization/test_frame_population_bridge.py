@@ -608,7 +608,6 @@ def test_source_relationship_preimage_retains_frame_target_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
     from tests.analysis.materialization.test_population_membership import _session
 
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
@@ -628,7 +627,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         fixed,
         on=((fixed.axes[0], session.catalog.entities.get("sales.tags")),),
     )
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),

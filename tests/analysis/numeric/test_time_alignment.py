@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.test_period_alignment import comparison_tables, paired_tables, period
 from tests.shared_fixtures import DslCaseFactory
@@ -81,7 +80,7 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
             ],
         )
     metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     if kind == "years":
         baseline_axis = session.time_scope(start="2025-08-01", end="2025-08-03").by(mv.grain("day"))

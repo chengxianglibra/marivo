@@ -14,7 +14,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -133,7 +132,7 @@ def test_native_distributions_independent_fixed_and_cold(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-08-01", end="2026-08-02"),
-                    session.members(session.catalog.require(ms.ref.entity("sales.subjects"))),
+                    session.members(session.catalog.entities.get("sales.subjects")),
                 ),
             )
             if kind == "approx_quantile":

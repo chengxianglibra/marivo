@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._definition.types import Owner
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import ArtifactNotFoundError
@@ -204,7 +203,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     session = Session._from_runtime(runtime)
     hook.session = session
     artifact = _publish(session)
-    region = session.catalog.require(ms.ref.dimension("sales.orders.region"))
+    region = session.catalog.fields.get("sales.orders.region")
     memory = session.values(
         by=(region,), columns={"answer": None}, rows=((("north",), {"answer": 7}),)
     ).compute()

@@ -8,7 +8,6 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
@@ -290,7 +289,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         )
         root.environment["profile"] = profile
         session = mv.session.create("c03-scalar-path", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         field = session.catalog.fields.get("sales.attributes.amount")
         via = session.catalog.relationships.get("sales.attributes_path")
         inferred = session.read(members, {"value": field})

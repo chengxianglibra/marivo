@@ -566,7 +566,7 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
 def _source(case: DslCase) -> AnalysisFrame:
     amount = case.session.catalog.fields.get("sales.order.amount")
     return case.session.read(
-        case.session.members(case.session.catalog.require(ms.ref.entity("sales.order"))),
+        case.session.members(case.session.catalog.entities.get("sales.order")),
         {"x": amount, "y": amount},
     )
 

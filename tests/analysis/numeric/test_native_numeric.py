@@ -13,7 +13,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.materialization.publication_fixtures import publication_counts
@@ -62,7 +61,7 @@ def test_native_weighted_and_mean(
     model = tmp_path / "models/semantic/sales/facts.py"
     model.write_text(model.read_text().replace("md.table('facts',", "md.parquet('facts.parquet',"))
     session = mv.session.create("native", timezone="UTC")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+    members = session.members(session.catalog.entities.get("sales.facts"))
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.weighted")}, by=mv.product(scope, members)
@@ -226,7 +225,7 @@ def _clickhouse_weight_state_overflow(
             model.read_text().replace("md.table('facts',", f"md.table({case.source.table!r},")
         )
         session = mv.session.create("native_remote", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+        members = session.members(session.catalog.entities.get("sales.facts"))
         scope = session.time_scope(start="2026-07-01", end="2026-07-02")
         from marivo.analysis.materialization.errors import MaterializationError
 
@@ -379,7 +378,7 @@ def test_mixed_component_attribution_source_and_fixed(
         )
     _component_model(tmp_path)
     session = mv.session.create("mixed_attribution", timezone="UTC")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.people")))
+    members = session.members(session.catalog.entities.get("sales.people"))
     axis = session.catalog.fields.get("sales.facts.category")
     metric = (
         session.catalog.metrics.get("sales.weighted")
@@ -446,7 +445,7 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
     )
     metric = total - weights if negation else (total + weights) - cancel
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+    members = session.members(session.catalog.entities.get("sales.facts"))
     logical = session.observe({"value": metric}, by=mv.product(scope, members))
     if family in {"duration", "float_prefix"}:
         with pytest.raises(AnalysisError):
@@ -484,7 +483,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         )
     _component_model(tmp_path)
     session = mv.session.create("decimal_attribution", timezone="UTC")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.people")))
+    members = session.members(session.catalog.entities.get("sales.people"))
     axis = session.catalog.fields.get("sales.facts.category")
     metric = session.catalog.metrics.get("sales.mean")
     current = session.observe(
@@ -541,7 +540,7 @@ def test_linear_still_rejects_final_carrier_overflow(
         {"value": metric},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
         ),
     )
     fixed = logical.persist()
@@ -550,9 +549,7 @@ def test_linear_still_rejects_final_carrier_overflow(
         session.observe(
             {"value": metric},
             by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-            where=mv.in_population(
-                session.members(session.catalog.require(ms.ref.entity("sales.facts")))
-            ),
+            where=mv.in_population(session.members(session.catalog.entities.get("sales.facts"))),
         ).compute()
     assert fixed.to_pandas().equals(previous)
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(previous)
@@ -571,7 +568,7 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         )
     _component_model(tmp_path)
     session = mv.session.create("linear_comparison", timezone="UTC")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.people")))
+    members = session.members(session.catalog.entities.get("sales.people"))
     metric = session.catalog.metrics.get("sales.total") + session.catalog.metrics.get(
         "sales.weights"
     )

@@ -5,7 +5,6 @@ from typing import Literal
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, rendered_help
 
@@ -32,7 +31,7 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
 
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
     receiver = case.session.observe({"revenue": metric}) if kind == "AnalysisFrame" else population
     assert capsys.readouterr().out == ""
     assert ".show()" in repr(receiver)
@@ -73,7 +72,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
         guard.setattr(SourceSession, "__enter__", forbidden)
         guard.setattr(SourceSession, "execute", forbidden)
         members = session.members(
-            session.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+            session.catalog.entities.get("sales.customer"), where=region == "east"
         )
         complete = mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",)))
         query = session.observe(
@@ -142,10 +141,10 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     assert len(first.encode()) <= 8193
     region = case.catalog.fields.get("sales.customer.region")
     east = case.session.members(
-        case.session.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+        case.session.catalog.entities.get("sales.customer"), where=region == "east"
     )
     south = case.session.members(
-        case.session.catalog.require(ms.ref.entity("sales.customer")), where=region == "south"
+        case.session.catalog.entities.get("sales.customer"), where=region == "south"
     )
     domain = east.union(south).difference(south)
     domain.show()

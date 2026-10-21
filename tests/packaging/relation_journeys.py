@@ -204,7 +204,7 @@ def _records(frame: pd.DataFrame) -> Json:
 def _produce(
     session: mv.Session, scenario: Scenario, patch: pytest.MonkeyPatch
 ) -> tuple[dict[str, mv.AnalysisFrame], dict[str, Json]]:
-    targets = session.members(session.catalog.require(ms.ref.entity("operations.device")))
+    targets = session.members(session.catalog.entities.get("operations.device"))
     metric = session.catalog.metrics.get("operations.energy_total")
     count = session.catalog.metrics.get("operations.reading_count")
 
@@ -239,7 +239,7 @@ def _produce(
             ),
         )
         selected = session.members(
-            session.catalog.require(ms.ref.entity("operations.device")),
+            session.catalog.entities.get("operations.device"),
             where=mv.in_population(keys),
         )
         frames = {
@@ -413,7 +413,7 @@ def _produce(
             "groups": groups,
             "difference": difference,
         }
-        readings = session.members(session.catalog.require(ms.ref.entity("operations.reading")))
+        readings = session.members(session.catalog.entities.get("operations.reading"))
         basis = session.read(
             readings,
             {

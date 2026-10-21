@@ -49,7 +49,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             DslCase("j4", NAMES, root, root / "warehouse.duckdb", catalog, session), root
         )
         ms.load(workspace_dir=root)
-        population = session.members(session.catalog.require(ms.ref.entity("operations.device")))
+        population = session.members(session.catalog.entities.get("operations.device"))
         window = session.time_scope(start="2026-08-01", end="2026-09-01")
         amount = session.catalog.fields.get("operations.reading.energy")
         time = session.catalog.fields.get("operations.reading.recorded_at")

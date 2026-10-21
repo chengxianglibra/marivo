@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
@@ -63,7 +62,7 @@ def test_remote_terminal_string_relations(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("remote-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {
                 "category": session.catalog.fields.get("sales.facts.category"),
             },
@@ -139,7 +138,7 @@ def test_remote_fixed_strings_keep_reader_bytes(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("remote-char", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {
                 "category": session.catalog.fields.get("sales.facts.category"),
             },

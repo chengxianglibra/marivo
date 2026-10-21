@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation, terminal_publication
 from marivo.analysis.materialization.errors import (
@@ -22,9 +21,7 @@ from tests.support.execution_logs import execution_records
 def _members(case: DslCase) -> mv.AnalysisFrame:
     return case.session.frame(
         case.session.members(
-            case.session.catalog.require(
-                ms.ref.entity(f"{case.names.domain}.{case.names.customer}")
-            )
+            case.session.catalog.entities.get(f"{case.names.domain}.{case.names.customer}")
         )
     )
 
@@ -160,7 +157,7 @@ def test_real_pairing_check_failure_has_no_publication_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j2").session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
     chosen = region.where(region["region"] == "east")
     selected = session.population_from(

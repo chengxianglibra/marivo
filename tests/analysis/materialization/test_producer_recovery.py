@@ -15,7 +15,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -71,7 +70,7 @@ def producer_recovery(
         session = mv.session.create("r94-producer", timezone="UTC")
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            by=session.members(session.catalog.entities.get("sales.facts")),
         )
         captures = [values.persist(), values.persist()]
         assert captures[0].artifact.id != captures[1].artifact.id
@@ -205,7 +204,7 @@ def test_http_source_remains_a_datasource_boundary(
         with pytest.raises(AnalysisError) as failure:
             session.observe(
                 {"value": session.catalog.metrics.get("sales.total")},
-                by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+                by=session.members(session.catalog.entities.get("sales.facts")),
             ).compute()
         error = failure.value
         assert error.expected and error.received

@@ -7,7 +7,6 @@ from typing import NoReturn
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -21,7 +20,7 @@ from tests.support.source_trace import SourceTrace
 def _values(session: mv.Session) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get("sales.total")},
-        by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+        by=session.members(session.catalog.entities.get("sales.facts")),
     )
 
 

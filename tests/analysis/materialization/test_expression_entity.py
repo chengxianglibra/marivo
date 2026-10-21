@@ -118,9 +118,7 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.create("invalid-output-key")
     with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
-        session.frame(
-            session.members(session.catalog.require(ms.ref.entity("sales.regional")))
-        ).compute()
+        session.frame(session.members(session.catalog.entities.get("sales.regional"))).compute()
     cause = caught.value
     assert cause.expected == "primary_key 'amount' present on the Entity output schema"
     assert cause.received == "output columns: 'region', 'day', 'total'"

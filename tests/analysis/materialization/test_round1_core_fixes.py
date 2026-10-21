@@ -15,7 +15,6 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.session.core import Session
@@ -203,9 +202,7 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
         ),
         path,
     )
-    population = core_session.members(
-        core_session.catalog.require(ms.ref.entity("sales.durations"))
-    )
+    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
@@ -220,9 +217,7 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
 
 
 def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: Session) -> None:
-    population = core_session.members(
-        core_session.catalog.require(ms.ref.entity("sales.durations"))
-    )
+    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     for selected in (query.where(query["elapsed"].is_null()), query.top(0, by=query["elapsed"])):
@@ -254,9 +249,7 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         pa.table({"id": [1, 2], "elapsed": pa.array([ticks, None], type=pa.duration("ns"))}),
         path,
     )
-    population = core_session.members(
-        core_session.catalog.require(ms.ref.entity("sales.durations"))
-    )
+    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
@@ -380,9 +373,7 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         path,
     )
     represented_tick = tick
-    population = core_session.members(
-        core_session.catalog.require(ms.ref.entity("sales.durations"))
-    )
+    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"d": elapsed})
     expression = query["d"] / 2
@@ -429,9 +420,7 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
     core_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    population = core_session.members(
-        core_session.catalog.require(ms.ref.entity("sales.durations"))
-    )
+    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     source = core_session.read(
         population, {"d": core_session.catalog.fields.get("sales.durations.elapsed")}
     )

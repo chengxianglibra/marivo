@@ -5,7 +5,6 @@ from typing import Literal
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
@@ -21,7 +20,7 @@ def test_member_count_without_source_metric_prepares_members(
     customer = session.catalog.entities.get("sales.customer")
     region = session.catalog.fields.get("sales.customer.region")
     members = (
-        session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        session.members(session.catalog.entities.get("sales.customer"))
         if domain == "source"
         else mv.coordinates(
             by=(mv.identity(customer),), keys=((("A",),), (("C",),)) if domain == "literal" else ()
@@ -66,7 +65,7 @@ def test_member_count_rejects_multivalued_common_condition(
     analysis_dsl_case_factory: DslCaseFactory, population_condition: bool, mixed: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     channel = session.catalog.fields.get("sales.order.channel")
     condition = (
         mv.in_population(mv.coordinates(by=(channel,), keys=(("web",),)))
@@ -90,7 +89,7 @@ def test_member_count_condition_checks_do_not_reselect_explicit_members(
     analysis_dsl_case_factory: DslCaseFactory, population_condition: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+    members = session.members(session.catalog.entities.get("sales.customer"))
     region = session.catalog.fields.get("sales.customer.region")
     condition = (
         mv.in_population(mv.coordinates(by=(region,), keys=(("east",),)))
@@ -122,13 +121,11 @@ def test_common_population_condition_preserves_formula_and_query_dependency(
     frame = (
         session.observe(
             {
-                "n": session.members(session.catalog.require(ms.ref.entity("sales.order"))).count(),
+                "n": session.members(session.catalog.entities.get("sales.order")).count(),
                 "average": revenue / count,
             },
             where=mv.in_population(selected)
-            & mv.in_population(
-                session.members(session.catalog.require(ms.ref.entity("sales.order")))
-            ),
+            & mv.in_population(session.members(session.catalog.entities.get("sales.order"))),
         )
         .compute()
         .to_pandas()
@@ -142,14 +139,10 @@ def test_common_population_condition_rejects_foreign_query_dependency(
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
     other = mv.session.create("foreign-observation", timezone="UTC")
-    selected = other.members(other.catalog.require(ms.ref.entity("sales.customer")))
+    selected = other.members(other.catalog.entities.get("sales.customer"))
     with pytest.raises(AnalysisError, match="another Store or Session") as error:
         session.observe(
-            {
-                "n": session.members(
-                    session.catalog.require(ms.ref.entity("sales.customer"))
-                ).count()
-            },
+            {"n": session.members(session.catalog.entities.get("sales.customer")).count()},
             where=mv.in_population(selected),
         )
     assert error.value.expected and error.value.received and error.value.repair

@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.compiler.source_predicates import query_numeric_value
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
@@ -78,7 +77,7 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("native-cell-sum", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {
                 "amount": session.catalog.fields.get("sales.facts.amount"),
                 "decimal": session.catalog.fields.get("sales.facts.big"),
@@ -145,7 +144,7 @@ def test_native_cell_sum_retains_numeric_errors_before_top_zero(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("checked-cell-sum", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            session.members(session.catalog.entities.get("sales.facts")),
             {
                 "value": session.catalog.fields.get(
                     "sales.facts.big" if boundary == "decimal_overflow" else "sales.facts.amount"

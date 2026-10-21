@@ -202,11 +202,12 @@ Catalog & objects
 values, so ``revenue = catalog.metrics.get("sales.revenue")`` and
 ``revenue / catalog.entities.get("sales.orders").count()`` compose directly.
 Domains, datasources, period calendars, temporal sets and work schedules remain
-navigation entries. Collections resolve a local name, a full semantic path, a
-displayed typed key such as ``metric:sales.revenue``, or an exact ``Ref`` of a
-kind they hold, within the collection's current scope. Scoped collections do
-not widen to out-of-scope objects. ``catalog.require(ref)`` is the strict,
-global, ref-only lookup and returns the same value or entry.
+navigation entries. ``collection.get(key)`` accepts only a plain string
+containing a local name or full semantic path within the collection's scope.
+Ambiguous names require a full path. Refs and kind-prefixed strings are rejected;
+scoped collections do not widen to out-of-scope objects. The consuming operation
+checks its required kind, root, grain, unit, time role, and null semantics.
+Typed Ref identities remain available for definitions, dependencies and records.
 
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
 ``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an

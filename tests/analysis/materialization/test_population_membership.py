@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.dsl.population import population_keys
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -104,7 +103,7 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get("sales.order_buyer")
     orders = session.members(
-        session.catalog.require(ms.ref.entity("sales.order")), where=region.via((buyer,)) == "east"
+        session.catalog.entities.get("sales.order"), where=region.via((buyer,)) == "east"
     )
     keys = session.frame(orders).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
@@ -132,7 +131,7 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
         session.catalog.relationships.get("sales.order_buyer"),
     )
     lines = session.members(
-        session.catalog.require(ms.ref.entity("sales.order_line")),
+        session.catalog.entities.get("sales.order_line"),
         where=customer_id.via(path) == "A",
     )
     keys = session.frame(lines).compute().to_pandas()
@@ -212,9 +211,7 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
         .to_pandas()
     )
     assert samples[("value", "mean")].tolist() == [10]
-    classified = session.members(session.catalog.require(ms.ref.entity("sales.tags"))).classify(
-        by=(label,)
-    )
+    classified = session.members(session.catalog.entities.get("sales.tags")).classify(by=(label,))
     result = (
         session.observe({"revenue": revenue}, by=classified, memberships=(buckets,))
         .compute()
@@ -303,8 +300,8 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
-    tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
+    orders = session.members(session.catalog.entities.get("sales.orders"))
+    tags = session.members(session.catalog.entities.get("sales.tags"))
     tag_entity = session.catalog.entities.get("sales.tags")
     allowed = mv.coordinates(by=(mv.identity(tag_entity),), keys=(((1,),), ((3,),)))
     selected = tags.where(
@@ -370,11 +367,11 @@ def test_zero_axis_population_preserves_the_unit_tuple(
         observed = session.observe({"revenue": revenue}, by=(customer,))
         domain = session.population_from(observed, on=((observed.axes[0], customer),))
     else:
-        domain = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+        domain = session.members(session.catalog.entities.get("sales.orders"))
     unit = domain.project(by=())
     if source == "product":
         unit = mv.product(
-            unit, session.members(session.catalog.require(ms.ref.entity("sales.tags")))
+            unit, session.members(session.catalog.entities.get("sales.tags"))
         ).project(by=())
     result = session.frame(unit).compute().to_pandas()
     assert result.shape == (0 if empty else 1, 0)
@@ -399,7 +396,7 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
     )
-    selected = session.members(session.catalog.require(ms.ref.entity("sales.orders"))).preimage(
+    selected = session.members(session.catalog.entities.get("sales.orders")).preimage(
         targets, via=path
     )
     revenue = session.catalog.metrics.get("sales.revenue")

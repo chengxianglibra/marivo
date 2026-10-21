@@ -93,13 +93,13 @@ catalog = ms.load()
 s = mv.session.create("buyer-analysis", timezone="Asia/Shanghai")
 OrdersRef = ms.ref.entity("sales.orders")
 OrdersEntity = catalog.entities.get(OrdersRef)
-customer_axis = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
-region_axis = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
-status = catalog.fields.get(ms.ref.dimension("sales.orders.status"))
-paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
-amount = catalog.fields.get(ms.ref.measure("sales.orders.amount"))
-revenue = catalog.metrics.get(ms.ref.metric("sales.revenue"))
-orders = catalog.metrics.get(ms.ref.metric("sales.order_count"))
+customer_axis = catalog.fields.get("sales.orders.customer_id")
+region_axis = catalog.fields.get("sales.orders.region")
+status = catalog.fields.get("sales.orders.status")
+paid_at = catalog.fields.get("sales.orders.paid_at")
+amount = catalog.fields.get("sales.orders.amount")
+revenue = catalog.metrics.get("sales.revenue")
+orders = catalog.metrics.get("sales.order_count")
 aov = revenue / orders
 august = s.time_scope(start="2026-08-01", end="2026-09-01")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
@@ -302,8 +302,8 @@ C1 在 11 月 1 日零点从 Silver 换成 Gold，C2 保持 Bronze，新增 C3 �
 
 ```python
 version_catalog = ms.load()
-tier = version_catalog.fields.get(ms.ref.dimension("crm.customers.tier"))
-VersionCustomers = version_catalog.entities.get(ms.ref.entity("crm.customers"))
+tier = version_catalog.fields.get("crm.customers.tier")
+VersionCustomers = version_catalog.entities.get("crm.customers")
 fixed_customers = mv.coordinates(
     by=(mv.identity(VersionCustomers),), keys=((("C1",),), (("C2",),)),
 )
@@ -331,10 +331,10 @@ Session.members 的 at 与关系像所需的版本选择遵守同一种边界解
 relation_s = mv.session.create("relation-example", timezone="Asia/Shanghai")
 orders_ref = ms.ref.entity("sales.orders")
 customers_ref = ms.ref.entity("sales.customers")
-order_entity = catalog.entities.get(orders_ref)
-customer_entity = catalog.entities.get(customers_ref)
-buyer = catalog.relationships.get(ms.ref.relationship("sales.buyer"))
-customer_id = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
+order_entity = catalog.entities.get(orders_ref.path)
+customer_entity = catalog.entities.get(customers_ref.path)
+buyer = catalog.relationships.get("sales.buyer")
+customer_id = catalog.fields.get("sales.orders.customer_id")
 orders = relation_s.members(order_entity)
 customers_a = mv.coordinates(by=(mv.identity(customer_entity),), keys=((("A",),),))
 buyers = orders.image(via=(buyer,))
@@ -367,9 +367,9 @@ Orders 除 buyer 外还有另一条通向 Customers 的付款客户关系，语�
 sales.revenue 是 Orders 上有业务时间角色的基础收入规约：
 
 ```python
-customer_region = catalog.fields.get(ms.ref.dimension("sales.customers.customer_region"))
+customer_region = catalog.fields.get("sales.customers.customer_region")
 buyer_region = customer_region.via((buyer,))
-order_revenue = catalog.metrics.get(ms.ref.metric("sales.revenue"))
+order_revenue = catalog.metrics.get("sales.revenue")
 relation_october = relation_s.time_scope(start="2026-10-01", end="2026-11-01")
 buyer_revenue = relation_s.observe({'revenue': order_revenue}, by=(relation_october,), where=mv.in_population(customers_a))
 ```
@@ -413,7 +413,7 @@ selected_revenue_explicit = relation_s.observe(
     {'revenue': order_revenue}, by=(), where=mv.in_population(matched_orders),
 ).compute()
 
-relation_paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
+relation_paid_at = catalog.fields.get("sales.orders.paid_at")
 october_revenue = relation_s.observe(
     {"revenue": order_revenue},
     where=relation_paid_at.within(relation_october),
@@ -457,12 +457,12 @@ def average_order_value():
 ```python
 catalog = ms.load()
 s = mv.session.create("metric-expressions", timezone="Asia/Shanghai")
-amount = catalog.fields.get(ms.ref.measure("sales.orders.amount"))
-cost = catalog.fields.get(ms.ref.measure("sales.orders.cost"))
-paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
-status = catalog.fields.get(ms.ref.dimension("sales.orders.status"))
-customer_id = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
-orders = catalog.entities.get(ms.ref.entity("sales.orders"))
+amount = catalog.fields.get("sales.orders.amount")
+cost = catalog.fields.get("sales.orders.cost")
+paid_at = catalog.fields.get("sales.orders.paid_at")
+status = catalog.fields.get("sales.orders.status")
+customer_id = catalog.fields.get("sales.orders.customer_id")
+orders = catalog.entities.get("sales.orders")
 revenue = amount.sum(time=paid_at).where(status == "paid")
 order_count = orders.count(time=paid_at).where(status == "paid")
 aov = revenue / order_count
@@ -509,9 +509,9 @@ def gross_margin():
 临时业务量采用同一声明体和业务授权，函数局部名只作声明身份，不自动发布到模型：
 
 ```python
-quantity = catalog.fields.get(ms.ref.measure("sales.orders.quantity"))
-unit_price = catalog.fields.get(ms.ref.measure("sales.orders.unit_price"))
-unit_cost = catalog.fields.get(ms.ref.measure("sales.orders.unit_cost"))
+quantity = catalog.fields.get("sales.orders.quantity")
+unit_price = catalog.fields.get("sales.orders.unit_price")
+unit_cost = catalog.fields.get("sales.orders.unit_cost")
 
 
 @ms.measure(additivity=ms.additive_all())
@@ -835,7 +835,7 @@ cohort 活跃客户均额 100，人群收入比率 1/4。per(cohort) 已选择�
 同一个客户可以在各地区分别成为一个内部样本；此处改用独立数据 East:A100，West:A300/B100：
 
 ```python
-region = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
+region = catalog.fields.get("sales.orders.region")
 regional_means = s.observe({'cohort_mean': cohort_mean, 'active_mean': observed_mean}, by=(september, region)).compute()
 ```
 

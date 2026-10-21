@@ -95,7 +95,7 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("measure:sales.orders.amount")
+    amount = catalog.fields.get("sales.orders.amount")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
     assert type(amount) is Deferred
@@ -125,16 +125,16 @@ def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
     assert type(catalog.fields.get("sales.orders.margin")) is Deferred
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.fields.get(ms.ref.metric("sales.revenue"))
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "catalog.metrics" in str(exc_info.value)
+        catalog.fields.get("sales.revenue")
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
+    assert "catalog.fields" in str(exc_info.value)
 
 
 def test_domain_and_catalog_collections_agree_on_metric_membership(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    domain = catalog.require(ms.ref.domain("sales"))
+    domain = catalog.domains.get("sales")
 
     assert [ref.key for ref in catalog.metrics.refs] == ["metric:sales.revenue"]
     assert [ref.key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
@@ -142,7 +142,7 @@ def test_domain_and_catalog_collections_agree_on_metric_membership(
     global_amount = catalog.fields.get("sales.orders.amount")
     assert type(scoped) is Deferred and type(global_amount) is Deferred
     assert consume_field(scoped) == consume_field(global_amount)
-    assert catalog.metrics.get("revenue") is catalog.metrics.get(ms.ref.metric("sales.revenue"))
+    assert catalog.metrics.get("revenue") is catalog.metrics.get("sales.revenue")
 
 
 def test_metric_value_carries_roots_unit_and_business_context(

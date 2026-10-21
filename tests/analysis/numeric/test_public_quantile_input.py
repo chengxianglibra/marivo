@@ -44,7 +44,7 @@ def test_defined_quantile_survives_source_offline_recovery(
     session = case.session
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.median_amount")},
-        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        by=session.members(session.catalog.entities.get("sales.customer")),
     )
     output = query.persist()
     exported = output.to_pandas()

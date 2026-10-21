@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -160,7 +159,7 @@ def test_native_distribution(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.create("r93-distribution", timezone="UTC")
-        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
+        members = session.members(session.catalog.entities.get("sales.subjects"))
         field = session.catalog.fields.get(
             "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
         )

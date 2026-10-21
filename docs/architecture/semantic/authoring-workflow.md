@@ -34,7 +34,8 @@ authoring across `marivo.datasource` and `marivo.semantic`.
 An agent loads current project state, establishes the physical facts needed for
 the task, authors the smallest dependency-coherent semantic slice, and uses one
 `ms.load()` as the project-level static validation event. Exact authored roots
-are then resolved with `catalog.require(...)`. Scoped readiness is required when
+are then selected with the corresponding `collection.get(path)`. Scoped readiness
+is required when
 the delivery needs analysis-ready roots; analysis handoff additionally requires
 current authority for their business meaning. Explanation and datasource tasks
 have their own earlier exits.
@@ -77,7 +78,7 @@ load current datasource and semantic catalogs
 -> choose inspection, optional bounded sampling, and/or governed raw SQL
 -> author one dependency-coherent semantic slice
 -> one ms.load()
--> catalog.require(...) for every authored root
+-> collection.get(path) for every authored root
 -> scoped readiness when analysis-ready delivery is required
 -> targeted runtime/source-health probes for concrete remaining risks
 -> selected authoring exit or first typed analysis use
@@ -160,13 +161,13 @@ evaluates the current project and fails closed on invalid organization,
 duplicate identity, unresolved refs, type mismatches, illegal expression
 bindings, invalid decomposition, and cycles.
 
-After a successful load, confirm exact identity with ordinary catalog navigation:
+After a successful load, select each authored root through its owning collection:
 
 ```python
 catalog = ms.load(project_root)
 
-for ref in authored_roots:
-    catalog.require(ref)
+orders = catalog.entities.get("sales.orders")
+revenue = catalog.metrics.get("sales.revenue")
 ```
 
 Repair all structural failures for the slice and reload. Do not insert a

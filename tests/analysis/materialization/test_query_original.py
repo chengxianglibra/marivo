@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -168,7 +167,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     session = original_source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     members = members.classify(by=(members.axes[0], region))
     fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
@@ -178,7 +177,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     control = session.observe({"members": members.count()}).compute()
     assert control.to_pandas()[("value", "members")].tolist() == [3]
     selected_members = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=mv.in_population(keys)
+        session.catalog.entities.get("sales.orders"), where=mv.in_population(keys)
     )
     result = session.observe({"members": selected_members.count()}).compute()
     assert result.to_pandas()[("value", "members")].tolist() == [2]
@@ -196,9 +195,7 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     session = original_source_session
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
-    members = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "East"
-    )
+    members = session.members(session.catalog.entities.get("sales.orders"), where=region == "East")
     members = members.classify(by=(members.axes[0], region, channel))
     result = session.observe({"members": members.count()}, by=(region, channel)).compute()
     assert result.to_pandas()[("value", "members")].tolist() == [1, 1]
@@ -212,12 +209,8 @@ def test_version_coordinate_is_part_of_the_complete_contribution_identity(
     amount = session.catalog.fields.get("sales.snapshots.amount")
     first = session.instant("2026-01-01T12:00:00+00:00")
     second = session.instant("2026-01-02T12:00:00+00:00")
-    first_members = session.members(
-        session.catalog.require(ms.ref.entity("sales.snapshots")), at=first
-    )
-    second_members = session.members(
-        session.catalog.require(ms.ref.entity("sales.snapshots")), at=second
-    )
+    first_members = session.members(session.catalog.entities.get("sales.snapshots"), at=first)
+    second_members = session.members(session.catalog.entities.get("sales.snapshots"), at=second)
     one = session.read(first_members, {"amount": amount.at(first)}).compute().to_pandas()
     two = session.read(second_members, {"amount": amount.at(second)}).compute().to_pandas()
     assert one[("value", "amount")].tolist() == [10, 300]
@@ -281,15 +274,11 @@ def test_drill_attribute_template_keeps_versions_and_selected_fiber_checks(
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
     segment = session.catalog.fields.get("sales.profiles.segment")
-    east = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "East"
-    )
+    east = session.members(session.catalog.entities.get("sales.orders"), where=region == "East")
     rows = session.read(east, {"channel": channel, "segment": segment}).compute().to_pandas()
     assert rows[("value", "channel")].tolist() == ["Web", "Store"]
     assert rows[("value", "segment")].tolist() == ["Good", "Good"]
-    west = session.members(
-        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "West"
-    )
+    west = session.members(session.catalog.entities.get("sales.orders"), where=region == "West")
     with pytest.raises(AnalysisError, match="exactly one matching scalar field row"):
         session.read(west, {"segment": segment}).compute()
 

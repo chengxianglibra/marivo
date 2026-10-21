@@ -79,7 +79,7 @@ def test_definition_read_does_not_prescribe_readiness(
     )
     catalog = ms.load(workspace_dir=tmp_path)
     assert marivo.help is show_help
-    revenue = catalog.require(ms.ref.metric("sales.revenue"))
+    revenue = catalog.metrics.get("sales.revenue")
     monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
@@ -325,14 +325,9 @@ def test_decorator_help_example_loads_the_declared_object(
             ),
         }
     )
-    factory = {
-        "dimension": ms.ref.dimension,
-        "time_dimension": ms.ref.time_dimension,
-        "measure": ms.ref.measure,
-        "metric": ms.ref.metric,
-    }[target]
     catalog = ms.load(workspace_dir=tmp_path)
-    value = catalog.require(factory(path))
+    collection = catalog.metrics if target == "metric" else catalog.fields
+    value = collection.get(path)
     if target in {"measure", "metric"}:
         # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
@@ -344,17 +339,17 @@ def test_decorator_help_example_loads_the_declared_object(
             assert isinstance(value, Deferred)
             metric = consume_metric(value)
             assert isinstance(metric.node, DeclaredMetricRef)
-            assert metric.node.ref.ref == factory(path)
+            assert metric.node.ref.ref == ms.ref.metric(path)
             assert metric.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
-            dependency_value = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
+            dependency_value = catalog.fields.get(f"sales.orders.{dependency}")
             assert isinstance(dependency_value, Deferred)
             assert consume_field(dependency_value).reference.ref == ms.ref.measure(
                 f"sales.orders.{dependency}"
             )
         return
     assert isinstance(value, Deferred)
-    assert consume_field(value).reference.ref == factory(path)
+    assert consume_field(value).reference.ref.path == path
     assert consume_field(value).reference.ref.kind.value == target
 
 
@@ -401,25 +396,25 @@ def test_readiness_repair_names_admissible_physical_dependencies(
     eval(repair.snippet, {"catalog": expression_catalog, "ms": ms})
 
 
-def test_missing_ref_ranks_real_same_kind_names_before_bounding(
+def test_missing_path_ranks_real_collection_paths_before_bounding(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
     with pytest.raises(SemanticRuntimeError) as captured:
-        expression_catalog.require(ms.ref.metric("sales.zeta_revenu"))
+        expression_catalog.metrics.get("sales.zeta_revenu")
     repair = captured.value.repair
     assert repair is not None and repair.snippet is not None
-    assert repair.candidates[0] == "metric:sales.zeta_revenue"
+    assert repair.candidates[0] == "sales.zeta_revenue"
     assert "catalog.metrics.show()" in str(captured.value)
     assert "catalog.domains.show()" not in str(captured.value)
     assert eval(repair.snippet, {"catalog": expression_catalog, "ms": ms}) is not None
     for key in repair.candidates:
-        assert key in {ref.key for ref in expression_catalog.metrics.refs}
+        assert key in {ref.path for ref in expression_catalog.metrics.refs}
 
 
 def test_row_filter_failure_points_to_its_exact_expression_role(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
-    amount = expression_catalog.require(ms.ref.measure("sales.orders.amount"))
+    amount = expression_catalog.fields.get("sales.orders.amount")
     with pytest.raises(SemanticExpressionError) as captured:
         consume_metric(amount.where(amount > 0).sum())
     repair = captured.value.repair
