@@ -57,18 +57,36 @@ no unrelated Catalog load. Session has no source_bindings or graph method.
 
 ## One prepared stage schedule
 
-Preparation resolves only explicit source inputs. The pure compiler fixes one
+Invocation capture collects exact Frame operands and sidecars without opening
+sources. Source preparation opens and qualifies only explicit source inputs
+under the evaluator's existing context stack. The pure compiler fixes one
 topological schedule for source, literal, fixed and local operations. Source
 Ibis executes through its declared datasource and returns pandas. Fixed reads
 consume complete memory/stored data; local operations reuse existing kernels.
 There is one prepared schedule, without recursive compute or a second local SQL executor.
 
-Every logical binding keeps full keys, types, presence and checks. Consumer counts
+`QueryPlan` owns executable stage layouts; lowering and physical rewrites return
+that plan together with stage-ID-associated Ibis/check payloads. Native execution
+programs retain their finish rules, independently of logical-read provenance and
+historical rewrite members. Actual returned carriers determine local effective
+types through the existing shared rules.
+
+Every logical binding keeps full keys, types, presence and required checks. Consumer counts
 control sharing/release; self-combination reads one shared input while retaining
-both consumers. Strict obligations finish before projection/Top-0 can prune values.
+both consumers. Preparation checks and demanded numeric flags retain their source
+or formula owners and finish before downstream projection/Top-0 can hide failures.
+Conditional branches retain their existing demand policy.
 Compatible stored handles share exact Store/Session/Artifact input identity;
 equal fingerprints or names cannot substitute an input. Completed data contains
 no source graph, internal aggregation state or semantic object.
+
+Fixed inputs retain complete validation of rows, keys and frozen attachments.
+Each exact scheduled input is read once and adapted without an intermediate
+complete-data carrier. The scheduler holds data through its actual consumers;
+method history retains validated immutable payloads separately. Terminal memory
+roots and public exports keep their independent ownership and isolation copies.
+After source cleanup, method facts fold in producer/operand order, with each
+node's own facts before inherited facts and exact-origin conflict checks.
 
 An ordinary-axis population_from bridge projects complete joint keys, then feeds
 an explicit new source dependency through qualified parameter transport. Fixed
