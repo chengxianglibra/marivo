@@ -48,15 +48,12 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import (
-    StageOutput,
-    normalize_complete_frame,
-    source_columns,
-)
+from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
 from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
 from marivo.datasource.adapters import (
     DURATION_UNIT_METADATA_KEY,
@@ -1365,8 +1362,8 @@ def _validate_source_checks(
         layout = stage.attribute_layout
         if layout is not None:
             from marivo.analysis.core.attribute import AttributeCheckWitness
+            from marivo.analysis.core.data_validation import normalize_stage_frame
             from marivo.analysis.core.frozen_calendar import frozen_key_rows
-            from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
             from marivo.analysis.materialization.query_components import (
                 attribute_failure_context,
                 attribute_witness_order,

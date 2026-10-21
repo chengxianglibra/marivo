@@ -21,13 +21,14 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo.analysis.binding.attribute_rules import AttributeComponentRole, AttributeSourceRequest
-from marivo.analysis.compiler.observation import FormulaProgram, data_type, ibis_type
+from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.attribute import (
     AttributeInputError,
     AttributeInputReason,
     AttributeUseContext,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,

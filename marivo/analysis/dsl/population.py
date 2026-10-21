@@ -51,12 +51,12 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 from marivo._temporal import CalendarAxis, InstantAnchor, TimeScope
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.frame_key_inputs import (
+from marivo.analysis.core.model import reject
+from marivo.analysis.dsl._frame_inputs import (
     FrameKeyInput,
     collect_frame_key_inputs,
     merge_frame_key_inputs,
 )
-from marivo.analysis.core.model import reject
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic.expressions import Entity, Relationship
 

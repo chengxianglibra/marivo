@@ -25,6 +25,7 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -53,7 +54,6 @@ from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import digest, parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
-from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _manifest_bytes,

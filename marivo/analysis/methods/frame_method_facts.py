@@ -10,6 +10,7 @@ import pyarrow as pa
 
 from marivo.analysis.core.attribute import _coefficient_column
 from marivo.analysis.core.data_types import DurationDataType
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameLinearMethod,
@@ -19,7 +20,6 @@ from marivo.analysis.core.frame_method_facts import (
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
-from marivo.analysis.methods.physical import stage_arrow_type
 from marivo.semantic.errors import SemanticExpressionError
 
 

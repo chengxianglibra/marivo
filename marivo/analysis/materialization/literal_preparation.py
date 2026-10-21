@@ -11,8 +11,8 @@ from marivo._definition.observations import ContributionBinding
 from marivo._definition.query import LiteralValues, ResultQuery
 from marivo._definition.types import AxisBinding, FieldRead, field_read_key
 from marivo.analysis.compiler.graph_plan import SourceField, SourceSchema
-from marivo.analysis.compiler.observation import data_type
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.value_types import data_type
 from marivo.analysis.materialization.query_preparation import prepare_fields
 from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._compiled_state import CompiledSemanticState

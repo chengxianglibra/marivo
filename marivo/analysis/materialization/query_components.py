@@ -12,9 +12,10 @@ from marivo.analysis.compiler.original import (
     ComponentLayout,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.core.data_validation import normalize_stage_frame
 from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import normalize_stage_frame, source_columns
+from marivo.analysis.materialization.graph_exchange import source_columns
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFailureContext, AttributeWitness

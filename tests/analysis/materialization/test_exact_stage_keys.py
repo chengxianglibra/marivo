@@ -22,6 +22,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.data_validation import normalize_stage_frame
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
@@ -29,7 +30,7 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
 )
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput, normalize_stage_frame
+from marivo.analysis.materialization.graph_exchange import StageOutput
 from tests.shared_fixtures import terminal_runs
 
 _UNITS: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")

@@ -19,25 +19,10 @@ from marivo._definition.query import (
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis.core.frame_structure import ValueKind as ValueKind
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.value_types import literal_kind
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
-
-
-def literal_kind(value: LiteralValue) -> ValueKind:
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, (int, float, Decimal)):
-        return "numeric"
-    if isinstance(value, datetime):
-        return "timestamp"
-    if isinstance(value, date):
-        return "date"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, timedelta):
-        return "duration"
-    return "unresolved"
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)

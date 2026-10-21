@@ -21,6 +21,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_correlation import correlation
@@ -30,7 +31,7 @@ from marivo.analysis.methods.numeric_state import (
     finish_division,
     finish_float64,
 )
-from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
+from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.analysis.methods.query_values import expression_series
 from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic.errors import SemanticExpressionError

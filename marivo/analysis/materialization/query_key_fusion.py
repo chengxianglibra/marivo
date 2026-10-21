@@ -64,9 +64,8 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
-from marivo.analysis.compiler.observation import PopulationInput, ReductionInput, ibis_type
+from marivo.analysis.compiler.observation import PopulationInput, ReductionInput
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
-from marivo.analysis.compiler.queries import expression_value
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
     query_numeric_value,
@@ -81,6 +80,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.value_types import expression_value, ibis_type
 from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.materialization.source_query_policy import (
     qualified_query_provider,

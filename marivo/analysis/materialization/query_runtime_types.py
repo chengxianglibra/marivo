@@ -24,13 +24,7 @@ from marivo._definition.query import (
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.frame_plan import frame_program
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute, QueryPlan, SourceRead
-from marivo.analysis.compiler.observation import (
-    FormulaProgram,
-    data_type,
-    formula_columns,
-    ibis_type,
-)
-from marivo.analysis.compiler.queries import expression_value
+from marivo.analysis.compiler.observation import FormulaProgram, formula_columns
 from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
@@ -44,6 +38,7 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
 )
+from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 

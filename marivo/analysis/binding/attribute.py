@@ -20,10 +20,10 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.frame_expression import AttributeFrameValues
-from marivo.analysis.core.frame_key_inputs import FrameKeyInput
 from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, reject
+from marivo.analysis.dsl._frame_inputs import FrameKeyInput
 from marivo.analysis.dsl.attribute import AttributeEndpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis

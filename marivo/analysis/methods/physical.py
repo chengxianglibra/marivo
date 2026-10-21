@@ -5,14 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, get_args
 
-import pyarrow as pa
-
-from marivo.analysis.core.data_types import (
-    DataType,
-    DecimalDataType,
-    ScalarDataType,
-    TimestampDataType,
-)
 from marivo.analysis.methods.errors import reject
 
 QUERY_COMBINE_KERNEL = "query.combine@v1"
@@ -73,20 +65,3 @@ class DurationType:
 
 
 ValueType: TypeAlias = ScalarType | DecimalType | DurationType
-
-
-def stage_arrow_type(dtype: DataType) -> pa.DataType:
-    """Return the exact Arrow carrier for one current Query stage slot."""
-    if isinstance(dtype, ScalarDataType):
-        return {
-            "boolean": pa.bool_(),
-            "string": pa.string(),
-            "int64": pa.int64(),
-            "float64": pa.float64(),
-            "date": pa.date32(),
-        }[dtype.name]
-    if isinstance(dtype, DecimalDataType):
-        return pa.decimal128(dtype.precision, dtype.scale)
-    if isinstance(dtype, TimestampDataType):
-        return pa.timestamp(dtype.unit, dtype.timezone)
-    return pa.duration(dtype.unit)

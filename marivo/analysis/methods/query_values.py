@@ -31,9 +31,10 @@ from marivo._definition.query import (
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division
-from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
+from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
 
 

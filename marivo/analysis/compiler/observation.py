@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from fractions import Fraction
-from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -49,11 +48,9 @@ from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
-    DecimalDataType,
     DurationDataType,
-    ScalarDataType,
-    TimestampDataType,
 )
+from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -130,41 +127,6 @@ class FormulaProgram:
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
-
-
-def ibis_type(dtype: DataType) -> dt.DataType:
-    if isinstance(dtype, ScalarDataType):
-        return dt.dtype(dtype.name)
-    if isinstance(dtype, DecimalDataType):
-        return dt.Decimal(dtype.precision, dtype.scale)
-    if isinstance(dtype, TimestampDataType):
-        return dt.Timestamp(
-            timezone=dtype.timezone, scale={"s": 0, "ms": 3, "us": 6, "ns": 9}[dtype.unit]
-        )
-    return dt.int64
-
-
-def data_type(dtype: dt.DataType) -> DataType:
-    if dtype.is_signed_integer():
-        return ScalarDataType("int64")
-    if dtype.is_floating():
-        return ScalarDataType("float64")
-    if isinstance(dtype, dt.Decimal):
-        return DecimalDataType(dtype.precision or 38, dtype.scale or 0)
-    if isinstance(dtype, dt.Timestamp):
-        units: dict[int, Literal["s", "ms", "us", "ns"]] = {0: "s", 3: "ms", 6: "us", 9: "ns"}
-        unit = units.get(dtype.scale or 0)
-        if unit in ("s", "ms", "us", "ns"):
-            return TimestampDataType(unit, dtype.timezone)
-    if dtype.is_date():
-        return ScalarDataType("date")
-    if dtype.is_boolean():
-        return ScalarDataType("boolean")
-    if dtype.is_string():
-        return ScalarDataType("string")
-    if isinstance(dtype, dt.Interval) and dtype.unit.short in ("s", "ms", "us", "ns"):
-        return DurationDataType(dtype.unit.short)
-    numeric_failure("a supported nullable output type", str(dtype))
 
 
 def reduction_input(

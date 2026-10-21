@@ -37,8 +37,8 @@ from marivo._definition.types import (
     LiteralValue,
 )
 from marivo.analysis.compiler.member_version import version_predicate
-from marivo.analysis.compiler.observation import data_type
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.value_types import data_type
 from marivo.refs import ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body

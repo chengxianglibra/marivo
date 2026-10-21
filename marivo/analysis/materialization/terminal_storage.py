@@ -12,8 +12,8 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from marivo.analysis.core.artifact_data import DataSchema, ParquetHandle
+from marivo.analysis.core.data_validation import normalize_complete_frame, stage_arrow_type
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
-from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
@@ -21,7 +21,6 @@ from marivo.analysis.materialization.storage import (
     payload_digest,
 )
 from marivo.analysis.materialization.terminal_protocol import invalid
-from marivo.analysis.methods.physical import stage_arrow_type
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,11 +15,6 @@ from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
-from marivo.analysis.core.frame_key_inputs import (
-    FrameKeyInput,
-    collect_frame_key_inputs,
-    merge_frame_key_inputs,
-)
 from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -29,6 +24,11 @@ from marivo.analysis.core.frame_structure import (
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import ResultQuantity, reject
+from marivo.analysis.dsl._frame_inputs import (
+    FrameKeyInput,
+    collect_frame_key_inputs,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import (
     Population,

@@ -51,15 +51,15 @@ from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_key_inputs import (
-    FrameKeyInput,
-    collect_frame_key_inputs,
-    merge_frame_key_inputs,
-)
 from marivo.analysis.core.frame_source_facts import source_scope
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl import frame_sources
+from marivo.analysis.dsl._frame_inputs import (
+    FrameKeyInput,
+    collect_frame_key_inputs,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
@@ -575,13 +575,14 @@ def test_membership_methods_reject_at_shared_intake(session: Session, operation:
     from marivo.semantic.errors import SemanticExpressionError
 
     member = in_population(_bridge(session, _fields(session)))
-    invalid = {
+    operations: dict[str, Callable[[], Deferred]] = {
         "add": lambda: member + 1,
         "compare": lambda: member == True,  # noqa: E712 - intentionally invalid native syntax
         "cast": lambda: member.cast("boolean"),
         "ifelse": lambda: member.ifelse(True, False),
         "sum": lambda: member.sum(),
-    }[operation]()
+    }
+    invalid = operations[operation]()
     with pytest.raises(SemanticExpressionError, match="only boolean combination") as error:
         consume_predicate(invalid)
     assert error.value.expected

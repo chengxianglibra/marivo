@@ -518,13 +518,12 @@ def _plan_query(
         FormulaInput,
         FormulaProgram,
         PopulationInput,
-        data_type,
         duration_type,
         formula_columns,
-        ibis_type,
         lower_observation,
         reduction_input,
     )
+    from marivo.analysis.core.value_types import data_type, ibis_type
 
     def time_name(axis: CalendarCoordinate | IntervalCoordinate) -> str:
         return f"calendar:{axis.grain}" if isinstance(axis, CalendarCoordinate) else "interval"

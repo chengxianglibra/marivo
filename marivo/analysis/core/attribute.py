@@ -554,7 +554,7 @@ def _coefficient_column(value: int | float | Decimal) -> DataColumn:
     else:
         import ibis
 
-        from marivo.analysis.compiler.observation import data_type
+        from marivo.analysis.core.value_types import data_type
 
         dtype = data_type(ibis.literal(value).type())
     return DataColumn("scale", "scale", dtype, False, "1")

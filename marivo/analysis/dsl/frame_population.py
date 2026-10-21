@@ -8,9 +8,9 @@ from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProg
 from marivo._definition.types import AxisBinding, FieldRead
 from marivo._temporal import anchor_from_datetime
 from marivo.analysis.binding.coordinates import bind_read, native_read
-from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.frame_structure import axis_role, column_kind
 from marivo.analysis.core.model import reject
+from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population

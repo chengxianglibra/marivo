@@ -15,8 +15,9 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.data_validation import normalize_stage_frame
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput, normalize_stage_frame
+from marivo.analysis.materialization.graph_exchange import StageOutput
 
 INT = ScalarDataType("int64")
 KEY = DataColumn("k.0", "id", INT, False)

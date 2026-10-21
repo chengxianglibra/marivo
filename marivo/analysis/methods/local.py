@@ -115,15 +115,14 @@ def _combine_program(
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         MemberInput,
-        data_type,
         duration_type,
         formula_columns,
-        ibis_type,
     )
     from marivo.analysis.core.data_types import DurationDataType
+    from marivo.analysis.core.data_validation import stage_arrow_type
+    from marivo.analysis.core.value_types import data_type, ibis_type
     from marivo.analysis.methods._ibis_numeric import evaluate_numeric
     from marivo.analysis.methods._sample_numeric import reduce_samples
-    from marivo.analysis.methods.physical import stage_arrow_type
     from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,

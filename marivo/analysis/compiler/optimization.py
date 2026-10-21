@@ -39,7 +39,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     SourceSchema,
 )
-from marivo.analysis.compiler.observation import FormulaProgram, common_slot, ibis_type
+from marivo.analysis.compiler.observation import FormulaProgram, common_slot
 from marivo.analysis.compiler.original import component_layout
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
@@ -48,6 +48,7 @@ from marivo.analysis.core.local_laws import (
     query_selection_fusion_issue,
 )
 from marivo.analysis.core.model import ResultQuantity
+from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:

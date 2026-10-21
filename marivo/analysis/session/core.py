@@ -185,7 +185,7 @@ class Session:
                 "Resolve an Entity with the same complete identity structure.",
                 "session.members.entity",
             )
-        from marivo.analysis.core.frame_key_inputs import collect_frame_key_inputs
+        from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 
         frame_inputs = (
             collect_frame_key_inputs(where, owner=Owner(self.id, self._runtime.store.store_id))

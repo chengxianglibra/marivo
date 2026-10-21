@@ -75,11 +75,11 @@ from marivo.analysis.core.frame_expression import (
     FrameOperation,
     SourceFrameInput,
 )
-from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts, same_method_facts
 from marivo.analysis.core.frame_source_facts import captured_source_scopes, source_scope
 from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.core.model import reject
+from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (

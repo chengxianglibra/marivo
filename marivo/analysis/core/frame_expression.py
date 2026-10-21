@@ -272,8 +272,7 @@ def expression_unit(schema: DataSchema | PendingDataSchema, value: ValueExpressi
 
 
 def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
-    from marivo.analysis.compiler.observation import data_type, ibis_type
-    from marivo.analysis.compiler.queries import expression_value
+    from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
 
     admitted(value)
     if isinstance(value, (ValueSlot, CoordinateSlot, PresenceSlot)):
@@ -346,7 +345,7 @@ def _pending_kind(schema: PendingDataSchema, expression: ValueExpression) -> Val
     if isinstance(expression, (ValueSlot, CoordinateSlot, PresenceSlot)):
         return column_kind(expression_column(schema, expression))
     if isinstance(expression, ValueLiteral):
-        from marivo.analysis.dsl.column import literal_kind
+        from marivo.analysis.core.value_types import literal_kind
 
         kind = literal_kind(expression.value)
         if kind in ("numeric", "boolean", "string", "date", "timestamp", "duration"):

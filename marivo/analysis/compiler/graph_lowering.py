@@ -109,8 +109,8 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             )
             from dataclasses import replace
 
-            from marivo.analysis.compiler.observation import data_type
             from marivo.analysis.core.data_types import DurationDataType
+            from marivo.analysis.core.value_types import data_type
 
             effective = {
                 column.slot_id: replace(

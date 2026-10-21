@@ -47,6 +47,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows, frozen_key_table
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.local import query_combine
@@ -56,7 +57,7 @@ from marivo.analysis.methods.numeric_state import (
     finish_float64,
     nullable_arithmetic,
 )
-from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
+from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
 
 

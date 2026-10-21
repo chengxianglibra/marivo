@@ -6,18 +6,9 @@ from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-import ibis
-import ibis.expr.types as ir
-
 from marivo._definition.query import (
-    CoordinateSlot,
     LiteralValues,
-    PresenceSlot,
     ReadFields,
-    ValueExpression,
-    ValueLiteral,
-    ValueSlot,
-    ValueUnary,
 )
 from marivo._definition.relations import ReadQuery
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
@@ -28,7 +19,6 @@ from marivo.analysis.compiler.graph_plan import (
     SourceSchema,
     plan_query,
 )
-from marivo.analysis.compiler.observation import data_type
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -40,6 +30,7 @@ from marivo.analysis.core.data_types import (
 )
 from marivo.analysis.core.graph import BoundGraph, read_input_graph
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.value_types import data_type
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import MemberInput
@@ -66,108 +57,6 @@ def endpoint(graph: BoundGraph, plan: QueryPlan) -> ComparisonEndpoint:
             counts=plan.original.counts if plan.original is not None else (),
         ),
     )
-
-
-def expression_value(
-    expression: ValueExpression,
-    values: tuple[ir.Value, ...],
-    keys: tuple[ir.Value, ...],
-) -> ir.Value:
-    """Resolve only the finite result grammar over typed scalar placeholders."""
-    if isinstance(expression, ValueSlot):
-        return values[expression.index]
-    if isinstance(expression, CoordinateSlot):
-        return keys[expression.index]
-    if isinstance(expression, PresenceSlot):
-        return ibis.null().cast("boolean")
-    if isinstance(expression, ValueLiteral):
-        if isinstance(expression.value, timedelta) and expression.value == timedelta(0):
-            return ibis.interval(0, unit="us")
-        if type(expression.value) is int and not -(2**63) <= expression.value < 2**63:
-            from decimal import Decimal
-
-            digits = len(str(abs(expression.value)))
-            if digits > 38:
-                reject(
-                    "a losslessly representable integer or Decimal literal",
-                    repr(expression.value),
-                    "Use a value within decimal(38,0) or int64.",
-                    "Query.prepare",
-                )
-            return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
-        return ibis.literal(expression.value)
-    if isinstance(expression, ValueUnary):
-        value = expression_value(expression.operand, values, keys)
-        if expression.operation == "is_null":
-            return value.isnull()
-        if expression.operation == "not":
-            return ~value
-        if expression.operation == "abs":
-            return value.abs()
-        return -value
-    left = expression_value(expression.left, values, keys)
-    right = expression_value(expression.right, values, keys)
-    if expression.operation in ("add", "sub", "mul", "div"):
-        if not all(
-            value.type().is_numeric() or value.type().is_interval() for value in (left, right)
-        ):
-            reject(
-                "numeric or Duration arithmetic",
-                repr((left.type(), right.type())),
-                "Use arithmetic on compatible numeric Columns.",
-                "Query.prepare",
-            )
-        from marivo.semantic._numeric_lowering import NumericValue, numeric_binary
-
-        return numeric_binary(
-            {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
-                expression.operation
-            ],
-            NumericValue(left),
-            NumericValue(right),
-            zero_denominator=expression.zero_denominator,
-        ).value
-    if expression.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
-        left_type, right_type = left.type(), right.type()
-        temporal = (
-            left_type.is_date()
-            or left_type.is_timestamp()
-            or right_type.is_date()
-            or right_type.is_timestamp()
-        )
-        if temporal and not (
-            (left_type.is_date() and right_type.is_date())
-            or (left_type.is_timestamp() and right_type.is_timestamp())
-        ):
-            reject(
-                "matching temporal value kinds",
-                f"{left_type}, {right_type}",
-                "Compare dates with dates and timezone-aware timestamps with timestamps.",
-                "Query.prepare",
-            )
-    if expression.operation == "add":
-        return left + right
-    if expression.operation == "sub":
-        return left - right
-    if expression.operation == "mul":
-        return left * right
-    if expression.operation == "div":
-        return left / right
-    if expression.operation == "eq":
-        return left == right
-    if expression.operation == "ne":
-        return left != right
-    if expression.operation == "lt":
-        return left < right
-    if expression.operation == "le":
-        return left <= right
-    if expression.operation == "gt":
-        return left > right
-    if expression.operation == "ge":
-        return left >= right
-    if expression.operation == "and":
-        return left & right
-    return left | right
 
 
 def key_groups(
@@ -298,7 +187,7 @@ def plan_literal(
 ) -> QueryPlan:
     """Infer finite literal carriers once and execute through a pandas input stage."""
     import math
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
     from decimal import Decimal
 
     import ibis.expr.datatypes as dt

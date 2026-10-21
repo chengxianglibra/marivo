@@ -13,7 +13,6 @@ import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import AttributeKeys, FrameKeys
-from marivo.analysis.compiler.observation import ibis_type
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.query_program import (
     FrameParameter,
@@ -21,10 +20,11 @@ from marivo.analysis.compiler.query_program import (
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.methods.physical import stage_arrow_type
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo

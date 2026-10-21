@@ -27,13 +27,13 @@ from marivo._definition.types import (
 from marivo.analysis.compiler.observation import (
     ReductionInput,
     common_slot,
-    data_type,
     lower_common_observations,
     lower_observation,
     temporal_bound,
 )
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.value_types import data_type
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     lower_row,

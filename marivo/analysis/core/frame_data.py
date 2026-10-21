@@ -13,18 +13,18 @@ from marivo.analysis.core.artifact_data import (
     OutputAttachment,
     SavedFrameMethodFacts,
 )
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceTime
 from marivo.analysis.core.frame_expression import FrameOperationKind
-from marivo.analysis.core.frame_key_inputs import FrameKeyInput
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 
 if TYPE_CHECKING:
+    from marivo.analysis.dsl._frame_inputs import FrameKeyInput
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.datasource.runtime import DatasourceConnectionConfig
     from marivo.semantic._compiled_state import CompiledSemanticState

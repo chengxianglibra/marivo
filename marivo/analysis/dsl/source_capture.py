@@ -35,7 +35,7 @@ from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
-from marivo.analysis.dsl.column import literal_kind
+from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
     _axes,

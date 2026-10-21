@@ -34,6 +34,7 @@ from marivo.analysis.core.artifact_data import (
     OutputAttachment,
 )
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.frame_expression import (
     FixedFrameInput,
@@ -42,7 +43,7 @@ from marivo.analysis.core.frame_expression import (
 )
 from marivo.analysis.core.frozen_calendar import calendar_directory_schema
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_exchange import StageOutput, normalize_complete_frame
+from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.semantic.errors import SemanticExpressionError
 
