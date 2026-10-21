@@ -33,12 +33,12 @@ For datasource or semantic work, start with the overview and focused live Help.
 
 | Task | Read first |
 | --- | --- |
-| Datasource or semantic design | `docs/架构文档/semantic/overview.md`; `marivo.help("datasource.<target>")` or `marivo.help("semantic.<target>")` |
-| Datasource declarations and discovery | `docs/架构文档/semantic/datasource-layer.md` |
-| Semantic object model | `docs/架构文档/semantic/semantic-object-model.md` |
-| Semantic authoring | `docs/架构文档/semantic/authoring-workflow.md` |
-| Loading, validation, runtime, and analysis handoff | `docs/架构文档/semantic/loading-validation-introspection.md` |
-| Python analysis | `docs/架构文档/analysis/README.md` |
+| Datasource or semantic design | `docs/architecture/semantic/overview.md`; `marivo.help("datasource.<target>")` or `marivo.help("semantic.<target>")` |
+| Datasource declarations and discovery | `docs/architecture/datasource/README.md` |
+| Semantic object model | `docs/architecture/semantic/semantic-object-model.md` |
+| Semantic authoring | `docs/architecture/semantic/authoring-workflow.md` |
+| Loading, validation, runtime, and analysis handoff | `docs/architecture/semantic/loading-validation-introspection.md` |
+| Python analysis | `docs/architecture/analysis/README.md` |
 | Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
 
 ## Python and Validation

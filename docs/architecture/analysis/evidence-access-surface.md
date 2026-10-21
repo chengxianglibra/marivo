@@ -1,15 +1,17 @@
-# Analysis Evidence Access
+# Analysis Evidence and Method Facts
 
-Status: AnalysisFrame cutover audit contract, 2026-10-19.
-Evidence and Findings describe an exact committed result. A publishing Run
-commits them with the Frame manifest and success. They are audit facts, not an
-executable derivation graph or a business narrative.
+Audit describes the exact completed result. Method facts explain an original
+successful contribution investigation. Neither is an executable producer graph,
+a source of hidden Metric state or a stored business narrative.
+[Runtime](session-state-and-runtime.md) owns publication, recovery and integrity;
+[Observation](populations-and-observation.md#explicit-endpoint-investigation)
+owns endpoint and contribution admission.
 
-## Read saved records
+## Saved audit access
 
-Only a persisted Frame exposes `.artifact`. Data preview/export and data
-operations belong to the Frame; Artifact exposes audit-only `show()`,
-`findings(limit=20, cursor=None)` and `evidence_digest()`:
+Only a persisted Frame exposes artifact. Data preview/export and operations
+belong to Frame; Artifact exposes audit-only show(), findings(limit=20,
+cursor=None) and evidence_digest().
 
 ```python
 saved = pending.persist()
@@ -24,81 +26,83 @@ for finding in page.items:
     finding.show()
 ```
 
-The digest takes no limit or cursor. `.items` contains every saved Evidence
-fact; `.show()` is bounded and deterministic. Collection digests and counts
-refer to committed records. They encode no formula, semantic Ref, producer graph
-or hidden aggregate state. Artifact has no row preview/export or DSL continuation.
-A FindingPage retains immutable items, limit, has_more and next_cursor. Its cursor
-belongs to that Artifact/read. An empty set differs from unavailable/unreadable
-records. Consume typed paged items; there is no separate finding(id) lookup.
+The digest takes no limit/cursor. Its items contain every saved Evidence fact;
+show is bounded and deterministic. FindingPage has immutable items, limit,
+has_more and next_cursor. Its cursor belongs to that Artifact/read. Consume
+paged typed items; there is no independent finding(id) lookup. An empty set is
+distinct from unavailable or corrupt records. Audit access reads no result rows
+or coordinate attachments.
 
-## Actual observation facts
+## Source and evaluation facts
 
-Ordinary observe produces an empty Finding set. The result still owns one audit:
-inherited non-secret source facts plus this result's current evaluation record.
-Source facts retain the actual read identity, contribution role, requested scope,
-read time, checks and applicability. Only exactly equal facts deduplicate;
-different times or scopes remain distinct. by=() adds no output time axis or time condition.
-Source scope is not relabeled as the current filtered output domain.
+Ordinary observe creates no Findings. Its audit still contains inherited
+non-secret source facts and this result's current evaluation record.
 
-Each new evaluation writes its own completion time, input kinds/identities,
-directly consumed stored references, operation and checks. It does not accumulate
-intermediate operation history. Pure carrier conversion, persistence and reopen
-preserve that audit. Read-integrity validation does not rewrite original facts.
-A check records its real input and outcome; failed required checks prevent
-publication. Unexecuted checks cannot appear as completed Evidence. Internal
-sum/count components, Python objects and executable source definitions are not saved.
+| Record | Captured meaning |
+| --- | --- |
+| Source facts | Actual read identity, contribution role, scope, read time, checks and applicability |
+| Current evaluation | Completion time, input kinds/identities, directly consumed stored references, operation and checks |
+| Submission | Artifact/Session identity, publishing Run and commit time |
 
-## Recovery and integrity
+Only exactly equal source facts deduplicate. Different scopes/times remain
+separate. A new evaluation replaces the prior evaluation record rather than
+accumulating every intermediate event. Source scope is not relabeled as the
+current filtered output domain. Pure carrier conversion, publication and reopen
+preserve result audit. Read-integrity checks do not rewrite original facts.
 
-`session.persisted_frame(artifact_id)` accepts an exact string ID in the original
-Session. `reopened.artifact` opens that same result's audit. Neither loads a
-Catalog, source schema, connection or model. Audit reads and Frame.show(n=0)
-consume no result payload. Positive preview reads the result prefix and required
-coordinate records. Direct/comparison preview validates its finite required
-endpoint/map authority while primary rows stay bounded by n. `to_pandas()`
-validates complete current data and required
-coordinate attachments; `method_facts` reads only complete owned explanation
-payloads. Stored compute and evaluated derivatives consume both. Metadata or
-preview success does not certify unread payload, and a bad method file can leave
-current rows exportable while full consumption fails.
+A check records its actual input and outcome; failed required checks block a
+successful result/publication. Unexecuted checks cannot appear as completed
+Evidence. Internal aggregate components, Python objects, semantic Refs and
+executable formulas are not saved. Stored input identity is audit context,
+without requiring the original input files to survive indefinitely or triggering
+reconstruction of a missing input.
 
-All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4` in
-Store15's `generations/v15` directory. Manifest method descriptors are bounded;
-full parents, supports and independent coordinates live in owned method tables.
-Their receipts share the same publication transaction and reconciliation.
-The public getter validates these complete immutable facts without primary-row,
-Catalog, model or source reads. A saved derivative copies its own payload, so
-inherited origin does not require the original Artifact to remain available.
-Cards show count, bounded origins and a getter pointer; fact show(n=0) happens
-after the getter's explicit read. Pending getter access requires compute/persist.
+## Complete method explanations
 
-Typed decoding preserves record identity, ownership and format. Missing data,
-corrupt required records, incompatible generations and foreign cursors fail.
-Store 15 refuses every older generation's data without changing old bytes;
-read-only recent discovery may return an empty page without exposing old state.
-An old-only project cannot initialize a new Store as a bypass. See the
-[cutover note](analysis-frame-cutover.md). Reconciliation resolves the original
-publication transaction; it never reevaluates values to resolve uncertainty.
-Preserve the old Store and use a new named Session in a fresh project for current
-work. Compatible-version export is a separate workflow, not automatic migration.
+Frame.method_facts is a tuple of complete immutable FrameMethodFacts. A successful
+contribution=True Attribute evaluation generates new facts. The default path
+adds none. Each Attribute node places its own facts before inherited facts;
+binary composition retains the complete left sequence then right, with stable
+origin_result_id deduplication. Fixed completed roots are self-contained leaves.
+Different pending producers retain different origins.
 
-## Interpretation and disclosure
+Facts preserve original output schema, complete parents and independent frozen
+coordinates. where/top/select/reduce retain the original explanation without
+changing its denominator or certifying derived arithmetic. Facts explain the
+original total, rather than the current filtered or reduced values. They carry
+no Metric or source authority and expose no general lineage query.
 
-Source-read, evaluation and commit times are distinct. A recent commit is not a
-fresh source observation. Saved values, arithmetic change and classification do
-not establish cause, completeness or current semantic authority. Calendar
-certification does not certify business capture. A stored input reference is
-audit identity, not a demand that old input files remain available forever.
+Memory roots retain the complete records. Stored manifests carry bounded schema,
+origin/count/digest and owned-payload descriptors. The explicit getter validates
+complete method files without reading primary rows, Catalog, model or sources.
+Pending access requires compute/persist. facts.show(n=0) controls only display
+after that read. Native Help at analysis.frame_method_facts owns nested fields.
 
-Use `marivo.help("analysis.evidence")` and focused type Help for static contracts.
-Population/Frame.show describe their captured structure. Artifact.show owns
-submission/audit facts; errors own concrete repairs. The analysis skill owns
-investigation judgment and introduces no additional evidence store.
+Metadata/repr/cards and idempotent stored persist do not read full method files.
+to_pandas validates current rows/coordinates only; stored compute and evaluated
+derivatives consume both data and complete method facts. A corrupt method file
+can leave current-data export usable while full consumption fails. A saved
+derivative copies its own payloads, so inherited origin does not require the
+original Artifact or a source/calendar rebuild.
 
-Method facts explain the original successful Attribute contribution result.
-Default creates no new method facts or contribution proof. Filtering/ranking or
-reducing current values preserves inherited explanations without changing their
-denominators or certifying new arithmetic. Facts carry no Metric, producer graph,
-source authority or general lineage query; the typed full getter is separate from
-Artifact audit and pandas export.
+## Interpretation
+
+Source read, evaluation completion and commit times are distinct. Recent
+publication does not establish source freshness. Calendar partition certification
+does not certify business capture. Arithmetic change and complete reconciliation
+do not establish cause or universal source completeness. Findings and method
+explanations retain the method's exact scope and assumptions.
+
+Use analysis.evidence and focused type Help for static contracts, captured
+objects for current facts and structured errors for repair. The packaged
+analysis skill owns judgment without adding another evidence store.
+
+## Implementation map
+
+[frame_audit.py](../../../marivo/analysis/core/frame_audit.py) owns evaluation facts;
+[frame_source_facts.py](../../../marivo/analysis/core/frame_source_facts.py) owns
+source-scope records. [dsl/artifact.py](../../../marivo/analysis/dsl/artifact.py)
+and [evidence](../../../marivo/analysis/evidence/) own public audit reads.
+[frame_method_facts.py](../../../marivo/analysis/core/frame_method_facts.py) owns
+immutable explanations; [materialization/frame_method_facts.py](../../../marivo/analysis/materialization/frame_method_facts.py)
+owns their saved payloads and receipts.

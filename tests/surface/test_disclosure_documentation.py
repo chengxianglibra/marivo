@@ -23,7 +23,7 @@ from tests.shared_fixtures import DslCaseFactory
     ("filename", "receivers"),
     (
         (
-            "docs/architecture/analysis/lazy-analysis-dsl-examples.md",
+            "docs/architecture/analysis/examples.md",
             {
                 "parents": mv.Population,
                 "attributes": mv.AnalysisFrame,
@@ -32,7 +32,7 @@ from tests.shared_fixtures import DslCaseFactory
                 "change.artifact": mv.Artifact,
             },
         ),
-        ("docs/architecture/semantic/datasource-layer.md", {"snapshot": md.DiscoverySnapshot}),
+        ("docs/architecture/datasource/discovery.md", {"snapshot": md.DiscoverySnapshot}),
         ("docs/api/datasource.rst", {"snapshot": md.DiscoverySnapshot}),
     ),
 )

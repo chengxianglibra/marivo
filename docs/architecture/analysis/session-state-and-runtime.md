@@ -1,8 +1,9 @@
 # Session State and Runtime
 
-Status: AnalysisFrame cutover lifecycle contract, 2026-10-19. The
-[final data contract](query-result-reuse.md) owns semantics; the implementation
-progress record owns acceptance. This page is not a provider/release certificate.
+Session owns exact project execution/persistence context. Evaluation produces
+complete data; publication commits that existing result. The
+[Frame contract](analysis-frame.md) owns structure and
+[Evidence](evidence-access-surface.md) owns interpretation of saved audit/method facts.
 
 ## Session and invocation ownership
 
@@ -60,7 +61,7 @@ Preparation resolves only explicit source inputs. The pure compiler fixes one
 topological schedule for source, literal, fixed and local operations. Source
 Ibis executes through its declared datasource and returns pandas. Fixed reads
 consume complete memory/stored data; local operations reuse existing kernels.
-No recursive compute, second executor or hidden local SQL engine is added.
+There is one prepared schedule, without recursive compute or a second local SQL executor.
 
 Every logical binding keeps full keys, types, presence and checks. Consumer counts
 control sharing/release; self-combination reads one shared input while retaining
@@ -95,7 +96,7 @@ Documented recent discovery returns an empty page for an absent current
 generation without exposing old state. Export required old results with their
 original version or retain a compatible environment. Preserve the old Store and
 create a new named Session in a fresh project for current work; there is no
-same-project bypass. See [cutover](analysis-frame-cutover.md).
+same-project bypass.
 
 ## Concurrent writers and atomic publication
 
@@ -213,3 +214,20 @@ and unrelated files, retains 14 UTC days and caps managed historical files at
 1 GiB. This is not a whole-directory hard cap. Directories/files use 0700/0600.
 Logging failures never replace the execution result/error; rate-limited warnings
 and recovered-write drop counts disclose failures.
+
+## Implementation map
+
+[session/core.py](../../../marivo/analysis/session/core.py) owns the public Session;
+[frame_plan.py](../../../marivo/analysis/compiler/frame_plan.py) and
+[graph_plan.py](../../../marivo/analysis/compiler/graph_plan.py) own preparation.
+[frame_evaluation.py](../../../marivo/analysis/materialization/frame_evaluation.py)
+evaluates runless complete results; [graph_execution.py](../../../marivo/analysis/materialization/graph_execution.py)
+schedules stages. [frame_services.py](../../../marivo/analysis/materialization/frame_services.py)
+holds local ownership without a producer Session.
+[terminal_publication.py](../../../marivo/analysis/materialization/terminal_publication.py),
+[store.py](../../../marivo/analysis/materialization/store.py),
+[writer_guard.py](../../../marivo/analysis/materialization/writer_guard.py) and
+[reconciliation.py](../../../marivo/analysis/materialization/reconciliation.py) own publication/recovery.
+[graph_reading.py](../../../marivo/analysis/materialization/graph_reading.py) owns
+metadata/preview/complete readers; [pandas_export.py](../../../marivo/analysis/materialization/pandas_export.py)
+owns isolated export.

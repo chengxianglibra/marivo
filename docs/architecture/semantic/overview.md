@@ -1,269 +1,93 @@
-# Semantic and Datasource Layer — Design Overview
+# Semantic and Datasource Architecture
 
-Status: native Deferred expression implementation, 2026-10-17.
+Marivo consumes Python-authored business definitions through a write-run-read
+loop. Datasource owns physical access; Semantic owns reusable meaning; Analysis
+owns the selected question and execution. Source schemas and sampled rows do not
+establish a business definition.
 
-Named and anonymous Measure/Metric expressions use the same controlled native Ibis Deferred
-recipes. Physical field types bind automatically during execution preparation. Semantic
-identities, root/unit checks, additivity, contribution ownership, time and null policies remain
-Marivo responsibilities. There is no `ms.ibis`, `ms.require`, or extra preparation step.
-
-The [expression redesign](../../design/semantic/expression-model-redesign.md) is the design source;
-[the S0–S6 implementation plan](../../implementation/semantic/expression-model-implementation-plan.md) scopes this cutover.
-Current implementation includes source and sample reductions, ordered time samples, approximate
-reductions, membership domains, operator-local empty policies, and reusable Metric windows.
-Analysis preparation and execution still enforce their supported source and shape boundaries.
-Ordinary Metric catalog previews currently require a qualified DuckDB route; Population, sample,
-window and routed-field Metric previews are not supported. Physical row previews retain their
-backend-specific contracts. This document does not certify every physical execution route or
-release acceptance; native Help and the owning analysis contract describe current callable scope.
-At `405bd006f8`, the agreed R3–R8 local implementation gate and independent business
-acceptance are complete. Numerical source routes now qualify the actual selected
-backend, expression, physical types and method. Native Ibis/provider numerical
-precision limits apply, with the nullable-integer transport guarantee below; the
-pandas handoff supplies effective numerical types to local consumers and
-publication without relaxing keys, units, time or null
-policies. This code-route scope does not itself establish remote Runtime
-qualification. The complete slow suite and release acceptance remain incomplete;
-current remote evidence belongs to the [Runtime coverage guide](../../testing/runtime-coverage.md#remote-numerical-query-extension).
-DuckDB governed `SourceSession` reads and qualified typed PostgreSQL Analysis
-reads use native Ibis Arrow results before pandas inference.
-Integer values that fit the native Arrow result type remain exact beside nulls
-through nullable Arrow integer dtypes. Noninteger values retain native Ibis Arrow
-type, representability and precision limits. Ordinary PostgreSQL authoring and
-bounded inspection retain native Ibis pandas conversion and its existing
-precision/representation limits, as do the remaining providers. This does not
-establish universal source-value fidelity.
-
-This is the entry point for the design of Marivo's
-datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
-states the design goals, the layered architecture, and the principles that the
-per-topic documents below elaborate. Read it first, then follow the topic that
-matches your task.
-
-## This directory
-
-| Document | Owns |
-|---|---|
-| [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
-| [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
-| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — identity/versioning, dimensions, measures, Metric graphs and intrinsic aggregation, Relationships, provenance, `ai_context`. |
-| [authoring-workflow.md](authoring-workflow.md) | Agent-native exploration, coherent-slice authoring, scoped readiness, and targeted runtime/source-health probes. |
-| [loading-validation-introspection.md](../../testing/semantic/loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness and source health. |
-
-For the cross-module (datasource + semantic + analysis) result and guidance
-protocol, see [`../agent-friendly-public-surface.md`](../agent-friendly-public-surface.md).
-For the current cross-layer period-calendar, temporal-set, work-schedule,
-time-scope, and alignment contract, see
-[`../temporal-semantics.md`](../temporal-semantics.md).
-For the analysis layer, see [`../analysis/python-analysis-design.md`](../../design/analysis/python-analysis-design.md).
-Start at [Analysis Architecture](../analysis/README.md) for the current graph,
-algebra, method-registry, Runtime and Store 14 Frame data/audit ownership chain.
-
-## Audience and intent
-
-These layers are consumed primarily by general coding agents (Claude Code, Codex)
-through a write–run–read loop. The goal is not to make an agent memorize a private
-DSL, but to let it maintain business semantics like an ordinary Python project:
-read the existing objects, declare explicit models, express calculation caliber with typed row/Metric expressions and restricted Ibis source/field bodies, retain
-business context, run validation, and hand typed definitions or lookup refs to
-`marivo.analysis`.
-
-## Design goals
-
-`marivo.semantic` is the business-object contract of the Python-native analysis
-stack. It answers "which stably referenceable business objects exist in this
-project" — not "how to wrap YAML, SQL, or a runtime API into another entry point".
-`marivo.datasource` is the connection and evidence layer underneath it.
-
-The design holds to these goals:
-
-- **Python is the source of truth.** Changing a business caliber means editing a
-  Python authoring file, not a generated artifact or a runtime store.
-- **Datasources are shareable project config.** They live in
-  `models/datasources/*.py` and are referenced by global name; a semantic domain
-  only references a datasource, it does not define one.
-- **Objects are statically readable.** Entities, dimensions, time dimensions,
-  measures, metrics, relationships, decompositions, and AI context all have
-  explicit Python declarations.
-- **Caliber is never guessed.** Business meaning is not inferred from column
-  names, table names, or natural language. An agent converges through decorated
-  refs, function signatures, `ai_context=ms.ai_context(...)`, and
-  structured errors.
-- **Ownership is explicit.** Domain membership comes from an explicit `domain=`
-  or an explicit default domain — never from a file path. A Metric's contribution roots come
-  from its receiver reductions and expression dependencies. The reader binds to a project root,
-  not a thread-local guess.
-- **Entity identity is stable across versions.** `primary_key` identifies one
-  Entity instance; `versioning` identifies its historical representations.
-  Snapshot and validity row keys derive from both authorities. A physical
-  partition is not semantic versioning, and no second business-key authoring
-  parameter or planner-side key subtraction is needed.
-- **Time has an explicit consuming role.** Semantic declarations own source
-  time meaning, snapshot periods, validity intervals, and Metric status folds.
-  Analysis supplies exact temporal boundaries with their fixed instant or
-  immediately-before-endpoint interpretation and keeps membership selection, Metric
-  observation, and output coordinates separate. An absent exact snapshot uses
-  the consuming operation's empty-result semantics;
-  neither implicit latest nor per-Entity last-known selection repairs it.
-- **Aggregation follows the governed equation.** Metric computation roots,
-  component equations, spatial-before-temporal order, fixed null/empty rules,
-  units, and intrinsic state requirements have one semantic owner. Analysis
-  combines these facts with its selected contributions and retained coordinates
-  to admit a transformation. Additivity alone does not prove disjoint buckets,
-  fold commutation, or sufficient materialized state.
-- **Expression stages are explicit.** Entity/Source and Dimension/TimeDimension
-  retain restricted Ibis bodies. Pure zero-argument Measure/Metric declarations
-  construct the same typed graphs as local expressions, without invoking the
-  authored function. SQL is never an executable body.
-- **Constructed values and lookup refs have different roles.** Row/Metric
-  physical constructors capture typed Ref keys; ms.finalize closes the complete
-  physical scope and finalized.resolve(ref) produces immutable values. Row/Metric
-  composition consumes immutable definitions and facts. Original definition
-  versions are not mandatory bindings: agents/users accept the consequences of
-  semantic definition changes during analysis. Fingerprints and caches must
-  still describe actual consumed computations; records retain their own contracts.
-  Bare Refs are lookup inputs. Local naming does not register an object
-  or change its computation; publication and execution need their own checks.
-- **Fail closed.** When decoration, loading, assembly, materialization, or parity
-  cannot prove a contract holds, the layer emits a structured error rather than a
-  best-effort guess.
-
-The governing test: if a business object will be referenced by downstream
-analysis, it must first enter the semantic layer; a rule that lives only in an
-agent's prompt or a SQL draft is not yet stable semantics.
-
-## Layered architecture
-
-Marivo's Python-native stack is three layers with a strict, one-directional
-dependency:
+## Module boundaries
 
 ```text
-marivo.datasource   connection + physical source + evidence
-        ↓ Ref[datasource] + TableSource + DiscoverySnapshot
-marivo.semantic     domain / entity / dimension / metric / relationship
-        ↓ normalized business contracts + typed refs + Ibis construction
-marivo.analysis     Population / AnalysisFrame / Column + bound algebraic methods
-        ↓ qualified graph plan + explicit Runtime execution
-Store 14            complete Frame data + self-contained audit records
+marivo.datasource
+  typed connection specs + physical sources + scoped evidence
+        |
+marivo.semantic
+  project/domain + Entity/Relationship + row/Metric expressions
+  immutable resolved definitions + certified temporal snapshots
+        |
+marivo.analysis
+  Population + explicit observations + AnalysisFrame operations
+  complete memory/stored values + separate Artifact audit
 ```
 
-- The **datasource** layer owns *how to reach the data and what it physically
-  looks like* — and nothing about business meaning. A datasource is the execution
-  source of an entity, never the caliber of a metric.
-- The **semantic** layer owns *what each business object is and how it
-  contributes to a governed computation*. It normalizes identity, versioning,
-  Metric graphs, and intrinsic fold/state requirements and constructs Ibis
-  expressions. This is not publication of an Analysis Dataset.
-- The **analysis** layer owns *what to do with those objects*. It reads through
-  refs and never re-defines a caliber, guesses an entity/time dimension, or reads
-  a table behind the registry. It selects member-domain membership, observational
-  units, windows, coordinates, and exact contribution subsets; logical operators
-  compose before explicit execution, while a completed Frame owns
-  source-free committed data without semantic-origin replay; its Artifact owns audit.
+Lower layers do not import Analysis to discover business meaning or execution
+policy. Shared definition, temporal, error and introspection infrastructure lives
+below these public modules. Private registries implement each domain's native
+Help; `marivo.help` is the common public coordinator.
 
-A Metric's computation root is distinct from the analysis Entity and reporting
-grain. A multi-root graph can be semantically coherent while requiring an
-explicit member domain and a safe per-component mapping at the analysis boundary.
-Relationship describes mapping facts; Metric-path semantics own contribution
-allocation. Shared intrinsic resolvers derive these requirements instead of
-adding author-set `rollup_safe`, `membership_stable`, or generic allocation
-switches.
+| Topic | Owning document |
+| --- | --- |
+| Connections, secret resolution and datasource registration | [Datasource](../datasource/README.md) |
+| Physical descriptors and provider execution | [Sources and execution](../datasource/sources-and-execution.md) |
+| Inspection, bounded sampling and discovery snapshots | [Discovery](../datasource/discovery.md) |
+| Domain, stable identity, versioning, fields and relationships | [Object model](semantic-object-model.md) |
+| Physical capture, Deferred grammar, units and reductions | [Expressions](expressions.md) |
+| Loading, Catalog, readiness, preview and source health | [Loading and validation](loading-validation-introspection.md) |
+| Choosing evidence and completing an authoring task | [Authoring workflow](authoring-workflow.md) |
+| Period calendars, temporal sets and work schedules | [Temporal authority](temporal-authority.md) |
+| Exact boundaries, windows and frozen time coordinates | [Temporal semantics](../temporal-semantics.md) |
+| Analysis source binding, data operations and Runtime | [Analysis](../analysis/README.md) |
+| Help, state display and repair ownership | [Public surface](../agent-friendly-public-surface.md) |
 
-Occurrence facts use ordinary Entities and descriptive states use Dimensions.
-Snapshot and validity declarations do not establish observed source completeness.
-Dedicated Event, journey, lifecycle, funnel, Anchor and retention capabilities
-are outside the current library surface.
+## Semantic authority
 
-If an analysis needs a new business object, extend the semantic layer first, then
-let analysis consume it — business definitions never hide in one-off scripts.
+Python files are the source of truth. Datasources are project-wide names under
+`models/datasources/`; domains explicitly own semantic names under
+`models/semantic/`. Domain membership comes from `domain=` or the declared
+default domain, rather than being inferred from arbitrary module paths.
 
-## Guidance layering
+Entity primary keys identify stable business instances; snapshot/validity
+coordinates select representations. Metric contribution roots come from its
+receivers and dependencies. Analysis membership, observation time and reporting
+coordinates remain independent choices. A relationship describes mappings;
+the consuming expression determines contribution selection or allocation.
 
-Authoring guidance is split so each surface has one job (elaborated in
-[authoring-workflow.md](authoring-workflow.md)):
+Physical constructors return lookup Refs. Finalization closes the physical
+dependency scope and resolves immutable values for composition. Measure/Metric
+declarations capture closed expressions without executing authored functions.
+Entity and categorical/time-field bodies retain their restricted Ibis contract.
+SQL is available only through the terminal datasource escape hatch.
 
-- **CLI and Python Live Help — static capability discovery.**
-  `python -m marivo help <target>` and `marivo.help(target)` share one native
-  registry. Targets are lowercase semantic paths independent of Python symbols.
-  Object pages explain meaning and link definition operations; callable and
-  expression pages own exact usage, constraints, effects and examples.
-  `semantic.metric` is the object page; `semantic.metric.define` describes
-  `ms.metric`. Native Deferred syntax is explicitly declared by semantic role.
-  Result `.show()` and typed fields own instance facts; errors own actual repair.
-- **Datasource exploration — runtime evidence.** Metadata inspection is the
-  preferred schema path. Optional explicitly scoped sampling supplies generic
-  bounded rows and profiles; governed raw SQL handles source-specific
-  scratch investigation with query size authored in SQL. None of these paths decides business meaning.
-- **Project load, catalog navigation, preview, source health, and readiness — validation.** One
-  `ms.load()` validates a dependency-coherent authored slice. Authored objects are
-  selected through their corresponding `collection.get(path)`; scoped preview, explicit source health,
-  and readiness keep independent runtime, drift, and static contracts.
+Completed scopes resolve by kind/path. A changed same-path definition does not
+by itself require rejection against the input's original version. Existing
+expressions remain immutable, and consumers still enforce kind, root, grain,
+unit, time and null constraints. Computation fingerprints describe the actual
+consumed definitions; this policy permits neither live refresh nor import replay.
 
-The `marivo-semantic` skill owns task exits, reuse and business authority,
-evidence and validation choices, and delivery back to the parent task. Explaining
-an existing definition requires only loading and reading; datasource work ends
-at the requested connection outcome; reusable authoring validates one coherent
-slice and checks readiness when analysis-ready roots are required. Preview and
-source health answer concrete residual risks. Focused Help owns check proof
-boundaries, while result cards own the actual scope, findings, and repair.
+## Handoff and proof boundaries
 
-The skill does not duplicate parameter tables or impose a fixed check ladder.
-Uncommon formats and semantic judgments remain agent-owned.
+`ms.load()` establishes project coherence without source reads. Catalog
+collections expose physical resolved values and published Deferred expressions;
+`catalog.describe(ref)` describes a published expression. Readiness checks
+physical dependency closures and dedicated temporal artifacts without a query.
+Its `analysis_ready_inputs` contains only directly requested ready physical refs.
 
-## Ownership
+Ordinary preview and source-health reports answer scoped external-data questions.
+Temporal certification is different: its finite source values define executable
+calendar authority, so preview publishes a dedicated validated snapshot.
+Analysis preparation qualifies the actual source types, method and backend.
+None of these stages certifies another stage merely by succeeding.
 
-The public `marivo.help(...)` coordinator routes qualified targets to the
-native semantic and datasource registries that own static contracts and
-mechanical continuation facts. Those registries are not public APIs; the
-`marivo-semantic` skill owns workflow and routing only; the runtime has no
-canonical link to packaged skill files, so skill content is never read or
-executed by the library. This mirrors the ownership split stated in
-`AGENTS.md`.
+If an analysis needs new reusable meaning, author it in Semantic first. If it
+needs a new observation of existing meaning, construct explicit Analysis inputs.
+Fixed Frame values carry types, complete keys and time interpretation, without
+recoverable nominal Entity/Field authority or hidden Metric state.
 
-| Concern | Canonical owner |
-|---|---|
-| Datasource constructors, connections, scope, effects, snapshots, evidence | `marivo.datasource` (`md`) |
-| Semantic constructors, typed refs, dependencies, project validation, preview | `marivo.semantic` (`ms`) |
-| Entity identity, version row grain, intrinsic Metric graph and fold/state requirements | semantic declarations and their shared normalized resolver |
-| Membership/time choices, current coordinate/state admission, explicit Dataset execution | `marivo.analysis` (`mv`) |
-| Snapshot/validity selection and operation-required source coverage | declared semantics and query execution; explicit source health for data inspection |
-| Readiness and analysis-ready inputs | `ReadinessReport` |
-| Callable operations, effects, input facts, and constraints | private native registries (not public APIs) |
-| Current failed-operation repair | typed error/result repair object |
-| Ordered routing discipline and readiness policy | `marivo-semantic` skill |
-| Evidence interpretation and technical drafting | agent |
-| Unresolved business meaning and caliber acceptance | user or business owner |
+## Implementation map
 
-Catalog collection lookup accepts only plain local names or full semantic path
-strings. A short name must be unique in the current view, and a full path cannot
-escape a scoped collection. Refs and kind-prefixed strings are not lookup inputs.
-Consumers enforce their required kind, root, grain, unit, time and null contracts;
-internal identity resolution preserves exact kind/path validation.
-
-The native registries describe callable operations, effects, input facts, and
-constraints without constructing a shared authoring lifecycle graph. They cannot
-choose a semantic slice, acquire data on the agent's behalf, or advance to
-readiness automatically. There is no third public `marivo.authoring` module.
-
-`ReadinessReport.analysis_ready_inputs` is the direct semantic-to-analysis
-contract for physical readiness. It lists only directly requested physical refs whose
-dependency closures have no blocker; dependency refs remain diagnostic input
-rather than leaking into the handoff. Blockers and warnings remain on the same
-report. No additional transfer object or hidden authoring API exists between
-readiness and ordinary analysis operations.
-
-Current contracts preserve identity without last-known substitution, use
-declared validity intervals, keep membership/observation periods independent,
-and retain each multi-root component's contributions. Original-state admission
-rejects unsupported overlapping-bucket sums and non-commuting folds, preserving
-method-owned null/empty policies. Static contract alignment is distinct from
-observed execution and full backend/release qualification.
-
-## Relationship to prior schema designs
-
-Earlier (removed) schema designs are a semantic reference for object boundaries —
-domain, entity, dimension, relationship, metric, time granularity, AI context,
-and decomposition — but they are not a compatibility target. Python is the source
-of truth for this stack; there is no promised round-trip to a legacy YAML/JSON or
-metadata store, and the Python API is free to make different ergonomic choices for
-agents.
+| Responsibility | Code |
+| --- | --- |
+| Physical adapters and managed reads | [datasource/runtime.py](../../../marivo/datasource/runtime.py), [engines](../../../marivo/datasource/engines/) |
+| Declaration capture and restricted syntax | [authoring.py](../../../marivo/semantic/authoring.py), [validator.py](../../../marivo/semantic/validator.py) |
+| Project assembly and materialization | [loader.py](../../../marivo/semantic/loader.py), [reader.py](../../../marivo/semantic/reader.py), [materializer.py](../../../marivo/semantic/materializer.py) |
+| Catalog, validation and snapshots | [catalog.py](../../../marivo/semantic/catalog.py), [readiness.py](../../../marivo/semantic/readiness.py), [source_health.py](../../../marivo/semantic/source_health.py) |

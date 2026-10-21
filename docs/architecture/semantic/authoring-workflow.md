@@ -1,34 +1,5 @@
 # Semantic Authoring Workflow
 
-Use `ms.ai_context(...)` and `ms.period_correspondence(...)` for authored
-values. Context annotations use the existing `ms.typing.AiContextValue` path.
-Their concrete result types remain discoverable through native type Help;
-`AiContextValue` and `PeriodCorrespondence` are not root constructor exports.
-Temporal kind markers remain root exports for specific `Ref[K]` annotations.
-
-Native expression authoring (2026-10-17):
-[Expression redesign v0.37](../../design/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
-now uses controlled native Ibis Deferred for every numerical or conditional Field,
-Measure and Metric input. Physical capture/finalize still freezes semantic facts without
-source reads. Named declarations attach immutable metadata to the same Deferred recipe;
-model loading collects only exported root declarations. Derived aliases do not publish a
-new declaration. Declaration bodies are inspected and captured without invoking author functions.
-
-Use `catalog.describe(ref).show()` for definition facts and `AnalysisFrame.show()` for execution
-facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
-dtypes are checked during automatic execution preparation; no manual schema or conversion API
-is required. Implementation and execution acceptance for the additional capabilities below
-are tracked separately by the [implementation plan](../../implementation/semantic/expression-model-implementation-plan.md).
-
-The current native surface includes source reductions, ordered internal-sample reductions,
-explicit membership buckets, local empty-input policies, and reusable window Metrics.
-Each expression keeps its contribution roots, permissions, units, time role and dependencies.
-The [expression model](../../design/semantic/expression-model-redesign.md) owns these rules; execution preparation
-checks physical types and backend support. A declaration or successful load is not execution evidence.
-
-Status: current authoring workflow, 2026-10-17. This document defines agent-native
-authoring across `marivo.datasource` and `marivo.semantic`.
-
 ## Outcome
 
 An agent loads current project state, establishes the physical facts needed for
@@ -50,7 +21,7 @@ checkpoint rule, and no separate static verification result.
   identity and usage navigation; error briefings preserve concrete failure facts.
 - Entry and details cards own current definitions. Check reports own actual
   scope, outcomes, affected refs, and structured repair.
-- Datasource inspection, optional bounded sampling, and governed raw SQL expose
+- [Datasource inspection](../datasource/discovery.md), optional bounded sampling, and governed raw SQL expose
   physical evidence. They do not decide reusable business meaning.
 - Project Python is the semantic source of truth; `ms.load()` validates the
   whole current project and assembles the catalog.
@@ -148,7 +119,7 @@ and loaded meaningfully. Typical slices include:
   metrics;
 - one relationship plus the exact participating entity fields;
 - one cross-entity or derived metric plus newly required reusable components;
-- one event or state model with its exact semantic dependencies.
+- one fact or versioned state model with its exact semantic dependencies.
 
 A slice is not restricted to one object, but it must not expand into an
 unrelated domain-wide rewrite. A smaller checkpoint remains appropriate when an
@@ -159,12 +130,12 @@ individual declaration is unusually uncertain.
 `ms.load()` is the authoritative static validation event for authored source. It
 evaluates the current project and fails closed on invalid organization,
 duplicate identity, unresolved refs, type mismatches, illegal expression
-bindings, invalid decomposition, and cycles.
+bindings, invalid expression dependencies, and cycles.
 
 After a successful load, select each authored root through its owning collection:
 
 ```python
-catalog = ms.load(project_root)
+catalog = ms.load(workspace_dir=project_root)
 
 orders = catalog.entities.get("sales.orders")
 revenue = catalog.metrics.get("sales.revenue")
@@ -181,8 +152,7 @@ Inspect published Measure/Metric definitions through `catalog.describe()` and se
 the physical fields and Entities they consume for readiness. Object Help states
 this input scope; a rejected expression supplies physical dependency candidates
 from the compiled closure and a direct retry when the complete list fits the
-repair bound. It never silently replaces the requested input. Readiness is
-snapshot-independent: it evaluates
+repair bound. It never silently replaces the requested input. Readiness does not consume DiscoverySnapshot evidence: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 Readiness opens no connection or query. Follow its physical-definition or temporal
@@ -234,30 +204,12 @@ and stops before typed analysis handoff. Physical observations alone do not
 authorize primary-key meaning, exhaustive enums, unit, additivity, timezone, or
 business semantics.
 
-## Pure expression authoring and current handoff boundary
+## Expression authoring
 
-Capture physical declarations as typed Refs. Import every physical dependency
-once, then call `finalized = ms.finalize()` to validate and close capture. Resolve
-handles with `finalized.resolve(ref)` for immutable Entity/Field values
-before row/Metric composition. Keep physical declarations before finalization;
-failed closure checks leave capture open for repair. Bare Refs are lookup inputs.
-Constructed inputs are not required to match their original definition versions.
-Reference-resolving consumers use their complete scope; explicit Refs remain
-lookup keys, including forward references. If semantic definitions change during
-analysis, the agent/user accepts the consequences. Keep immutable captured facts,
-kind/root/grain/unit/time-role/null checks, correct computation/cache identities
-and existing provenance records; do not add live refresh or module replay.
-Measure/Metric decorators are pure zero-argument local declarations; they add
-names/context and explicit Measure business
-assertions without requiring loader registration or a Session. Keep source
-Ibis authoring separate and use ms.bind only in the remaining restricted Ibis
-field bodies. Follow structured errors for retired factories and parameters;
-do not delete old empty/fold/fanout choices and claim business equivalence.
-
-Physical leaf loading and metadata checks remain available. New Catalog Metric
-collection/publication and discovery belong to R1.4; new expression execution
-belongs to R2. Report these capability boundaries instead of treating a local
-expression or a leaf-only load as a published, executable business Metric.
+Follow [Expressions](expressions.md) for complete physical capture, finalization,
+immutable resolution and local/named Deferred composition. Loading publishes
+collected model roots; Analysis compute/persist qualifies their actual execution.
+Neither finalization nor a successful load substitutes for the latter.
 
 ## Closeout
 

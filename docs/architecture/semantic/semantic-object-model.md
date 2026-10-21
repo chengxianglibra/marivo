@@ -1,150 +1,35 @@
 # Semantic Object Model
 
-Native expression authoring (2026-10-17):
-[Expression redesign v0.37](../../design/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
-now uses controlled native Ibis Deferred for every numerical or conditional Field,
-Measure and Metric input. Physical capture/finalize still freezes semantic facts without
-source reads. Named declarations attach immutable metadata to the same Deferred recipe;
-model loading collects only exported root declarations. Derived aliases do not publish a
-new declaration. Declaration bodies are inspected and captured without invoking author functions.
+Semantic declarations define reusable business identity, attributes, relationships
+and computation. They describe governed meaning; source rows, runtime coverage and
+backend qualification are checked by their respective consumers.
 
-Use `catalog.describe(ref).show()` for definition facts and `Query.show()` for execution
-facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
-dtypes are checked during automatic execution preparation; no manual schema or conversion API
-is required. Implementation and execution acceptance for the additional capabilities below
-are tracked separately by the [implementation plan](../../implementation/semantic/expression-model-implementation-plan.md).
+[Expressions](expressions.md) owns physical capture, native Deferred grammar,
+Measure authorization and Metric equations. [Loading and validation](loading-validation-introspection.md)
+owns Catalog acquisition and proof boundaries. [Temporal authority](temporal-authority.md)
+owns certified calendars, occurrences and work schedules.
 
-The current native surface includes source reductions, ordered internal-sample reductions,
-explicit membership buckets, local empty-input policies, and reusable window Metrics.
-Each expression keeps its contribution roots, permissions, units, time role and dependencies.
-The [expression model](../../design/semantic/expression-model-redesign.md) owns these rules; execution preparation
-checks physical types and backend support. A declaration or successful load is not execution evidence.
+## Object families
 
-Status: native Deferred authoring and publication contract, 2026-10-17.
-Semantic owns authored business meaning and normalized declarations.
-Analysis owns invocation checks, exact implementation admission and execution.
+| Object | Owns | Downstream acquisition |
+| --- | --- | --- |
+| Domain | Explicit business namespace and accountable owner | catalog.domains |
+| Entity | Source relation, stable ordered identity and optional versioning | catalog.entities |
+| Dimension / TimeDimension | Categorical or explicitly temporal row meaning | catalog.fields |
+| Measure | Numeric row quantity, unit and sum permission | catalog.fields |
+| Metric | Completed reductions and their composition | catalog.metrics |
+| Relationship | Directed endpoint/key mapping | catalog.relationships |
 
-## R2.2 scalar observation reads
-
-Resolved Dimension, TimeField and Measure values support immutable scalar
-`via((relationship, ...))` bindings for conditions and output classification.
-Paths retain declared direction and require single-valued full-key mappings;
-ambiguous or missing paths reject when bound to each contribution root.
-Metric declaration bodies admit `via` on Dimension, Measure and TimeField
-receivers for scalar conditions; source reductions still require native fields.
-`field.at(anchor)` binds an exact attribute version only on versioned owners;
-it reads no attributes and does not prove a version exists. Anchor and path
-remain part of field predicates and Query identity. TimeField.within(scope)
-constructs a half-open condition; it does not replace the observation period
-required by sampling. Source reductions, sample axes and sum-permission declarations
-continue to require native fields; bound scalar reads do not expand row arithmetic.
-Focused Help routes are `semantic.Field.via`,
-`semantic.Field.at` and `semantic.TimeField.within`. Execution requires automatic physical preparation and a qualified backend route.
-
-## Definition changes during analysis
-
-Definition changes are resolved by the consuming frozen catalog scope.
-
-Marivo does not require semantic objects to remain bound to the exact definition
-versions from which they were constructed, and does not reject an input solely
-because a same-path definition has changed. If semantic-layer definitions change
-during analysis, the agent or user accepts the consequences. This does not relax
-type, kind, contribution-root, grain, unit, time-role, null or other semantic
-correctness checks. Definition fingerprints must still describe the computation
-and dependencies actually consumed; cache reuse must use correct keys and
-invalidation, and persisted provenance and records remain governed by their
-owning contracts.
-
-Reference-resolving consumers use the completed scope's kind/path definition,
-without comparing it to the constructed input's former version. Already closed
-expressions remain immutable and compose their stored definitions and facts;
-this policy adds no live refresh or module replay. Business snapshot/validity
-selection remains a separate temporal contract.
-
-## Analysis-facing declarations
-
-Declaration identity and effective dependency fingerprints enter bound analysis
-definitions and retained Artifact metadata. Authored business facts are trusted
-premises, not measured source facts. Declared definitions and consumed state
-remain distinct from physical execution qualification.
-
-### Statistical-weight boundary
-
-There is no public named `ms.statistical_weight` or current-row
-`mv.statistical_weight` surface. Private rules do not activate them.
-Row `weighted_mean(weight=...)` pairs a value and weight on one contribution
-root; internal-sample weighted means consume completed Metrics.
-
-## Common contracts
-
-Physical Entity/Field/Relationship constructors capture pending definitions and
-return typed Refs. These are lookup keys, not expression values. Capture all
-physical dependencies, including retained Ibis forward references, before calling
-`finalized = ms.finalize()` in the loader context. Finalization uses normal
-registry/assembly checks, then freezes the complete closure. Resolve each handle
-with `amount = finalized.resolve(amount_ref)` before composition. Values retain
-complete default-time, coordinate and dependency facts using the same definition
-fingerprint function as Catalog resolution. Finalization closes physical capture;
-late declarations on that scope/root are rejected. It never replays module or
-import effects and does not publish local Metrics.
-
-Constructed Entity/Field inputs and helper policies do not require hidden
-original-version constraints. Reference-resolving physical consumers use their
-completed closure; typed Refs remain lookup keys and may name forward dependencies.
-Pure Measure additivity checks coordinate presence, kind, native time role and
-permissions in its row's frozen scope, without original-version rejection, a
-loader or live refresh. Finalization remains necessary for coherent default-time
-and coordinate facts and supported Ibis forward dependencies.
-
-Physical leaves retain explicit `name=`. Pure Measure/Metric decorators take
-zero arguments and capture the function's `__name__`, matching
-`[a-z][a-z0-9_]*`. Aliases do not rename a declaration. Naming, ai_context and
-source location are independent metadata; redundant compatible assertions do
-not create a second computation. Arithmetic, filtering and sample reductions
-produce anonymous expressions.
-
-Entity/Source and Dimension/TimeDimension retain their restricted Ibis bodies.
-A Dimension/TimeDimension body may use `ms.bind(field, entity_parameter)` for a
-constructed physical field or an explicit field lookup Ref. Assembly checks
-ownership and the complete dependency version of constructed inputs; conflicting
-versions are rejected. Explicit lookup Refs retain forward-reference semantics.
-Pure Measure/Metric bodies accept only closed typed expressions,
-immutable literals, a leading docstring, fresh local expressions and one final
-return. They reject table parameters, Ibis values, ms.bind, arbitrary calls,
-reassignment, imports and control flow before invoking any authored function.
-
-Human business meaning lives in `ms.ai_context(...)`. A docstring does not grant
-permission or become a second description. Errors state expected/received
-shape, declaration location and a concrete reauthoring action.
-
-Native fields expose `is_null()` for a typed missing-value predicate; Dimension,
-TimeField and Measure receivers share the single
-`marivo.help("semantic.dimension.isnull")` contract. Routed TimeFields retain
-their path and are valid only as a source reduction's `time=` role, including
-when authoring sum-permission coordinates.
-
-Local declarations neither require an active loader/Session nor publish Catalog
-Metrics. The loader owns collection, qualified identities and public discovery;
-Query preparation owns execution admission. A valid graph is not backend or Runtime evidence.
-
-### `ms.ai_context(...)`
-
-`ai_context` is a fixed-schema value accepted by domain, datasource, entity,
-dimension, time_dimension, measure, metric, and relationship. It is built with
-`ms.ai_context(...)`, never a raw dict.
-
-| Field | Type | Use |
-|---|---|---|
-| `business_definition` | `str \| None` | Full business meaning; may be multi-line. Most important on entities and metrics. |
-| `guardrails` | `Sequence[str]` | Do/don't notes (e.g. "excludes unpaid orders"). |
-
-All fields are optional; missing fields render as `null` or empty lists. Unknown
-field names fail closed via the keyword-argument mechanism, so unconsumable
-content cannot leak into the semantic contract.
+Physical constructors return typed lookup Refs; finalized resolution and Catalog
+lookup supply immutable values. Named Measure/Metric decorators return native
+Deferred recipes. A named expression is described with catalog.describe(ref),
+not by calling show on Deferred. Collection lookup takes a plain local name or
+full path string; local names must be unique within the current scoped collection.
+Kind-prefixed strings and Refs are not collection.get inputs.
 
 ## Project and domain
 
-A **semantic project** is one workspace root loaded through `ms.load(...)`.
+A **semantic project** is one workspace root loaded through `ms.load(workspace_dir=...)`.
 Local declarations live under its `models/semantic/` directory, and configured
 external `models/` roots join the same registry and load lock. An analysis
 session binds to that resolved project root; omitted roots follow the shared
@@ -177,7 +62,7 @@ Its ordered `primary_key` is the identity of one Entity instance, denoted `K`;
 it is not a copy of the source table's physical uniqueness constraint. Version
 coordinates belong to `versioning` and are not added to `K` merely to distinguish
 historical rows. The same `K` may appear in multiple historical versions.
-`ms.entity(name=..., ...)` is an assignment-style constructor returning an
+`ms.entity(name=..., ...)` is an assignment-style constructor returning a
 typed Entity capture Ref. Omitting `name` selects the restricted Ibis Table
 decorator form. Identity and version columns must be exposed by
 the source projection, but their physical types are read from the source when
@@ -215,8 +100,8 @@ orders = ms.entity(
   its physical identity and capability requirements; an expression cannot make
   an unqualified Source/backend cell executable.
 - Analysis enters through `session.members(entity)`. The frozen Entity body
-  contributes to its dependency fingerprint. Fixed Artifacts continue from
-  retained state without reevaluating the Entity body or reconnecting sources.
+  contributes to its dependency fingerprint. Fixed AnalysisFrames continue from
+  retained data without reevaluating the Entity body or reconnecting sources.
 
 ```python
 @ms.entity(datasource=warehouse, source=md.table("orders"), primary_key=["region"])
@@ -281,9 +166,9 @@ All members and attributes at an anchor come from the same snapshot. Absence of
 `K` from that snapshot means no represented member at that anchor; it does not
 authorize carrying an older row forward. Declaring snapshot meaning states the
 expected complete cross-section, not observed proof that an ingestion finished
-or every expected member arrived. Source coverage and completeness remain
-independent runtime evidence, and operations requiring them must validate that
-evidence before publication.
+or every expected member arrived. Consumer-required
+checks and explicit source-health reports keep their actual scope; ordinary
+observation does not certify real-world population completeness.
 
 **Validity-interval (SCD2)** entities declare `valid_from`/`valid_to` +
 `interval` + `open_end`:
@@ -383,34 +268,6 @@ reference that, rather than inlining it in a metric body. These decorators do no
 require provenance; their trust comes from the owning entity, expression
 readability, and materialization checks.
 
-### Measure as the authority for additivity and unit
-
-`measure_column` declares a physical numeric leaf, unit, sum permission and any
-status-time role. It returns a typed Measure capture Ref. After the complete
-physical scope is finalized, `finalized.resolve(ref)` returns the immutable
-Measure row value. `status_time_fold` is retired;
-the status axis and sampling interval stay on the source declaration and temporal
-reduction is explicit in the consuming expression.
-
-```python
-@ms.measure(additivity=ms.additive_all())
-def order_amount():
-    return quantity * unit_price
-
-@ms.measure()
-def margin():
-    return order_amount - order_cost
-```
-
-Omitted unit/additivity or None inherits existing facts. Same-unit linear row
-arithmetic intersects permission; constant scaling preserves it. Row products
-and quotients do not acquire permission. An explicit new Measure may assert a
-compatible unit or new business sum permission, with versioned authorization
-and original dependencies retained in its graph. Unknown units remain unknown
-until explicitly asserted. Unit labels do not convert currency or scale values.
-Unknown/foreign permission axes, incompatible known units and grants that erase
-fixed time constraints are rejected. A sum cannot repair missing authority.
-
 ### Time dimension
 
 A time dimension is a dimension that explicitly carries time-axis metadata. Any
@@ -427,13 +284,13 @@ hh = ms.time_dimension_column(
 )
 ```
 
-- **`granularity`** ∈ `year | quarter | month | week | day | hour | minute |
-  second`. `minute`/`second` require a `ms.datetime(...)`/`ms.timestamp(...)`
-  parse; `hour` on a non-datetime column requires `ms.hour_prefix(...)`.
-- **`parse`** may be omitted for native `date`/`datetime`/`timestamp` columns
-  (the variant is inferred from the ibis dtype). `string`/`integer` columns must
-  supply `ms.strptime(format)` or `ms.hour_prefix(prefix)`. The body's ibis dtype
-  must be compatible with the parse variant.
+- **`granularity`** is the finest meaningful business grain from year through
+  second. Native temporal columns can omit parse; preparation checks their real
+  physical kind. An explicit date-only parse cannot supply hour/minute/second.
+- **`parse`** interprets native date/datetime/timestamp or encoded values through
+  the supported ms.strptime, ms.datetime, ms.timestamp or ms.hour_prefix form.
+  Clock grains need a compatible time-bearing interpretation. hour_prefix is
+  limited to hour grain; string/integer encodings require an explicit parser.
 - **`is_default`** (default `False`) marks the default time axis when an entity
   has several. A consumer may use it only within its exact temporal role and
   compatibility checks; it does not bind membership time, observation time, and
@@ -441,7 +298,7 @@ hh = ms.time_dimension_column(
   one per entity — a second raises `SemanticLoadError`
   (`duplicate_default_time_dimension`).
 - **`sample_interval`** on a parse marks a fixed-cadence sampled series (see
-  sampled semi-additive metrics below).
+  [sampled expressions](expressions.md#internal-samples-and-windows)).
 
 #### Format specifiers: Python strptime vs MySQL
 
@@ -486,86 +343,6 @@ whose meanings diverge without a safe mapping (`%W`, `%u`, `%Z`, `%c`, …) rais
 or a native temporal column. ClickHouse additionally refuses a set of directives
 whose native parser would silently shift the parsed value or lose sub-second
 precision rather than fail; those refusals name the directive and the reason.
-
-## Metric
-
-A Metric is a completed source reduction or arithmetic composition. Local and
-named definitions use the same closed nodes and policies:
-
-```python
-@ms.metric(ai_context=ms.ai_context(business_definition="Paid revenue"))
-def revenue():
-    return amount.sum(time=paid_at).where(status == "paid")
-
-@ms.metric()
-def average_order_value():
-    return revenue / orders.count(time=paid_at).where(status == "paid")
-```
-
-The decorator accepts only domain and ai_context. Roots, units, time roles and
-policies come from the expression. domain is a typed namespace assertion, not a
-Session binding. Names are local until model collection; aliases preserve both
-local identity and computation. The original expression is not rewritten.
-The loader publishes named declarations into the Catalog. Query preparation and
-execution consume the same definitions as anonymous expressions.
-
-### Grain, root entity, and fan-out
-
-Source receivers own contribution roots. Row arithmetic requires one exact
-root; reduce different roots independently before Metric arithmetic. where is
-valid only on one source reduction or common weighted pair scope, never a guessed
-filter over a composite graph. `per(field | tuple)` produces internal samples
-that must be reduced before being returned as a Metric.
-
-`entities`, `root_entity` and `fanout_policy` are retired. Existence filtering
-requires explicit Population preimage when that later capability is available.
-Overlapping-label grouping has no equivalent in this version; it cannot be
-silently converted to a semi-join or a different contribution allocation.
-
-### Sampled semi-additive metrics
-
-Keep source status-time axes, sampling intervals and fixed-axis permissions.
-Use `source.sum().per(sample_time).quantile(q)` or the matching explicit sample
-reduction for the intended spatial-before-temporal equation. Defaults do not
-supply closing folds, forward filling or unknown coverage. `status_time_fold`
-and aggregate `fold` are rejected even when equal to a former default.
-Complete binding and execution checks belong to R2/R3.
-
-### Fixed null and empty contracts
-
-Policies belong to each actual operator. sum returns NA by default for complete
-empty/all-NA input; explicit `empty="zero"` returns 0. count/count_distinct return 0.
-Other admitted reducers return NA for no valid sample. `nulls="ignore"` is the
-reducer default; explicit "error" checks selected inputs. Division and weighted_mean default to zero_denominator="null"; explicit
-"error" remains on that operation. None of these choices can be overridden by a
-Metric decorator, Session or observation. Declaration-wide `empty` and policy
-factories are rejected; source/internal sum owns `empty="null"` (default) or `"zero"`. Migrating an old declaration must
-preserve its selected contributions and output domain as well as this policy.
-
-## Weighted means
-
-A row value and weight share one contribution root and common non-NA pairs.
-`value.weighted_mean(weight=weight, ...)` creates the same source node in local
-and declared expressions. Internal samples instead require a completed Metric
-weight. Neither shape licenses averaging previously completed means without
-sufficient components.
-
-## Derived metrics and decomposition
-
-Use ordinary completed-Metric +, -, *, / and explicit divide for a non-default
-zero-denominator policy. Row/Metric mixing is rejected. Repeat uses retain their
-ordered graph edges. Derived expressions remain anonymous; a new declaration
-is explicit. `ms.aggregate/count/weighted_mean/where/ratio/linear/cumulative`
-are retired authoring factories and never translate old IR into new graphs.
-The old Metric IR, Runtime descriptors and their v1 graph readers have been removed.
-Physical readers and terminal Artifact readers retain their independent contracts.
-
-## Metric unit (UCUM)
-
-Reuse the shared bounded unit algebra. Known incompatible linear units are
-rejected; products and quotients derive units, unknown facts stay unknown.
-A Measure assertion can add an explicit compatible business contract; a Metric
-decorator has no global unit override.
 
 ## Relationship
 
@@ -619,169 +396,30 @@ Incorrect declarations do not promise detection. Necessary consumer indexes
 reject encountered duplicates, and required lookups reject missing operands.
 An allowed absent match needs its consumer's explicit result semantics.
 
-## Bounded acceptance cases for the amendment
+## Context and immutable definitions
 
-1. A snapshot Entity with `K=(user_id,)` admits repeated users across dates,
-   trusts `(user_id, snapshot)` row uniqueness, resolves one exact snapshot,
-   and uses the consuming operation's empty result when it is absent. A physically
-   partitioned non-versioned fact Entity acquires no snapshot semantics.
-2. A validity Entity derives `(K, valid_from)` row uniqueness and applies the
-   declared interval selection without source-data preflight. No identity key
-   is constructed by removing columns.
-3. A January membership selection can observe February facts while retaining the
-   selected `K` values. An unspecified versioned membership anchor cannot become
-   historical `distinct(K)` or the downstream observation end.
-4. Order counts and line-item revenue keep their own computation roots while
-   observing one explicit customer Population; unsafe mapping or allocation
-   fails with the responsible component occurrence.
-5. Two overlapping tags cannot double a 100-unit root total during rollup. The
-   two-device peak example above rejects projected-value summation; mean folds
-   with incompatible sample coverage also reject without sufficient state.
-6. Merging mean/weighted/ratio state matches direct governed computation after
-   row selection, including empty, all-null, and zero-denominator inputs. A ratio
-   with a distinct or temporal component cannot inherit additive permission.
+Use ms.ai_context(business_definition=..., guardrails=[...]) for business meaning
+and usage limits. The fixed-schema value is shared by semantic declarations and
+datasource specs. A docstring or historical SQL in context is descriptive text;
+it cannot execute or establish verification status. Raw dicts are not context values.
 
-## Historical SQL context and verification
+Completed scopes resolve references by exact kind/path. Replacing a definition
+at the same path does not require an original-version match against every
+constructed input. Consumers enforce kind, root, grain, unit, time and null
+correctness. Already closed expressions keep their captured immutable facts;
+there is no refresh from ambient state or import replay. Fingerprints and cache
+keys must describe the actual consumed definitions and dependencies.
 
-`ms.metric` accepts only an Ibis expression body. If historical SQL helps explain
-where a business definition came from, describe it in
-`ai_context=ms.ai_context(business_definition=..., guardrails=[...])`. That text
-has no execution authority and carries no verification status. `ms.from_sql`,
-`SqlProvenance`, `ms.parity_check`, parity results, and Catalog parity status are
-removed from the public surface. Readiness does not infer verification from a
-stored query or from the absence of one.
+Entity identity and historical version selection remain separate from that
+policy. Analysis cannot manufacture missing historical representations, infer
+relationship completeness from a declaration, or treat a field label as identity.
 
-Confirm a migrated metric against an independent business source or a governed
-Ibis reference outside the declaration, and report the scope and result of that
-comparison separately. `md.raw_sql` remains a terminal datasource diagnostic;
-its result cannot enter Semantic or typed Analysis.
+## Implementation map
 
-### Definition-owned aggregate exactness
-
-A Metric definition is the sole owner of aggregation intent. `count_distinct`,
-`median` and `("percentile", q)` select non-approximate operations;
-`approx_count_distinct`, `approx_median` and `("approx_percentile", q)` explicitly
-permit approximate operations. Observation has no `method` or `accuracy` override,
-and `quantile_metric`/`QuantileMetricInput` are removed from the public surface.
-The corresponding Ibis operations express the same distinction in opaque bodies;
-this does not authorize parsing Python bodies into contribution graphs.
-
-Source aggregation executes as SQL compiled by Ibis. Quantiles use source-native
-arithmetic: large integers can lose floating precision and Decimal interpolation
-can retain the source scale. These numerical limitations are disclosed, not
-repaired by fetching contributions for Python sorting or interpolation. The
-non-approximate operation does not promise arbitrary-precision arithmetic.
-Unsupported exact operations fail with the corresponding approximate declaration,
-preserving q, and say whether that backend supports the alternative. No definition
-is substituted automatically. Backend translation alone never qualifies a new
-Analysis execution route.
-
-`load()` preserves a structurally valid aggregate declaration.
-`catalog.readiness()` checks physical semantic inputs and certified temporal artifacts.
-Published expression declarations are inspected with `catalog.describe()`; physical-type
-and backend operation qualification belong to Query preparation and execution. On Trino, exact median/percentile is unavailable in Marivo's
-source-native route; `approx_median` or `("approx_percentile", q)` must be authored
-explicitly when acceptable. Passing physical readiness grants no operation-specific execution qualification.
-
-## Analysis Semantic handoff
-
-The [Analysis contract](../../design/analysis/python-analysis-design.md#population-and-observation-binding)
-owns consuming input shapes; [method contracts](../analysis/operators-and-frames.md)
-own sufficient state, numerical policies and conditional continuations.
-
-### Identity, fields and version facts
-
-The ordered complete Entity primary key is stable identity K. Snapshot and
-validity coordinates select representations and never silently extend or shorten
-K. Root membership trusts declared uniqueness and projects all of K without
-`distinct` or a new whole-source uniqueness probe. Invalid source declarations
-may affect native results; required local indexes reject encountered duplicate
-insertions rather than retaining the first row or silently deduplicating.
-
-Snapshot selection is the exact declared grain/timezone period. A missing exact
-snapshot yields an empty represented membership, never a last-known snapshot;
-it does not prove that a business population or contribution window is complete.
-Validity selection follows the declared interval and open-end values. For
-closed-open intervals, instant selection is `from <= at < to`, and left-limit
-selection is `from < end <= to`. Missing matches preserve absence; required read
-coverage and method-specific empty-result rules decide whether consumption is
-legal. No-version Entities reject historical selection rather than manufacturing
-history. Version-row uniqueness and non-overlap remain trusted declarations,
-not an automatically completed source audit.
-
-Measure, categorical Dimension, TimeDimension, and boolean-valued Dimension
-retain their distinct value kinds through read. A boolean Dimension is not
-inferred from an integer 0/1 column; its resolved logical type must be boolean.
-Attribute version facts, full correspondence keys, relationship role and
-definition fingerprint accompany the field dependency. A many-valued mapping
-does not become a scalar read through an implicit aggregate. Selecting attributes
-at a different explicit anchor preserves that independent binding; the chosen
-membership anchor alone does not certify attribute or contribution coverage.
-
-### Metric occurrences and policies
-
-The canonical graph binds each component occurrence independently: its root,
-base Measure/Entity Ref, branch filter, relationship roles, version/time facts,
-contribution unit, value unit, declared Cell policy, and actual source binding.
-Shared graph definitions do not merge distinct occurrences with different filters.
-Ratio, linear, weighted mean and cumulative consumers resolve that graph rather
-than reconstructing it from function bodies, aliases, output names or equal values.
-Opaque Metrics expose only explicitly declared policies and actually retained
-state. Missing declarations remain missing and block the dependent operation.
-
-Metric mean retains sum, non-null count and row count; Metric weighted mean
-retains weighted numerator and weight sum over the same non-null pairs, plus
-the pair/row facts needed by its declared empty policy. Null pairs are excluded
-together, unlike strict current-row statistics. Existing Metric empty/Null and
-zero-weight policies remain authored facts; the withdrawn statistical-weight
-proposal does not change them. Runtime ratio `zero_division="null"` maps to the
-canonical undefined-zero-denominator policy, while `"error"` rejects; neither
-means a Defined zero or a Null Cell. Named original components survive finish.
-
-Exact distinct counts its declared value identity (an Entity identity uses all
-of K), excludes Null according to the count-distinct policy, and yields zero on
-admitted empty input. Median/percentile excludes Null values and rejects nonfinite
-numeric contributions. The source-native continuous quantile uses linear
-interpolation at `h=(n-1)*q`; median fixes `q=0.5`. Empty support yields Null.
-Percentile q is finite with `0 < q < 1`; bool is rejected. Numerical precision is
-source-owned as described above. The definition distinguishes exact and approximate
-operations through AggKind, not an observation wrapper. Actual algorithm and
-physical output type remain inspectable; no invented error bound, retained
-distribution/sketch, original rollup or attribution is authorized by this slice.
-
-## Relation-composition handoff
-
-Analysis composition consumes governed Metric/runtime-expression identity, units, contribution
-roles, relationship cardinality, dimension tuple identity, additive partition
-and component/empty policies without changing Semantic declarations. A declared
-one-to-one relationship is necessary for an explicit ordinary-ratio
-correspondence; actual complete bijection is checked at execution. Equal column
-names or Entity types cannot replace either fact. Definition templates retain
-ordered occurrences and policies; comparison time bindings, selected cohorts,
-references, rankings and attribution reconciliation belong to Analysis state,
-not new Catalog objects.
-
-Metric empty-contribution policy is consumed only with complete observation and
-coverage evidence. It is distinct from Analysis empty-opportunity policy.
-ReferenceWeights binds an existing Entity as statistical unit and existing
-Dimension identities as strata; it does not add a named statistical-weight role.
-The withdrawn ms.statistical_weight, mv.statistical_weight and dependent
-current-row weighted mean remain excluded. Composition does not reinterpret direct
-distinct/quantile display values as membership/distribution sufficient state.
-
-## Immutable domain captures
-
-The private unified graph freezes governed Entity, Dimension and Metric
-contracts with fingerprints of the definitions and dependencies actually used.
-These identities describe the computation; they are not a requirement to reject
-subsequent definition changes. Frozen declarations do not establish source
-completeness or physical execution qualification. Cache correctness and retained
-record integrity remain required under their existing owners.
-
-Analysis owns the closed time-key alignment family and its output coordinates;
-see the [comparison contract](../../design/analysis/timezone-and-calendar-design.md#period-correspondence).
-Semantic TemporalSet occurrences already carry the exact Ref, key, bounds,
-timezone and snapshot digest needed by analysis. Compare fixes checked
-correspondence and publishes both absolute and relative Cells. Metric empty finish
-is requested explicitly through `mv.outer(missing="empty_value")` and requires
-retained complete original state.
+The public constructors are in [authoring.py](../../../marivo/semantic/authoring.py);
+physical records are in [ir.py](../../../marivo/semantic/ir.py).
+[validator.py](../../../marivo/semantic/validator.py) restricts authored bodies,
+[materializer.py](../../../marivo/semantic/materializer.py) constructs bound Ibis
+relations, and [resolver.py](../../../marivo/semantic/resolver.py) resolves their
+dependencies. Analysis consumes these definitions through its explicit
+[Population and observation bindings](../analysis/populations-and-observation.md).

@@ -1,190 +1,141 @@
-# Marivo's Agent-Facing Public Surface
+# Agent-Facing Public Surface
 
-Marivo is consumed through a write-run-read loop. The agent chooses the business
-question, evaluates evidence and owns conclusions. The library owns deterministic
-meaning, typed computation, bounded disclosure, exact ownership and concrete repair.
+Marivo is consumed through a write-run-read loop. The library owns deterministic
+meaning, typed computation, bounded disclosure and concrete repair. The agent
+owns the business question, evidence interpretation and conclusions.
 
-## One public coordinator
+## One public Help coordinator
 
-CLI `python -m marivo help [target]` and Python `marivo.help(target)` share
-one native static Help registry. CLI pages render canonical string links as
-copyable `marivo help <target>` commands; Python pages retain `marivo.help(...)`.
-The facts and target identities are the same. Root Help routes to authoring or analysis.
-Targets are exact lowercase snake_case semantic addresses, independent of Python
-symbols. Pages disclose Target and Kind: topic, object, callable, attribute,
-expression or error. Qualified strings, public callables and public types are
-accepted; instance facts are read through their owning objects, not Help.
+Python marivo.help(target) and CLI marivo help <target> use the same native
+registry. Root Help introduces concepts and routes only to authoring or analysis.
+Targets are exact lowercase snake_case semantic paths, independent of Python
+symbols. Named pages disclose Target and Kind: topic, object, callable,
+attribute, expression or error.
 
-Task navigation and type/member indexes link to the same canonical leaves.
-`semantic.objects` selects an object kind; `semantic.metric` describes its
-meaning and operations; `semantic.metric.define` describes `ms.metric`.
-`semantic.metric.where` is explicitly supported Deferred syntax, not a Python
-class inferred by reflection. Native role pages disclose legal input acquisition. Exporting a type permits
-annotations, inspection and Help, not direct construction or subclass extension.
-Type pages own acquisition paths; callable pages own signatures, effects and repairs.
-For analysis, explicit descriptions/composition live at `mv.*`; introducing Session
-context uses `session.*`; existing context is read or derived through receiver
-methods, properties and page items. Lifecycle discovery stays at `mv.session.*`.
+Qualified strings, public callables and public types are accepted. Type pages
+own acquisition and member discovery; exporting a type permits annotation,
+inspection and Help, without authorizing direct construction or extension.
+Object pages explain meaning and link exact operations: semantic.metric is the
+object, semantic.metric.define describes ms.metric. Deferred expression routes
+are explicitly owned by semantic role, rather than inferred from Ibis reflection.
 
-Public fields and properties have independent attribute targets such as
-`analysis.query.output_names`. Query them by string without executing a getter;
-read the value directly in the original Python context. Type pages link every
-supported member. All public capabilities are reachable without guessing paths.
-Variant-only attributes state their public availability condition: for example,
-`analysis.grain.calendar` applies when `grain.kind == 'semantic'`. Type and
-attribute pages reuse the owning variant facts and use public receiver names.
-Private analysis error subclasses reuse their nearest registered error contract;
-the advertised target remains queryable by string and through the CLI.
+Public fields/properties have independent attribute targets, queried by string
+without evaluating a getter, such as analysis.analysis_frame.output_names.
+Read actual values in their original object context. Variant-only members state
+the availability condition, for example a semantic Grain's calendar field.
+Private error subclasses reuse their nearest registered public error contract.
 
-Reflection owns installed signatures and supported members. Owning docstrings
-and domain rules own semantics, constraints, effects and examples. Native
-registries assemble these facts and explicit task memberships; renderers maintain
-no shadow inventories. Public export snapshots and behavior-owned checks are
-independent of render output. No old public target aliases are retained.
+Reflection supplies installed signatures/members. Owning docstrings and domain
+rules supply constraints, effects and examples. Native registries assemble these
+facts and task navigation; renderers maintain no shadow capability inventory.
+Unknown-target repairs use real registered candidates and preserve the requested
+receiver. No executable compatibility alias supplies a second canonical entry.
 
-For an existing object, read show() only when its captured facts are needed;
-read the exact operation Help when syntax or constraints are unknown. Do not
-restart root discovery for a known target. Structured errors own the actual
-expected/received facts and repairs derived from real state. Related routes are
-optional, not a reading checklist. Object pages share repeated authority facts
-and list each route once; callable pages retain exact constraints and examples.
-Catalog lookup candidates are ranked within the requested kind before bounding,
-and expression-stage repairs link directly to the owning grammar. Callable pages
-link exact registered result types. They do not infer consumer lists from broad
-type-family equality: Deferred expressions, for example, have distinct semantic
-stages. Explicit related routes and type pages own operation discovery.
-
-Complete public journeys count all Help, object displays, saved previews and
-errors, including repeated reads. Character and page budgets are proxies, not
-model token counts or measured agent efficiency. Retain historical baselines;
-never rewrite them to manufacture reductions. Full task correctness, failed
-lookups and repairs are assessed alongside text size.
-
-## State distinguishes computation from inspection
-
-Population and Query construction is silent. Their bounded repr identifies the
-logical value and its disclosure entry. Construction and metadata `.show()` do not read
-source rows. Explicit Query execution returns a terminal Artifact whose repr
-points to `show()` for bounded saved-output inspection.
-
-```python
-members = session.members(entity_ref)
-query = session.observe(
-    {"revenue": revenue}, members=members,
-    during=session.time_scope(start="2026-06-01", end="2026-06-08"),
-)
-result = query.execute()
-result.show()
-```
-
-This example requires an explicit Session, an Entity Ref, and a resolved Metric
-with a qualified relationship to the member Entity. It creates no intermediate
-execution while constructing the definition. The terminal Artifact provides
-bounded `show()` and complete isolated `to_pandas()` reads. A preview limit is not
-a complete-input execution budget.
-
-Public terminal read values have a bounded single-line repr and bounded explicit
-inspection. Authoring and runtime value cards expose render/show according to
-their native type contract. Population/Query display captured logical definitions;
-Artifact provides terminal saved-output inspection and cannot re-enter the DSL.
-Do not add a generic adapter that erases this distinction.
-
-## Business data display
-
-Analysis materialized values and terminal tables, `PreviewResult`, and
-`RawSqlResult` use `show(*, n: int | None = None, max_output_bytes: int | None = 8192)`.
-Existing preview/raw-SQL `render()` methods accept the same controls and return
-text without a newline; analysis does not acquire a public `render()` method.
-The UTF-8 budget includes the newline printed by `show()`.
-
-There is no default row cap. `n` is a nonnegative integer (not bool), or `None`;
-zero displays metadata and columns only. `max_output_bytes` is a positive integer
-(not bool), or `None` for unlimited output, still subject to `n`. These controls
-never change execution, stored rows, or source query limits.
-
-Cards order identity and row counts, interpretation facts, data, interpretation
-boundaries and omissions, then state-dependent read hints. Required metadata is
-reserved before fitting whole rows. Display counts distinguish retained/returned
-rows from full-source cardinality, query truncation and business coverage. Omitted
-rows have exact counts, row/byte reasons and an applicable recovery call. Wide
-rows are omitted whole; cells and columns are never silently shortened. If even
-mandatory metadata and omission detail cannot fit, a `ValueError` reports the
-minimum budget. Data containing line breaks or separators is escaped losslessly.
-
-Cell state counts cover the complete current result, not the displayed prefix.
-Defined values retain precision; analysis Duration cells use exact integer ticks
-with their unit. Non-Defined Cells retain distinct tags and reasons. Entity
-identities remain redacted even with unlimited output. Interpretation facts come
-from captured definitions and retained data, without reading current business
-sources. Available saved Findings have a count and the receiver's actual read
-entry; full operation directories remain in static type Help.
-Non-data cards and bounded page protocols retain their existing purposes.
-
-## Keep each guidance fact with its owner
+## Disclosure ownership
 
 | Owner | Facts |
 | --- | --- |
-| Live Help | Static API, examples, parameters and progressive navigation |
-| Logical object show / typed fields | Captured scope, coordinates, outputs and ownership |
-| Retained result card | Bounded current state, quality and exact read continuations |
-| Structured error | Expected input, received facts and concrete repair |
-| Packaged skill | Workflow boundaries, analytical judgment and handoff |
+| Live Help | Static API, expression grammar, exact examples and navigation |
+| Logical object show / typed fields | Captured definitions, inputs, scopes and ownership |
+| Completed Frame show | Bounded current data and interpretation |
+| Artifact / Finding / Evidence | Exact committed submission and audit facts |
+| Structured error | Expected/received facts and concrete current repair |
+| Packaged skill | Workflow boundaries, judgment and handoff |
 
-Errors subclass the owning structured hierarchy. Repair suggestions derive from
-actual current state, such as loaded catalog choices or owned fields. They do not
-invent names, select a different business meaning, silently widen a scope, or
-retry on another execution/storage target.
+Read focused Help when syntax is unknown, and object facts when needed for the
+next decision. Related routes are navigation, rather than a mandatory checklist.
+Errors do not invent names, choose a different business meaning, silently widen
+a scope or retry on another execution target. Public result repr is bounded,
+single-line and points to show rather than dumping dataclass fields.
 
-Bounded pages retain immutable items, limits, has_more and opaque cursors. Empty
-results, unknown authority, unavailable records and corrupt stores remain distinct.
-A bounded card's omission does not authorize dropping rows from computation.
-No automatic truncation, sampling or approximate method substitutes for exact
-input admission.
+## Computation and inspection
 
-## Authoring workflow
+Population and Frame source construction are silent and source-I/O free.
+Pending Frame.show discloses captured structure, without schema preparation or
+parent-row reads. compute returns complete immutable memory data; persist
+publishes an existing completed result, computing it first for a pending input.
+Only the returned completed object fixes values and keys.
 
-Discover the physical source through datasource-owned schema and health surfaces.
-Author a coherent semantic slice using typed declarations and restricted Ibis
-expressions. Validate the project and inspect exact catalog entries; perform
-runtime preview only for a concrete source/type/readiness question. Stable Entity
-identity is separate from historical row coordinates.
+```python
+import marivo.analysis as mv
 
-Missing business meaning requires a decision from its owner. Missing reusable
-semantic definitions go to the semantic authoring workflow; analysis does not
-repair them by guessing from labels. Credentials use environment references and
-must not enter project-local persistent analysis state.
+session = mv.session.create("revenue-review", timezone="UTC")
+revenue = session.catalog.metrics.get("sales.revenue")
+period = session.time_scope(start="2026-06-01", end="2026-06-08")
+saved = session.observe({"revenue": revenue}, by=(period,)).persist()
+saved.show(n=10)
+saved.artifact.show()
+```
 
-## Analysis workflow
+This fragment requires a project with the declared Metric and qualified source
+route. Frame owns rows, export and data operations. Artifact owns submission,
+Findings and Evidence, without row export or DSL continuation. Source-free cold
+recovery and fixed-data operations do not choose current models or datasources.
+The full lifecycle and read integrity contract belongs to
+[Runtime](analysis/session-state-and-runtime.md).
 
-Use one Session for the investigation. Construct explicit membership, observation
-windows and dimensions. Read a committed checkpoint when its facts can guide the
-next decision. Use exact artifact/field identities for later work; foreign Session
-inputs fail. Cold recovery reads committed authority and values without executing
-origin recipes or choosing a current datasource.
+## Data display contracts
 
-Read captured facts through the object and operation constraints through Help;
-actual calls validate compatibility. Decide whether the operation answers the question. Algebraic contribution is not cause;
-association is not intervention evidence; Candidate scores are investigative
-leads; forecasts retain model assumptions. A typed digest never stores the agent's
-narrative conclusion as factual truth.
+| Receiver | Display controls | Meaning |
+| --- | --- | --- |
+| AnalysisFrame | show(*, n=20) | Metadata or actual result-order prefix, according to carrier |
+| Artifact | show() | Submission and audit only |
+| PreviewResult / RawSqlResult | show(*, n=None, max_output_bytes=8192), corresponding render | Bounded source result display |
+| Entry/report/page | Owning type's show/render protocol | Definitions, check outcomes or bounded items |
 
-Terminal custom work through `to_pandas()` or `md.raw_sql(...)` remains outside
-governed Dataset composition. The packaged semantic and analysis skills own this
-handoff and the questions that require renewed business meaning.
+Frame n is a nonnegative non-boolean integer. n=0 reads no row/coordinate payload;
+positive preview decodes the prefix and required frozen interpretation. Metadata
+success does not certify unread data. Preview is not full export followed by head.
+Frame cards have bounded text/column display; explicit complete export is
+frame.to_pandas() on a completed root. No common adapter erases these read boundaries.
 
-## Change together and verify independently
+Preview/raw SQL controls use nonnegative n or None, and positive max_output_bytes
+or None; bool is rejected. The UTF-8 budget includes show's printed newline.
+Whole rows fit after required metadata; cells and columns are not silently
+shortened. Omitted rows have exact counts/reasons and applicable recovery calls.
+If mandatory metadata cannot fit, ValueError gives the minimum budget. Line
+breaks/separators are escaped losslessly. Their display controls never change
+source scope, stored rows or query limits. Complete SQL results already reside
+in memory; unlimited display fetches no more source rows.
 
-A changed export, signature, Help route, state method or repair is one disclosure
-contract change. Update the implementation, native registry, reachability/budget
-checks, executable examples, skills and current EN/ZH documentation together.
-Keep one canonical path per capability, concrete public types, immutable results,
-and no legacy migration or alias unless its owning contract explicitly requires it.
+Ordinary nullable values retain precision within their admitted carrier. Value
+NA, legitimate zero and missing alignment endpoints remain different: presence
+is a separate nonnullable boolean. Entity identities remain redacted in cards;
+complete typed export retains physical keys. Duration display retains exact ticks
+and unit. There is no four-state Cell/reason-column protocol.
 
-See [analysis design](../design/analysis/python-analysis-design.md),
-[semantic overview](semantic/overview.md), and the packaged workflow skills for
-their respective contracts.
+## Pages, errors and workflow
 
-Unknown member Help targets preserve the registered receiver in repairs. A
-real public method points to its canonical callable owner, including shared
-display methods; other member guesses point to the receiver page. Close member
-typos retain same-receiver suggestions before unrelated same-name methods.
+Bounded pages expose their owning immutable items and opaque cursor protocol.
+Cursor scope, snapshot and filters cannot be silently changed. Unknown authority,
+empty results, unavailable records and corrupt Stores remain distinct outcomes.
+A display omission never authorizes computational truncation, sampling or
+approximation. Source/native timeout limits retain their actual proof boundary.
+
+Authoring reads current definitions and physical evidence, writes a coherent
+semantic slice, loads and checks its requested roots. Business meaning comes
+from current authority; credentials stay outside project persistent state.
+[Authoring workflow](semantic/authoring-workflow.md) owns those choices.
+
+Analysis uses exact Session and input identities. Source observations, selected
+keys, output coordinates and attributes remain explicit. [Examples](analysis/examples.md)
+show fixed-data continuation and renewed source questions. Correlation is not
+intervention evidence; algebraic contribution is not cause. Method explanations
+retain their original population, and typed audit never stores an agent's
+narrative as established truth. Terminal pandas/raw SQL work must state its own
+sample, denominator and interpretation limits.
+
+## Change and verification ownership
+
+Exports, callable/types, Help, result/error guidance and dynamic continuations
+form one disclosure contract. A change aligns native registries, independent
+export/reachability/budget tests, examples, CLI and latest English/Chinese docs.
+Packaged skills retain workflow ownership and their explicit edit-authorization
+rule. Character/page budgets are proxies rather than measured model efficiency;
+journey correctness and failed lookups/repairs also matter.
+
+[marivo/_help](../../marivo/_help/) coordinates public Help;
+[introspection/live](../../marivo/introspection/live/) owns shared reflection,
+resolution and rendering. Domain-native registries live in the datasource,
+semantic and analysis _capabilities packages. Public export snapshots and
+behavior tests are independent of rendered output.

@@ -1,29 +1,9 @@
 # Operators and Frames
 
-Status: current AnalysisFrame value contract, clarified 2026-10-21 without changing DSL behavior.
-The current data surface is defined by [AnalysisFrame](query-result-reuse.md) and focused Live Help.
-Native expressions and existing source/local numerical kernels are implemented;
-AnalysisFrame supplies one data contract across expression, memory and stored carriers. Focused local checks do
-not by themselves establish full independent acceptance or remote Runtime qualification.
-[Analysis Architecture](README.md) owns objects and compilation;
-[Runtime](session-state-and-runtime.md) owns invocation and publication.
-
-## Immutable coordinates and values
-
-Population describes finite complete coordinate tuples. AnalysisFrame binds named values
-to those coordinates; Column locates an expression on that exact input. Output
-axes remain ordered. A semantic Entity identity includes every primary-key component in
-declared order; roles, paths and version anchors remain part of its semantic binding.
-Frame data axes retain complete physical key types, roles and captured time interpretation,
-without the original Entity/Field nominal binding. A display name derived from a semantic
-path does not restore that binding. This holds for expression, memory and stored carriers.
-A Field Null is a valid category and must not be lost by default grouping behavior.
-
-Complete Frame data owns final typed values, actual coordinates and presence.
-Frame has data operations, bounded preview and complete isolated pandas export.
-Its persisted `.artifact` exposes submission/Findings/Evidence audit only. Neither
-carrier retains a producer graph, hidden aggregate components or source authority.
-Use returned compute/persist roots to fix inputs; exact handles are not fingerprints.
+This page owns nullable values, numeric carriers and current-row statistics.
+[AnalysisFrame](analysis-frame.md) owns structure, exact handles, correspondence
+and row order; [Observation](populations-and-observation.md) owns source contribution
+and sample binding; [Runtime](session-state-and-runtime.md) owns execution and reads.
 
 ## Null, empty and arithmetic policies
 
@@ -93,40 +73,6 @@ sample. It must not substitute an unordered backend first/last. include_null and
 strict sample policy remain attached to the original occurrence. Window overlap,
 per-sample keys and ordered sampling checks survive any legal optimization.
 
-## Contribution occurrences and internal samples
-
-Independent fact roots reduce independently under their own filters and time
-roles, then combine on complete target keys. One root's facts cannot be multiplied
-by another root's rows. Existence selection, overlapping membership allocation
-and modeled association events retain different contribution meanings.
-
-A membership descriptor in the explicit `memberships` parameter of observe or
-Metric.per preserves correlated fields within one tuple. The coordinates are
-declared separately in by/samples; Population contains keys, not allocation rules.
-Outer and inner rules are independent. Separate
-descriptors form independent factors. Repeated `(contribution identity, bucket)`
-pairs are set occurrences; equal-valued distinct contributions remain separate.
-unmatched is explicit exclude or Null. A Population in by selects exactly its
-complete output keys, including keys without facts. Selection preserves original
-contribution identities and allocation denominators; selecting one half-allocated
-bucket still yields its half, without renormalizing over the selected output.
-
-`Metric.per(samples, memberships=())` completes the entire child Metric within each external and
-internal key pair before applying the sample reducer. An average of per-customer
-ratios is not an overall ratio. A complete explicit internal domain retains empty
-samples under the child's empty policy; it may deliberately select a subset.
-
-`P.count()` captures a Population and counts its complete distinct tuples as a
-lazy integer Metric, including Null categories and identities without source
-facts. Empty P counts 0; the zero-axis unit domain counts 1. Grouping matches
-coordinates already in P, without implicit attribute reads: to count identities
-by a new field, explicitly classify while retaining the identity axis first.
-Projecting away identity counts distinct resulting categories instead. Missing
-groups in an explicit output domain count 0. P/Q count independently. Time axes
-broadcast a timeless count or match P's existing frozen time coordinate.
-Fact conditions and windows do not reselect the captured denominator.
-Only-count observations reject conditions/windows with no fact meaning.
-
 ## Current cells, original Metrics and windows
 
 Frame.reduce computes statistics over represented rows using independent valid
@@ -154,8 +100,8 @@ the expression's non-NA count. No source correlation pushdown is qualified.
 Correlation tests constants and ties on actual input values, then uses exact
 integer/Decimal differences or binary float scaling before two-pass centered
 stable sums and residual scaling. Nonfinite intermediates or a lost nonconstant
-scale fail before clipping a finite coefficient to [-1, 1]. The numeric and
-empty-domain contract is owned by [Correlation Statistics](../../design/analysis/correlation-statistics-design.md).
+scale fail before clipping a finite coefficient to [-1, 1]. The numeric implementation is owned by
+[frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
 Source Metric/per/window execution may retain internal sufficient state during
@@ -165,85 +111,15 @@ requires explicit construction; a fixed ordinary-axis Population bridge can
 constrain selected keys but cannot restore old unobserved facts or history.
 A new source read may see changes after a selection was fixed.
 
-## Complete correspondence and comparison
+## Interpretation and implementation
 
-Align and each named compare baseline bind every complete axis. Ordinary axes
-require a full explicit bijection; zero-axis pairs or a sole same-kind time axis
-permit only the specified structural inference. Named compare's `on` and `match`
-are alias-keyed mappings. FrameAxis/Column belong to the exact receiver; matching
-names do not rebind them. Exact checks complete actual joint keys. Compare outer
-starts with current rows and appends mapped baseline-only keys by alias order;
-actual baseline time rows outside the current declared time domain reject. Align
-retains its general two-ended union and paired output.
-For ordinary axes, explicit on declares the caller's business correspondence.
-Validation checks ownership, roles, complete key types and time interpretation;
-it does not check original Entity/Field equality. Compatible Customer/Product
-identity keys can be explicitly paired without establishing business identity.
+Field Null is a valid grouping category; absent rows and value NA are different.
+Exact output order and schema survive empty/keys-only results and persistence.
+Arithmetic change is not causal evidence or proof of source freshness/completeness.
 
-Align preserves left/right values. Compare requires equal nonempty value paths
-and compatible numeric types/units. It keeps current axes/unqualified values and
-adds `<alias>.baseline.*`, `<alias>.absolute.*`, `<alias>.relative.*` in each alias's
-current value order. Absolute is current-baseline and relative divides by the
-absolute baseline. Missing rows/NA yield NA differences before zero policy.
-Duration baseline/absolute retain ticks; relative is dimensionless. Child strict
-policies stay required even after select or Top-0.
-Equal value names select comparison pairs; they do not establish Metric identity
-or business comparability, even when numeric types and units are compatible.
-
-Compare row flags are nonnullable `current.present` / `<alias>.present`, distinct
-from value NA; inherited flags use `current.presence.*` / `<alias>.presence.*`.
-Generated paths cannot collide with retained values/presence. Select remaps only
-direct saved value bindings; arithmetic does not gain comparison certification.
-Where/top retain complete frozen directories. Reduce drops row presence and all
-comparison certifications; retained current time axes keep only their own
-interval/calendar explanation. Same-domain equality composition may transport
-exact bindings; displaced time authority leaves only inert transported presence
-facts. No completed result recovers Metric or source evaluation authority.
-
-
-
-A TimeScope in by retains one interval coordinate; single-bucket results keep
-the axis. Interval equality uses exact bounds and boundary timezone. Explicit
-ordinal pairs intervals only when both complete declared directories contain one
-record and their boundary timezones agree. where/top/select retain the full
-directory, so filtering a multi-interval result to one row does not qualify it
-for ordinal. Time plus ordinary coordinates requires complete explicit on.
-
-Calendar match consumes frozen finite directories and versioned pure rules,
-without model or timezone database reconstruction. Original ordinals do not
-compress after where/top. Structural match admission requires full compatible
-nominal partitions and actual boundaries equal to nominal ones. It differs from
-actual output-row coverage: unmatched actual rows fail exact or remain in outer;
-unused directory buckets do not create rows. Named calendars support ordinal
-only; builtin offsets/year follow their stated grain limits. Paired coordinates
-retain both frozen endpoints/map. Re-aligning a paired axis, arbitrary identity
-correspondence, scalar broadcast, calendar coarsening and partitioned top are
-outside the first Frame surface.
-
-## Reference transport and share
-
-A complete-domain reference can be an explicit values Frame aligned on its
-entire target domain, followed by Column arithmetic. This is not automatic
-broadcast or proof of contribution inclusion. Frame has no share receiver or
-implicit original denominator. When a source ratio is required, construct the
-explicit governed source formula; when external arithmetic is needed, disclose
-its exact fixed input and denominator. Neither is an invented equivalent for
-retired contribution-share behavior.
-
-## Export and interpretation
-
-Frame.to_pandas returns an isolated complete table with RangeIndex and
-`(kind, name)` MultiIndex columns: physical coordinate keys by axis token, named
-values and presence. Axis descriptions and units are isolated attrs;
-`attrs["frozen_coordinates"]` contains typed isolated attachment tables for
-calendar labels/bounds/ordinals and paired endpoint maps. It contains no semantic
-Ref, formula, reader or hidden state and cannot be imported as a typed contract.
-The simpler interpretation path is Frame.show, which resolves saved labels and
-bounds without new visible projection columns or endpoint methods.
-
-Exact output order survives complete reads and persistence. Empty/keys-only
-results retain schema. Pair exports by complete business keys, preserve Field
-Null with dropna=False where appropriate, and distinguish zero, NA and absent
-endpoint. Unsupported descriptive/paired statistics, forecasting and external
-presentation need explicit sample, NA, tie and uncertainty choices. Arithmetic
-is not causal evidence or proof of source freshness/completeness.
+[numeric_state.py](../../../marivo/analysis/methods/numeric_state.py) and
+[query_values.py](../../../marivo/analysis/methods/query_values.py) own local numeric
+completion and reductions. [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py)
+owns paired statistics. [physical.py](../../../marivo/analysis/methods/physical.py)
+owns method/type/backend qualification; [_ibis_numeric.py](../../../marivo/analysis/methods/_ibis_numeric.py)
+owns source-native numerical construction.

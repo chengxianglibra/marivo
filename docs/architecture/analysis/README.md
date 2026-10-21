@@ -1,69 +1,56 @@
 # Analysis Architecture
 
-Status: AnalysisFrame cutover contract, 2026-10-19. Implementation, local
-acceptance, provider Runtime qualification and release gates are separate.
+Analysis separates explicit source questions, immutable data operations and
+publication. One AnalysisFrame type represents pending expressions, complete
+memory data and exact stored references. Artifact is the committed result's
+submission/audit view.
 
-## Read the owning contract
+## Owning contracts
 
-| Document | Owns |
+| Topic | Document |
 | --- | --- |
-| [AnalysisFrame](query-result-reuse.md) | Final data, coordinate, carrier and source-boundary contract |
-| [Operators and Frames](operators-and-frames.md) | Nullable values, complete keys, contribution occurrences and current-row operator meaning |
-| [Core Algebra](algebra-theory.md) | Mathematical definitions and conditional laws, with separate current DSL and optimizer coverage |
-| [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 15 and reading |
-| [Analysis Evidence Access](evidence-access-surface.md) | Saved source facts, current evaluation, Findings and their interpretation limits |
-| [AnalysisFrame cutover](analysis-frame-cutover.md) | Breaking API/value-name changes, older Store refusal and explicit source reconstruction |
+| Population, source observation, membership and endpoint investigation | [Populations and observation](populations-and-observation.md) |
+| Frame structure, carriers, names, correspondence and row order | [AnalysisFrame](analysis-frame.md) |
+| Nullable values, physical numeric carriers and current-row statistics | [Operators and Frames](operators-and-frames.md) |
+| Session ownership, evaluation, Store publication/recovery and reads | [Session and Runtime](session-state-and-runtime.md) |
+| Source/evaluation audit, Findings and immutable method explanations | [Evidence access](evidence-access-surface.md) |
+| Runnable source/fixed-data workflows | [Examples](examples.md) |
+| Conditional mathematical laws and actual optimizer coverage | [Core algebra](algebra-theory.md) |
 
-Datasource and semantic work starts at [the semantic overview](../semantic/overview.md).
-Cross-layer time follows [Temporal Semantics](../temporal-semantics.md).
-Static API facts, captured instance state and errors follow
-[Agent-Facing Public Surface](../agent-friendly-public-surface.md).
+Semantic definitions start at [the semantic overview](../semantic/overview.md).
+[Temporal semantics](../temporal-semantics.md) owns exact time boundaries and
+frozen matching. [Public surface](../agent-friendly-public-surface.md) owns Help,
+captured state and structured repair disclosure.
 
-Design proposals, implementation plans and progress records, and test evidence
-are kept in the local-only `docs/design/`, `docs/implementation/`, and
-`docs/testing/` directories. They are not part of the tracked architecture
-reference.
-
-## Public construction and acquisition
-
-Use `mv.*` for explicit descriptions and composition, `session.*` to introduce
-Catalog, Store, execution ownership or the frozen default timezone, and receiver
-methods/properties for existing context. `mv.session.create/resume/recent/inspect`
-establish or discover lifecycle context. Public types support annotations and
-inspection; they do not authorize direct construction or extension.
-`mv.attribute_endpoint(metrics, during=None, where=None, memberships=())`
-captures immutable endpoint inputs; `session.attribute` owns binding and eligibility.
-
-## Execution and output boundary
+## Construction and data flow
 
 ```text
-datasource: qualified Ibis execution returning pandas
-    -> semantic: immutable definitions and explicit domain dependencies
-    -> analysis: Population / AnalysisFrame / Column / exact FrameAxis handles
-    -> compiler: explicit source and fixed inputs, complete checks and one schedule
-    -> compute: complete immutable memory data, frozen coordinates and one audit
-    -> persist: publish that existing result through the Store 15 transaction
-    -> persisted Frame: source-free data operations and isolated pandas export
-    -> frame.artifact: submission, Findings and Evidence audit
+Session + resolved definitions / explicit literal domains
+    -> Population / source observation / literal Frame
+    -> Frame expression with exact Column and FrameAxis bindings
+    -> compiler: required keys, values, checks and one stage schedule
+    -> source Ibis reads + fixed inputs + pandas local kernels
+    -> complete immutable memory data and audit
+    -> Store transaction publishing that existing result
+    -> stored Frame: source-free supported data operations
+    -> frame.artifact: submission / Findings / Evidence
 ```
 
-`session.observe` binds Metrics; `attribute` binds explicit endpoints and new
-classifications; `read` binds nonempty fields to one Entity
-identity domain; `values` declares literal rows; `frame` binds a general Population
-key domain. All return AnalysisFrame. Construction and `.show()` do not evaluate.
-Use the returned `compute()` or `persist()` Frame to fix values and keys. Reopen
-with an exact Session and `session.persisted_frame(frame.artifact.id)`.
-New source questions require explicit source inputs; an ordinary-axis
-`session.population_from(frame, on=...)` bridge can constrain that new question.
-Frame axes retain data types, roles and time interpretation without original
-Entity/Field nominal bindings. Explicit ordinary-axis correspondence and bridge
-targets declare caller business intent; validation does not prove original
-semantic identity. Current-row sum/mean retain units without certifying Metric additivity.
-Static Help owns operation discovery; `.show()` owns captured facts and errors own repairs.
+mv.* owns source-free descriptions and composition; session.* introduces Catalog,
+Store, execution ownership or frozen defaults; receiver methods derive existing
+context. Public result types are acquired values, rather than user constructors.
+Lifecycle discovery is mv.session.create/resume/recent/inspect. Source captures,
+repr and metadata show do not evaluate. A completed Frame show explicitly reads
+current data; compute/persist are the evaluation boundaries.
 
-All Frames use Store15, `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`.
-Cards/reopen read bounded descriptors; `to_pandas()` reads current data only;
-`method_facts` reads complete owned explanation payloads. Stored compute and
-evaluated derivatives consume both. Saved derivatives remain self-contained.
-Contribution requires the qualified physical DuckDB table route; default
-investigation has its own valid observation boundary and no contribution proof.
+Each source question supplies its actual Metric/field/domain/time dependencies.
+Finished data retains complete keys, values, presence and necessary frozen
+coordinates without original semantic objects, producer graphs or hidden
+aggregate components. New source facts require new explicit inputs. A bridge can
+reuse fixed selected ordinary keys without recovering their original definitions.
+
+The compiler shares actual inputs only within an evaluation and releases them
+by consumer lifetime. Fixed-data composition does not authorize upload to a
+remote source or implicit rereading. Numeric/backend qualification, source
+coverage and error checks remain owned by the consuming operation. Local code
+alignment and examples do not establish an unrun provider or release matrix.
