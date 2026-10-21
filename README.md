@@ -181,6 +181,13 @@ uv venv --python 3.10 --seed
 uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 ```
 
+Tests protect current behavior with concrete failure cases and independently justified
+expected results. Review additions for value beyond existing coverage, and identify retained
+owners before merging or removing cases. Test counts and a universal coverage percentage are
+not quality gates; see the testing requirements in [CONTRIBUTING.md](CONTRIBUTING.md#测试).
+The default suite includes unit and local integration tests and does not establish Runtime
+or installed-package qualification.
+
 Use the repository entrypoints for checks:
 
 ```bash

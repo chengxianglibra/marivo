@@ -179,6 +179,10 @@ nodes. Keep independent budget checks parametrized so xdist can distribute them.
 
 ### 测试覆盖率
 
+覆盖率用于寻找未执行的重要分支；必须结合独立预期值、有效断言和关键风险评审。
+不设置全项目统一的最低百分比，也不通过重复用例或放宽断言追求数字。下面命令使用
+默认测试选择，不能将其报告视为完整 slow、Runtime 或 release 覆盖。
+
 ```bash
 # 生成覆盖率报告
 .venv/bin/pytest --cov=marivo --cov-report=term-missing
@@ -192,21 +196,43 @@ nodes. Keep independent budget checks parametrized so xdist can distribute them.
 ```
 
 ### 测试要求
-- 新功能必须包含单元测试
-- 测试覆盖率目标：≥80%
-- 所有测试必须通过才能合并
+
+- 新功能、行为变化和缺陷修复应有相关行为证据，优先扩展已有测试；保持行为的重构
+  可以复用已有有效覆盖。选择能真实暴露错误且成本合理的测试边界。
+- 新增或实质修改的测试应说明当前契约、具体失败模式、独立预期值、必要边界及增量
+  价值；通常由名称、输入和断言表达，不要求每个用例单独填写文档。
+- 数值测试使用手算、独立参考实现或适用的数学性质；不得调用被测生产逻辑计算预期值。
+  按契约检查键、单位、NULL/presence、精度和顺序，不能只检查非空或成功执行。
+- 评审同时检查“错误实现能否被识别”和“等价重构能否继续通过”。只有交互本身属于
+  契约时才断言调用次数或顺序；公开 exports 快照与必要的 Help 契约检查继续保留。
+- 合并或删除测试前，说明独特失败模式由哪个测试保留，或其契约为何退役；慢、失败、
+  相同覆盖率或存在端到端用例均不足以证明冗余。保留必要的 native、损坏输入和冷恢复边界。
+- 按变更范围通过要求的门禁，报告实际运行范围与阻塞；默认 `make test` 包含单元及
+  本地集成测试，其通过不代表完整 Runtime 或发布验收通过。不得通过 skip、xfail 或
+  修改 marker 隐藏回归。
+- 仅文档改动检查内容、链接和差异，不自动运行行为测试。共享 fixture 或行为变化按
+  仓库规则扩大验证，相关 Runtime、slow 和发布证据分别说明。
 - 测试文件命名：`test_*.py`
-- 测试类命名：`*Tests`
-- 测试方法命名：`test_*`
+- 测试函数命名：`test_*`
+- 优先使用 pytest 测试函数与 fixtures；保留现有 `unittest.TestCase` 时，方法命名为 `test_*`。
+  当前配置不收集普通 pytest 测试类，不因命名约定引入无法收集的测试。
+
+详细规范与覆盖责任保存在本地 `docs/testing/test-quality.md` 和
+`docs/testing/runtime-coverage.md`；fixture 操作指引位于本地
+`.agents/skills/marivo-test-fixtures/SKILL.md`。这些目录按仓库约定不由 Git 跟踪，
+干净 checkout 以本节及 `AGENTS.md` 中可用的规则为准。
 
 ## 提交规范
 
 ### 提交前检查清单
-- [ ] 代码已格式化（`make format`）
-- [ ] 通过linting检查（`make lint`）
-- [ ] 通过类型检查（`make typecheck`）
-- [ ] 所有测试通过（`make test`）
-- [ ] 测试覆盖率满足要求
+
+按变更适用范围检查；仅文档改动遵循上面的文档检查要求。
+
+- [ ] 已格式化本次修改的 Python 文件
+- [ ] 已通过适用的 lint 检查
+- [ ] 已通过修改模块所需的类型检查
+- [ ] 已通过本次要求的门禁，并明确本地、slow、Runtime、发布检查的实际范围或阻塞
+- [ ] 关键行为有有效断言和独立依据；删除合并的独特覆盖已有去向
 - [ ] 更新了相关文档
 
 ### 提交信息格式
