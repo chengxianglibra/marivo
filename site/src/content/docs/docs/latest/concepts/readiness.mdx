@@ -1,159 +1,36 @@
 ---
-title: Readiness
-description: Snapshot-independent technical certification for semantic inputs.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Examples assume the conventional `md`/`ms` imports, a loaded `catalog`, and the exact sales fields named below. `amount` is a physical catalog field.
+This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
 
 ## What readiness checks
 
-`catalog.readiness(refs=[...])` explicitly checks current physical catalog objects,
-exact refs, their compiled dependency closures and certified temporal artifacts.
-It opens no datasource connection, reads no schema or ordinary preview history,
-and imports no optional backend clients. Scoped reports retain dependency warnings
-and exclude unrelated warnings.
-
-Inspect published Measure/Metric definitions through `catalog.describe()`; select
-the physical fields and Entities they consume for readiness. Source Frame preparation and
-execution own physical types, aggregate/backend support and operation-specific
-qualification. Analysis APIs do not invoke readiness automatically. Missing business
-descriptions and guardrails do not block it.
-
-If a published expression is passed to readiness, its structured error lists
-real physical dependencies from the current compiled closure. When the complete
-list fits the repair bound, it supplies a direct retry. It never silently
-substitutes inputs or equates static readiness with execution qualification.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Preview is independent
 
-Preview reads the current datasource through an explicit bounded scope:
-
-{/* example: readiness-1 */}
-
-```python
-import marivo.datasource as md
-
-preview = catalog.preview(
-    catalog.metrics.get("sales.revenue"),
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-)
-```
-
-For a multi-entity ref, pass a complete mapping keyed by exact
-`Ref[entity]` values. `source_bindings=` uses the same exact entity-ref mapping
-shape for parameterized JSON sources. Marivo validates scope keys, datasource
-compatibility, positive row and timeout guards, and the complete batch before
-opening a connection.
-
-Ordinary preview returns only the current execution result. It creates no
-authoring checkpoint and cannot change readiness. A native timezone-naive
-timestamp without an explicit parse contract is reported directly by preview as
-a `time_parse_risk` warning.
-Static readiness does not infer naive/aware kind from `ms.timestamp()` or probe
-physical schema. Execution preparation resolves the actual type and freezes
-reader authority for naive values; aware values reject parser timezone.
-
-Previewing a period calendar or temporal set is also its
-certification path. Marivo reads every required column up to the scope's
-`max_rows + 1` boundary and publishes the immutable artifact only when that
-scope is exhaustive and the rows satisfy the declaration. `limit` controls only
-the displayed result rows, not certification input.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Source health is separate
 
-Use `catalog.source_health(...)` when the current question is whether a source
-or declared data expectation has drifted. It never runs implicitly during load,
-preview, readiness, or analysis, and it stores no checkpoint or history.
-
-{/* example: readiness-2 */}
-
-```python
-from datetime import timedelta
-
-amount = catalog.fields.get("sales.orders.amount")
-health = catalog.source_health([amount])  # connectivity and metadata only
-
-health = catalog.source_health(
-    [amount],
-    checks=[
-        ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
-        ms.source_check.freshness(
-            ms.ref.time_dimension("sales.orders.created_at"),
-            max_age=timedelta(hours=24),
-        ),
-    ],
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-)
-```
-
-With no declared checks, source health performs only a connection roundtrip and
-authoritative schema/capability inspection; omit `scope`, and no user data is
-queried. Null, enum, uniqueness, freshness, relationship-match, and cardinality
-expectations exist only when explicitly built through `ms.source_check`. Those
-checks require a positive bounded scope. Every result reports `current`,
-`failed`, `unavailable`, or `unknown`, the affected current semantic refs, a
-typed repair, and whether user data was queried under which exact scope.
-
-Running source health cannot change `ReadinessReport.status`, issues, or
-`analysis_ready_inputs`.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## The report
 
-`catalog.readiness(refs=[...])` returns a frozen `ReadinessReport`:
-
-| Field | Meaning |
-| --- | --- |
-| `scope` | Always `"semantic_static"`; operation-specific execution checks remain with the consuming API. |
-| `status` | `"ready"`, `"ready_with_warnings"`, or `"blocked"`. |
-| `analysis_ready_inputs` | Ordered, directly requested physical refs whose full dependency closures contain no blocker; dependencies appear only in `input_summary`. |
-| `blockers` | Issues that prevent the affected requested roots from being handed to analysis. |
-| `warnings` | Non-blocking warnings and advisories. |
-| `input_summary` | Datasources, refs, and tables considered by the check. |
-| `checked_at` | ISO-8601 check timestamp. |
-| `catalog_definition_fingerprint` | Exact compiled semantic project identity. |
-
-`analysis_ready_inputs` contains the directly selected physical inputs. There
-is no refs-only projection, preview-required list, validation token, or hidden
-transfer object.
-
-Each issue carries a typed `repair` with the action and owning live-help target.
-Follow that repair and rerun readiness. Construct analysis from the corresponding
-current Catalog values; the report does not grant expression execution support.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Important blockers
 
-Unknown refs, physical declaration/dependency problems and missing, stale or invalid
-temporal artifacts block affected inputs. Source Frame preparation and evaluation report
-aggregate/backend incompatibilities without substituting a different definition.
-
-Dedicated temporal artifact blockers use artifact terminology:
-
-- `period_calendar_artifact_missing`, `_stale`, or `_invalid`
-- `temporal_set_artifact_missing`, `_stale`, or `_invalid`
-
-Their repair points to `catalog.preview(..., scope=...)` with an exhaustive
-bounded scope. Failed or truncated certification does not publish a replacement
-artifact.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Continue to analysis
 
-{/* example: readiness-3 */}
-
-```python
-import marivo.semantic as ms
-
-catalog = ms.load()
-amount = catalog.fields.get("sales.orders.amount")
-report = catalog.readiness(refs=[amount])
-
-if report.status == "blocked":
-    report.show()
-    raise SystemExit
-
-ready_inputs = report.analysis_ready_inputs
-```
-
-A non-blocked report certifies the selected semantic closures; it is not a
-guarantee that every future query or operation-specific artifact shape will
-succeed. Runtime execution, data quality, and analysis-specific contracts remain
-owned by the consuming operation.
+[Continue reading](/docs/latest/modeling/semantic-layer/)

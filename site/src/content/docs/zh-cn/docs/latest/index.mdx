@@ -1,31 +1,34 @@
 ---
-title: Marivo 用户指南
-description: 选择 Agent 或 Python 路径开展已治理分析。
+title: Marivo
+description: 用 Python 定义业务指标、查询数据并保存分析结果。
 ---
 
-Marivo 是面向 AI Agent 的 Python 分析 harness。可复用语义定义绑定业务含义，
-typed analysis 计算明确结果并记录 Evidence。问题选择与结果解释由你或 Agent 完成。
+<span id="沿一条可审阅流程前进"></span>
+<span id="从问题走到可检查的回答"></span>
+<span id="开始前需要什么"></span>
+<span id="选择入口"></span>
 
-本 `latest`指南跟随当前开发实现。版本化文档描述各自历史发布，
-安装已发布包不意味着所有开发 API 都可用。
+Marivo 是用于业务数据分析的 Python 库，提供语义层和分析 DSL。语义层保存指标、实体、维度和关系等业务定义；分析 DSL 用这些定义计算、比较和拆分结果，并保留分析依据。
 
-## 选择入口
+例如，订单表有金额、地区和日期。你可以定义收入，再按地区查看每月收入、比较两个时期，或计算滚动窗口和相关性。分析结果可以保存，之后从同一份数据继续计算。
 
-| 目标 | 从这里开始 |
+## 可以做什么
+
+| 任务 | 用法与结果 |
 | --- | --- |
-| 与 Agent 一起回答业务问题 | [选择项目](/zh-cn/docs/latest/quick-start/)，然后进行[首次 Agent 分析](/zh-cn/docs/latest/first-analysis/) |
-| 自己运行 Python 库 | [安装](/zh-cn/docs/latest/installation/)，然后运行[完整本地教程](/zh-cn/docs/latest/guides/python-quick-start/) |
-| 新增或修复可复用含义 | [数据源](/zh-cn/docs/latest/guides/datasources/)与[语义建模](/zh-cn/docs/latest/guides/semantic-modeling/) |
-| 读取或分析保存的输出 | [证据与恢复](/zh-cn/docs/latest/concepts/evidence/) |
+| 接入数据 | 声明数据库或文件来源，检查结构和样本 |
+| 定义业务口径 | 定义收入、客单价等指标，复用单位、时间和关系规则 |
+| 查询与分组 | 按地区、客户和时期计算指标，选择所需记录 |
+| 比较与拆分 | 比较两个时期或目标值，按维度调查变化 |
+| 时间与统计 | 按日历聚合、计算滚动窗口、占比和相关性 |
+| 保存与检查 | 保存固定结果，读取数据和方法说明 |
 
-## 沿一条可审阅流程前进
+## 从哪里开始
 
-1. 确定业务决策、已确认 Metric 含义与范围。
-2. 复用已治理对象；按需编写缺失的可复用语义组。
-3. 构造明确来源分析，compute 固定数据，persist 发布已完成结果。
-4. 在实际范围内读取 Frame 数据及持久结果的 Artifact 审计。
-5. 审阅结论、限制和仍缺少的证据。
+[安装与项目](/zh-cn/docs/latest/start/installation/)说明环境准备。[快速开始](/zh-cn/docs/latest/start/python/)提供六笔本地订单，计算总收入 1,800 元。
 
-从[核心概念](/zh-cn/docs/latest/concepts/)和[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)开始。
-高级专题覆盖时间与群体、比较、统计与日历。
-确切签名由 native Help 与[Python API 参考](/api/)提供。
+[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)介绍如何建模；[分析 DSL](/zh-cn/docs/latest/analysis/dsl/)通过代码介绍查询、筛选、比较和拆分。
+
+需要让 Agent 操作时，阅读[使用 Agent](/zh-cn/docs/latest/guides/agents/)。
+
+本 latest 指南对应开发源码。发布包请使用匹配版本的文档。数据访问与分析方法的支持范围见[数据源限制](/zh-cn/docs/latest/reference/backends-and-limits/)。

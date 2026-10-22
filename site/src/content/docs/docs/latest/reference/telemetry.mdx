@@ -1,161 +1,42 @@
 ---
-title: Local telemetry
-description: Control the local usage records written by a Marivo project.
+title: Logs and telemetry
+description: Find local logs, control telemetry, and check records before sharing.
 ---
 
-## Execution logs and telemetry have separate responsibilities
+<span id="execution-logs-and-telemetry-have-separate-responsibilities"></span>
+<span id="understand-local-telemetry"></span>
+<span id="capture-modes"></span>
 
-Execution logs diagnose one concrete query or analysis execution. Telemetry
-summarizes public capability usage, outcomes and operation durations across runs.
-Both can carry the same operation/session identifiers; neither replaces the
-Runtime/Store records that own execution lineage and recovery.
+Execution logs record queries and their outcomes; usage telemetry records operations and durations. Both stay local. Use saved Frames to read analytical values.
 
-Actual Marivo-owned SQL submissions are always recorded in project-local files:
+## Find the right records
 
-```text
-.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl
-```
+| Record | Location | Use |
+| --- | --- | --- |
+| Execution logs | `.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl` | Submitted SQL, outcomes, and durations |
+| Usage telemetry | `.marivo/telemetry/events-YYYY-MM-DD.NNN.jsonl` | Operation, outcome, and duration summaries |
 
-There is no execution-log or SQL switch. `MARIVO_TELEMETRY=off` and
-`[telemetry].enabled = "off"` only disable usage telemetry. Both sinks stay local.
-Logging covers governed source queries and checks, connectivity probes, registered
-provider metadata/control statements and `md.raw_sql()`. SQL generated but never
-submitted is not recorded as an executed query. Third-party driver/Ibis bootstrap
-SQL and the Store's own SQLite persistence statements are outside this coverage.
+Use the query ID to match a SQL submission with its completion.
 
-`query.submitted` stores the complete SQL text and a unique `query_id` before
-source execution. For governed reads, that SQL is the compiled bound Ibis
-expression; the record also retains its purpose and source identity.
-`query.completed` records elapsed time, outcome and the row count
-returned by the completed governed native Ibis read. Governed reads materialize
-a pandas DataFrame before completion is recorded; Marivo does not report custom
-Arrow-consumed bytes, stream exhaustion or cursor-close fields. Later owner-release
-facts can appear as `query.cleanup`; remote termination remains unknown unless
-the execution owner has confirmed it.
+## Choose capture mode
 
-Analysis logs include execution and phase start/completion, result counts, and
-cache reuse. Python/pandas phases have no invented SQL. Available operation,
-session, run, datasource, backend and stage identifiers link the records.
-Fixed Frame data use is distinct from a new source read; there is no automatic
-historical-result selection. Internal publication records describe submission after evaluation. Errors contain their type, available backend codes and a bounded,
-redacted summary. Parameterized credential statements log the template only,
-without parameter values or credential-bearing failure messages. Result rows and
-exception local variables are not logged. Full SQL can contain business literals;
-review execution logs before sharing them.
+| Mode | Behavior |
+| --- | --- |
+| `on` | Default; records execution, failures, saving, and reuse |
+| `full` | Records a broader set of public operations |
+| `off` | Disables usage telemetry; execution logs remain enabled |
 
-Execution files roll by UTC day and at approximately 128 MiB per segment. A single
-record stays intact even when larger than the segment threshold. On the first
-successful write of each UTC day, managed historical files older than 14 days are
-removed, then the oldest historical segments are removed until historical files
-occupy at most 1 GiB. Current-day segments, unrelated files and legacy telemetry
-files are not removed. The historical cap is not a hard cap on the whole log
-directory. Directories use `0700` and files use `0600` permissions. Write or
-cleanup failures leave execution semantics intact, produce a rate-limited warning,
-and recovered writes include the number of dropped records for that project.
-
-For example, after a governed diagnostic:
-
-{/* example: execution-log-diagnostic */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-result = md.raw_sql(
-    ms.ref.datasource("warehouse"),
-    "SELECT 1 AS marker",
-    reason="diagnose the query path",
-)
-```
-
-Read the project's `execution-*.jsonl` files to find the verbatim SQL and the
-matching completion by `query_id`. Read `events-*.jsonl` to analyze operation
-usage and outcomes; telemetry deliberately excludes SQL text and exception
-messages.
-
-## Understand local telemetry
-
-Marivo writes OpenTelemetry-shaped JSONL events to UTC-dated files in the
-project state directory:
-
-```text
-.marivo/telemetry/events-2026-07-29.000.jsonl
-```
-
-The final three digits are a size segment. Marivo starts a new segment when the
-current file would grow beyond 128 MiB. The limit is approximate when multiple
-processes append concurrently.
-
-Marivo retains 14 UTC calendar days of managed event files. On the first write
-of each UTC day, it also removes the oldest historical segments until historical
-telemetry is at most 1 GiB. Files for the current UTC day are never removed by
-that cleanup. A legacy `.marivo/telemetry/events.jsonl` file from an earlier
-Marivo version is left untouched; archive or remove it explicitly after deciding
-whether its events are still needed.
-
-Telemetry schema v2 covers CLI init and help plus explicit public datasource,
-semantic, and analysis operations. The read-only `marivo doctor` command is
-deliberately not instrumented. Without `--connect`, it creates no local state;
-explicit `--connect` probes write execution logs but do not write telemetry or cache secrets. Each
-instrumented operation writes a correlated pair:
-
-- `marivo.operation.started`
-- `marivo.operation.completed`
-
-The pair shares an operation ID. Nested public calls include a parent operation
-ID, and completed events include status, total duration, stable structured error
-and repair fields, or a bounded result summary. Expensive operations may also
-include validation, execution, persistence, and evidence phase durations.
-The `marivo.operation.origin` attribute distinguishes top-level `explicit`
-calls from `delegated` calls and declarations executed during `internal_load`.
-Successful internal declarations are omitted when an existing analysis session
-reloads its semantic catalog; the enclosing semantic `load` operation and any
-failed declaration remain recorded.
-
-The native analysis surface instruments explicit Session creation/resume,
-Frame evaluation and result publication. Pure AnalysisFrame/Population construction, predicates,
-`.show()` and read-only methods do not write analysis operation events.
-Session-bound events can include the persisted `session.question`;
-`md.raw_sql(...)` includes its required `reason`. Session acquisition records
-whether the Session was created and whether an explicit question was applied;
-omitting `question` preserves the persisted value.
-
-Input and result summaries include only admitted identifiers, types, counts,
-options, limits and fingerprints available on that operation. Internal publication records and Artifact records own publication and recovery; result audit owns source facts and current evaluation, without complete data-lineage guarantees.
-Marivo never writes credentials, resolved secrets, datasource hosts, DSNs,
-SQL text, filesystem paths, slice values, Dataset rows, free-text collection
-items, arbitrary object representations or exception messages to telemetry.
-
-The legacy `events.jsonl` file can contain schema v1 lines after an upgrade.
-Marivo does not migrate that file. Consumers reading retained history should
-scan the dated `events-*.jsonl` files and, when needed, read the legacy file
-separately. They should select records whose `marivo.event.schema_version`
-attribute is `2`.
-
-These events stay local. Marivo does not upload them. The raw session question,
-and raw-SQL reason are stored in the local event file; review
-that file before sharing project state outside your environment.
-
-Disable local telemetry for one process:
-
-```bash
-MARIVO_TELEMETRY=off marivo init
-```
-
-Set a project default in `marivo.toml`:
+Set the project default in `marivo.toml`:
 
 ```toml
 [telemetry]
-enabled = "off" # "on" or "off"
+enabled = "off"
 ```
 
-`MARIVO_TELEMETRY=on|off|full` overrides `[telemetry].enabled` for the current
-process. If neither is set, local telemetry defaults to `"on"`.
+The `MARIVO_TELEMETRY` environment variable accepts `on`, `off`, or `full` and overrides project configuration.
 
-## Capture modes
+## Understand retention and sharing
 
-`on` is the default and records failures, query execution, Artifact publication
-and reuse, and one outer decision operation. Pure discovery/read operations are
-omitted. `full` records the broader capability matrix; `off` disables usage
-telemetry. Execution logs remain enabled in every mode. Event schema is v3 and
-records capture policy explicitly.
+Files roll by UTC day and approximately 128 MiB segments. Historical records are normally kept for 14 days and pruned to a 1 GiB historical budget. Current-day files are not pruned, so the whole directory may exceed that size.
+
+Execution logs contain SQL, which can include business conditions and literals. Usage telemetry can retain session questions and SQL reasons. Check records for sensitive content before sharing them.

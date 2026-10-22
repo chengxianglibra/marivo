@@ -1,114 +1,32 @@
 ---
-title: Author reusable semantics
-description: Author expressions with explicit stages, units and business authority.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Construct context with `ms.ai_context(...)`; explicit context annotations use
-`ms.typing.AiContextValue`. Read readiness issue/input records and source-health
-checks from their report fields. These classes are not root constructor exports;
-`marivo.help(type(value))` retains their full type and field contracts. Temporal
-kind markers remain available for concrete `Ref[K]` annotations.
-
-Physical Entity/Field constructors capture typed Ref lookup keys. After all dependencies are declared, call `ms.finalize()` and resolve the needed values from its frozen result before composition. Named and local expressions share one graph; finalization never replays module or import effects.
-
-Browse entries expose semantic identity through `.ref`, such as `entry.ref.path`; use `catalog.describe(entry.ref).show()` for definition facts.
-
-Semantic objects need not remain bound to their original definition versions. A same-path definition change alone does not reject an input; the agent/user accepts the consequences of semantic changes during analysis. Resolving consumers use their completed scope. Immutable expressions keep their stored definitions and facts without live refresh. Kind, root, grain, unit, time-role, null and permission checks still apply. Fingerprints and cache keys describe actual consumed definitions; persisted provenance and records retain their own contracts.
-
-Numerical and conditional Field inputs, Measures and Metrics use native Ibis Deferred. Named declarations attach immutable metadata to the same recipe. Loading collects exported root declarations once; anonymous derived expressions remain local. Physical dtypes are prepared automatically at execution.
+This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
 
 ## Declare one dependency slice
 
-The warehouse datasource and listed columns must exist. Save as models/semantic/sales/_domain.py.
-
-{/* example: semantic-model-basics */}
-
-Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `AnalysisFrame.show()` describes captured execution facts. Display does not execute a query.
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-sales = ms.domain(name="sales", owner="Mina Zhang")
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
-                   source=md.table("orders"), primary_key=["order_id"])
-region = ms.dimension_column(name="region", entity=orders, column="region")
-paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at",
-                                   is_default=True)
-amount = ms.measure_column(name="amount", entity=orders, column="amount",
-                           additivity=ms.additive_all(), unit="CNY")
-cost = ms.measure_column(name="cost", entity=orders, column="cost",
-                         additivity=ms.additive_all(), unit="CNY")
-
-@ms.dimension(entity=orders)
-def normalized_region(rows):
-    return ms.bind(region, rows).upper()
-
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-region = finalized.resolve(region)
-normalized_region = finalized.resolve(normalized_region)
-paid_at = finalized.resolve(paid_at)
-amount = finalized.resolve(amount)
-cost = finalized.resolve(cost)
-
-@ms.measure()
-def margin():
-    return amount - cost
-
-@ms.metric()
-def revenue():
-    return amount.sum(time=paid_at)
-
-@ms.metric()
-def average_order_value():
-    return revenue / orders.count(time=paid_at)
-```
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Names, aliases and computation
 
-The zero-argument function name is the local declaration name and must match [a-z][a-z0-9_]*. There is no name/entity/entities override. Aliases do not rename declarations; arithmetic produces anonymous expressions. ai_context describes business meaning and grants no permission. Pure decorators need no active loader or Session; physical constructors still run in model loading context.
-
-```python
-margin_alias = margin
-trial_margin = amount - cost
-paid_revenue = revenue.where(region == "US")
-customer_average = revenue.per(region).mean()
-missing_region_revenue = revenue.where(region.isnull())
-```
-
-where accepts a single source reduction or common paired scope. Filter source child Metrics before composing them. per returns internal samples; reduce them to produce a Metric.
-
-Source conditions are native Deferred expressions. Field leaves and
-`mv.in_population(population)` combine with `&`, `|` and `~`; for example,
-`revenue.where((region == "US") | mv.in_population(population))`. Member leaves
-test complete correlated tuples, including field Nulls, and support only boolean
-operators/constants. Source reduction `where=` keeps its same-row field-only
-contract. Both boolean sides retain required checks and producer dependencies;
-repeated Metric.where calls conjoin conditions on the same check domain.
-Use `marivo.help("semantic.predicate")` for grammar and consumer restrictions.
-
-Native fields share the null-predicate contract at `marivo.help("semantic.dimension.isnull")`; native Deferred methods use these static Help routes instead of callable Help. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Units and explicit sum permission
 
-Omitting unit/additivity or passing None inherits facts. It neither erases units nor grants additive_all. Row products do not automatically become summable. Declare a new Measure only with business authority for that quantity:
-
-```python
-@ms.measure(additivity=ms.additive_all())
-def order_amount():
-    return quantity * unit_price
-```
-
-quantity and unit_price must already be declared on one root. Unknown units stay unknown; explicit units must agree with known inference. New permission cannot erase status-time axes or required bindings.
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Ibis fields and pure declarations
 
-Entity/Source and Dimension/TimeDimension retain restricted Ibis authoring. The normalized_region field above is captured before finalization and resolved afterward. ms.bind is limited to the owning Ibis field bodies. Constructed inputs resolve by kind/path in the completed consumer scope without original-version rejection; explicit lookup Refs also retain forward dependencies. Measure/Metric bodies construct closed expressions with a leading docstring, fresh locals and one final return. Table parameters, Ibis returns, ms.bind, arbitrary calls and control flow are rejected.
-
+[Continue reading](/docs/latest/modeling/semantic-layer/)
 
 ## Reauthor retired declarations
 
-Old aggregate/count/where/ratio/weighted_mean/linear/cumulative factories, default folds, time_via, fanout_policy, approx_* and declaration-wide value policies are rejected. Structured errors preserve the received syntax and locate the repair. Source and internal sample sum have one fixed rule: empty input returns 0, nonempty all-NULL input returns NULL, and mixed input sums valid values. There is no empty parameter. Actual NaN/Infinity are rejected consistently in field reads and numeric computation. Migration must also preserve contributions and the output domain; overlapping-label grouping is not existence filtering.
-
-Start at marivo.help("authoring"), then inspect semantic.measure, semantic.metric, semantic.expressions and the receiver’s focused Help. Construction, physical leaf load/readiness, Catalog publication and real execution are separate evidence.
+[Continue reading](/docs/latest/modeling/semantic-layer/)

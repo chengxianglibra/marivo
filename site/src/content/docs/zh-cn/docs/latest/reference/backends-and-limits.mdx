@@ -1,100 +1,34 @@
 ---
-title: 后端与执行限制
-description: 区分 datasource 访问与确切分析执行准入。
+title: 数据源支持与限制
+description: 查询驱动、来源形式、分析方法和数值限制。
 ---
 
-Backend extra 安装 driver，连接证明可访问，二者都不授予全部分析方法。
-准入依赖实际 backend、source form、有序物理类型、domain、时间依据、保留状态与 method。
-当前 relation contract 和 focused Help 是操作依据。
+<span id="仅安装所选-driver"></span>
+<span id="准入具体数值路线"></span>
+<span id="来源和本地执行"></span>
+<span id="贡献资格"></span>
+<span id="资源和保存边界"></span>
 
-## 仅安装所选 driver
+分别选择连接与分析方法。驱动安装和连接成功，不代表所有方法都可执行。
 
-| 后端 | Extra | 配置事实 |
+| 后端 | 可选依赖 | 重要条件 |
 | --- | --- | --- |
-| DuckDB | <code style="white-space: nowrap">duckdb</code> | 本地表及准入文件来源；教程无需服务器 |
-| PostgreSQL | <code style="white-space: nowrap">postgres</code> | 只读账户及原生 libpq 前提 |
-| MySQL | <code style="white-space: nowrap">mysql</code> | 原生客户端与构建前提，以及原生查询配置 |
-| Trino | <code style="white-space: nowrap">trino</code> | 显式 catalog/schema、只读访问与原生查询配置 |
-| ClickHouse | <code style="white-space: nowrap">clickhouse</code> | 准入 scalar types，分析要求有效 `join_use_nulls=1` |
+| DuckDB | `duckdb` | 本地教程无需服务；贡献要求合格物理表 |
+| PostgreSQL | `postgres` | 需要 libpq 和权限；精确中位数/分位数受物理类型限制 |
+| MySQL | `mysql` | 需要原生客户端/构建依赖；不支持精确中位数/分位数 |
+| Trino | `trino` | 需要 catalog/schema 与权限；不支持精确中位数/分位数 |
+| ClickHouse | `clickhouse` | 支持合格普通分组聚合，Distributed 键连接有限制；不支持精确中位数/分位数 |
 
-Analysis 使用项目本地 SQLite 保存元数据，与数据源支持无关。
+## 核对来源形式与方法
 
-基础包包含本地结果所需 Arrow。发现未选择 provider 不导入其 driver。
-所选依赖缺失时，typed repair 指明所需 extra。
+表、文件和 HTTP 的发现能力与执行条件不同。参数化 HTTP JSON 可以声明和预览，但不是数值 Frame 来源。精确来源中位数/分位数目前使用 DuckDB 或 PostgreSQL。普通计数、去重数、求和、最值、均值与加权均值仍取决于实际类型与表达式。
 
-## 准入具体数值路线
+贡献目前要求合格的原生 DuckDB 物理表及保留的来源声明。远程观察成功不代表远程贡献可用。不支持贡献时，可显式观察和比较继续调查，但不宣称精确分解。
 
-数值来源路线按所选 backend、来源形式、真实 schema 和具体方法准入。模板在 提交前由实际后端编译；依赖实例化后仍在消费前校验。datasource 访问成功本身不构成数值 Runtime 资格。
+## 考虑资源与数值限制
 
-{/* example: csv-semantic-model */}
+本地操作可能在内存保留全部所需向量。展示行数限制不是计算或扫描限制。超时遵循驱动原生含义，部分设置可能不受支持；没有整个计算图的期限，也不会静默切换执行器。
 
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
+来源精度和溢出遵循合格后端。转换无法修复已丢失的精度或来源已经回绕的值；本地算术有自己的检查规则。不同来源之间没有统一 Decimal 精度保证。
 
-facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
-                  source=md.csv("data/facts.csv"),
-                  primary_key=["tenant", "id", "revision"])
-amount = ms.measure_column(name="amount", entity=facts, column="amount",
-                           additivity=ms.additive_all())
-happened = ms.time_dimension_column(name="happened", entity=facts,
-                                    column="happened",
-                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
-finalized = ms.finalize()
-facts = finalized.resolve(facts)
-amount = finalized.resolve(amount)
-happened = finalized.resolve(happened)
-
-@ms.metric()
-def total():
-    return amount.sum(time=happened)
-```
-
-此处声明字段和命名 Metric。声明或成功 preview 不授予所有 CSV/JSON/HTTP 分析形态资格；不支持的路线在受影响业务读取前拒绝。来源模板在 提交前预验证，实际实例化输入仍会再次校验。
-
-## 来源和本地执行
-
-来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。完整固定 Frame 与本地数据操作使用同一调度器。Artifact 只读审计；没有 Artifact 操作数、固定数据远端上传或隐藏本地 SQL 引擎。
-
-来源计算遵循 Ibis/provider 原生数值精度限制，整数传输保证见下文。Ibis lowering 显式转换已绑定的 Decimal 算术、mean 与 SUM 结果，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
-
-DuckDB 的受治理 `SourceSession` 读取与合格的 typed PostgreSQL Analysis 读取先取原生 Ibis Arrow 结果，再构造采用 nullable Arrow extension dtype 的 pandas 整数列。能由原生 Arrow 结果类型表示的整数与 null 共存时保持精确，不经过 float64 中间转换。非整数保留原生 Ibis Arrow 类型、可表示性与精度限制；pandas 表示可以与原生 Ibis `execute()` 结果不同，包括 DATE 使用 Python date 值，以及保留同一时刻的不同 timestamp 单位。本地计算仍使用 pandas。
-
-普通 PostgreSQL authoring、basic 读取与有界检查（`collect_bounded`）保留原生 Ibis pandas 转换，包括 JSON 对象/数组值及原有精度与表示限制。其他后端保留原生 Ibis pandas 路线。不承诺统一 Decimal 精度或所有来源值保真。直接 Ibis 调用和原始 SQL 结果 API 保留各自原生合同。
-
-时间准备和 temporal rewrite 使用实际所选 engine。远端来源块在获得自身等价证据前采用未融合路线。本地计算是 eager，可能保留全部所需向量；失败不换路线或截断输入。
-
-DuckDB 原生 INTERVAL 仅在来源侧检查拒绝 year、month、day 分量后按微秒准入，不能仅靠 cast 当作 elapsed time，也不会产生纳秒精度。合格文件路线中的 Arrow Duration 保留文件声明的 tick 单位。
-
-PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表达式准入 count、count_distinct、sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 当前仅准入 DuckDB 和 PostgreSQL。MySQL、Trino 和 ClickHouse 在 发布前按具体方法拒绝；ClickHouse 的 Ibis Quantile lowering 是近似算法，不能满足精确请求。精确/近似规约保留定义所属算法。缺必需映射、非有限及必要覆盖错误阻止发布；普通数值溢出遵循下述后端原生行为。
-
-ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN/JOIN 的来源路线（包括按键交接的 `Session.read`）因尚未具备 `distributed_product_mode` 下的 join 资格而在 发布前拒绝。MergeTree join 单独准入，不隐式扩展到 view 或其它 engine 拓扑。Marivo 不修改服务器设置或替换为本地表。
-
-## 贡献资格
-
-`frame.attribute(by=...)` 要求每个所选目标保留来源声明并具备合法贡献规则。
-合格 native DuckDB 物理表提供父/细共享组件及原严格公式检查。文件和远端路线即使
-可以普通观察，也不会自动获得贡献资格。加性、direct ratio、native mean/weighted mean、
-固定线性/窗口规则保留实际类型、单位和样本政策；未知组件、重叠和缺失证明直接拒绝，
-不降级或修补残差。
-
-quantile 或非线性目标可通过显式 observe 与 compare/align 继续调查。
-完整 Population by 保留相关细键与分配。原 interval/calendar/paired 范围和对应保持固定。
-同进程完成实例可保留声明；独立 reopen 只有固定数据和不可执行方法事实，需显式重建来源。
-
-## 资源和保存边界
-
-datasource 原生 timeout 保留后端含义，没有默认图 deadline 或替代执行器。取消与 close 由驱动拥有，远端终止未知时保持未知。原子发布和 journal reconciliation 保留已提交成功及精确资源归属。
-
-Store 16 保存完整项目本地 Frame 数据与审计。新 Frame 与重开 Frame 读取相同已提交数据，无需当前 Catalog/来源。旧 generation 数据原样拒绝，不迁移或双读；完整导出保留 int64/Decimal、NA、presence、完整键、行序与冻结日历/配对解释。聚焦本地检查、远端 Runtime 与发布验收是不同证据。具体修复见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
-
-所有 Frame 使用 `marivo.frame_output/v5`、`frame.v5` 和 `frame-output-v5`。
-`to_pandas()` 只验证当前数据，`method_facts` 只验证 owned 解释载荷，stored compute 与
-派生求值消费两者。元数据卡片和预览不打开方法文件；保存派生结果自己的载荷不依赖原 Artifact。
-
-数值 lowering 显式转换已绑定的 Decimal 算术、mean 与 SUM 结果。整数 SUM 使用一次
-Decimal 主累加并返回 Decimal(38,0)，Decimal SUM 返回 Decimal(38,输入 scale)。
-普通源端整数/Decimal 溢出遵循后端原生行为，包括 ClickHouse 静默回绕；能进入输出载体
-的回绕值可保存并参与公式、筛选与排序。安全转换无法识别此前的回绕，未实际求值的
-源端算术不保证报溢出。本地整数使用 checked 内核，显式 finite/null/zero/domain
-检查及身份、count、时间和 Duration 的原合同不变。
+本地教程只演示其 DuckDB 路线。配置见[接入数据](/zh-cn/docs/latest/modeling/semantic-layer/#连接与检查)，具体失败见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。

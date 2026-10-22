@@ -1,0 +1,104 @@
+---
+title: 统计与相关性
+description: 计算行汇总、占比与配对相关性。
+---
+
+先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。8 月两个地区行分别为 200、600，求和 800，均值 400，行数 2。这是地区结果统计，并非平均订单金额。
+
+## 汇总和归一化当前行
+
+```python
+from analysis import mv, current, saved
+```
+
+{/* example: query-result-statistics */}
+
+```python
+summary = current.reduce(
+    {
+        "sum": current["revenue"].sum(),
+        "mean": current["revenue"].mean(),
+        "rows": mv.row_count(),
+    }
+).compute()
+summary.show()
+```
+
+{/* example: frame-partition-share */}
+
+```python
+x = current["revenue"]
+normalized = current.select(
+    {
+        "revenue": x,
+        "total": current.over(x.sum()),
+        "share": x.share(along=current.axes),
+        "rows": current.over(mv.row_count()),
+    }
+).compute()
+normalized.show()
+```
+
+{/* example: pandas-descriptive-statistics */}
+
+```python
+values = current.to_pandas()["value"].astype("float64")
+revenue_values = values["revenue"]
+statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
+print(statistics)
+rank = revenue_values.rank(method="dense", ascending=False)
+standard_deviation = revenue_values.std(ddof=1)
+if standard_deviation > 0:
+    standardized = (revenue_values - revenue_values.mean()) / standard_deviation
+```
+
+{/* example: pandas-paired-statistics */}
+
+```python
+comparison = saved.to_pandas()
+present = (
+    comparison[("presence", "current.present")]
+    & comparison[("presence", "reference.present")]
+)
+pairs = (
+    comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]]
+    .dropna()
+    .astype("float64")
+)
+paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
+print(paired_difference.mean())
+```
+
+## 相关性使用共同样本
+
+原生 Pearson 或 Spearman 使用 `frame.correlate(x, y, method="pearson")` 或 `method="spearman"`，两个数值 Column 必须来自同一个确切 Frame。结果包含 `coefficient` 和 `n_pairs`。任一端未知时整对排除；端点恒定或不足两对时系数未知，仍保留实际配对数。Spearman 对并列值取平均秩。
+
+pandas 示例使用共同的存在且非空掩码。不能按行号拼接无关导出。各组系数也不能直接平均得到总体相关性。
+
+归一化返回占比 0.25、0.75，每行总额为 800、行数为 2。先筛选再计算会改变分母，计算后筛选则保留分母。空输入的求和为零，非空且全未知的求和未知；行存在与数值未知仍有区别。
+
+外部统计不会自动获得类型化 Evidence。应说明样本、缺失策略、方法和假设。需要其他方法时[导出结果](/zh-cn/docs/latest/analysis/results/)。
+
+## 一个可核对的配对样本
+
+保存为 `paired_sample.py` 并运行。五对值都满足 y = 2x，因此 Pearson 系数为 1。重复值仍作为独立样本计数。
+
+```python
+from analysis import session, region
+
+sample = session.values(
+    by=(region,),
+    columns={"x": "1", "y": "1"},
+    rows=(
+        (("a",), {"x": 1, "y": 2}),
+        (("b",), {"x": 2, "y": 4}),
+        (("c",), {"x": 2, "y": 4}),
+        (("d",), {"x": 3, "y": 6}),
+        (("e",), {"x": 4, "y": 8}),
+    ),
+).compute()
+correlation = sample.correlate(sample["x"], sample["y"], method="pearson").compute()
+paired = correlation.to_pandas()
+assert paired[("value", "n_pairs")].tolist() == [5]
+assert abs(paired[("value", "coefficient")].iloc[0] - 1.0) < 1e-12
+```

@@ -1,0 +1,114 @@
+---
+title: 快速开始
+description: 创建六笔本地订单，定义收入并计算总额。
+---
+
+<span id="创建演示数据"></span>
+<span id="计算并保存比较"></span>
+<span id="解释结果"></span>
+
+在独立目录完成[安装](/zh-cn/docs/latest/start/installation/)。下面创建六笔完成订单，金额单位 CNY，无退款或货币转换。
+
+## 创建数据
+
+保存为 `seed.py`，运行 `.venv/bin/python seed.py`。脚本会替换演示订单表。
+{/* example: demo-seed */}
+
+```python
+from datetime import date
+from pathlib import Path
+import duckdb
+
+Path("models/datasources").mkdir(parents=True, exist_ok=True)
+Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("""
+        CREATE OR REPLACE TABLE orders (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            region VARCHAR,
+            amount BIGINT
+        )
+    """)
+    connection.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?, ?)",
+        [
+            (1, date(2026, 7, 5), "east", 100),
+            (2, date(2026, 7, 15), "east", 200),
+            (3, date(2026, 7, 20), "west", 700),
+            (4, date(2026, 8, 5), "east", 100),
+            (5, date(2026, 8, 15), "east", 100),
+            (6, date(2026, 8, 20), "west", 600),
+        ],
+    )
+```
+
+## 声明连接
+
+保存为 `models/datasources/warehouse.py`。
+
+{/* example: demo-datasource */}
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb")
+```
+
+## 定义收入
+
+保存为 `models/semantic/sales/_domain.py`。本例保留日期和地区，供后续分析使用。声明规则详见[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+
+{/* example: demo-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Mina Zhang")
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date"
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+
+finalized = ms.finalize()
+order_date = finalized.resolve(order_date)
+amount = finalized.resolve(amount)
+
+
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+```
+
+## 计算收入
+
+保存为 `quick.py`，运行 `.venv/bin/python quick.py`。
+
+{/* example: quick-analysis */}
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.create("first-analysis")
+revenue = session.catalog.metrics.get("sales.revenue")
+result = session.observe({"revenue": revenue}).compute()
+result.show()
+```
+
+结果是 1,800，即六笔金额之和。重复运行脚本时，为 `first-analysis` 换一个新名称；会话名称在项目内唯一。
+
+后续[分析 DSL](/zh-cn/docs/latest/analysis/dsl/)提供按月、按地区比较的完整 `analysis.py`，无需在此添加比较参数。

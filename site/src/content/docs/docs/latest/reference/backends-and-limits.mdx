@@ -1,101 +1,34 @@
 ---
-title: Backends and execution limits
-description: Distinguish datasource access from exact analysis execution admission.
+title: Supported sources and limits
+description: Check supported drivers, source forms, methods, and numeric limits.
 ---
 
-A backend extra installs its driver; a connection proves access. Neither grants
-all analysis methods. Admission depends on the actual backend, source form,
-ordered physical types, domain, time authority, retained state and method.
-The current relation contract and focused Help are the operational guide.
+<span id="install-only-the-selected-driver"></span>
+<span id="qualify-a-numerical-source-route"></span>
+<span id="source-and-local-execution"></span>
+<span id="contribution-qualification"></span>
+<span id="resource-and-saved-output-boundaries"></span>
 
-## Install only the selected driver
+Choose a connection and an analytical method separately. Driver installation and a successful connection do not establish that every method can execute.
 
-| Backend | Extra | Setup facts |
+| Backend | Extra | Important conditions |
 | --- | --- | --- |
-| DuckDB | <code style="white-space: nowrap">duckdb</code> | Local tables and admitted file sources; tutorial requires no server |
-| PostgreSQL | <code style="white-space: nowrap">postgres</code> | Read-only account and native libpq prerequisite |
-| MySQL | <code style="white-space: nowrap">mysql</code> | Native client/build prerequisites and native query settings |
-| Trino | <code style="white-space: nowrap">trino</code> | Explicit catalog/schema, read-only access and native query settings |
-| ClickHouse | <code style="white-space: nowrap">clickhouse</code> | Qualified scalar types and effective `join_use_nulls=1` for admitted analysis |
+| DuckDB | `duckdb` | Local tutorial needs no server; contribution requires qualified physical tables |
+| PostgreSQL | `postgres` | Requires libpq and access; exact median/quantile depend on supported physical types |
+| MySQL | `mysql` | Native client/build prerequisites; exact median/quantile unsupported |
+| Trino | `trino` | Catalog/schema and access; exact median/quantile unsupported |
+| ClickHouse | `clickhouse` | Ordinary qualified grouped aggregation; Distributed keyed join routes have restrictions; exact median/quantile unsupported |
 
-Analysis stores metadata in project-local SQLite independently of datasource support.
+## Check source form and method
 
-The base package includes Arrow for local results. Discovery of an unselected
-provider does not import its driver. Missing selected dependencies produce a
-typed repair naming the required extra.
+Table, file and HTTP discovery have different execution conditions. Parameterized HTTP JSON can be declared and previewed but is not an admitted numerical Frame source. Exact source median/quantile currently use DuckDB or PostgreSQL. Ordinary count, distinct count, sum, min, max, mean and weighted mean still depend on actual types and expressions.
 
-## Qualify a numerical source route
+Contribution currently requires qualified native DuckDB physical tables and retained source declarations. A successful remote observation does not qualify remote contribution. Use explicit observe and compare to investigate unsupported contribution targets without claiming a decomposition.
 
-Numerical source routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before publication; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
+## Account for resource and numeric limits
 
-{/* example: csv-semantic-model */}
+Local data operations can retain full required vectors in memory. A display limit is not a computation or scan limit. Timeouts retain the driver's native meaning and may be unsupported; there is no whole-graph deadline or silent switch to another executor.
 
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
+Source precision and overflow follow the qualified backend. Conversion cannot repair precision already lost or a value already wrapped by the source. Local arithmetic has its own checked rules. No universal Decimal precision guarantee applies across all sources.
 
-facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
-                  source=md.csv("data/facts.csv"),
-                  primary_key=["tenant", "id", "revision"])
-amount = ms.measure_column(name="amount", entity=facts, column="amount",
-                           additivity=ms.additive_all())
-happened = ms.time_dimension_column(name="happened", entity=facts,
-                                    column="happened",
-                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
-finalized = ms.finalize()
-facts = finalized.resolve(facts)
-amount = finalized.resolve(amount)
-happened = finalized.resolve(happened)
-
-@ms.metric()
-def total():
-    return amount.sum(time=happened)
-```
-
-This declares fields and a named Metric. A declaration or successful preview does not qualify every CSV/JSON/HTTP analysis shape; unsupported routes reject before their business reads. Runtime source templates are prevalidated before publication and actual instantiated inputs are checked again.
-
-## Source and local execution
-
-Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. Fixed complete Frame inputs and local data operations use the same scheduler. Artifact is audit only; no Artifact operand, fixed-data remote upload or hidden local SQL engine exists.
-
-Source computation follows native Ibis/provider numerical precision limits, with the nullable-integer transport guarantee below. Ibis lowering explicitly casts bound Decimal arithmetic/mean and SUM results. Integer SUM uses one Decimal accumulation and returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale). The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
-
-DuckDB governed `SourceSession` reads and qualified typed PostgreSQL Analysis reads use native Ibis Arrow results before pandas inference and construct integer columns with nullable Arrow extension dtypes. Integer values that fit the native Arrow result type remain exact beside null values without an intermediate float64 conversion. Noninteger values retain native Ibis Arrow type, representability and precision limits; pandas representations can differ from native Ibis `execute()` results, including Python date values for DATE and different timestamp units that preserve the instant. Local computation still uses pandas.
-
-Ordinary PostgreSQL authoring, basic reads and bounded inspection (`collect_bounded`) retain native Ibis pandas conversion, including JSON object/array values and its existing precision and representation limits. Other backends retain their native Ibis pandas path. No universal Decimal precision or source-value fidelity is promised. Direct Ibis calls and raw SQL result APIs retain their own native contracts.
-
-Time preparation and temporal rewrites use the actual selected engine. Remote source blocks use the unfused route until their own equivalence is established. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
-
-DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.
-
-Ordinary PostgreSQL, MySQL, Trino and ClickHouse templates admit count, count_distinct, sum, min, max, mean and weighted_mean subject to actual type and expression qualification. Exact source median/quantile currently admit only DuckDB and PostgreSQL. MySQL, Trino and ClickHouse reject those methods before publication; ClickHouse's Ibis Quantile lowering is approximate and cannot satisfy an exact request. Exact/approximate reductions retain their definition-owned algorithm. Typed missing mappings, nonfinite values and required coverage failures prevent publication. Ordinary integer/Decimal source overflow follows the backend, including ClickHouse silent wrapping; an admitted wrapped value may be saved and used in formulas/selection. Local integer arithmetic remains checked. Safe conversion cannot detect prior wrapping; unevaluated source arithmetic need not fail.
-
-ClickHouse Distributed admits qualified ordinary grouped aggregation. Source routes requiring a Distributed IN/JOIN, including keyed `Session.read`, reject before publication because that join route is not qualified under `distributed_product_mode`. MergeTree joins have separate qualification; views and other engine topologies are not implicitly admitted. Marivo does not change server settings or substitute local tables.
-
-## Contribution qualification
-
-`frame.attribute(by=...)` requires retained source declarations and admitted
-contribution rules for every selected target. Qualified native DuckDB physical
-tables provide shared parent/fine components and original strict formula checks.
-File and remote routes remain unqualified even when ordinary observation works.
-Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
-rules retain their actual carriers, units and support policies. Unknown components,
-overlap and missing proof reject without downgrade or residual repair.
-
-Use explicit observe and compare/align to investigate unsupported quantile or
-nonlinear targets. Complete Population by preserves correlated fine keys and
-allocation. Original interval/calendar/paired scope and mappings remain fixed.
-A same-process completed Frame may retain the declaration; independent reopen
-provides fixed data and inert method facts and requires explicit source rebuilding.
-
-## Resource and saved-output boundaries
-
-Datasource native timeouts retain their backend meanings. There is no default graph deadline or automatic alternative executor. Cancellation and close remain driver-owned; unknown remote termination stays unknown. Atomic publication and journal reconciliation preserve committed success and exactly owned resources.
-
-Store 16 records complete project-local Frame data and audit. New and reopened Frames read the same committed data without current Catalog/source access. Older-generation data refuses unchanged, with no migration or dual read. Complete export preserves int64/Decimal, NA, presence, keys, order and frozen calendar/paired interpretation. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.
-
-All Frames use `marivo.frame_output/v5`, `frame.v5` and `frame-output-v5`.
-`to_pandas()` validates current data only; `method_facts` validates owned
-explanation payloads only; stored compute and evaluated derivatives consume both.
-Metadata cards and preview do not open method files. Saved derivatives own their
-payloads independently of the original Artifact.
+The local tutorial demonstrates its DuckDB route only. [Connect data](/docs/latest/modeling/semantic-layer/) for setup and [troubleshoot](/docs/latest/reference/troubleshooting/) for concrete failures.

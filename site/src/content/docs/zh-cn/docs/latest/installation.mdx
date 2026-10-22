@@ -1,61 +1,28 @@
 ---
-title: 安装
-description: 选择已发布包或当前开发源码，验证所选环境。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Marivo 要求 Python 3.10 或更高版本。安装到一个所选项目环境，Doctor、Help 与执行都使用同一解释器。
+内容已合并至 [安装与项目](/zh-cn/docs/latest/start/installation/)。
 
 ## 安装已发布包
 
-本地 DuckDB 项目使用：
-
-```bash
-uv venv --python 3.10 --seed
-uv pip install --python .venv/bin/python "marivo[duckdb]"
-.venv/bin/python -m marivo --version
-```
-
-Windows 将 `.venv/bin/python`替换为 `.venv/Scripts/python.exe`。
-其他打包 driver 使用 `postgres`、`mysql`、`trino`、`clickhouse`或 `all`。
-PostgreSQL 需要 libpq，MySQL 需要原生客户端和构建前提，基础包包含 Arrow。
-
-可选安装器 `curl -fsSL https://marivo.io/install.sh | bash`创建或复用 `.venv`，
-安装其声明的默认 backend 集合并初始化项目。读取其报告的环境与所选 extras。
-它安装已发布包，不安装当前仓库 checkout。
+[继续阅读](/zh-cn/docs/latest/start/installation/)
 
 ## 当前开发源码
 
-`latest`教程跟随当前 checkout 实现。如果已发布包没有这些 API，将对应源码安装到
-demo 环境。把以下绝对路径替换为实际 checkout：
-
-```bash
-uv pip install --python .venv/bin/python -e "/absolute/path/to/marivo[duckdb]"
-.venv/bin/python -m marivo --version
-```
-
-开发指南不宣称其 API 已发布到 PyPI。复现示例时保持源码 revision 与环境对应。
+[继续阅读](/zh-cn/docs/latest/start/installation/)
 
 ## 按需初始化
 
-`marivo.toml`与 `marivo init`是可选的。没有 manifest 时，所选目录是项目，
-名称默认为目录名，外部 semantic paths 为空，telemetry 默认开启。
-Runtime 结果使用项目本地 Parquet。
-
-```bash
-.venv/bin/python -m marivo init
-.venv/bin/python -m marivo doctor --project-root .
-```
-
-`init`创建缺失配置、模型/状态目录和尽力建立的 skill links。除非明确使用 `--force`，
-保留已有 artifact；force 删除并重建生成 artifact，包括本地状态。
-Doctor 是只读的，不创建 telemetry 或 local state。
+[继续阅读](/zh-cn/docs/latest/start/installation/)
 
 ## 连接前验证
 
-检查 Doctor 的确切项目根、package origin、可选 driver 和配置的凭据引用。
-Doctor 显式 root 优先于 MARIVO_PROJECT_ROOT，二者均无时使用 cwd。
-Datasource 操作可能有自身项目根选择契约，仅在需要 live 连接检查时使用
-`--datasource <name> --connect`。
-
-继续[选择项目](/zh-cn/docs/latest/quick-start/)，或运行[本地 Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)。
-[后端限制](/zh-cn/docs/latest/reference/backends-and-limits/)区分 driver 安装与方法执行支持。
+[继续阅读](/zh-cn/docs/latest/start/installation/)

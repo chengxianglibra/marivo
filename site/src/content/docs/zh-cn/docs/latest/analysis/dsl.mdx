@@ -1,0 +1,278 @@
+---
+title: 分析 DSL
+description: 使用分析 DSL 查询、筛选、比较和拆分指标。
+---
+
+分析 DSL 使用 `Session` 取得语义定义，通过 `observe`、`read` 和 Frame 方法计算结果。先完成快速开始的数据和模型，再按顺序运行本页。后续片段接在 `analysis.py` 后，或在同一 Python 进程中执行。
+
+## 完整示例与后续输入
+
+保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。导入该文件会重新读取来源并创建新会话。
+
+{/* example: demo-analysis */}
+
+```python
+from uuid import uuid4
+import marivo.analysis as mv
+
+session = mv.session.create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
+revenue = session.catalog.metrics.get("sales.revenue")
+amount = session.catalog.fields.get("sales.orders.amount")
+region = session.catalog.fields.get("sales.orders.region")
+july = session.time_scope(start="2026-07-01", end="2026-08-01")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
+baseline = session.observe({"revenue": revenue}, by=(july, region)).compute()
+current = session.observe({"revenue": revenue}, by=(august, region)).compute()
+change = current.compare(
+    {"reference": baseline},
+    on={"reference": tuple(zip(current.axes, baseline.axes))},
+    match={"reference": mv.ordinal()},
+)
+change.show()  # Pending comparison; no evaluation.
+saved = change.persist()
+table = saved.to_pandas()
+assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert table[("presence", "current.present")].all()
+assert table[("presence", "reference.present")].all()
+saved.show()
+saved.artifact.show()  # Submission and audit only.
+reopened = session.persisted_frame(saved.artifact.id)
+assert reopened.to_pandas().equals(table)
+saved_session_id = session.id
+saved_artifact_id = saved.artifact.id
+```
+
+## 观察指标
+
+### 读取 8 月收入
+
+```python
+regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+regional.show()
+overall = session.observe({"revenue": revenue}, by=(august,)).compute()
+assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
+```
+
+地区结果为 east 200、west 600，总体为 800。`observe` 绑定命名指标、所选期间和分组，`compute` 执行读取与计算。需要以后使用相同数值时，继续使用返回的 Frame。
+
+读取单条记录时，向 `session.read` 提供完整实体身份与命名字段。[对象选择指南](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)提供可运行的订单示例。
+
+`show()` 展示有界视图，`to_pandas()` 返回完整独立副本。列和轴属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
+
+接下来[比较时期](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/latest/analysis/results/)。
+
+## 选择与筛选
+
+先确定要筛选来源贡献、输出对象集合，还是已经计算的行，它们回答不同问题。
+
+### 选择已知订单并读取属性
+
+{/* example: explicit-identity-read */}
+
+```python
+Orders = session.catalog.entities.get("sales.orders")
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),)),
+)
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
+selected = session.observe(
+    {"revenue": revenue}, by=mv.product(august, east), where=mv.in_population(east)
+).compute()
+selected.show()
+session.frame(east).compute().show()
+```
+
+选中身份是订单 4、5、6。按属性筛到 east 后，保留订单 4、5，各有收入 100。即使实体只有一个主键字段，完整键仍使用元组。字面键描述选中身份，并不证明来源中存在这些记录。
+
+### 固定选中的群体
+
+{/* example: comparison-endpoint-followup */}
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+prior_selected = session.observe(
+    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
+).compute()
+followup = chosen.compare(
+    {"reference": prior_selected},
+    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
+followup.show()
+```
+
+西部是 8 月收入最高地区，为 600。后续群体因此固定为 west；查询 7 月不会重新排名。其 7 月参照是 700，变化为 -100。
+
+来源字段条件用于来源筛选，`mv.in_population(...)` 用于成员筛选；结果筛选使用属于该结果的布尔 Column。`by=population` 选择输出键，`where` 中的成员条件选择贡献。身份集合计数统计完整不同身份，也包含选中但没有事实的身份；仅投影到地区再计数，统计的则是地区数。
+
+改变分母前先了解[范围与粒度](/zh-cn/docs/latest/analysis/dsl/#范围与粒度)。
+
+## 比较与对齐
+
+使用相同地区键比较 8 月与 7 月。
+
+### 计算变化
+
+上文已计算并保存比较，此处直接读取已保存数据。
+
+{/* example: compare-query */}
+
+```python
+comparison = saved.to_pandas()
+assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
+```
+
+{/* example: aligned-absolute-only */}
+
+```python
+aligned = current.align(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+difference = aligned.select(
+    {
+        "difference": aligned["left.revenue"] - aligned["right.revenue"],
+    }
+).compute()
+difference.show()
+```
+
+{/* example: broadcast-reference */}
+
+```python
+budget = session.values(
+    by=(region,),
+    columns={"budget": "CNY"},
+    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
+).compute()
+regional = current.reduce(
+    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
+).compute()
+aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
+vs_budget = aligned_budget.select(
+    {
+        "revenue": aligned_budget["left.revenue"],
+        "budget_variance": aligned_budget["left.revenue"]
+        - aligned_budget["right.budget"],
+    }
+).compute()
+vs_budget.show()
+```
+
+### 解读数值
+
+东部变化 -100，相对变化 -1/3；西部变化 -100，相对变化 -1/7。相对变化公式是 `(当前值 - 基准值) / abs(基准值)`。有效基准为零时，相对变化未知。任一侧缺失或数值未知时，差异也未知；presence 标志用于判断对应行是否存在。
+
+`on` 显式对应期间和地区两种轴，ordinal 规则主动配对 7 月与 8 月。同名列并不证明业务可比。
+
+预算示例为东部 250、西部 750，8 月预算差异分别为 -50、-150。示例求和移除了单一期间轴，因为这里是可加收入；不能用它重建任意比率或去重指标。
+
+接下来[调查变化](/zh-cn/docs/latest/analysis/dsl/#调查变化)。
+
+## 调查变化
+
+从总额下降出发，再判断各地区解释多少。
+
+### 读取新的拆分
+
+{/* example: attribute-default-investigation */}
+
+```python
+fresh_current = session.observe({"revenue": revenue}, by=(august, region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+investigation = fresh_current.compare(
+    {"reference": fresh_baseline},
+    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
+```
+
+{/* example: attribute-contribution-facts */}
+
+```python
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": overall_baseline},
+    match={"reference": mv.ordinal()},
+).compute()
+target = overall_change.select(
+    {"revenue": overall_change["reference.absolute.revenue"]}
+)
+explained = target.attribute(by=(region,)).compute()
+assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
+facts = explained.method_facts
+facts[0].show(n=0)
+declines = explained.where(explained["contribution.revenue"] < 0).compute()
+saved_declines = declines.persist()
+reopened_declines = session.persisted_frame(saved_declines.artifact.id)
+decline_rows = reopened_declines.to_pandas()
+original_explanation = reopened_declines.method_facts
+```
+
+{/* example: attribute-explicit-default-after-refusal */}
+
+```python
+nonlinear = revenue * revenue
+fine_current = session.observe({"squared": nonlinear}, by=(august, region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+nonlinear_investigation = fine_current.compare(
+    {"reference": fine_baseline},
+    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
+```
+
+### 区分拆分与贡献说明
+
+新的分组观察会重新读取来源。贡献计算要求受支持且保留来源定义的目标，并保留方法说明。本地 DuckDB 物理表示例的父变化是 -200，各地区贡献 -100，占比 0.5。
+
+通过 `method_facts` 读取完整原始说明。筛选报告不会重算原分母。重开保存数据会保留说明，但不会恢复可再次请求贡献的来源声明。
+
+收入平方示例是有效的分组比较，但各组差异不能直接相加重建整体非线性变化。可以继续调查，不能称为精确贡献。参阅[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+
+这些算术分解均不证明业务因果。调查原因假设时，需要能区分不同解释的数据。
+
+## 范围与粒度
+
+比较数值之前，先确定一行代表什么、哪些记录参与计算。
+
+### 三种不同选择
+
+- 对象范围：选中哪些客户、订单或完整坐标元组？
+- 时间范围：哪些业务时间事实参与，边界是什么？
+- 结果粒度：每行代表地区、订单，还是地区与月份的组合？
+
+假设 A 客户有两笔各 100 的订单，B 有一笔 400 的订单。平均订单金额是 600 / 3 = 200；平均客户收入是 (200 + 400) / 2 = 300。两者都可成立，但问题不同。
+
+### 保持分母
+
+两个地区收入为 200、600 时，占原总额的比例为 0.25、0.75。先筛到 600 那行再归一化，占比变成 1；先计算再筛选，占比仍是 0.75。
+
+比较中缺少一行，与该行存在但数值未知不同，两者均不自动表示零。字段空值还可以是有效分类，应分别检查行存在性与数值有效性。
+
+通过[对象选择](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)实现范围，[统计](/zh-cn/docs/latest/analysis/statistics/)说明分母敏感的运算。
+
+## 常用筛选与排序
+
+下面分别筛选来源与当前结果。六笔订单中 east 合计 500；8 月金额大于 200 的行和排名首行均为 west，金额 600。
+
+{/* example: source-and-result-filters */}
+
+```python
+# Continue after running analysis.py.
+east_total = session.observe({"revenue": revenue}, where=region == "east").compute()
+east_total.show()
+
+large = current.where(current["revenue"] > 200).compute()
+large.show()
+
+ranked = current.top(1, by=current["revenue"]).compute()
+ranked.show()
+```

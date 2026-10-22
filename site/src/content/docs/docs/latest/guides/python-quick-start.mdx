@@ -1,140 +1,28 @@
 ---
-title: A complete local Python analysis
-description: Create six orders, compare named Metrics and reopen fixed Frame data.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Use a fresh project directory with the development package and DuckDB extra installed. This complete local example creates its data, declares a Metric, evaluates an AnalysisFrame and reopens the committed Frame. It is a local example, not a qualification of every backend or release.
+This content is now in [Quick start](/docs/latest/start/python/).
 
 ## Create the source
 
-Save as `seed.py` and run `.venv/bin/python seed.py`. The six completed orders are the entire demo scope, in CNY, without refunds or currency conversion. July totals 1,000 and August 800; each region falls by 100.
-
-{/* example: demo-seed */}
-
-```python
-from datetime import date
-from pathlib import Path
-import duckdb
-
-Path("models/datasources").mkdir(parents=True, exist_ok=True)
-Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
-with duckdb.connect("warehouse.duckdb") as connection:
-    connection.execute("""
-        CREATE OR REPLACE TABLE orders (
-            order_id BIGINT PRIMARY KEY,
-            order_date DATE,
-            region VARCHAR,
-            amount BIGINT
-        )
-    """)
-    connection.executemany(
-        "INSERT INTO orders VALUES (?, ?, ?, ?)",
-        [
-            (1, date(2026, 7, 5), "east", 100),
-            (2, date(2026, 7, 15), "east", 200),
-            (3, date(2026, 7, 20), "west", 700),
-            (4, date(2026, 8, 5), "east", 100),
-            (5, date(2026, 8, 15), "east", 100),
-            (6, date(2026, 8, 20), "west", 600),
-        ],
-    )
-```
+[Continue reading](/docs/latest/start/python/)
 
 ## Declare the datasource
 
-Save as `models/datasources/warehouse.py`.
-
-{/* example: demo-datasource */}
-
-```python
-import marivo.datasource as md
-
-md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
-```
+[Continue reading](/docs/latest/start/python/)
 
 ## Author the semantic model
 
-Save as `models/semantic/sales/_domain.py`. Constructors capture Refs; finalize the full scope before composing resolved fields. Model loading publishes the named Metric.
-
-{/* example: demo-model */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
-                   source=md.table("orders"), primary_key=["order_id"])
-order_date = ms.time_dimension_column(name="order_date", entity=orders,
-    column="order_date", is_default=True)
-region = ms.dimension_column(name="region", entity=orders, column="region")
-amount = ms.measure_column(name="amount", entity=orders, column="amount",
-    additivity=ms.additive_all(), unit="CNY")
-
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-order_date = finalized.resolve(order_date)
-region = finalized.resolve(region)
-amount = finalized.resolve(amount)
-
-@ms.metric(ai_context=ms.ai_context(
-    business_definition="Completed-order revenue in CNY for the six demo orders",
-    guardrails=["Use only these demo orders; no refunds or currency conversion"],
-))
-def revenue():
-    return amount.sum(time=order_date)
-```
+[Continue reading](/docs/latest/start/python/)
 
 ## Compute, persist and reopen
 
-Save as `analysis.py` and run it from the project root with `.venv/bin/python analysis.py`.
-
-{/* example: demo-analysis */}
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-catalog = ms.load(workspace_dir=".")
-session = mv.session.create("demo-revenue", timezone="UTC")
-revenue = session.catalog.metrics.get("sales.revenue")
-amount = session.catalog.fields.get("sales.orders.amount")
-region = session.catalog.fields.get("sales.orders.region")
-july = session.time_scope(start="2026-07-01", end="2026-08-01")
-august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({'revenue': revenue}, by=(july, region)).compute()
-current = session.observe({'revenue': revenue}, by=(august, region)).compute()
-change = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
-)
-change.show()  # Pending comparison; no evaluation.
-saved = change.persist()
-table = saved.to_pandas()
-assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
-assert table[("presence", "current.present")].all()
-assert table[("presence", "reference.present")].all()
-saved.show(n=20)
-saved.artifact.show()  # Submission and audit only.
-reopened = session.persisted_frame(saved.artifact.id)
-assert reopened.to_pandas().equals(table)
-saved_session_id = session.id
-saved_artifact_id = saved.artifact.id
-```
-
-
-Use the returned computed Frames to retain the exact observed values; the
-original source expressions would evaluate sources again. Persist publishes the
-completed comparison after evaluation. Keep the exact Session ID and
-`frame.artifact.id`; `mv.session.resume(saved_session_id)` and
-`session.persisted_frame(saved_artifact_id)` recover its complete data without
-loading the model or source. Supported data operations continue on that Frame;
-new source facts require explicit new construction. Artifact is audit only.
-The next guides reuse `session`, `revenue`, `amount`, `region`, `july`, `august`,
-`current` and `baseline` from this script.
-
-Import `marivo` and start with `marivo.help("analysis")`; focused
-`analysis.analysis_frame` and `analysis.frame_axis` Help owns exact calls.
-Readiness/preview, actual source evaluation, local completion and provider
-Runtime qualification remain separate evidence.
+[Continue reading](/docs/latest/start/python/)

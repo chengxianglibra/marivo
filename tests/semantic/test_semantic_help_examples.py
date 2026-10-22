@@ -38,12 +38,14 @@ _ORDERS = (
 def test_modeling_tutorial_capture_sequence(
     semantic_project_factory: ProjectFactory, edition: str
 ) -> None:
-    page = ROOT / edition / "latest/guides/semantic-modeling.mdx"
+    page = ROOT / edition / "latest/modeling/semantic-layer.mdx"
     blocks = re.findall(r"```python\n(.*?)```", page.read_text(), re.DOTALL)
     source = "\n".join(
         block
         for block in blocks
-        if "sales = ms.domain" in block or "def normalized_region(" in block
+        if "sales = ms.domain" in block
+        or "def normalized_region(" in block
+        or "def gross_margin_rate(" in block
     )
     source += (
         "\nfrom marivo.semantic._deferred_semantics import consume_field\n"

@@ -1,0 +1,82 @@
+---
+title: Time series and windows
+description: Group by calendar periods and calculate rolling and cumulative values.
+---
+
+Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. This uses the six-order dataset and UTC reporting time. The start is included and the end is excluded. Run each section in order.
+
+## Observe days and months
+
+```python
+from analysis import mv, session, revenue, august
+```
+
+{/* example: calendar-query */}
+
+```python
+days = august.by(mv.grain("day"))
+daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+).compute()
+monthly_source.show()
+```
+
+{/* example: metric-window-query */}
+
+```python
+from datetime import timedelta
+
+rolling = session.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    by=(days,),
+).compute()
+month_to_date = session.observe(
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+).compute()
+rolling.show()
+month_to_date.show()
+```
+
+{/* example: period-comparison-query */}
+
+```python
+current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(
+    mv.grain("day")
+)
+prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(
+    mv.grain("day")
+)
+current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+comparison = current_daily.compare(
+    {"reference": prior_daily},
+    match={"reference": mv.ordinal()},
+).compute()
+comparison.show()
+```
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue},
+    by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": previous_progress}).compute()
+progress.show()
+```
+
+## Interpret windows and correspondence
+
+August's total is 800. The seven-day trailing revenue at the end of August 5 is 100; month-to-date at August 15 is 200. Lookback can extend before the displayed start, so provide that history for real data.
+
+`trailing_duration` measures elapsed time. Civil periods follow calendar boundaries and can differ across daylight-saving transitions. The window's endpoint is the bucket's actual right boundary. `to_date` resets at the selected period boundary.
+
+Ordinal matching pairs original positions in compatible complete periods. A month shift of the August 1–20 prefix compares with July 1–20, without including July 20 midnight or later. The sample therefore compares 200 with 300, a change of -100. A missing target date is not silently clamped to another date.
+
+Summing result rows is a statistic on those rows. For a monthly ratio or distinct count, request the original metric at monthly grain instead. For fiscal calendars and named activities, [prepare and certify the calendar](/docs/latest/modeling/semantic-layer/#business-calendars) before selecting its grain. Source parsing and report timezone are separate choices; use explicit parser timezone only for naive timestamps, not aware timestamps or date-only encodings.

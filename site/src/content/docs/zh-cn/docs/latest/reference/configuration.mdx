@@ -1,0 +1,50 @@
+---
+title: 配置与部署
+description: 配置项目根、共享模型和本地持久状态。
+---
+
+<span id="集成宿主凭据"></span>
+
+选择项目根或跨仓库共享定义时查询本页。
+
+## 哪些文件应共享
+
+| 位置 | 用途 | 版本控制 |
+| --- | --- | --- |
+| `marivo.toml` | 可选项目配置 | 按需共享 |
+| `models/datasources/` | 使用环境变量引用的连接 | 共享声明，不共享解析后的秘密 |
+| `models/semantic/` | 可复用业务定义 | 共享 |
+| `.marivo/` | 本地分析数据、审计、日志与元数据 | 忽略 |
+
+没有配置文件时，项目名默认取目录名，外部语义路径为空，遥测开启。已有配置非法时会失败，不会静默使用默认值。
+
+## 共享模型目录
+
+在可选配置中列出每个外部 `models/` 目录：
+
+```toml
+[semantic]
+layer_paths = ["../sales-domain/models", "/opt/company/finance-domain/models"]
+```
+
+先加载本地模型，再按顺序加载这些路径。相对路径以配置文件为基准，不以当前 shell 目录为基准。外部根需要同时包含 `datasources/` 和 `semantic/`。跨根名称必须唯一，后加载的根不覆盖前者。
+
+## 明确选择项目
+
+需要精确根时，向 `md.load`、`md.inspect` 或 `ms.load` 传入 `workspace_dir`。未指定时，它们依次采用 `MARIVO_PROJECT_ROOT`、最近祖先配置、当前目录。Doctor 的显式 `--project-root` 选择诊断目标，
+
+已加载目录保留当时定义；修改模型后重新调用 `ms.load()`。导入的 Python 依赖需要重载时重启进程。注册和删除只写本地数据源声明。
+
+结果持久化为项目本地数据。恢复时保留完整所属状态，不要编辑内部文件。不兼容旧状态需要原读取环境，没有自动迁移。参阅[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+
+## 运行环境
+
+在 Python 进程实际运行的位置安装 Marivo。使用相同的固定包/源码修订、模型文件和项目根，便于复现。安装流程统一见[安装](/zh-cn/docs/latest/start/installation/)。
+
+### 准备运行环境
+
+提供项目、所需驱动、环境变量凭据、来源网络权限，以及可写且持久的项目状态目录。一次性目录若不保留状态，保存结果也会随之丢失。
+
+用确切项目根运行 Doctor，检查包与解释器身份。只对预期来源执行真实连接测试；方法支持应另行检查。
+
+需要自定义凭据服务时，通过 `marivo.help("datasource.credential_scope")` 查询宿主集成接口。

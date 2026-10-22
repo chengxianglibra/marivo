@@ -1,239 +1,40 @@
 ---
-title: Analysis workflow
-description: Construct explicit source inputs, fix data and continue with complete Frames.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Use `mv.*` for explicit descriptions/composition, `session.*` when introducing
-Catalog, Store, execution ownership or the frozen default timezone, and receiver
-methods/properties for existing context. Public types support inspection and
-annotations; obtain values through their producers. `mv.session.*` owns lifecycle
-discovery. Retained source targets can continue with `frame.attribute(by=...)`.
+This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
 
 ## Read guidance for the next decision
 
-The marivo-analysis skill owns question scope, semantic handoffs and closeout.
-Start unknown capabilities at `marivo.help("analysis")`; follow the next useful
-route, not a reading checklist. Population/Frame.show owns captured structure;
-focused type Help owns calls and errors own repairs. Catalog definition cards,
-readiness, actual source evaluation and saved data prove different facts.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Create and recover an exact Session
 
-`mv.session.create(name, *, question=None, timezone=None, domains=None)` creates a
-new project-unique name; duplicates report the existing ID. The normalized domains
-and timezone freeze at creation. Omitted timezone captures the system zone once;
-explicit invalid zones fail. `session.timezone` exposes the saved name.
-`mv.session.resume(session_id)` recovers that exact existing identity;
-`recent()` discovers bounded name/ID pages and `inspect(session_id)` returns a SessionSummary
-without recovery. There is no implicit current Session. Pure resume/inspect/compute
-does not refresh updated_at. Session recovery checks original publication
-transactions and owned resources without source reevaluation; an active writer prevents recovery.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Construct explicit source inputs
 
-All data constructors return immutable AnalysisFrame. observe binds resolved
-Metrics and explicit by/where. TimeScope and CalendarAxis belong in by. read binds nonempty fields to one
-complete Entity identity domain. values declares literal coordinates/values;
-frame binds a general Population key domain, including zero axes/no named values.
-attribute follows the receiver's retained direct source/comparison targets and
-complete selected parent coordinates, adding new governed classifications.
-Construction and inspection read no business rows/schema and do not publish results.
-Resolve unknown inputs through bounded Catalog discovery; known names use exact
-lookup. There is no top-level execution Session alias.
-
-A tuple by groups observed coordinates; by=Population selects exactly its complete keys, including coordinates without facts.
-Use where=mv.in_population(P) for contribution selection. P.count() independently
-counts complete distinct tuples as a lazy integer Metric, including Null categories
-and identities without facts; P/Q counts do not infer their domains from by or where.
-
-Observe and members also accept mixed native conditions such as
-`(status == "paid") | mv.in_population(P)`. Use `&`, `|` and `~` with parentheses.
-Field NA remains unknown until final True-only selection; member tests are
-nonnullable. Population.where accepts only member leaves over existing axes.
-Frame.where accepts an ordinary boolean Column from that exact Frame, including
-boolean values or presence columns; False and NA are excluded. Source conditions
-do not convert into result Columns. See `marivo.help("semantic.predicate")`.
-
-Empty domains count 0 and the zero-axis unit domain counts 1. Grouping uses coordinates
-already in P; classify new attributes explicitly while retaining identity to count
-members by an attribute. Projecting to that attribute alone counts categories.
-Field Null is a
-valid category; complete Entity identities keep every nonnull primary-key part.
-Classify/image/preimage read explicit governed dependencies. Scalar routed/versioned
-fields keep their via/at bindings. Same-path definition changes alone do not
-reject existing inputs; kind/root/grain/unit/time/null correctness still applies.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Fix values before the next decision
 
-```python
-import marivo
-import marivo.analysis as mv
-
-# Reuse the local tutorial's resolved inputs and Session.
-pending = session.observe({'revenue': revenue}, by=(august, region))
-pending.show()  # Captured facts only.
-fixed = pending.compute()
-fixed.show(n=10)
-saved = fixed.persist()
-reopened = session.persisted_frame(saved.artifact.id)
-selected = reopened.where(reopened["revenue"] > 300).compute()
-selected.show()
-marivo.help("analysis.analysis_frame")
-```
-
-compute returns complete memory data; persist publishes a completed result.
-Continue from the returned fixed Frame to retain exact values/keys. Derived
-operations stay lazy. Reusing the original source expression can read changed
-sources; it is not historical reuse. Complete data contains no producer graph,
-semantic object, connection or aggregate components. Saved recovery requires
-exact Session identity and `frame.artifact.id`, not a latest answer.
-
-Frame data methods operate on current rows across all carriers: where/select,
-global top, reduce over existing complete axes, partition over/Column.share, full-axis align/compare and
-supported frozen calendar match. Column/FrameAxis handles bind to exact inputs.
-Ordinary mapping needs complete explicit on; zero axes and one sole interval or calendar axis
-have only the stated inference. Generated value paths are exact names, not roles
-guessed by suffix. Presence is independent of NA.
-
-`frame.over(statistic, by=...)` broadcasts a current partition's sum, mean,
-corr, pair_count or row_count to the same input rows. `column.share(along=...)`
-divides current values by the sum over those axes, partitioning by the remaining
-axes. Use complete same-input handles; share requires a nonempty axis tuple.
-Filtering before the calculation changes its samples and denominator; filtering
-its result preserves them. These fixed-data operations do not establish original
-Metric contribution. See [partition statistics and shares](/docs/latest/guides/statistics/).
-
-For current-row Pearson or Spearman correlation, choose the method explicitly:
-
-```python
-result = frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()
-result.show()  # coefficient, n_pairs
-
-combined = frame.reduce({
-    'spearman': frame['spend'].corr(frame['revenue'], method='spearman'),
-    'n_pairs': frame['spend'].pair_count(frame['revenue']),
-    'rows': mv.row_count(),
-}).compute()
-```
-
-Both numeric Columns and any `by=(frame.axes[0],)` grouping axes must belong to
-this exact Frame/Session input. Different units are allowed; Duration is rejected.
-`correlate` returns a lazy ordinary Frame with fixed ordered `coefficient`
-(nullable float64, unit `1`) and `n_pairs` (nonnullable int64, no unit), consuming
-one input evaluation. Each group uses common non-NA pairs after both expression
-checks. Zero and duplicate values count; zero-pair groups remain. Fewer than two
-pairs or a constant endpoint gives NA with the actual count. Spearman uses
-average ranks within each group's paired values. Presence never implicitly
-filters samples and is removed by reduction. Independent `pair_count(x)` on x
-counts its non-NA values; `reduce` names do not infer matching pairs. Group
-coefficients/counts cannot reconstruct pooled correlation; reduce the original
-sample Frame for that question. Compute the input first only when reusing one
-fixed dataset across analyses.
-
-Discover the focused contracts with `marivo.help("analysis.analysis_frame.correlate")`,
-`marivo.help("analysis.column.corr")` and `marivo.help("analysis.column.pair_count")`.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Ask for new source facts explicitly
 
-```python
-parents = session.population_from(selected, on=((selected.axes[1], region),))
-new_source = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
-new_source.show()
-```
-
-The bridge projects complete joint ordinary keys and explicitly binds source
-Field/Entity inputs; on is required and may be empty. It neither reconstructs
-semantic history nor promotes fields to identities. Targets establish new semantic
-bindings after joint key projection. You declare the business correspondence;
-validation checks the target Catalog, role, complete key types, units and time
-constraints, not equality with the original Entity/Field. Compatible Customer
-keys may bind Product, or shipping-city keys may bind billing-city; neither
-proves semantic identity. Fixed parent keys do not
-rerank; newly read facts can change. Calendar/paired axes and arbitrary values
-cannot bridge. by=Population selects output keys; in_population selects fact contributions.
-Original overall mean/distinct, new attributes, windows or grain need explicit
-source construction. Frame reduce over current rows is not original rollup.
-
-For contribution, directly select the source Metric or comparison targets and
-call `frame.attribute(by=...)`. Current complete rows fix the parent keys; each
-target keeps its own baseline. Same-process compute/persist retain declarations,
-while independent reopen needs explicit source rebuilding using saved joint keys.
-The qualified route remains native DuckDB physical tables. Unsupported targets
-can continue ordinary explicit observe and compare/align investigations.
-See the [comparison and investigation guide](/docs/latest/guides/comparison-and-attribution/).
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Keep source contribution and time meaning
 
-Metric.per evaluates the full child formula per sample before reducing. Explicit
-sample Populations retain complete empty samples under the child's policy;
-internal sample selection and the requested output domain remain independent.
-Place membership rules directly in `observe(..., by=(rule, ...))` or
-`metric.per((rule, ...))`. Each rule expands its ordered fields while keeping one
-complete allocation. For rule=(tag, channel), `(rule, customer, channel)` locates
-channel explicitly; repeated first fields, overlapping rules and wrong field order
-reject. `(P, rule)` preserves P axes and joint keys. Outer and inner rules are independent.
-Population contains keys and dependencies. Membership keeps correlated tuple paths
-and allocation factors; duplicate links do not
-multiply one contribution/bucket, equal-valued distinct contributions remain.
-Multi-root formulas reduce roots independently before complete-grid combination.
-
-Metric.window attaches explicit source windows. Each endpoint evaluates its full
-W(t), including lookback before display start. Duration and civil periods differ;
-Session, parser and calendar timezone authorities remain separate. A supplied
-by supplies the unique interval/calendar time axis and window endpoints. A snapshot-bound Grain must match the frozen
-Session authority. Complete Frame interpretation does not reload model/TZ rules.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Read data and audit within their boundaries
 
-Frame.show(n=0) gives metadata only; positive show reads the ordered prefix and
-needed frozen labels/bounds/paired endpoints. Cards show only method-fact count,
-bounded origins and a getter pointer. `to_pandas()` validates complete current
-data and its required coordinate attachments. `method_facts` explicitly reads
-complete immutable original explanations; the stored getter validates owned
-method files without current primary rows, Catalog or source access. Pending
-access requires compute/persist. Stored compute and evaluated derivatives consume
-both data and method facts. A bad method file may leave export/metadata usable
-while full consumers fail. Artifact.show(), findings and evidence_digest read audit
-only, with no n or to_pandas on Artifact. Source read, evaluation and commit times
-differ. Publication saves an existing result ID after evaluation. Session recovery
-never recomputes an unknown commit. Lost return references require explicit
-resubmission, accepting duplicate saved outputs and possible source changes.
-
-Typed data operations can continue after recovery. Unsupported external methods
-need explicit fixed input, assumptions and rerunnable arithmetic. Export attrs
-cannot reenter computation. New original-source questions remain explicit.
-Inherited facts retain their original totals/coordinates; filtering and reduction
-do not change original denominators or certify new decompositions. Saved
-derivatives own their payloads independently of the original Artifact. Exact
-reading effects are in `marivo.help("analysis.analysis_frame.method_facts")`;
-complete types are in `marivo.help("analysis.frame_method_facts")`.
-See [statistics](/docs/latest/guides/statistics/),
-[time and cohorts](/docs/latest/guides/time-and-cohorts/) and
-[evidence](/docs/latest/concepts/evidence/).
-
-
-Grouping rules use `by=(field_or_grouping, ...)`. Obtain complete identity rules
-with `mv.identity(entity)` and calendar rules with `scope.by(grain)`.
-`mv.membership(...)` belongs directly in observe.by or Metric.per inputs.
-`population.axes` reuses coordinate definitions; `by=population` selects its
-complete output keys, including empty buckets; it must cover all necessary complete
-source output keys after explicit fact filters and unmatched handling, before internal
-sampling. Missing keys reject even with empty samples or a later Top-0. Internal
-per(P) allows subsets and retains external coordinates when samples are empty. `mv.coordinates(...)` constructs finite field/identity domains,
-including correlated multi-axis tuples. Each identity value is one complete
-primary-key tuple; `mv.identity(entity, at=...)` can specify its version anchor.
-Population.where accepts `mv.in_population(...)` predicates, not field conditions;
-use members/read/Frame filtering for new attribute conditions.
-
-Inspect a captured domain with `show()` and reuse its ordered axes:
-
-```python
-domain = mv.coordinates(
-    by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)),
-)
-domain.show()
-axes = domain.axes
-```
-
-Population.show prints its captured definition without evaluating keys. Python
-truth evaluation does not test whether a Population is empty.
+[Continue reading](/docs/latest/analysis/dsl/)

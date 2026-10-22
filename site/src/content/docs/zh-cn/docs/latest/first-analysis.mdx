@@ -1,35 +1,24 @@
 ---
-title: 首次 Agent 分析
-description: 向 Agent 提供决策与范围，再审阅其有证据支持的回答。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-使用相关语义定义已确认且可加载的项目，不需要指定 Python 算子或固定检查顺序。
+内容已合并至 [使用 Agent](/zh-cn/docs/latest/guides/agents/)。
 
 ## 向 Agent 提供明确范围的问题
 
-> 使用 `marivo-analysis`解释已确认 `sales.revenue`在 2026 年 7 月与 8 月间的变化。
-> 比较同一已完成订单范围，先看地区，最后报告结论、关键证据与限制。
-
-说明决策、有意义的基准、纳入和排除群体及初始重点。定义缺失时，先解决最小语义缺口，
-不要静默替换 Metric。
+[继续阅读](/zh-cn/docs/latest/guides/agents/)
 
 ## 理解 Agent 的工作
 
-Agent 验证所选环境、读取已有 catalog 对象，在一个 Session 中构造明确分析，
-并在下一决策需要值时 compute。Population/Frame.show 披露捕获事实；继续使用返回的固定
-Frame，并 persist 需要跨进程保留的结果。Frame.show/to_pandas 读取数据，持久结果的
-`.artifact` 拥有审计。用 persisted_frame(id) 恢复精确数据；新来源问题需要显式输入。
-聚焦 Help 拥有调用，RawSqlResult 不进入类型化 Frame Store。
-
-可复用定义缺失时交给 `marivo-semantic`，认证修改的根，再回到原问题。
-终端 raw SQL 可回答已披露临时口径的问题，但其行不能进入 typed analysis。
-Readiness、连接和执行成功证明不同事实。
+[继续阅读](/zh-cn/docs/latest/guides/agents/)
 
 ## 审阅回答
 
-确认 Metric 含义、群体、时期、比较方向与拆分。检查重要主张具有结果或 Evidence 支持，
-并明确覆盖、缺失和方法限制。代数分配与关联本身不证明原因。
-
-仅为仍有意义的问题继续。历史问题复用确切保存结果，新鲜度重要时执行当前来源。
-
-下一步：[业务问题](/zh-cn/docs/latest/guides/business-question/)、[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)，或[完整 Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)。
+[继续阅读](/zh-cn/docs/latest/guides/agents/)

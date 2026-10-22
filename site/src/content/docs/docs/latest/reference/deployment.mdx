@@ -1,43 +1,22 @@
 ---
-title: Deployment
-description: Run a Marivo project where an agent can access its semantic layer and datasource credentials.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-## Deploy Marivo where the agent runs
+This content is now in [Configuration and deployment](/docs/latest/reference/configuration/).
 
-Marivo is a Python library, not a hosted service. Install it in the environment
-where the agent runs, then check the project's datasource and semantic
-declarations into version control. Provide datasource secrets as environment
-variables referenced by `*_env` fields; do not commit credentials into the
-project.
+## Prepare the runtime
 
-For development from this repository, create an environment, install the
-editable package with the needed extras, and verify the import:
+[Continue reading](/docs/latest/reference/configuration/)
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,duckdb,trino]"
-.venv/bin/python -c "import marivo; print(marivo.__name__)"
-```
+## Integrate host credentials
 
-If the environment identity is uncertain, run `marivo doctor` to inspect the
-Marivo version, Python executable, loaded package path, and project state. If
-the environment is not activated, invoke the `marivo` executable belonging to
-that environment. Use `.venv/bin/python -m marivo help analysis` for static capability discovery.
-CLI and Python share the same focused Help targets:
+[Continue reading](/docs/latest/reference/configuration/)
 
-{/* example: deployment-connection-check */}
-
-```python
-import marivo
-
-marivo.help("authoring")
-marivo.help("semantic.objects")
-marivo.help("analysis")
-```
-
-For a project using a published release, install the required backend extra as
-described in [Installation](/docs/latest/installation/). `marivo init` is optional;
-use it when the deployment should materialize a manifest or filesystem-discovered
-agent skills. Keep any committed semantic layer alongside the agent so every run
-resolves the same declarations.
+<span id="deploy-marivo-where-the-agent-runs"></span>

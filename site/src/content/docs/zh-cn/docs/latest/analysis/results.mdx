@@ -1,0 +1,65 @@
+---
+title: 结果与证据
+description: 保存结果标识，恢复数据并导出数值和分析依据。
+---
+
+先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。取得返回结果后应保存其标识，恢复时使用这些确切标识。
+
+## 保留确切标识
+
+将下面保存为 `save_ids.py`，从演示根目录运行。它导入 `analysis.py`，创建新会话，然后记录会话与结果 ID。
+
+```python
+from analysis import saved_session_id, saved_artifact_id
+from pathlib import Path
+import json
+
+Path("saved-result.json").write_text(
+    json.dumps(
+        {
+            "session": saved_session_id,
+            "result": saved_artifact_id,
+        }
+    )
+)
+```
+
+## 在另一进程中恢复
+
+保存为 `reopen.py`，从同一项目运行 `.venv/bin/python reopen.py`。该脚本不导入 `analysis.py` 或语义模型，也不查询来源。
+
+```python
+import json
+from pathlib import Path
+import marivo.analysis as mv
+
+ids = json.loads(Path("saved-result.json").read_text())
+session = mv.session.resume(ids["session"])
+reopened = session.persisted_frame(ids["result"])
+rows = reopened.to_pandas()
+assert rows[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+reopened.artifact.show()
+rows.to_csv("comparison.csv", index=False)
+```
+
+两个变化仍为 -100。可以在保存行上继续执行受支持的 Frame 运算。新的原来源问题需要显式来源输入；保存数据不会重建原指标定义。
+
+导出是独立 pandas 副本，列使用 `(kind, name)` 结构。CSV 便于分享数值，但不是可无损导回 Marivo 的格式：类型属性和冻结时间解释需要原 Frame。连接多个导出前先检查单位与键。
+
+从原来源表达式重新计算可能读到变化；[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)处理缺文件与旧状态不兼容。
+
+## 依据与结论
+
+结果包含数值，结论则在业务背景下解释数值。Marivo 记录事实，帮助你检查这种解释。
+
+### 确定在读什么
+
+AnalysisFrame 可以描述待计算表达式、完整内存数据或确切保存数据。`compute` 得到完成值，`persist` 保存完成结果。有界展示不等同完整导出。
+
+保存 Frame 拥有数据，`.artifact` 提供审计信息、适用时的 Finding 和证据摘要。普通观察不一定产生 Finding。受支持的贡献方法通过 `method_facts` 保留完整说明。
+
+### 明确时间与含义
+
+来源读取、计算和保存时间不同。今天保存昨天的数据，不会让数值变成最新。之后重新查询可能得到不同答案，确切保存数据则记录了当时提交的内容。
+
+贡献 -100 说明既定公式如何分配变化，不证明某次活动导致下降。证据也不自动证明来源完整、跨来源同一快照或业务口径得到认可。

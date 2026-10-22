@@ -1,5 +1,9 @@
 # Site maintenance
 
+The [usage documentation writing guide](WRITING_GUIDE.md) defines the audience,
+structure, examples, bilingual consistency, and acceptance criteria for English
+and Simplified Chinese usage documentation. Read it before rewriting usage pages.
+
 Run `npm run dev`, `npm run verify:content`, or `npm run build` from this directory.
 These entrypoints materialize the ignored page copies in `shared-docs.json` before
 loading content. Direct `astro` invocation requires running

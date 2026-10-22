@@ -1,0 +1,26 @@
+---
+title: Use Marivo with an agent
+description: Install Marivo through an agent, ask a business question, and review the answer.
+---
+
+## Installation instruction
+
+Give this sentence to an agent that can run terminal commands:
+
+> Install Marivo in this project using https://marivo.io/install.sh, run the environment checks, and confirm that the marivo-semantic and marivo-analysis skills are loaded.
+
+The script installs a released package. For development APIs in these latest guides, ask the agent to follow [source installation](/docs/latest/start/installation/). If skills are not discovered automatically, provide the installed skill file locations.
+
+## Ask a question
+
+With an existing model, state the business question, metric, dates, and reference:
+
+> Use this project's sales.revenue to compare August 2026 with July, break the change down by region, and report the values, evidence, and limitations.
+
+For a new project, provide the data location and approved definitions. Confirm material choices such as refunds, currency, and business time. Without production data, ask the agent to run [quick start](/docs/latest/start/python/).
+
+## Review the answer
+
+The six-order example should show July 1,000, August 800, and a decline of 200; east and west each decline by 100. Ask the agent to distinguish arithmetic decomposition from causal claims and explain missing data and method limits. Retain Session and saved-result IDs for later use.
+
+For a follow-up, state which scope stays fixed and whether you need historical results or current data. For example: “Keep west selected and compare by customer type.”

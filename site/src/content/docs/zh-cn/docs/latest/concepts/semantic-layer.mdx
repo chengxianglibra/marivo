@@ -1,91 +1,27 @@
 ---
-title: 语义层
-description: 在 Python 中定义可复用业务含义，通过 Catalog 集合获取对象。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-语义层为业务对象提供稳定名称。Datasource 元数据说明物理数据，已确认的定义建立业务含义。
+内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
 
-## 明确每类事实的所有者
+## 将复用含义放进模型
 
-| 对象 | 负责的事实 |
-| --- | --- |
-| Datasource | 连接、物理来源、schema 和有界检查 |
-| Domain / Entity | 业务归属、实例身份和历史版本 |
-| Dimension / TimeDimension / Measure | 分类、来源时间含义、数值、单位和可加性 |
-| Metric / Relationship | 已治理方程、聚合状态和已声明映射 |
-| Analysis | 当前问题的成员、窗口、坐标和计算 |
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
-## 先复用再定义
+## 区分定义变化与当前问题
 
-现有项目定义符合问题时，优先克隆并复用。改变含义前先读 catalog 条目和详情。
-新增对象时在 `models/`下写入依赖完整的一组定义，加载并修复结构错误，
-只认证分析所需的根对象。
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
-参见[语义建模](/zh-cn/docs/latest/guides/semantic-modeling/)与[Readiness](/zh-cn/docs/latest/concepts/readiness/)。Python 声明是共享的事实依据，项目本地 `.marivo/`状态不能替代它们。
-
-## 获取已加载对象
-
-通过各个 Catalog 集合的 `get()` 获取对象，参数只接受普通的本地名称或完整语义路径字符串。
-可复用脚本建议使用完整路径；短名称必须在当前集合内唯一。获取到的值保留其语义事实。
-
-```python
-orders = catalog.entities.get("sales.orders")
-customer_id = catalog.fields.get("sales.orders.customer_id")
-revenue = catalog.metrics.get("sales.revenue")
-```
-
-Ref 和 `dimension:sales.orders.customer_id` 这样的 kind 前缀字符串不能作为查找输入。
-限定范围的集合只暴露自身成员。具体消费操作检查所需的 kind、贡献根、粒度、单位和时间角色；
-typed Ref 继续用于声明、定义检查和持久化记录中的身份。
-
-## 确定业务依据
-
-通过当前需求或已确认且无冲突的项目定义，明确纳入与排除规则、时间轴、单位、权重和有意义的拆分。
-字段名称与样本行不能确定这些选择。`ai_context`记录业务定义和使用限制，供 agent 参考；
-它不会替人决定业务含义，也不会认证执行能力。
-
-物理访问参见[数据源](/zh-cn/docs/latest/guides/datasources/)；未解决的业务选择参见[业务问题指南](/zh-cn/docs/latest/guides/business-question/)。
-
-## 表达式 Entity 的输出粒度
-
-直接声明的 Entity 使用原始 Source 关系；装饰器 Entity 接收一个 Source 的 Ibis Table，
-返回从它派生的关系。身份键、版本列和下游字段以输出 schema 为准。这里定义可复用的业务粒度，
-针对具体问题的指标通过 Analysis 计算。
-
-{/* example: semantic-entity-expression */}
-```python
-@ms.entity(datasource=warehouse, source=md.table("orders"), primary_key=["region"])
-def regional_orders(raw):
-    return raw.filter(raw.amount > 0).group_by("region").aggregate(total=raw.amount.sum())
-```
-
-Source 的能力约束仍然适用。Analysis 从 `session.members(entity)` 进入；Entity 表达式不能
-提交 SQL 或连接其他数据源。Entity Details 提供有界的规范化表达式；其他计算对象的 Details
-提供 `details.definition`，可用 `show()` 或 `to_dict()` 读取加载时的定义，无需执行。
-
-预览和认证请求后端原生查询超时，不支持则继续执行。读取或清理失败不会发布新的认证快照，
-认证仍要求完整范围和全部校验通过；连接关闭不代表远端查询已确认终止。
-
-## 局部表达式与发布边界
-
-物理构造器返回类型化的捕获 Ref。完整作用域完成 finalize 后，解析这些查找键才会生成具有完整依赖事实的不可变表达式值。Measure/Metric 是零参数纯声明，直接组合已构造对象，名称与计算身份分离。它们不要求活动 loader/Session，也不自动发布 Catalog 对象。模型加载收录命名 Metric 并提供当前 Catalog 发现；执行自动准备真实物理类型。原生 Deferred 算术与显式 per/window 政策由语义合同拥有。Entity/Source 和分类/时间字段仍保留受限 Ibis 作者能力。
-
-物理作者阶段先捕获类型化 Ref。依赖完整后调用 `ms.finalize()`，再用 `finalized.resolve(ref)` 取得不可变值用于行/Metric 组合。finalize 关闭捕获阶段，不发布 Catalog Metric，也不启用新执行路线。
-
-语义对象不必始终绑定构造时的原定义版本，不因同路径定义已改变而单独拒绝输入；分析期间语义定义更新的后果由 agent 或用户承担。进行引用解析的消费者使用其完整作用域。不可变表达式保留存储的定义与事实，不做 live refresh。kind、贡献根、粒度、单位、时间角色、空值和权限检查仍然有效。指纹与缓存键描述实际消费的定义，持久化来源记录及其它记录仍遵循各自合同。
-
-DuckDB 上已发布的普通 Metric 可以通过共享 nullable Row/Metric 内核做有界预览；
-Population/内部样本及路径/属性锚点的预览准备路线尚未提供。
-
-```python
-import marivo.datasource as md
-
-revenue = catalog.metrics.get("sales.revenue")
-preview = catalog.preview(
-    revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30)
-)
-preview.show()
-```
-
-预览最多规约 10,000 条经过范围过滤的 Entity 输出行，结果按近似处理。
-这不会发布分析 Artifact，也不构成分析执行路线的资格证明。
+<span id="明确每类事实的所有者"></span>
+<span id="先复用再定义"></span>
+<span id="获取已加载对象"></span>
+<span id="确定业务依据"></span>
+<span id="表达式-entity-的输出粒度"></span>
+<span id="局部表达式与发布边界"></span>

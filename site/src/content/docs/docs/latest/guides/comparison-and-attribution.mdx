@@ -1,197 +1,36 @@
 ---
-title: Compare and investigate changes
-description: Compare fixed data or request new source investigation and qualified contribution.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Read nested fact records from `frame.method_facts` and its fields.
-`FrameMethodFacts` remains the root aggregate type; nested record classes are
-not `mv.*` constructors. Use `marivo.help(type(value))` to discover their complete
-fields. Inspect method variants through their `kind` values: `additive`,
-`ratio_component` or `linear`. These records retain original explanations without
-acquiring source authority or certifying a new decomposition.
-
-This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/).
+This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
 
 ## Compare fixed data
 
-{/* example: compare-query */}
-
-```python
-on = tuple(zip(current.axes, baseline.axes))
-change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}).compute()
-comparison = change.to_pandas()
-assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
-assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
-```
-
-Compare retains current `revenue`, then adds `reference.baseline.revenue`,
-`reference.absolute.revenue` and `reference.relative.revenue`. Relative is
-(current-baseline)/abs(baseline). A valid zero baseline gives NA for the new relative value. Missing
-rows or NA yield NA differences; strict child policies stay required.
-`current.present` and `reference.present` are independent row flags; inherited
-presence lives below `current.presence.*` and `reference.presence.*`.
-
-Outer correspondence retains current order then
-mapped baseline-only keys; actual baseline time rows outside the declared current
-domain reject. Use align for a general two-ended time union. Each input here has
-interval and region axes: the alias-keyed on entry covers both, and the
-alias-keyed ordinal rule explicitly pairs periods. Display names do not bind
-inputs. Single and multiple baselines use the same named mapping; a name such
-as `yoy` never infers a rule or source computation.
-
-Ordinary Frame axes retain complete key types, roles and time interpretation
-without original Entity/Field nominal bindings. Explicit on declares your business
-correspondence; validation does not check original Entity/Field equality. Even
-compatible Customer/Product identity keys can be explicitly paired. Equal value
-names select comparison pairs; names, types and units do not prove Metric identity
-or business comparability. exact validates the declared key correspondence.
-
-{/* example: aligned-absolute-only */}
-
-```python
-aligned = current.align(
-    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
-)
-difference = aligned.select({
-    "difference": aligned["left.revenue"] - aligned["right.revenue"],
-}).compute()
-difference.show()
-```
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Ask for new source facts explicitly
 
-New observations declare fresh source facts with governed Metrics, dimensions and
-periods. Compare those observations explicitly for an investigation without a
-contribution rule:
-
-{/* example: attribute-default-investigation */}
-
-```python
-fresh_current = session.observe({"revenue": revenue}, by=(august, region))
-fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
-investigation = fresh_current.compare(
-    {"reference": fresh_baseline},
-    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
-    match={"reference": mv.ordinal()},
-).compute()
-```
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Explain selected targets with a new breakdown
 
-For qualified native DuckDB physical-table inputs, attribute follows a retained
-source declaration. Select the direct Metric or one comparison output to explain;
-its current complete rows fix the parent domain. Each target keeps its own baseline.
-
-{/* example: attribute-contribution-facts */}
-
-```python
-overall_current = session.observe({"revenue": revenue}, by=(august,))
-overall_baseline = session.observe({"revenue": revenue}, by=(july,))
-overall_change = overall_current.compare(
-    {"reference": overall_baseline}, match={"reference": mv.ordinal()},
-).compute()
-target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
-explained = target.attribute(by=(region,)).compute()
-assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
-facts = explained.method_facts
-facts[0].show(n=0)
-declines = explained.where(explained["contribution.revenue"] < 0).compute()
-saved_declines = declines.persist()
-reopened_declines = session.persisted_frame(saved_declines.artifact.id)
-decline_rows = reopened_declines.to_pandas()
-original_explanation = reopened_declines.method_facts
-```
-
-The independently reread parent change is -200, with contribution -100 and
-share .5 for each region. The interval parent remains present. `total.revenue`
-is the fresh parent target; `observed_total.revenue` is the fixed receiver value.
-`detail.current.revenue`, `detail.baseline.revenue` and `detail.absolute.revenue`
-preserve original fine formulas, NA and presence. Ratio/native-mean methods also
-retain their actual components and effective counts. Strict parent and fine
-formula checks survive report projection or Top-0. Shares remain signed; a
-defined zero total retains contributions and gives NA shares.
-
-Filtering the report preserves its original totals and method facts. Stored
-method facts are complete source-free explanations; they do not restore executable
-declarations. Same-process compute/persist retain the instance declaration;
-independent reopen requires explicit source reconstruction before another attribute.
-Only direct projections/renames, admitted compare outputs and the restricted align
-endpoint difference retain explainable target recipes. Define ratios and linear
-Metrics before observe; ordinary Column arithmetic does not become a source Metric.
-
-A nonlinear or quantile target can remain a valid ordinary source investigation
-without a contribution rule. Use explicit observe and compare rather than a fallback:
-
-{/* example: attribute-explicit-default-after-refusal */}
-
-```python
-nonlinear = revenue * revenue
-fine_current = session.observe({"squared": nonlinear}, by=(august, region))
-fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
-nonlinear_investigation = fine_current.compare(
-    {"reference": fine_baseline},
-    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
-    match={"reference": mv.ordinal()},
-).compute()
-```
-
-These are grouped nonlinear observations. Their differences do not claim exact
-contribution or certify that summing them reconstructs an original overall formula.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Fix a parent selection before a new request
 
-{/* example: comparison-endpoint-followup */}
-
-```python
-chosen = current.top(1, by=current["revenue"]).compute()
-parents = session.population_from(chosen, on=((chosen.axes[1], region),))
-prior_selected = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
-followup = chosen.compare(
-    {"reference": prior_selected},
-    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
-    match={"reference": mv.ordinal()},
-).compute()
-followup.show()
-```
-
-The fixed Top selects west; a new source observation investigates that selected
-region in July. It does not rerank the parent or recover history from the result.
-For a new breakdown, explicitly obtain its governed field and include it in a
-new source request. New contributions may have changed since selection; no shared source
-snapshot is promised. Frame current-row reduce never substitutes an original
-Metric overall, and there is no Frame drill/rollup/share receiver.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Align an explicit complete-domain reference
 
-{/* example: broadcast-reference */}
-
-```python
-budget = session.values(
-    by=(region,), columns={"budget": "CNY"},
-    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
-).compute()
-regional = current.reduce({"revenue": current["revenue"].sum()},
-                          by=(current.axes[1],)).compute()
-aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
-vs_budget = aligned_budget.select({
-    "revenue": aligned_budget["left.revenue"],
-    "budget_variance": aligned_budget["left.revenue"] - aligned_budget["right.budget"],
-}).compute()
-vs_budget.show()
-```
-
-The one-period revenue rows are explicitly summed by region to remove the interval axis before alignment. This current-row sum does not reconstruct arbitrary non-additive Metrics. The budget covers the same region domain. This is ordinary full-axis
-alignment and arithmetic; it does not broadcast a scalar, infer a relationship,
-or establish contribution inclusion. Arbitrary broadcast between independent
-Frames and an original-contribution Frame share receiver are outside this surface.
-For current-data normalization, use `frame.over(statistic, by=...)` and
-`column.share(along=...)` on one exact input; optional source contribution share
-belongs to the explicit Attribute request above.
+[Continue reading](/docs/latest/analysis/dsl/)
 
 ## Choose calendar correspondence deliberately
 
-Zero axes or a sole same-kind interval/calendar axis permit the specified on
-inference; other axes require a complete explicit binding. Named compare accepts
-per-alias match or a compatible immediate frozen shift relation. Align keeps an
-explicit match and paired/general time-union behavior; compare keeps current axes
-and inert named baseline facts. See [time and cohorts](/docs/latest/guides/time-and-cohorts/).
+[Continue reading](/docs/latest/analysis/dsl/)

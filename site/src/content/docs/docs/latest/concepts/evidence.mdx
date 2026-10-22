@@ -1,93 +1,28 @@
 ---
-title: Evidence and recovery
-description: Read exact fixed data and audit without current sources.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Store 16 saves Frame data under `.marivo/analysis/generations/v16/`. One
-SQLite publication transaction commits manifest, receipts, Findings, Evidence
-after durable data. Persist evaluates completely before publishing an existing
-result ID; its submission protocol remains internal. Memory persist never
-reevaluates; stored persist validates commit metadata and returns itself.
-All Frames use `marivo.frame_output/v5`, `frame.v5` and `frame-output-v5`.
-Complete method tables, when present, and their receipts share this same atomic
-transaction; the manifest contains only bounded method descriptors.
+This content is now in [Results and evidence](/docs/latest/analysis/results/).
 
 ## Read data and audit
 
-Given a resolved revenue Metric and Session:
-
-```python
-saved = session.observe({"revenue": revenue}).persist()
-print(session.id, saved.artifact.id)
-saved.show(n=20)
-saved.artifact.show()
-reopened = session.persisted_frame(saved.artifact.id)
-complete = reopened.compute()
-page = reopened.artifact.findings(limit=20)
-digest = reopened.artifact.evidence_digest()
-print(digest.items)
-```
-
-Ordinary observe produces no Findings. One audit retains actual inherited
-source facts and the current evaluation, not accumulated intermediate history.
-Only exactly equal facts deduplicate; different scope/read times stay distinct.
-Source-read, evaluation and commit times differ. Committing old data does not
-refresh it. A saved input identity is not an executable lineage dependency.
+[Continue reading](/docs/latest/analysis/results/)
 
 ## Preview and complete data
 
-Opening/repr, show(n=0), Artifact.show/findings/evidence_digest consume metadata
-or audit, not data payload. Positive show decodes the ordered prefix and selected
-frozen coordinate records; receipt hashing/decompression may read more bytes.
-Preview success does not certify unread data. `to_pandas()` validates complete
-current values/keys/presence and interval/calendar/map attachments, without Catalog,
-source schema, connection, model or timezone-rule reconstruction.
-
-`reopened.method_facts` explicitly validates complete owned method payloads,
-without reading the current primary rows or original source. Pending access
-requires compute/persist. Stored compute and evaluated derivatives consume both
-current data and method facts; damaged method files can leave metadata and row
-export usable while these full consumers fail. Cards show only count, bounded
-origins and a getter pointer. A fact's show(n=0) is in-memory after that getter,
-so it does not avoid the prior payload read.
-
-Contribution facts retain original schemas, full parents and independent frozen
-coordinates. Filtering or reducing current rows does not change their original
-denominators or certify a new decomposition. A saved derivative owns its exact
-copied payload; the original Artifact need not remain available. Default
-investigation creates no new method facts or contribution proof. Exact access is
-documented by `marivo.help("analysis.analysis_frame.method_facts")`.
-
-Export returns isolated RangeIndex data with raw-key `(kind, name)` MultiIndex
-columns and isolated typed attrs: axes, units, comparisons and frozen_coordinates tables.
-Named comparison facts carry inert exact value/presence bindings and consumed endpoint maps.
-Current calendar labels/bounds, baseline endpoints and align paired endpoints remain self-contained; show is the
-simplest interpretation path. No new visible projection columns/endpoint API or
-attrs importer exists. Supported data operations continue on the recovered Frame;
-new source facts require explicit construction.
+[Continue reading](/docs/latest/analysis/results/)
 
 ## Keep publication and data history distinct
 
-Retain Session and Artifact IDs for exact reopening. If the return reference was
-lost, explicitly resubmit; this may duplicate saved outputs, and reevaluation may
-read changed data. There is no result directory or implicit latest result. Current evaluation
-records direct stored inputs actually consumed; carrier copying adds no fake
-read or lineage edge. Reconciliation resolves the original transaction rather
-than evaluating again. A full memory result stays independent after old files
-are removed; reading the old stored handle still fails if its data is gone.
+[Continue reading](/docs/latest/analysis/results/)
 
 ## Older data and evidence limits
 
-Store 16 refuses older-generation Session/result/Findings/Evidence access without
-changing bytes or migrating/dual-reading. Absent-current discovery may return
-None/empty without exposing old data; create cannot initialize a
-bypass around an old-only project. Export with the original version before
-switching, or retain a compatible reading environment. Preserve the old Store;
-use a new named Session in a fresh project for current work. This is not an
-automatic export/import migration. See
-[troubleshooting](/docs/latest/reference/troubleshooting/).
-
-Saved facts do not certify source completeness, current semantic authority,
-cross-source snapshots, freshness or causal conclusions. RawSqlResult remains
-an independent datasource reader and never enters Frame Store. Start discovery
-with `marivo.help("analysis")`; type Help owns calls and show owns captured facts.
+[Continue reading](/docs/latest/analysis/results/)

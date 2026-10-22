@@ -1,161 +1,32 @@
 ---
-title: Statistics on Frame data
-description: Separate current-row statistics from original source questions.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-This guide reuses the [local tutorial](/docs/latest/guides/python-quick-start/).
-Its `current` and `baseline` are complete fixed memory Frames.
+This content is now in [Statistics and correlation](/docs/latest/analysis/statistics/).
 
 ## Reduce or select current rows
 
-{/* example: query-result-statistics */}
-
-```python
-summary = current.reduce({
-    "sum": current["revenue"].sum(),
-    "mean": current["revenue"].mean(),
-    "rows": mv.row_count(),
-}).compute()
-summary.show()
-ranked = current.top(1, by=current["revenue"], descending=True).compute()
-ranked.show()
-```
-
-Each statistic has its own effective non-NA sample. Sum returns typed zero for empty input and NA for nonempty all-NA
-input; mean is NA without a valid sample, and row_count counts all represented rows.
-Reduce can retain existing complete Frame axes; it cannot coarsen a calendar.
-Sum/mean retain the current expression's unit. The unit does not certify original
-Metric additivity or permission to roll up removed axes: summed daily inventory
-may still have unit items, and summed ratios may remain dimensionless, without
-becoming monthly inventory or an overall ratio.
-An explicit Population retains members without facts. Their source sum is zero;
-existing facts whose values are all NULL still produce NULL. For members A/B/C
-with revenue 100/no facts/no facts, the completed member values are 100/0/0 and
-their mathematical mean is 100/3; a mean over these Decimal(38,0) SUM cells keeps scale 0 and returns 33. If C instead has facts with unknown revenue, its value is
-NULL: an ignore-NA mean skips C and is not a complete-Population average. Request
-strict internal sample checks when unknown members must reject the computation.
-A missing alignment endpoint remains separate from a present member with no facts.
-SQL SUM returns NULL on empty input; pandas sum defaults all-NA input to zero.
-Neither default exactly matches Marivo's fixed distinction. Actual NaN/Infinity
-are errors; source failures cannot be treated as an empty input.
-
-Top is global, uses this exact input's Column and preserves its deterministic
-order through persistence. There is no partition_by receiver.
-
-Completed member cells also cannot reconstruct every original sum: cells [0, NA]
-from an empty member and an unknown member sum to 0, while the original all-NULL
-facts sum to NULL. Use a new source observation for the original overall question.
-
-A row mean is not an original overall Metric. For example, values 10 and 100
-have row mean 55; source totals 1000 over 91 contributions have mean 1000/91.
-Distinct counts 2+2=4 can describe a union with only 3 identities. Use explicit
-source construction for an original overall question, not an equivalent-looking
-reduce or a retired rollup method.
+[Continue reading](/docs/latest/analysis/statistics/)
 
 ## Broadcast partition statistics and normalize current values
 
-{/* example: frame-partition-share */}
-
-```python
-x = current["revenue"]
-normalized = current.select({
-    "revenue": x,
-    "total": current.over(x.sum()),
-    "share": x.share(along=current.axes),
-    "rows": current.over(mv.row_count()),
-}).compute()
-normalized.show()
-```
-
-`over` returns a Column bound to `current`, with the same complete keys, rows and
-order. `by=()` uses the whole current input; `by=(axis,)` retains that complete
-axis as the partition key. Ordinary, interval, calendar and paired axes use their
-existing frozen coordinates. Sum/mean/corr/pair_count use reduce's sample, NA,
-dtype and unit policies; row_count counts every coordinate. Empty input remains
-empty. Nested over is supported, and an outer statistic counts each repeated
-broadcast value as a sample.
-
-`share(along=...)` sums along the named axes, partitions by all remaining axes,
-then divides this Column by that sum. The nonempty tuple must contain distinct
-complete axes from the exact input; zero-axis data requires an explicit / expression.
-For month × region × category, along=(region,) normalizes within month/category;
-along=(region, category) normalizes within month. To remove category first,
-reduce it explicitly and take fresh handles from the returned Frame.
-
-Shares are signed ratios, may exceed [0,1], and are not multiplied by 100.
-NA propagates; zero totals, including cancellation, give NA after masking
-the denominator before arithmetic. Numeric and legal Duration sum/divide types
-follow the existing kernels; known equal units cancel to `1`, unknown units stay
-unknown. Filtering before normalization changes its denominator; filtering the
-normalized result afterward preserves it. over in where/top evaluates complete
-input partitions before selection. These operations use current data, create no
-new method facts, and do not certify original Metric additivity or contributions.
-See `marivo.help("analysis.analysis_frame.over")` and
-`marivo.help("analysis.column.share")`.
+[Continue reading](/docs/latest/analysis/statistics/)
 
 ## Export for unsupported descriptive work
 
-{/* example: pandas-descriptive-statistics */}
-
-```python
-values = current.to_pandas()["value"].astype("float64")
-revenue_values = values["revenue"]
-statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
-print(statistics)
-rank = revenue_values.rank(method="dense", ascending=False)
-standard_deviation = revenue_values.std(ddof=1)
-if standard_deviation > 0:
-    standardized = (revenue_values - revenue_values.mean()) / standard_deviation
-```
-
-Current-row Pearson/Spearman is supported by `frame.correlate(x, y, method=...)`
-with its matching pair count; see [the analysis workflow](/docs/latest/concepts/analysis-workflow/).
-Use typed correlation before exporting when it fits the question.
-
-State sample, NA handling, tie method, fit scope and uncertainty for external
-ranking, standardization, other correlation methods or forecasting. Such outputs are ordinary
-data and do not inherit typed Evidence. Exported data/attrs cannot be imported
-as semantic authority. The original Frame still supports its typed data methods.
+[Continue reading](/docs/latest/analysis/statistics/)
 
 ## Pair one shared set of endpoint rows
 
-{/* example: pandas-paired-statistics */}
-
-```python
-comparison = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
-).compute().to_pandas()
-present = comparison[("presence", "current.present")] & comparison[("presence", "reference.present")]
-pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna().astype("float64")
-paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
-print(paired_difference.mean())
-```
-
-Presence and value validity are independent. Keep complete keys and the common
-present/non-NA mask; do not pair unrelated exports by RangeIndex. Preserve Field
-Null categories with dropna=False where appropriate. Arithmetic is not causality.
-
-Unfinished statistics expose only read-only `unit` and are consumed by
-`frame.reduce(...)` or `frame.over(...)`. `mv.row_count()` is unbound and reusable across Frames;
-consuming it does not modify the request. Column sum/mean/corr/pair_count bind the
-exact Frame and Session; another input with equal names, structure or values
-cannot substitute. See `marivo.help("analysis.value_statistic")`.
+[Continue reading](/docs/latest/analysis/statistics/)
 
 ## Numeric results and overflow
 
-Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
-Count stays int64. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1,
-s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by
-the excess, down to zero. Bound integer types supply their digit width (int64: 19);
-float mixing and division use float64. Mean retains its declared output type.
-Decimal results converge with ties away from zero (1.245→1.25 and -1.245→-1.25).
-Local integer arithmetic is checked. Source arithmetic follows backend precision
-and overflow behavior, including ClickHouse silent wrapping that can change sign
-and magnitude and affect formulas, filters and order. Unevaluated source arithmetic
-may not raise. Explicit null/zero/domain checks keep their own scope.
-Float64 permits binary approximation, low-bit loss beyond 2**53 and underflow;
-new nonfinite results fail. Identity, count, time and Duration remain exact.
-Saved data and cold reads preserve committed values, dtype, scale, NA and keys
-without recomputation or further rounding.
+[Continue reading](/docs/latest/analysis/statistics/)

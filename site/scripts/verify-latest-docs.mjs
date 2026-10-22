@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { docsRoots, docsByVersion, latestOnlyDocs } from '../docs-versions.mjs';
+import { usageDocs, movedGuides } from '../usage-docs.mjs';
 
 const site = fileURLToPath(new URL('..', import.meta.url));
 const pages = [...docsByVersion.latest, ...latestOnlyDocs]
@@ -37,3 +38,21 @@ for (const edition of docsRoots) {
   }
 }
 console.log(`Verified ${count} latest usage pages and ${checked.size} internal route/anchor targets.`);
+
+for (const page of usageDocs) {
+  const examples = docsRoots.map((edition) => {
+    const source = readFileSync(join(site, 'src/content/docs', edition, 'latest', page), 'utf8');
+    return [...source.matchAll(/```(?:python|bash|toml)\n([\s\S]*?)```/g)].map((match) => match[0]);
+  });
+  assert.deepEqual(examples[0], examples[1], `Bilingual code drift: ${page}`);
+}
+for (const edition of docsRoots) {
+  for (const [oldPage, newPage] of Object.entries(movedGuides)) {
+    const html = readFileSync(join(site, 'dist', edition, 'latest', oldPage.replace(/\/index$/, ''), 'index.html'), 'utf8');
+    const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "";
+    const destination = newPage === "index" ? `/${edition}/latest/` : `/${edition}/latest/${newPage}/`;
+    assert.ok(main.includes(destination), `Missing migration destination: ${edition}/${oldPage}`);
+    assert.ok(/name="robots" content="noindex"/.test(html), `Migration page indexed: ${oldPage}`);
+  }
+}
+console.log(`Verified bilingual executable blocks and ${Object.keys(movedGuides).length * docsRoots.length} migration pages.`);

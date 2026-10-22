@@ -1,111 +1,56 @@
 ---
-title: Troubleshooting
-description: Repair exact ownership, source, data and storage boundaries.
+title: Troubleshooting and API help
+description: Diagnose common errors and find API usage in Live Help.
 ---
 
-Start with the error's expected input, received facts and concrete repair.
-Keep the business question unchanged while repairing that boundary.
+<span id="environment-and-semantic-scope"></span>
+<span id="complete-keys-and-exact-frame-handles"></span>
+<span id="time-and-numerical-policies"></span>
+<span id="contribution-targets-and-full-explanation-reads"></span>
+<span id="exact-data-recovery-and-resubmission"></span>
 
-## Environment and semantic scope
+Use the symptom to choose a repair. Keep the original error and the interpreter, package version and project root from Doctor.
 
-Use the selected environment's `marivo doctor --project-root <project>` and
-requested datasource extra. Unknown identities require Catalog discovery;
-credentials remain environment references. Readiness, preview, source health
-and actual method evaluation are distinct evidence. Same-path definition changes
-alone do not reject existing inputs; keep kind/root/grain/unit/time/null checks.
-Business versioned identity anchors remain a separate contract.
+| Symptom | Confirm | Repair |
+| --- | --- | --- |
+| A documented API is missing | Package version and loaded path | Use the matching development source or versioned guide |
+| Connection fails | Named environment references, driver and network access | Correct the configuration and rerun the datasource test |
+| Model fails to load | Duplicate names, missing refs, declaration syntax | Repair the named model file; restart after edits to imported dependencies |
+| Readiness is blocked | Requested physical dependencies and temporal artifacts | Repair the reported dependency or certify the complete calendar range |
+| A method is unsupported | Backend, source form, expression and types | Use a supported method or an explicit new observation; do not silently change the metric |
+| Column/axis belongs to another input | Which exact Frame produced the handle | Obtain handles from the receiver or explicitly align inputs |
+| Unexpected unknown difference | Presence, null values and zero baseline | Explain the missing value instead of filling every case with zero |
+| Period comparison rejects | Complete boundaries, timezone and matching rule | Choose valid complete periods or a supported explicit correspondence |
+| Contribution is unavailable after reopen | Saved data has no source declaration | Rebuild explicit source inputs for a new question |
+| Saved result cannot be read | Exact Session/result ID, missing files and Marivo version | Preserve state; use the compatible original version for old data |
 
-## Complete keys and exact Frame handles
+## Handle an uncertain save
 
-Column/FrameAxis belong to an exact input; reacquire them from the receiver or
-explicitly align complete axes. Matching names/fingerprints or exported attrs
-cannot rebind them. Continuing the [tutorial](/docs/latest/guides/python-quick-start/):
+Resume the owning Session to reconcile its original transaction before submitting again. Explicit resubmission can produce another saved result and may read changed sources. Keep returned IDs while they are available; there is no implicit latest result lookup.
 
-{/* example: repair-query-domain */}
+Do not delete `.marivo/` or force initialization as a general repair. Older state is not automatically migrated. Preserve it and read/export with a compatible environment; use a fresh project for incompatible current work.
+
+[Find Help](#query-the-installed-version) for the error's exact repair target. Include a minimal reproduction with credentials and private data removed when asking for assistance.
+
+## Find APIs
+
+Use task guides to learn a workflow, Live Help for exact calls and constraints, and the [Python API reference](/api/) for the generated English reference.
+
+### Query the installed version
 
 ```python
-aligned = current.align(
-    baseline, on=((current.axes[0], baseline.axes[0]),),
-)
-difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
-difference.show()
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
+marivo.help("analysis.analysis_frame")
 ```
 
-Outer correspondence requires unique complete joint keys and keeps missing sides
-with independent presence, without zero fill. Field Null is a valid category.
-read requires a complete Entity identity domain, nonempty fields and valid
-single-valued routes/version anchors. A later filter cannot hide required errors.
-For new source facts, explicitly supply the governed input and ordinary-axis
-population_from mapping; on is required, including legal on=().
+CLI uses the same targets: `.venv/bin/python -m marivo help analysis`. With a known returned object, `marivo.help(type(result))` discovers its type; query attributes by their string Help target.
 
-## Time and numerical policies
+Execution imports are `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Create sessions through `mv.session.create`; there is no top-level `marivo.session` alias.
 
-Use Session instant/time_scope and supply exactly one integer keyword to
-`mv.offset(years=...)` or `mv.offset(periods=...)`. CalendarAxis.shift accepts
-unit-step builtin week/month/year full buckets or bucket-start prefixes; partial
-day/quarter, middle slices and ambiguous nonzero target clocks require an explicit
-supported domain. Missing ISO week/civil cutoff is a legal absent target, not a
-clamped date. Ordinal still needs complete buckets and keeps original positions.
+### Ask for help effectively
 
-Named compare needs a nonempty alias-to-Frame mapping and complete per-alias on
-bindings when ordinary axes exist. A frozen direct relation must match the whole
-current domain; use matching original endpoints or an explicit consistent rule.
-Do not repair a wrong anchor/conflicting rule by changing how. Actual baseline
-time rows outside the current declared domain require explicit baseline filtering
-or align's general time union. Outer does not repair missing/corrupt frozen data
-or turn NA into zero. Inspect `current.present` / `<alias>.present` separately from
-value NA and inherited `<alias>.presence.*`. See
-`marivo.help("analysis.calendar_axis.shift")` and
-`marivo.help("analysis.analysis_frame.compare")`.
-
-
-
-Division policies apply to that new operation, not strict children. Nonfinite and
-required coverage failures block completion. Local integer arithmetic is checked;
-ordinary source overflow follows the backend, including ClickHouse silent wrapping.
-Unevaluated source arithmetic need not raise. An unavailable route
-is not permission to change algorithm, source or requested precision.
-
-## Contribution targets and full explanation reads
-
-Read `marivo.help("analysis.analysis_frame.attribute")`. The receiver owns the
-selected complete parent keys and direct source/comparison targets; by introduces
-new governed business classifications or a complete Population. Define ratios and
-linear Metrics before observe. Column arithmetic does not acquire a source recipe.
-An independently reopened Frame has no declaration: use population_from with
-explicit governed ordinary-axis mappings, in_population and a new observe. Preserve
-period-specific joint keys when multiple time parents are selected.
-
-`unsupported_expression` means no admitted contribution rule. Missing components,
-unknown inputs, overlap and unqualified source routes require their specific repair;
-original source/numeric failures keep their owners. Continue ordinary unsupported
-investigations with explicit source observations and compare/align; do not fake
-contributions or silently downgrade.
-
-Pending method_facts requires compute/persist. Stored reads validate complete owned
-method files without primary data or source reads. Preview and to_pandas read
-current data; method facts explain the original target and remain unchanged after
-filtering. Inspect total versus observed_total to see reread changes.
-
-## Exact data recovery and resubmission
-
-Keep Session ID and frame.artifact.id. Resume that Session and call
-`session.persisted_frame(id)` with the string ID. Frame owns data operations;
-`.artifact` owns audit. Artifact/ID objects and RawSqlResult are not operands.
-Publishing errors provide the failed phase and a concrete repair. If the commit
-outcome is unknown, resume the owning Session before explicitly resubmitting;
-the original may already have succeeded, so resubmission may create duplicates.
-If the returned Artifact ID was lost, explicitly resubmit. Complete memory data
-can be saved again without reevaluation; rebuilding source inputs may read changed data.
-Missing/corrupt consumed data is not a cache miss and must not trigger replay.
-
-Store 16 refuses every older generation's data unchanged, without migration or
-dual reads. Absent-current discovery may return None/empty without exposing old
-state; create cannot initialize around an old-only project.
-Before switching, export required results with the original version or retain a
-compatible environment. Preview limits affect display, not complete execution.
-Preserve the old Store and create a new named Session in a fresh project for
-current work. Store15 uses generation15/output-v4 for every Frame; this is not
-automatic export/import migration or a same-project bypass.
-The [Store generation contract](https://github.com/chengxianglibra/marivo/blob/main/docs/architecture/analysis/session-state-and-runtime.md#store-generation-and-data-layout)
-defines the current format, older-generation refusal and compatible recovery choices.
+Record the version, exact interpreter and package path from Doctor, project selection, the smallest relevant declaration and code, the full structured error, expected result and actual result. Remove secrets and private rows. Use the repository's existing issue tracker or contribution links; do not post credentials in an example.

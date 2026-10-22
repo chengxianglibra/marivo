@@ -1,0 +1,43 @@
+---
+title: 安装与项目
+description: 安装 Marivo，选择 Python 环境和项目目录。
+---
+
+安装、查询 Help 和运行分析应使用同一个项目环境。需要 Python 3.10 或更新版本。Windows 下请把 `.venv/bin/python` 替换为 `.venv/Scripts/python.exe`。
+
+## 安装本指南对应的源码
+
+latest 指南描述开发 API。获取源码，记录修订，然后在独立演示目录安装。下面的命令需要已安装 Git 和 uv。
+
+```bash
+git clone https://github.com/chengxianglibra/marivo.git marivo-source
+git -C marivo-source rev-parse HEAD
+mkdir marivo-demo
+cd marivo-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python -e "../marivo-source[duckdb]"
+.venv/bin/python -m marivo --version
+.venv/bin/python -m marivo doctor --project-root .
+```
+
+分享复现步骤时保留该修订。继续之前，核对 Doctor 显示的 Python、包路径与项目根目录。
+
+## 使用发布包
+
+使用某个发布版本时，将可编辑源码安装替换为 `marivo[duckdb]`，并阅读对应版本文档。其他可选依赖包括 `postgres`、`mysql`、`trino` 和 `clickhouse`；参阅[后端依赖](/zh-cn/docs/latest/reference/backends-and-limits/)。
+
+可选安装器 `curl -fsSL https://marivo.io/install.sh | bash` 会安装发布包并初始化项目。请核对它报告的解释器和依赖；它不会安装开发源码。
+
+## 按需初始化
+
+```bash
+.venv/bin/python -m marivo init
+```
+
+初始化会创建可选配置和目录。没有配置文件的空目录也可以使用。已有分析中避免使用 `--force`，它会重建生成的内容，包括本地状态。
+
+## 选择项目
+
+已有项目中，打开包含 `models/` 的目录，安装项目依赖，设置数据源声明引用的环境变量。新项目先在独立目录完成快速开始，再替换为自己的来源与业务定义。
+
+检查解释器、包路径和项目根后，继续[快速开始](/zh-cn/docs/latest/start/python/)。

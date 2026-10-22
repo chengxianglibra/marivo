@@ -1,0 +1,114 @@
+---
+title: Quick start
+description: Create six local orders, define revenue, and calculate a total.
+---
+
+<span id="create-the-demo-data"></span>
+<span id="compute-and-save-the-comparison"></span>
+<span id="interpret-the-result"></span>
+
+Complete [installation](/docs/latest/start/installation/) in a separate directory. Create six completed orders in CNY, without refunds or currency conversion.
+
+## Create the data
+
+Save as `seed.py` and run `.venv/bin/python seed.py`. This replaces the demo orders table.
+{/* example: demo-seed */}
+
+```python
+from datetime import date
+from pathlib import Path
+import duckdb
+
+Path("models/datasources").mkdir(parents=True, exist_ok=True)
+Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("""
+        CREATE OR REPLACE TABLE orders (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            region VARCHAR,
+            amount BIGINT
+        )
+    """)
+    connection.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?, ?)",
+        [
+            (1, date(2026, 7, 5), "east", 100),
+            (2, date(2026, 7, 15), "east", 200),
+            (3, date(2026, 7, 20), "west", 700),
+            (4, date(2026, 8, 5), "east", 100),
+            (5, date(2026, 8, 15), "east", 100),
+            (6, date(2026, 8, 20), "west", 600),
+        ],
+    )
+```
+
+## Declare the connection
+
+Save as `models/datasources/warehouse.py`.
+
+{/* example: demo-datasource */}
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb")
+```
+
+## Define revenue
+
+Save as `models/semantic/sales/_domain.py`. Date and region support the later examples. See the [semantic layer](/docs/latest/modeling/semantic-layer/) for declaration rules.
+
+{/* example: demo-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Mina Zhang")
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date"
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+
+finalized = ms.finalize()
+order_date = finalized.resolve(order_date)
+amount = finalized.resolve(amount)
+
+
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+```
+
+## Calculate revenue
+
+Save as `quick.py` and run `.venv/bin/python quick.py`.
+
+{/* example: quick-analysis */}
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.create("first-analysis")
+revenue = session.catalog.metrics.get("sales.revenue")
+result = session.observe({"revenue": revenue}).compute()
+result.show()
+```
+
+The result is 1,800, the sum of all six amounts. Choose a new name instead of `first-analysis` when rerunning: Session names are unique within a project.
+
+The [analysis DSL](/docs/latest/analysis/dsl/) supplies a complete `analysis.py` for monthly and regional comparisons.

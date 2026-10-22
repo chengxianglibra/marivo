@@ -1,137 +1,28 @@
 ---
-title: 完整本地 Python 分析
-description: 创建六笔订单、比较命名 Metric 并重开固定 Frame 数据。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-使用已安装开发版本和 DuckDB extra 的环境，在全新项目目录运行。本例完整创建数据、声明 Metric、求值 AnalysisFrame 并重开已提交 Frame；本地示例不代表所有后端或发布验收。
+内容已合并至 [快速开始](/zh-cn/docs/latest/start/python/)。
 
 ## 创建来源
 
-保存为 `seed.py`，运行 `.venv/bin/python seed.py`。Demo 仅包括这六笔已完成订单，单位人民币，不含退款或汇率转换。7 月总额 1,000，8 月 800；两个地区各减少 100。
-
-{/* example: demo-seed */}
-
-```python
-from datetime import date
-from pathlib import Path
-import duckdb
-
-Path("models/datasources").mkdir(parents=True, exist_ok=True)
-Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
-with duckdb.connect("warehouse.duckdb") as connection:
-    connection.execute("""
-        CREATE OR REPLACE TABLE orders (
-            order_id BIGINT PRIMARY KEY,
-            order_date DATE,
-            region VARCHAR,
-            amount BIGINT
-        )
-    """)
-    connection.executemany(
-        "INSERT INTO orders VALUES (?, ?, ?, ?)",
-        [
-            (1, date(2026, 7, 5), "east", 100),
-            (2, date(2026, 7, 15), "east", 200),
-            (3, date(2026, 7, 20), "west", 700),
-            (4, date(2026, 8, 5), "east", 100),
-            (5, date(2026, 8, 15), "east", 100),
-            (6, date(2026, 8, 20), "west", 600),
-        ],
-    )
-```
+[继续阅读](/zh-cn/docs/latest/start/python/)
 
 ## 声明 datasource
 
-保存为 `models/datasources/warehouse.py`。
-
-{/* example: demo-datasource */}
-
-```python
-import marivo.datasource as md
-
-md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
-```
+[继续阅读](/zh-cn/docs/latest/start/python/)
 
 ## 创作语义模型
 
-保存为 `models/semantic/sales/_domain.py`。构造器捕获 Ref；完整作用域 finalize 后再组合解析字段。模型加载收录命名 Metric。
-
-{/* example: demo-model */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
-                   source=md.table("orders"), primary_key=["order_id"])
-order_date = ms.time_dimension_column(name="order_date", entity=orders,
-    column="order_date", is_default=True)
-region = ms.dimension_column(name="region", entity=orders, column="region")
-amount = ms.measure_column(name="amount", entity=orders, column="amount",
-    additivity=ms.additive_all(), unit="CNY")
-
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-order_date = finalized.resolve(order_date)
-region = finalized.resolve(region)
-amount = finalized.resolve(amount)
-
-@ms.metric(ai_context=ms.ai_context(
-    business_definition="Completed-order revenue in CNY for the six demo orders",
-    guardrails=["Use only these demo orders; no refunds or currency conversion"],
-))
-def revenue():
-    return amount.sum(time=order_date)
-```
+[继续阅读](/zh-cn/docs/latest/start/python/)
 
 ## 执行和重开
 
-保存为 `analysis.py`，在项目根目录运行 `.venv/bin/python analysis.py`。
-
-{/* example: demo-analysis */}
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-catalog = ms.load(workspace_dir=".")
-session = mv.session.create("demo-revenue", timezone="UTC")
-revenue = session.catalog.metrics.get("sales.revenue")
-amount = session.catalog.fields.get("sales.orders.amount")
-region = session.catalog.fields.get("sales.orders.region")
-july = session.time_scope(start="2026-07-01", end="2026-08-01")
-august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({'revenue': revenue}, by=(july, region)).compute()
-current = session.observe({'revenue': revenue}, by=(august, region)).compute()
-change = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
-)
-change.show()  # Pending comparison; no evaluation.
-saved = change.persist()
-table = saved.to_pandas()
-assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
-assert table[("presence", "current.present")].all()
-assert table[("presence", "reference.present")].all()
-saved.show(n=20)
-saved.artifact.show()  # Submission and audit only.
-reopened = session.persisted_frame(saved.artifact.id)
-assert reopened.to_pandas().equals(table)
-saved_session_id = session.id
-saved_artifact_id = saved.artifact.id
-```
-
-
-使用返回的内存 Frame 才能固定这次观察的值；原来源表达式再次求值会重新读取来源。
-persist 在比较完成后发布已有结果。保留精确的 Session ID 和 `frame.artifact.id`；
-通过 `mv.session.resume(saved_session_id)` 与
-`session.persisted_frame(saved_artifact_id)` 恢复完整数据，无需模型或来源。
-恢复后的 Frame 可以继续受支持的数据操作；新来源事实需要显式构造。Artifact 只提供审计。
-后续指南复用本脚本的 `session`、`revenue`、`amount`、`region`、`july`、`august`、
-`current` 与 `baseline`。
-
-导入 `marivo`，从 `marivo.help("analysis")` 开始；精确调用由
-`analysis.analysis_frame` 与 `analysis.frame_axis` 的聚焦 Help 拥有。
-readiness/preview、实际来源求值、本地完成和 provider Runtime 资格是不同证据。
+[继续阅读](/zh-cn/docs/latest/start/python/)

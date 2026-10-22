@@ -1,117 +1,32 @@
 ---
-title: 创作可复用语义
-description: 用明确的阶段、单位与业务授权创作表达式。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-通过 `ms.ai_context(...)` 构造上下文；
-显式上下文注解使用 `ms.typing.AiContextValue`。从报告字段读取 readiness 问题、
-输入摘要和 source-health 检查记录。这些类不作为根模块构造器导出；仍可通过
-`marivo.help(type(value))` 查询完整类型和字段契约。时间类型标记继续用于具体的
-`Ref[K]` 注解。
-
-数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 来源求值准备阶段自动绑定。
-
-用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `AnalysisFrame.show()` 披露。
-
-
-物理 Entity/Field 构造器先捕获声明并返回类型化 Ref 查找键。依赖完整后调用 `ms.finalize()`，再从冻结结果解析所需值用于组合。命名声明与本地表达式共用同一张图；finalize 不重跑模块或 import effects。
-
-浏览 Catalog 条目时，通过 `.ref` 读取语义身份，例如 `entry.ref.path`；用 `catalog.describe(entry.ref).show()` 查看定义事实。
-
-语义对象不必始终绑定构造时的原定义版本，不因同路径定义已改变而单独拒绝输入；分析期间语义定义更新的后果由 agent 或用户承担。进行引用解析的消费者使用其完整作用域。不可变表达式保留存储的定义与事实，不做 live refresh。kind、贡献根、粒度、单位、时间角色、空值和权限检查仍然有效。指纹与缓存键描述实际消费的定义，持久化来源记录及其它记录仍遵循各自合同。
-
-装饰器本身不发布 Catalog 条目。模型加载才限定声明身份并收录；分析求值由显式来源 Frame 消费这些同一协议的表达式。
+内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
 
 ## 声明一个完整依赖切片
 
-warehouse datasource 及示例列需已存在。保存为 models/semantic/sales/_domain.py。
-
-{/* example: semantic-model-basics */}
-
-通过 `marivo.help("semantic.semantic_catalog.describe")` 和 `marivo.help("semantic.finalized_declarations.show")` 查看上述元数据入口的精确合同；展示不会执行查询。
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-sales = ms.domain(name="sales", owner="Mina Zhang")
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
-                   source=md.table("orders"), primary_key=["order_id"])
-region = ms.dimension_column(name="region", entity=orders, column="region")
-paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at",
-                                   is_default=True)
-amount = ms.measure_column(name="amount", entity=orders, column="amount",
-                           additivity=ms.additive_all(), unit="CNY")
-cost = ms.measure_column(name="cost", entity=orders, column="cost",
-                         additivity=ms.additive_all(), unit="CNY")
-
-@ms.dimension(entity=orders)
-def normalized_region(rows):
-    return ms.bind(region, rows).upper()
-
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-region = finalized.resolve(region)
-normalized_region = finalized.resolve(normalized_region)
-paid_at = finalized.resolve(paid_at)
-amount = finalized.resolve(amount)
-cost = finalized.resolve(cost)
-
-@ms.measure()
-def margin():
-    return amount - cost
-
-@ms.metric()
-def revenue():
-    return amount.sum(time=paid_at)
-
-@ms.metric()
-def average_order_value():
-    return revenue / orders.count(time=paid_at)
-```
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
 ## 名称、别名与计算
 
-零参数函数名直接成为局部声明名，必须符合 [a-z][a-z0-9_]*。不接受 name/entity/entities 覆盖。后续别名不会改名，算术产生匿名新表达式。ai_context 只描述业务含义，不授予计算权限。纯声明不要求活动 loader 或 Session；物理来源构造器仍在模型加载上下文中使用。
-
-```python
-margin_alias = margin
-trial_margin = amount - cost
-paid_revenue = revenue.where(region == "US")
-customer_average = revenue.per(region).mean()
-missing_region_revenue = revenue.where(region.isnull())
-```
-
-where 只过滤单一来源规约或共同配对作用域。复合 Metric 应先改各来源子指标，再组合。per 返回内部样本，必须规约后才是 Metric。
-
-来源条件是原生 Deferred。字段叶子与 `mv.in_population(population)` 可通过 `&`、`|`、`~`
-组合，例如 `revenue.where((region == "US") | mv.in_population(population))`。
-成员叶子判断完整联合元组，包含字段 Null，只支持布尔运算与常量；
-来源规约的 where= 仍只接受同行字段条件。两个布尔分支均保留所需检查与生产者依赖，
-连续 Metric.where 在同一检查域中合取。语法与消费者限制由
-`marivo.help("semantic.predicate")` 拥有。
-
-原生字段共用 `marivo.help("semantic.dimension.isnull")` 的空值谓词合同；原生 Deferred 方法通过静态 Help 路由查询，不注册为 Marivo callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
 ## 单位与显式求和授权
 
-省略 unit/additivity 或传 None 会继承事实；不会清空单位或授予 additive_all。同行乘积不会自动可加。只有业务含义已获授权时，才声明新的 Measure：
-
-```python
-@ms.measure(additivity=ms.additive_all())
-def order_amount():
-    return quantity * unit_price
-```
-
-quantity 与 unit_price 必须预先声明且同根。未知单位保持未知；显式单位须与已知推导相容。新授权不能抹去状态时间轴或必要绑定。
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
 ## Ibis 字段体与纯声明体
 
-Entity/Source、Dimension/TimeDimension 保留受限 Ibis 能力。上面的 normalized_region 在 finalize 前捕获，之后才解析。ms.bind 只用于原合同允许的 Ibis 字段体；已构造输入按 kind/path 在完整消费者作用域解析，不因原定义版本不同而拒绝；显式 lookup Ref 也保留前向依赖。Measure/Metric 体只构造封闭表达式，允许首段 docstring、无重绑定的局部变量和唯一最终 return；拒绝表参数、Ibis 返回值、ms.bind、任意调用及控制流。
-
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
 
 ## 旧声明的人工改写
 
-旧 aggregate/count/where/ratio/weighted_mean/linear/cumulative 工厂、默认 fold、time_via、fanout_policy、approx_* 和全局值政策不再被接受。结构化错误保留原输入并指出改写位置。来源和内部样本 sum 使用固定规则：空输入返回 0，有输入但全 NULL 返回 NULL，混合输入累加有效值；不再接受 empty 参数。字段读取和数值计算一致拒绝真正的 NaN/Infinity。迁移还须保持贡献集和输出域；重叠标签分桶也不能冒充存在筛选。
-
-从 marivo.help("authoring") 进入，再查 semantic.measure、semantic.metric、semantic.expressions 和实际接收者的 focused Help。构造成功、物理叶子 load/readiness、Catalog 发布和真实执行是不同证据。
+[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)

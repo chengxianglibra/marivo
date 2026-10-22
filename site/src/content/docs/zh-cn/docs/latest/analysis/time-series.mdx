@@ -1,0 +1,82 @@
+---
+title: 时间序列与窗口
+description: 按日历期间分组，计算滚动窗口与累计值。
+---
+
+先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。本例使用全部六笔模拟订单与 UTC 报告时间，包含起点、不包含终点。按顺序执行各节。
+
+## 按日与月观察
+
+```python
+from analysis import mv, session, revenue, august
+```
+
+{/* example: calendar-query */}
+
+```python
+days = august.by(mv.grain("day"))
+daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+).compute()
+monthly_source.show()
+```
+
+{/* example: metric-window-query */}
+
+```python
+from datetime import timedelta
+
+rolling = session.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    by=(days,),
+).compute()
+month_to_date = session.observe(
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+).compute()
+rolling.show()
+month_to_date.show()
+```
+
+{/* example: period-comparison-query */}
+
+```python
+current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(
+    mv.grain("day")
+)
+prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(
+    mv.grain("day")
+)
+current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+comparison = current_daily.compare(
+    {"reference": prior_daily},
+    match={"reference": mv.ordinal()},
+).compute()
+comparison.show()
+```
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue},
+    by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": previous_progress}).compute()
+progress.show()
+```
+
+## 理解窗口与对应关系
+
+8 月总额为 800。在 8 月 5 日结束时，最近七天收入为 100；8 月 15 日结束时，月内累计为 200。回看可能早于展示起点，真实数据必须覆盖这段历史。
+
+`trailing_duration` 表示实际经过的时长。自然期间遵循日历边界，在夏令时切换时可能不同。窗口端点是每个桶的实际右边界，`to_date` 在选定期间的边界重置。
+
+ordinal 将兼容完整期间的原始位置配对。8 月 1–20 日前缀偏移一个月，对应 7 月 1–20 日，不包含 7 月 20 日零点及之后的记录，因此示例比较 200 与 300，变化为 -100。目标日期缺失时不会静默截到另一天。
+
+结果行求和只是对当前行做统计。月度比率或去重数应重新请求原指标的月度观察。财务日历与命名活动请先[准备和认证日历](/zh-cn/docs/latest/modeling/semantic-layer/#业务日历)，再选择其粒度。来源解析与报告时区是不同选择；显式解析时区用于无时区时间戳，不用于已有时区的时间戳或纯日期编码。

@@ -1,0 +1,104 @@
+---
+title: Statistics and correlation
+description: Calculate row summaries, shares, and paired correlation.
+---
+
+Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. The two August regional rows are 200 and 600. Their sum is 800, mean 400, and row count 2. These statistics describe represented regions, not average order value.
+
+## Summarize and normalize rows
+
+```python
+from analysis import mv, current, saved
+```
+
+{/* example: query-result-statistics */}
+
+```python
+summary = current.reduce(
+    {
+        "sum": current["revenue"].sum(),
+        "mean": current["revenue"].mean(),
+        "rows": mv.row_count(),
+    }
+).compute()
+summary.show()
+```
+
+{/* example: frame-partition-share */}
+
+```python
+x = current["revenue"]
+normalized = current.select(
+    {
+        "revenue": x,
+        "total": current.over(x.sum()),
+        "share": x.share(along=current.axes),
+        "rows": current.over(mv.row_count()),
+    }
+).compute()
+normalized.show()
+```
+
+{/* example: pandas-descriptive-statistics */}
+
+```python
+values = current.to_pandas()["value"].astype("float64")
+revenue_values = values["revenue"]
+statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
+print(statistics)
+rank = revenue_values.rank(method="dense", ascending=False)
+standard_deviation = revenue_values.std(ddof=1)
+if standard_deviation > 0:
+    standardized = (revenue_values - revenue_values.mean()) / standard_deviation
+```
+
+{/* example: pandas-paired-statistics */}
+
+```python
+comparison = saved.to_pandas()
+present = (
+    comparison[("presence", "current.present")]
+    & comparison[("presence", "reference.present")]
+)
+pairs = (
+    comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]]
+    .dropna()
+    .astype("float64")
+)
+paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
+print(paired_difference.mean())
+```
+
+## Use a common sample for correlation
+
+For native Pearson or Spearman use `frame.correlate(x, y, method="pearson")` or `method="spearman"`, with numeric Columns from the same exact Frame. The result includes `coefficient` and `n_pairs`. Unknown pairs are excluded together. Constant endpoints or fewer than two pairs give an unknown coefficient, with the actual count retained. Spearman uses average ranks for ties.
+
+The pandas example uses a common present/non-null mask for both endpoints. Never pair unrelated exports by their row index. A grouped coefficient cannot be averaged to obtain pooled correlation.
+
+Normalization returns shares 0.25 and 0.75, total 800 and count 2 on both rows. Filtering before calculating changes the denominator; filtering afterwards preserves it. Empty sums are zero, all-unknown nonempty sums are unknown; presence and unknown numeric values remain distinct.
+
+External statistics do not automatically acquire typed Evidence. State the sample, missing-value policy, method and assumptions. [Export results](/docs/latest/analysis/results/) when an external method is needed.
+
+## Check a complete paired sample
+
+Save as `paired_sample.py` and run it. All five pairs satisfy y = 2x, so Pearson correlation is 1. Duplicate values still count as separate samples.
+
+```python
+from analysis import session, region
+
+sample = session.values(
+    by=(region,),
+    columns={"x": "1", "y": "1"},
+    rows=(
+        (("a",), {"x": 1, "y": 2}),
+        (("b",), {"x": 2, "y": 4}),
+        (("c",), {"x": 2, "y": 4}),
+        (("d",), {"x": 3, "y": 6}),
+        (("e",), {"x": 4, "y": 8}),
+    ),
+).compute()
+correlation = sample.correlate(sample["x"], sample["y"], method="pearson").compute()
+paired = correlation.to_pandas()
+assert paired[("value", "n_pairs")].tolist() == [5]
+assert abs(paired[("value", "coefficient")].iloc[0] - 1.0) < 1e-12
+```

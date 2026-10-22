@@ -1,70 +1,28 @@
 ---
-title: Installation
-description: Select a released package or the current development source and verify the environment.
+title: Page merged
+description: Page merged
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-Marivo requires Python 3.10 or newer. Install into one selected project environment and use that same interpreter for Doctor, Help and execution.
+This content is now in [Installation and projects](/docs/latest/start/installation/).
 
 ## Install a released package
 
-For a local DuckDB project:
-
-```bash
-uv venv --python 3.10 --seed
-uv pip install --python .venv/bin/python "marivo[duckdb]"
-.venv/bin/python -m marivo --version
-```
-
-On Windows substitute `.venv/Scripts/python.exe` for `.venv/bin/python`.
-Choose `postgres`, `mysql`, `trino`, `clickhouse` or `all` for other
-packaged drivers. PostgreSQL needs libpq; MySQL needs native client/build
-prerequisites. The base package includes Arrow.
-
-The optional installer `curl -fsSL https://marivo.io/install.sh | bash` creates
-or reuses `.venv`, installs its declared default backend set and initializes the
-project. Read its reported environment and selected extras. It installs a
-released package, not the current repository checkout.
+[Continue reading](/docs/latest/start/installation/)
 
 ## Current development source
 
-The `latest` tutorials follow the current checked-out implementation. If the
-released package does not expose these APIs, install the matching source into
-the demo environment. Replace the absolute path below with your actual checkout:
-
-```bash
-uv pip install --python .venv/bin/python -e "/absolute/path/to/marivo[duckdb]"
-.venv/bin/python -m marivo --version
-```
-
-A development guide does not assert that its APIs have reached PyPI. Keep the
-source revision and environment together when reproducing an example.
+[Continue reading](/docs/latest/start/installation/)
 
 ## Initialize only when useful
 
-`marivo.toml` and `marivo init` are optional. Without a manifest, the selected
-directory is the project, its name defaults to the directory name, external
-semantic paths are empty and telemetry defaults to on. Runtime results use
-project-local Parquet.
-
-```bash
-.venv/bin/python -m marivo init
-.venv/bin/python -m marivo doctor --project-root .
-```
-
-`init` creates missing configuration, model/state directories and best-effort
-skill links. Existing artifacts remain untouched unless `--force` is explicitly
-used; force deletes/recreates generated artifacts, including local state.
-Doctor is read-only and does not create telemetry or local state.
+[Continue reading](/docs/latest/start/installation/)
 
 ## Verify before connecting
 
-Check Doctor’s exact project root, package origin, optional driver and configured
-credential references. Doctor’s explicit root takes precedence over
-MARIVO_PROJECT_ROOT; without either it uses cwd. Datasource operations may have
-their own project-root selection contract. Use `--datasource <name> --connect`
-only for an intended live connection check.
-
-Continue to [choose a project](/docs/latest/quick-start/) or run
-[the local Python tutorial](/docs/latest/guides/python-quick-start/).
-[Backend limits](/docs/latest/reference/backends-and-limits/) distinguish driver
-installation from method execution support.
+[Continue reading](/docs/latest/start/installation/)

@@ -1,168 +1,36 @@
 ---
-title: 时间、身份与窗口
-description: 显式绑定来源人群并解释冻结日历数据。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-本指南继续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
+内容已合并至 [时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
 
 ## 声明来源时间与采样
 
-TimeField 拥有可选 `sample_interval`；parse 只拥有编码与来源时钟解释。
-原生 naive timestamp 可声明 `parse=ms.timestamp(timezone="UTC")`，并在字段上
-单独声明 `sample_interval=(1, "hour")`。Aware timestamp 已表示精确时刻，
-必须省略 parser timezone，即使它与物理时区相同。日期编码
-`ms.strptime("%Y%m%d")` 也必须省略 timezone。原生 DATE/timestamp 可使用
-`parse=None`，字符串和整数需要显式 parse。
-
-采样使用冻结的来源时钟：naive 使用 parser/reader authority，aware 使用 UTC。
-报告时区只将相同来源格点裁剪到实际贡献区间，不改变相位。缺少预期样本触发覆盖错误；
-样本存在但值为 NULL 时保留规约的空值政策。没有 cadence 时只求值实际存在的样本，
-同刻多条事实先完成空间规约。
-
-DATE 时间角色只允许日级及以上输出/reset、正整数个 24 小时的 duration，且所有
-实际有限贡献边界必须落在业务午夜。跨 DST 时 elapsed 24 小时可能不满足午夜边界，
-应使用完整民用期间。单纯 `field.within(scope)` 保留午夜点谓词含义。
-
-快照必填 `ms.snapshot(partition_field=day, timezone="Asia/Shanghai")`。
-字段拥有日期编码，snapshot 固定日级。标签 D 从 D 午夜开始适用；日终文件 D
-若只能从次日适用，必须在作者来源视图中显式整理为生效日期 D+1。
-DATE validity 必填业务 timezone；timestamp validity 禁止该参数：naive 来源定位
-移到字段 parser，aware 来源删除重复时区。`valid_from`、`valid_to`、`interval`、
-`open_end` 仍然必填。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
 
 ## 显式选择完整身份
 
-{/* example: explicit-identity-read */}
-
-```python
-Orders = session.catalog.entities.get("sales.orders")
-fixed_orders = mv.coordinates(
-    by=(mv.identity(Orders),), keys=(((4,),), ((5,),), ((6,),)),
-)
-attributes = session.read(fixed_orders, {"region": region}).compute()
-chosen_orders = attributes.where(attributes["region"] == "east").compute()
-east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
-selected = session.observe({'revenue': revenue}, by=mv.product(august, east)).compute()
-selected.show()
-session.frame(east).compute().show()
-```
-
-coordinates 捕获完整显式引用，不证明来源存在。每个身份值始终是完整主键元组，单列主键也一样；
-`mv.identity(Orders, at=instant)` 可同时捕获明确版本锚点。
-read 要求一个 Entity 身份域与非空命名字段；桥接把精确结果的完整身份轴绑定到显式已解析
-Entity，不能把 Field 升级为身份。on 必填，零轴可用 on=()；空投影域仍是空约束。
-Population 保持惰性，frame 绑定一般键域。属性 `.at(anchor)` 独立于观察期间。
-coord 只接受单物理分量 FrameAxis，复合身份仍保持完整键。
-
-
-TimeScope 直接放入 by 时产生一个 interval 坐标；单期间仍保留时间轴。
-`by=mv.product(august, east)` 保留所选完整身份，包括无事实身份。
-`east.count()` 是捕获该身份域的惰性 Metric，包含无事实身份；事实条件不重选分母。
-字段与成员叶子可以在同一原生 Deferred 条件中组合，例如
-`(region == "east") | mv.in_population(east)`，用于 observe、合法 Metric.where 或 members。
-两侧仍保留各自检查与依赖；nullable 字段保留三值布尔语义，条件不提供窗口端点或属性锚点。
-源端语法由 `marivo.help("semantic.predicate")` 披露。只有计数时无效果的条件/窗口拒绝。
-无时间轴的域在所请求时间轴上重复同一次选择的完整元组计数。
-按新属性计所选身份数时，显式保留身份：
-
-```python
-classified = east.classify(by=(east.axes[0], region))
-by_region = session.observe({"orders": classified.count()}, by=(region,)).compute()
-by_region.show()
-```
-
-若先把 classified 只投影到 region 再计数，数的是去重地区。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
 
 ## 保留精确日历边界
 
-{/* example: calendar-query */}
-
-```python
-days = august.by(mv.grain("day"))
-daily = session.observe({'revenue': revenue}, by=(days,)).compute()
-sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
-sum_of_days.show()
-monthly_source = session.observe({'revenue': revenue}, by=(august.by(mv.grain('month')),)).compute()
-monthly_source.show()
-```
-
-sum_of_days 是当前行标量统计，monthly_source 请求新的来源计算。
-即使可加 demo 的总数相同，两者仍是不同问题；没有 Frame 日历粗化或 CalendarAxis.coarsen。
-Session instant/time_scope 冻结精确边界；日期与无偏移字符串使用指定时区，aware 输入保持其瞬时。
-naive Python datetime、歧义或不存在的民用时刻拒绝。CalendarAxis 保留原名义桶与截断实际桶，
-民用日可能有 23 或 25 小时。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
 
 ## 将窗口附着到 Metric
 
-{/* example: metric-window-query */}
-
-```python
-from datetime import timedelta
-rolling = session.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(days,)).compute()
-month_to_date = session.observe({'revenue': revenue.window(mv.to_date(grain=mv.grain('month')))}, by=(days,)).compute()
-rolling.show(n=5)
-month_to_date.show(n=5)
-```
-
-每个端点都在自己的 W(t) 上完成完整子 Metric，显示起点不截断回看输入。
-trailing_duration 使用经过时间，trailing_periods 使用完整民用或认证期间；since 固定起点，
-all_history 无下界，to_date 选择在评估边界结束的重置期间。
-命名日历规则是受检查的语义依赖；已绑定快照的 Grain 必须匹配 Session 冻结的认证作用域。
-更换窗口或日历需要显式 observe，日历认证不证明来源完备。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
 
 ## 配对已经完成的端点
 
-{/* example: period-comparison-query */}
-
-```python
-current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({'revenue': revenue}, by=(current_days,)).compute()
-prior_daily = session.observe({'revenue': revenue}, by=(prior_days,)).compute()
-comparison = current_daily.compare(
-    {"reference": prior_daily}, match={"reference": mv.ordinal()},
-).compute()
-comparison.show()
-```
-
-双方各自只有一个日历轴，因此 on 可推导；按别名提供的 ordinal 显式对应完整原始序号，
-过滤不重新编号。compare 保留本期日历与命名基期说明；align 拥有配对轴及一般双端时间并集。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
 
 ## 观察精确偏移期间
 
-{/* example: shifted-period-comparison-query */}
-
-```python
-months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
-current_progress = session.observe({"revenue": revenue}, by=(months,))
-previous_progress = session.observe(
-    {"revenue": revenue}, by=(months.shift(mv.offset(periods=-1)),),
-)
-progress = current_progress.compare({"mom": previous_progress}).compute()
-progress.show()
-```
-
-每端在自身精确域上完整求原 Metric，包括非可加公式。`offset(years=-1)` 使用民用年，
-week 使用 ISO week-year；`offset(periods=-1)` 使用名义粒度距离，不按稀疏结果行位置。
-必须且只能指定一个非 bool 整数关键字。shift 支持单位步长内建 week/month/year 的完整桶
-或桶首前缀。本例将 8 月 1–20 日午夜与 7 月相同截止位置对应，不缩短本期。
-目标 ISO W53 或民用截止日期不存在时无对应；选定目标可稀疏或全空，不补包围范围、
-不夹日期、不追溯祖先恢复缺期。非零目标 DST gap/fold 拒绝；零偏移保留原始精确 instant。
-
-相容的直接冻结 shift 关系可提供 compare 的 match；错误锚点或显式冲突规则拒绝。
-无直接关系且省略 match 时等值对应。数据侧完整 day/quarter offset 仍受支持，部分桶拒绝；
-week/month/year 前缀须验证已保存进度精确相同。ordinal 要求相容完整名义/实际分区。
-命名日历仅支持 ordinal，命名/子日 offset 与任意映射不在范围。exact 检查实际联合键；
-outer 保留映到本期域的缺侧并披露独立 presence，实际基期时间行超出本期声明域时拒绝。
-保存端点/映射不恢复 Metric、来源或当前时区规则。shift 不更换贡献 Population 选择；
-by=P 是各端独立完整输出域，两期均需显式构造。
-
-只有精确 Session TimeScope 的边界是 InstantAnchor；Catalog 期间可保留 civil date
-边界。精确时点通过 `session.instant(...)` 获取。literal coordinates 只描述键，不证明
-来源中存在；`session.members(...)` 选择来源身份域。
-
-Grain 不支持排序运算。Subday count 必须平铺一个名义日，且只接受唯一拼法：
-60second、120second、60minute、24hour 拒绝；90second 和 90minute 合法。
-`scope.by` 不接受未绑定 calendar lookup；使用带认证快照的 `calendar.grain(level)`。
-Grain equality/hash 保留该快照身份。窗口端点始终为桶的实际截断右界；
-`trailing_periods` 拒绝首尾部分桶，并沿完整日历而非稀疏轴位置取前驱。
+[继续阅读](/zh-cn/docs/latest/analysis/time-series/)

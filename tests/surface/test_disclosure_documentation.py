@@ -8,12 +8,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory
@@ -72,7 +74,9 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert isinstance(descriptor, CallableInput)
     namespace = {"source_frame": source_frame, "region": region}
     exec(compile(descriptor.example.code, "<attribute-help-example>", "exec"), namespace)
-    level = namespace["result"].compute()
+    pending = namespace["result"]
+    assert isinstance(pending, mv.AnalysisFrame)
+    level = pending.compute()
     assert level.to_pandas()[("value", "contribution.revenue")].tolist() == [610, 50, 0]
     current = session.observe({"revenue": revenue}, by=(august,))
     baseline = session.observe({"revenue": revenue}, by=(july,))
@@ -83,7 +87,10 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     result = target.attribute(by=(region,)).compute()
     assert result.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50, 0]
     facts = result.method_facts
-    assert len(facts) == 1 and facts[0].parents[0].metrics[0].method.change.value == -70
+    assert len(facts) == 1
+    method = facts[0].parents[0].metrics[0].method
+    assert isinstance(method, FrameAdditiveMethod)
+    assert method.change.value == -70
     saved = result.where(result["contribution.revenue"] < 0).persist()
     reopened = session.persisted_frame(saved.artifact.id)
     assert reopened.method_facts == facts
@@ -92,7 +99,7 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     source = session.observe({"squared": nonlinear})
     with pytest.raises(AnalysisError) as error:
         source.attribute(by=(region,))
-    assert error.value.reason == "unsupported_expression"
+    assert vars(error.value)["reason"] == "unsupported_expression"
     investigation = session.observe({"squared": nonlinear}, by=(region,)).compute()
     assert investigation.method_facts == ()
 
@@ -110,9 +117,9 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert Path(marivo.__file__).resolve() == root / "marivo/__init__.py"
     monkeypatch.setenv("PYTHONPATH", str(root))
     monkeypatch.chdir(tmp_path)
-    guides = root / "site/src/content/docs" / language / "latest/guides"
-    tutorial = (guides / "python-quick-start.mdx").read_text()
-    guide = (guides / "comparison-and-attribution.mdx").read_text()
+    guides = root / "site/src/content/docs" / language / "latest"
+    tutorial = (guides / "start/python.mdx").read_text() + (guides / "analysis/dsl.mdx").read_text()
+    guide = (guides / "analysis/dsl.mdx").read_text()
 
     def block(source: str, marker: str) -> str:
         match = re.search(
@@ -141,14 +148,21 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         "attribute-explicit-default-after-refusal",
     ):
         exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
-    for marker in ("comparison-endpoint-followup", "broadcast-reference"):
+    for marker in (
+        "comparison-endpoint-followup",
+        "broadcast-reference",
+        "source-and-result-filters",
+    ):
         exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
-    time_guide = (guides / "time-and-cohorts.mdx").read_text()
+    time_guide = (guides / "analysis/time-series.mdx").read_text()
     for marker in ("period-comparison-query", "shifted-period-comparison-query"):
         exec(compile(block(time_guide, marker), "<time-" + marker + ">", "exec"), namespace)
-    statistics = (guides / "statistics.mdx").read_text()
+    statistics = (guides / "analysis/statistics.mdx").read_text()
     for marker in ("frame-partition-share", "pandas-paired-statistics"):
         exec(compile(block(statistics, marker), "<statistics-" + marker + ">", "exec"), namespace)
+    east_total = namespace["east_total"]
+    assert isinstance(east_total, mv.AnalysisFrame)
+    assert east_total.to_pandas()[("value", "revenue")].tolist() == [500]
     normalized = namespace["normalized"]
     assert isinstance(normalized, mv.AnalysisFrame)
     normalized_rows = normalized.to_pandas()
@@ -159,14 +173,152 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert isinstance(explained, mv.AnalysisFrame)
     rows = explained.to_pandas()
     assert rows[("value", "contribution_share.revenue")].tolist() == [0.5, 0.5]
-    assert explained.method_facts[0].parents[0].metrics[0].method.change.value == -200
+    method = explained.method_facts[0].parents[0].metrics[0].method
+    assert isinstance(method, FrameAdditiveMethod)
+    assert method.change.value == -200
     assert namespace["original_explanation"] == explained.method_facts
     nonlinear = namespace["nonlinear_investigation"]
     assert isinstance(nonlinear, mv.AnalysisFrame) and nonlinear.method_facts == ()
     session = namespace["session"]
     assert isinstance(session, mv.Session)
-    source = session.observe({"squared": namespace["nonlinear"]})
+    nonlinear_metric = namespace["nonlinear"]
+    selected_region = namespace["region"]
+    assert isinstance(nonlinear_metric, Deferred)
+    assert isinstance(selected_region, Deferred)
+    source = session.observe({"squared": nonlinear_metric})
     with pytest.raises(AnalysisError) as captured:
-        source.attribute(by=(namespace["region"],))
-    assert captured.value.reason == "unsupported_expression"
+        source.attribute(by=(selected_region,))
+    assert vars(captured.value)["reason"] == "unsupported_expression"
+    assert captured.value.repair is not None
     assert captured.value.repair.help_target.display == "analysis.analysis_frame.attribute"
+
+
+def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path) -> None:
+    """Public files must also work in fresh processes, including source-free reopen."""
+    import os
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[2]
+    pages = root / "site/src/content/docs/docs/latest"
+    tutorial = "\n".join(
+        (pages / page).read_text()
+        for page in (
+            "start/python.mdx",
+            "analysis/dsl.mdx",
+            "modeling/semantic-layer.mdx",
+        )
+    )
+
+    def named(marker: str) -> str:
+        match = re.search(
+            r"\{/\* example: " + re.escape(marker) + r" \*/\}\s*```python\n(.*?)```",
+            tutorial,
+            re.DOTALL,
+        )
+        assert match is not None, marker
+        return match.group(1)
+
+    def snippets(page: str) -> list[str]:
+        return re.findall(r"```python\n(.*?)```", (pages / page).read_text(), re.DOTALL)
+
+    def write(project: Path, filename: str, source: str) -> None:
+        path = project / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+
+    def run(project: Path, script: str) -> None:
+        completed = subprocess.run(
+            [sys.executable, script],
+            cwd=project,
+            env={**os.environ, "PYTHONPATH": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    for filename, marker in (
+        ("seed.py", "demo-seed"),
+        ("models/datasources/warehouse.py", "demo-datasource"),
+        ("models/semantic/sales/_domain.py", "demo-model"),
+        ("analysis.py", "demo-analysis"),
+    ):
+        write(tmp_path, filename, named(marker))
+    run(tmp_path, "seed.py")
+    write(tmp_path, "quick.py", named("quick-analysis"))
+    run(tmp_path, "quick.py")
+    for page, filename in (
+        ("analysis/dsl.mdx", "dsl_examples.py"),
+        ("analysis/time-series.mdx", "time_examples.py"),
+        ("analysis/statistics.mdx", "statistics_examples.py"),
+    ):
+        source = "\n".join(snippets(page))
+        if page == "analysis/time-series.mdx":
+            source += (
+                "\nassert len(daily.to_pandas()) == 31\n"
+                'assert rolling.to_pandas()[("value", "revenue")].iloc[4] == 100\n'
+                'assert month_to_date.to_pandas()[("value", "revenue")].iloc[14] == 200\n'
+            )
+        write(tmp_path, filename, source)
+        run(tmp_path, filename)
+    write(
+        tmp_path,
+        "model_checks.py",
+        "\n".join(named(marker) for marker in ("readiness-3", "readiness-1", "readiness-2")),
+    )
+    run(tmp_path, "model_checks.py")
+
+    extended = tmp_path / "extended-model"
+    write(extended, "seed.py", named("demo-seed"))
+    write(extended, "add_cost.py", named("semantic-cost-data"))
+    write(extended, "models/datasources/warehouse.py", named("demo-datasource"))
+    write(
+        extended,
+        "models/semantic/sales/_domain.py",
+        named("semantic-model") + "\n" + named("semantic-composition"),
+    )
+    write(
+        extended,
+        "check_metrics.py",
+        "import marivo.analysis as mv\n"
+        'session = mv.session.create("extended-model")\n'
+        "metrics = session.catalog.metrics\n"
+        'result = session.observe({name: metrics.get("sales." + name) for name in '
+        '("revenue", "average_order_value", "gross_margin_rate")}).compute().to_pandas()\n'
+        'assert result[("value", "revenue")].iloc[0] == 1800\n'
+        'assert result[("value", "average_order_value")].iloc[0] == 300\n'
+        'assert abs(result[("value", "gross_margin_rate")].iloc[0] - 0.4) < 1e-12\n',
+    )
+    run(extended, "seed.py")
+    run(extended, "add_cost.py")
+    run(extended, "check_metrics.py")
+    for filename, source in zip(
+        ("save_ids.py", "reopen.py"), snippets("analysis/results.mdx"), strict=True
+    ):
+        write(tmp_path, filename, source)
+    run(tmp_path, "save_ids.py")
+    (tmp_path / "models/semantic/sales/_domain.py").unlink()
+    (tmp_path / "warehouse.duckdb").unlink()
+    run(tmp_path, "reopen.py")
+
+    calendar = tmp_path / "calendar-demo"
+    write(calendar, "models/datasources/warehouse.py", named("demo-datasource"))
+    for filename, source in zip(
+        ("seed_calendar.py", "models/semantic/sales/_domain.py", "check_calendar.py"),
+        [
+            next(
+                match.group(1)
+                for match in re.finditer(
+                    r"\{/\* example: " + marker + r" \*/\}\s*```python\n(.*?)```",
+                    (pages / "modeling/semantic-layer.mdx").read_text(),
+                    re.DOTALL,
+                )
+            )
+            for marker in ("calendar-seed", "calendar-model", "calendar-read")
+        ],
+        strict=True,
+    ):
+        write(calendar, filename, source)
+    run(calendar, "seed_calendar.py")
+    run(calendar, "check_calendar.py")

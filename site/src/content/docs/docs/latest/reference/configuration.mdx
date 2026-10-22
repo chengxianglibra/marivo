@@ -1,0 +1,50 @@
+---
+title: Configuration and deployment
+description: Configure project roots, shared models, and persistent local state.
+---
+
+<span id="integrate-host-credentials"></span>
+
+Use this reference when choosing a project root or sharing definitions between repositories.
+
+## Know which files to share
+
+| Location | Purpose | Version control |
+| --- | --- | --- |
+| `marivo.toml` | Optional project configuration | Share when needed |
+| `models/datasources/` | Connections with environment-variable references | Share declarations, never resolved secrets |
+| `models/semantic/` | Reusable business definitions | Share |
+| `.marivo/` | Local analysis data, audit, logs and metadata | Ignore |
+
+Without a manifest, the project name defaults to the directory name, external semantic paths are empty and telemetry is on. Invalid existing configuration fails rather than silently using defaults.
+
+## Share authored model directories
+
+Add each external `models/` directory to the optional manifest:
+
+```toml
+[semantic]
+layer_paths = ["../sales-domain/models", "/opt/company/finance-domain/models"]
+```
+
+Local models load first, followed by these paths in order. Relative paths are relative to the manifest, not the current shell directory. External roots need `datasources/` and `semantic/`. Names must be unique across roots; later roots do not override earlier ones.
+
+## Select the project explicitly
+
+Pass `workspace_dir` to `md.load`, `md.inspect` or `ms.load` when you need an exact root. Otherwise these operations select `MARIVO_PROJECT_ROOT`, the nearest ancestor manifest, then the working directory. Doctor's explicit `--project-root` selects its diagnostic target.
+
+A loaded catalog retains its definitions; call `ms.load()` again after model edits. Restart the process when imported Python dependencies need reloading. Registration/removal writes only local datasource declarations.
+
+Results persist as project-local data. Preserve the whole owned state for recovery, rather than editing its internal files. Incompatible old state needs its original reading environment; there is no automatic migration. See [troubleshooting](/docs/latest/reference/troubleshooting/).
+
+## Runtime environment
+
+Install Marivo where your Python process runs. Use the same pinned package/source revision, model files and project root for reproducible work. See [installation](/docs/latest/start/installation/) for commands.
+
+### Prepare the runtime
+
+Provide the project, required datasource drivers, environment-backed credentials, source network access, and a writable persistent project state directory. A disposable working directory loses locally saved results unless you preserve its state.
+
+Run Doctor with the exact project root and inspect its package/interpreter identity. Perform a live connection check only for the intended datasource. Check method support separately from connectivity.
+
+For a custom credential service, query `marivo.help("datasource.credential_scope")` for the host integration API.

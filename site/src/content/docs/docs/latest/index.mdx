@@ -1,33 +1,35 @@
 ---
-title: Marivo user guide
-description: Choose an Agent or Python path to governed analysis.
+title: Marivo
+description: Define business metrics, query data, and save analysis results with Python.
 ---
 
-Marivo is a Python analysis harness for AI agents. Reusable semantic definitions
-bind business meaning; typed analysis computes explicit results and records
-Evidence. You or the agent choose the question and interpret the outcome.
+<span id="choose-your-entry"></span>
+<span id="follow-one-reviewable-loop"></span>
+<span id="from-a-question-to-an-inspectable-answer"></span>
+<span id="what-you-bring"></span>
+<span id="choose-your-path"></span>
 
-This `latest` guide follows the current development implementation. Versioned
-docs describe their historical releases; installing a released package does not
-imply every development API is available.
+Marivo is a Python library for business data analysis. Its semantic layer defines metrics, entities, dimensions, and relationships. Its analysis DSL uses those definitions to calculate, compare, and break down results while retaining the basis for the calculation.
 
-## Choose your entry
+For example, an orders table contains amounts, regions, and dates. Define revenue once, then query monthly revenue by region, compare periods, calculate rolling windows, or measure correlation. Save results to continue working with the same data later.
 
-| Goal | Start here |
+## What you can do
+
+| Task | Operations and results |
 | --- | --- |
-| Work with an agent on a business question | [Choose a project](/docs/latest/quick-start/), then [first Agent analysis](/docs/latest/first-analysis/) |
-| Run the Python library yourself | [Installation](/docs/latest/installation/), then [complete local tutorial](/docs/latest/guides/python-quick-start/) |
-| Add or repair reusable meaning | [Datasources](/docs/latest/guides/datasources/) and [semantic modeling](/docs/latest/guides/semantic-modeling/) |
-| Read or analyze saved output | [Evidence and recovery](/docs/latest/concepts/evidence/) |
+| Connect data | Declare databases or files and inspect schemas and samples |
+| Define business meaning | Reuse revenue, average order value, units, time, and relationships |
+| Query and group | Calculate by region, customer, or period; select records |
+| Compare and investigate | Compare periods or targets and investigate changes by dimension |
+| Time and statistics | Calendar grouping, rolling windows, shares, and correlation |
+| Save and inspect | Save fixed results and read their data and method explanations |
 
-## Follow one reviewable loop
+## Get started
 
-1. Establish the decision, approved Metric meaning and scope.
-2. Reuse governed objects; author a missing reusable slice when needed.
-3. Construct explicit analysis, then compute fixed data or persist a completed result.
-4. Read Frame data and its persisted Artifact audit within their actual scope.
-5. Review the conclusion, limits and any remaining evidence gap.
+[Installation and projects](/docs/latest/start/installation/) covers setup. [Quick start](/docs/latest/start/python/) creates six local orders and calculates total revenue of CNY 1,800.
 
-Start with [core concepts](/docs/latest/concepts/) and [analysis workflow](/docs/latest/concepts/analysis-workflow/).
-Advanced topics cover time/cohorts, comparisons, statistics and calendars. Exact signatures remain in native Help and the
-[Python API reference](/api/).
+The [semantic layer](/docs/latest/modeling/semantic-layer/) covers modeling. The [analysis DSL](/docs/latest/analysis/dsl/) demonstrates queries, filters, comparison, and investigation with code.
+
+For agent operation, see [Use Marivo with an agent](/docs/latest/guides/agents/).
+
+These latest guides follow development source. Use matching versioned documentation for a released package. Check [source limits](/docs/latest/reference/backends-and-limits/) for connection and method support.

@@ -1,190 +1,40 @@
 ---
-title: 分析工作流
-description: 显式构造来源、固定数据，并使用完整 Frame 续算。
+title: 页面已合并
+description: 页面已合并
+pagefind: false
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: noindex
 ---
 
-显式描述与组合使用 `mv.*`；引入 Catalog、Store、执行归属或冻结默认时区时使用
-`session.*`；已有上下文从接收对象的方法、属性和分页项获取或派生。公开类型用于标注
-与检查，值经其 producer 获取。`mv.session.*` 拥有生命周期发现；端点由
-通过 `frame.attribute(by=...)` 延续所保留的来源目标。
+内容已合并至 [分析 DSL](/zh-cn/docs/latest/analysis/dsl/)。
 
 ## 为下一项决策读取指导
 
-marivo-analysis 技能负责问题范围、语义交接与完成判断。未知能力从
-`marivo.help("analysis")` 开始，只沿下一步需要的路线发现，不要求读完目录。
-Population/Frame.show 拥有已捕获结构，聚焦类型 Help 拥有调用，错误拥有修复。
-Catalog 定义卡、readiness、真实来源求值与保存数据证明不同事实。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 创建并恢复精确 Session
 
-`mv.session.create(name, *, question=None, timezone=None, domains=None)` 创建项目内唯一的新名称；
-同名错误给出现存真实 ID。规范化 domains 与 timezone 在创建时冻结；省略时区只在创建时解析
-系统时区，显式非法时区失败。`session.timezone` 返回保存的名称。
-`mv.session.resume(session_id)` 只恢复该精确已有身份；`recent()` 有界发现名称与 ID，
-`inspect(session_id)` 返回 SessionSummary、不恢复。没有隐含 current Session。
-纯 resume/inspect/compute 不刷新 updated_at。
-Session 恢复在内部核对原发布事务和资源，不重新读取来源；活动 writer 冲突会拒绝。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 显式构造来源输入
 
-所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 by/where；TimeScope 与 CalendarAxis 都放入 by；
-read 将非空字段绑定到一个完整 Entity 身份域；values 声明字面量坐标与值；frame 绑定一般
-Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不保存结果。
-attribute 沿接收者保留的直接来源/比较目标与已选完整父坐标，引入新的受治理分类。
-未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
-
-tuple by 按观察到的联合坐标分组；by=Population 只选择指定完整键并保留无事实坐标。
-where=mv.in_population(P) 筛选事实贡献。P.count() 捕获完整去重元组域为整数惰性 Metric，
-包含 Null 分类和无事实身份；P/Q 各自计数，不从 by 或 where 推断分母。
-
-observe 与 members 也接受 `(status == "paid") | mv.in_population(P)` 这样的原生混合条件；
-使用带括号的 `&`、`|`、`~`。字段 NA 保持未知直到最终只选 True，成员判断为非 nullable。
-Population.where 只允许已有坐标上的成员叶子。Frame.where 接收该精确 Frame 的普通布尔
-Column，包括直接布尔值或 presence 列，False 与 NA 不选中；源端条件不转换为结果 Column。
-详见 `marivo.help("semantic.predicate")`。
-
-空域计 0，零轴单元域计 1。分组坐标须已存在于 P；按新属性计成员须先显式 classify 并保留身份，
-直接投影到属性后计数则数去重类别。
-Field Null 是合法类别，Entity 身份保留全部非空主键分量。
-classify/image/preimage 使用显式受治理依赖，字段保留 via/at 绑定。
-同路径定义变化本身不拒绝旧输入；kind/root/grain/unit/time/null 正确性仍要检查。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 下一项决策前固定值
 
-```python
-import marivo
-import marivo.analysis as mv
-
-# Reuse the local tutorial's resolved inputs and Session.
-pending = session.observe({'revenue': revenue}, by=(august, region))
-pending.show()  # Captured facts only.
-fixed = pending.compute()
-fixed.show(n=10)
-saved = fixed.persist()
-reopened = session.persisted_frame(saved.artifact.id)
-selected = reopened.where(reopened["revenue"] > 300).compute()
-selected.show()
-marivo.help("analysis.analysis_frame")
-```
-
-compute 返回完整内存数据，persist 发布已经完成的结果。继续使用返回的固定 Frame 才保留
-精确值与键；派生操作仍惰性。原来源表达式再次求值可能读取变化后的数据，不代表历史复用。
-完整数据没有生产图、语义对象、连接或聚合组件。恢复需要精确 Session 身份和
-`frame.artifact.id`，不能由“最新答案”代替。
-
-Frame 在所有载体上支持当前行 where/select、全局 top、按已有完整轴 reduce、分区 over/Column.share、全轴
-align/compare 与受支持冻结日历 match。Column/FrameAxis 绑定精确输入。
-普通轴需要完整显式 on，零轴与各自唯一日历轴只有规定的推导。生成值路径按全名精确查询，
-不按后缀猜角色；presence 独立于 NA。
-
-`frame.over(statistic, by=...)` 将当前分区的 sum、mean、corr、pair_count 或 row_count
-广播到同输入原行。`column.share(along=...)` 沿指定轴求和、按剩余轴分区，再将当前值
-除以总和。两者使用同输入完整句柄；share 的轴 tuple 必须非空。先筛选会改变样本与分母，
-筛选计算后的结果则保留它们。这些固定数据操作不证明原 Metric 的贡献。
-见[分区统计与份额](/zh-cn/docs/latest/guides/statistics/)。
-
-当前行 Pearson 或 Spearman 相关需要显式选择方法：
-
-```python
-result = frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()
-result.show()  # coefficient, n_pairs
-
-combined = frame.reduce({
-    'spearman': frame['spend'].corr(frame['revenue'], method='spearman'),
-    'n_pairs': frame['spend'].pair_count(frame['revenue']),
-    'rows': mv.row_count(),
-}).compute()
-```
-
-两个数值 Column 与可选的 `by=(frame.axes[0],)` 完整分组轴必须来自该精确 Frame/Session
-输入。单位可以不同；Duration 拒绝。`correlate` 返回惰性普通 Frame，固定顺序为
-`coefficient`（nullable float64，unit `1`）与 `n_pairs`（nonnullable int64，无单位），
-消费同一次输入求值。各组先检查两个表达式，再选共同非 NA 配对；零和重复数值有效，
-零配对组保留。不足两对或常量端时系数为 NA，保留实际计数。Spearman 在组内有效配对
-中排平均秩。presence 不隐式筛样本，规约后被删除。x 的独立自配对 `pair_count(x)`
-统计非 NA 数量；reduce 的名称不推断配对关系。分组系数/计数不能恢复总体相关，
-需要从原样本 Frame 重新规约。仅在多次分析需要复用同一固定数据时才先 compute 输入。
-
-通过 `marivo.help("analysis.analysis_frame.correlate")`、
-`marivo.help("analysis.column.corr")` 与 `marivo.help("analysis.column.pair_count")`
-发现聚焦合同。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 显式请求新来源事实
 
-```python
-parents = session.population_from(selected, on=((selected.axes[1], region),))
-new_source = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
-new_source.show()
-```
-
-桥接投影普通轴完整联合键，并显式提供 Field/Entity 绑定。on 必填，也可为空。
-它在联合键投影后建立新的语义绑定，不重建语义历史、不把字段升级为身份。业务对应由你声明；
-系统检查目标 Catalog、角色、完整键类型、单位和时间约束，不检查目标与原 Entity/Field 相同。
-结构相容的 Customer 键可以绑定 Product，收货城市键可以绑定开票城市，但不证明身份或维度等价。
-固定父键不重新排名，新读事实仍可能变化。
-interval 轴、日历轴、配对轴与任意值列不能桥接。by=Population 选择完整输出键；in_population 选择事实贡献。
-原整体均值/去重、新属性、窗口或粒度需要显式来源构造，当前行 reduce 不等于原量 rollup。
-
-贡献分析先直接选择来源 Metric 或比较目标，再调用 `frame.attribute(by=...)`。
-当前完整行键固定父域，每个目标保留自己的基准。同进程 compute/persist 保留声明，
-独立 reopen 需用保存的联合键显式重建来源。贡献资格仍限 native DuckDB 物理表。
-不支持的目标可通过显式 observe 与 compare/align 继续普通调查。
-参见[比较与调查指南](/zh-cn/docs/latest/guides/comparison-and-attribution/)。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 保持来源贡献与时间含义
 
-Metric.per 先在每个样本完成完整子公式再规约。显式样本 Population 按子政策保留空样本；
-内部样本域与外部指定输出域各自独立。归属规则直接通过
-`observe(..., by=(rule, ...))` 或 `metric.per((rule, ...))` 传入，展开本层有序字段并保留完整规则。
-rule=(tag, channel) 时，`(rule, customer, channel)` 显式定位 channel；首字段重复、规则重叠
-和字段错序均拒绝。`(P, rule)` 保留 P 的完整轴序与联合键。外层/内层规则互相独立。
-Population 只保存键和依赖。
-membership 保留关联元组与分配因子，重复链接不重复同次贡献，
-等值但不同身份的贡献仍分别计算。多根公式先各自规约，再对齐完整域。
-
-Metric.window 绑定显式来源窗口，每个端点完成自己的 W(t)，显示起点不截断回看。
-经过时间与民用期间不同，Session/parser/calendar 时区权威分离；by 提供唯一 interval/calendar 时间轴与窗口端点，
-已绑定快照的 Grain 必须匹配 Session 冻结权威。完整 Frame 解释不重载模型或时区规则。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
 
 ## 按边界读取数据与审计
 
-Frame.show(n=0) 仅元数据，正 n 读取有序前缀与所需冻结标签、边界、配对端点。
-卡片只给方法事实数量、有界 origin 与 getter 指针。`to_pandas()` 验证完整当前数据和必要
-坐标附件；`method_facts` 显式读取完整不可变原解释，存储 getter 校验自己拥有的方法文件，
-不读当前主表、Catalog 或来源。pending 访问需先 compute/persist。stored compute 与派生求值
-消费数据及方法事实；坏方法文件可使完整消费失败，而导出/元数据仍可用。
-Artifact.show/findings/evidence_digest 只读审计，
-Artifact 没有 n 或 to_pandas。来源读取、求值与提交时间不同；发布在求值完成后保存已有
-result ID。Session 恢复不重新计算未知提交。返回引用丢失时显式重新提交，接受重复保存输出
-和可能变化的来源数据。
-
-恢复后仍可继续类型化数据操作；未支持的外部方法需要固定输入、假设与可复算算术。
-导出 attrs 不能回灌为计算合同；新的原来源问题保持显式。
-继承事实保留原总体和坐标，筛选或规约不改原分母、不认证新分解。保存派生结果拥有自己的
-载荷，不依赖原 Artifact。精确读取效果见 `marivo.help("analysis.analysis_frame.method_facts")`，
-完整类型见 `marivo.help("analysis.frame_method_facts")`。
-参见[统计](/zh-cn/docs/latest/guides/statistics/)、
-[时间与人群](/zh-cn/docs/latest/guides/time-and-cohorts/)及
-[证据](/zh-cn/docs/latest/concepts/evidence/)。
-
-
-分组规则使用 `by=(field_or_grouping, ...)`。`mv.identity(entity)` 声明完整身份分组，
-`scope.by(grain)` 声明时间分桶；`mv.membership(...)` 直接传入 observe.by 或 Metric.per。
-`population.axes` 复用坐标定义；`by=population` 选择完整输出键，包含空桶，并须覆盖明确事实过滤和 unmatched 处理后的必要完整外部键。
-覆盖检查在内部采样前完成；内部空样本和后续 Top-0 不能隐藏遗漏键。内部 per(P) 允许子集，
-空样本仍保留外部坐标。
-`mv.coordinates(...)` 统一构造有限字段/身份域及相关多轴元组，每个身份值始终是完整主键元组；
-`mv.identity(entity, at=...)` 可指定版本锚点。
-Population.where 接受 `mv.in_population(...)` 谓词，字段条件通过 members/read/Frame 筛选。
-
-使用 `show()` 检查已捕获的人群，并通过 `axes` 复用其有序坐标：
-
-```python
-domain = mv.coordinates(
-    by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)),
-)
-domain.show()
-axes = domain.axes
-```
-
-Population.show 打印捕获定义，不求值键；Python 真值判断不用于检查 Population 是否为空。
+[继续阅读](/zh-cn/docs/latest/analysis/dsl/)

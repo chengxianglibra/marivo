@@ -1,89 +1,56 @@
 ---
-title: 故障排查
-description: 修复精确所有权、来源、数据与存储边界。
+title: 排错与 API 查询
+description: 诊断常见错误，通过 Live Help 查询 API 用法。
 ---
 
-先读错误的预期输入、实际事实和具体修复；修复边界时保持问题的业务含义。
+<span id="环境与语义范围"></span>
+<span id="完整键与精确-frame-句柄"></span>
+<span id="时间与数值政策"></span>
+<span id="贡献目标与完整解释读取"></span>
+<span id="精确数据恢复与重新提交"></span>
 
-## 环境与语义范围
+按现象选择修复。保留原错误，以及 Doctor 报告的解释器、包版本和项目根。
 
-在选定环境运行 `marivo doctor --project-root <project>` 并安装所需 datasource extra。
-未知身份按需发现 Catalog，凭据使用环境引用。readiness、preview、source health 与实际方法
-求值是不同证据。同路径定义变化本身不拒绝旧输入，仍保留 kind/root/grain/unit/time/null 检查；
-业务版本身份锚点是独立合同。
+| 现象 | 如何确认 | 修复 |
+| --- | --- | --- |
+| 文档 API 不存在 | 检查版本与加载路径 | 使用匹配开发源码或对应版本指南 |
+| 连接失败 | 检查命名环境变量、驱动、网络 | 修正配置，再运行来源测试 |
+| 模型加载失败 | 检查重名、缺失引用、声明语法 | 修复指定文件；导入依赖修改后重启进程 |
+| readiness 被阻止 | 查看所选物理依赖和时间产物 | 修复依赖或认证完整日历范围 |
+| 方法不支持 | 检查后端、来源形式、表达式和类型 | 选择受支持方法或显式新观察，不能静默换指标 |
+| 列或轴属于其他输入 | 查看句柄来自哪个确切 Frame | 从接收者重取句柄，或显式对齐输入 |
+| 差异意外未知 | 检查行存在、空值和零基准 | 解释缺失，不能一律补零 |
+| 时期比较拒绝 | 检查完整边界、时区与匹配规则 | 选择完整时期或受支持的显式对应 |
+| 重开后无法贡献分析 | 保存数据没有来源声明 | 为新问题重建显式来源输入 |
+| 保存结果无法读取 | 检查会话/结果 ID、缺文件与 Marivo 版本 | 保留状态，用原兼容版本读取旧数据 |
 
-## 完整键与精确 Frame 句柄
+## 保存结果不确定时
 
-Column/FrameAxis 属于精确输入；从接收者重新取得，或显式对齐完整轴。
-同名、指纹或导出 attrs 不能重新绑定。继续[教程](/zh-cn/docs/latest/guides/python-quick-start/)：
+先恢复所属会话，核对原事务，再考虑重新提交。显式重提可能产生另一份结果，也可能重新读取已变化来源。应及时保存返回 ID，没有隐式最新结果查询。
 
-{/* example: repair-query-domain */}
+不要把删除 `.marivo/` 或强制初始化作为通用修复。旧状态不会自动迁移；保留它并用兼容环境读取导出，不兼容的新工作使用新项目。
+
+通过 [Help](#查询已安装版本)查询错误的精确修复目标。求助时附上去掉凭据和私有数据的最小复现。
+
+## 查询 API
+
+任务指南用于学习流程，Live Help 用于查询精确调用与限制，[Python API 参考](/api/)提供自动生成的英文参考。
+
+### 查询已安装版本
 
 ```python
-aligned = current.align(
-    baseline, on=((current.axes[0], baseline.axes[0]),),
-)
-difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
-difference.show()
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
+marivo.help("analysis.analysis_frame")
 ```
 
-outer 按唯一完整联合键对应并保留缺侧与独立 presence，不自动补零。
-Field Null 是合法类别。read 要求完整 Entity 身份域、非空字段、合法单值路径与版本锚点，
-后置过滤不能隐藏必要错误。新来源事实要显式提供受治理输入与普通轴 population_from 映射；
-on 必填，零轴允许 on=()。
+CLI 使用相同目标：`.venv/bin/python -m marivo help analysis`。已知返回对象时，`marivo.help(type(result))` 查询类型；属性通过字符串 Help 目标查询。
 
-## 时间与数值政策
+执行导入使用 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv`。通过 `mv.session.create` 创建会话，没有顶层 `marivo.session` 别名。
 
-使用 Session instant/time_scope，并向 `mv.offset(years=...)` 或
-`mv.offset(periods=...)` 指定唯一整数关键字。CalendarAxis.shift 支持单位步长内建
-week/month/year 完整桶或桶首前缀；部分 day/quarter、中段截取和有歧义的非零目标时刻
-需要显式支持的时间域。缺目标 ISO 周/民用截止日期是合法无对应，不夹日期。
-ordinal 仍要求完整桶，过滤不压缩原始序号。
+### 有效求助
 
-命名 compare 需要非空别名到 Frame 的映射，有普通轴时按别名完整提供 on。
-冻结直接关系必须与完整本期域相符；使用原始相容端点或显式一致规则，不能通过改 how
-修复错误锚点或冲突规则。实际基期时间行超出本期声明域时，显式过滤基期或使用 align 的
-一般双端时间并集。outer 不修复缺失/损坏附件或把 NA 当零。分别检查
-`current.present` / `<alias>.present`、值 NA 与继承的 `<alias>.presence.*`。
-参见 `marivo.help("analysis.calendar_axis.shift")` 和
-`marivo.help("analysis.analysis_frame.compare")`。
-
-
-
-除零政策只作用新算子，不覆盖严格子式。非有限值与必要覆盖失败阻止完成。
-本地整数运算使用 checked 内核；普通源端溢出遵循后端，包括 ClickHouse 静默回绕。
-未实际求值的源端算术不保证报溢出。
-缺少执行路线不授权改算法、来源或精度。
-
-## 贡献目标与完整解释读取
-
-阅读 `marivo.help("analysis.analysis_frame.attribute")`。接收者拥有已选完整父键和直接
-来源/比较目标；by 引入新的受治理业务分类或完整 Population。ratio 和线性 Metric 应在
-observe 前组合，Column 算术不获得来源配方。独立 reopen 没有声明：通过 population_from
-显式映射普通父轴，使用 in_population 与新 observe 重建问题；多时间父域必须保留逐期联合键。
-
-`unsupported_expression` 表示没有合法贡献规则。组件缺失、未知输入、重叠或未准入来源
-应按各自错误修复；原来源与数值错误保留所属 owner。普通调查通过显式来源观察与
-compare/align 继续，不制造贡献或自动降级。
-
-pending method_facts 需先 compute/persist。存储 getter 完整校验拥有的方法文件，不读主表
-或来源；preview/to_pandas 读取当前数据。筛选后事实仍解释原目标，比较 total 与
-observed_total 可识别本次重读变化。
-
-## 精确数据恢复与重新提交
-
-保留 Session ID 与 frame.artifact.id，恢复该 Session 后用字符串调用
-`session.persisted_frame(id)`。Frame 拥有数据操作，`.artifact` 拥有审计；
-Artifact/ID 对象及 RawSqlResult 不是计算操作数。保存错误直接给出失败阶段与具体修复。
-提交结果未知时，先恢复所属 Session，再显式重新提交；原提交可能已成功，因此可能重复保存。
-返回的 Artifact ID 丢失时也采用显式重新提交。完整内存数据可再次保存而不求值；
-重新构建来源输入可能读取变化的数据。
-缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
-
-Store 16 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
-发现可返回 None/空而不暴露旧状态；create 不能绕过仅有旧 Store 的项目。
-切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
-保留旧 Store，当前工作在新项目创建新的命名 Session。Store15 的 generation15/output-v4
-适用于所有 Frame，不提供自动导出/导入迁移或同项目旁路。
-[Store 代际兼容合同](https://github.com/chengxianglibra/marivo/blob/main/docs/architecture/analysis/session-state-and-runtime.md#store-generation-and-data-layout)
-说明当前格式、旧代际拒读边界与兼容恢复选择。
+记录 Doctor 显示的版本、解释器、包路径、项目选择、最小相关声明与代码、完整结构化错误、预期与实际结果。移除秘密和私有数据，通过仓库现有问题跟踪或贡献入口求助，不在示例中发布凭据。

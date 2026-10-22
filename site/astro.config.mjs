@@ -10,7 +10,7 @@ function docsItems(version, isLatest = false) {
   const releaseNotesGroup = {
     label: 'Release Notes',
     translations: {
-      'zh-CN': 'Release Notes',
+      'zh-CN': '发布说明',
     },
     items: releaseNotes.map((releaseNote) => ({
       slug: `${versionSlug}/release-notes/${releaseNote}`,
@@ -33,60 +33,49 @@ function docsItems(version, isLatest = false) {
   if (isLatest) {
     return [
       {
-        label: 'Get started',
-        translations: {
-          'zh-CN': '开始使用',
-        },
+        label: "Marivo",
+        translations: { "zh-CN": "Marivo" },
         items: [
-          { slug: versionSlug },
-          { slug: `${versionSlug}/installation` },
-          { slug: `${versionSlug}/quick-start` },
-          { slug: `${versionSlug}/first-analysis` },
-          { slug: `${versionSlug}/guides/python-quick-start` },
+          { slug: `${versionSlug}` },
         ],
       },
       {
-        label: 'Common workflows',
-        translations: {
-          'zh-CN': '常用工作流',
-        },
+        label: "Get started",
+        translations: { "zh-CN": "开始使用" },
         items: [
-          { slug: `${versionSlug}/guides/business-question` },
-          { slug: `${versionSlug}/concepts/semantic-layer` },
-          { slug: `${versionSlug}/concepts/analysis-workflow` },
-          { slug: `${versionSlug}/guides/datasources` },
-          { slug: `${versionSlug}/guides/semantic-modeling` },
+          { slug: `${versionSlug}/start/installation` },
+          { slug: `${versionSlug}/start/python` },
+          { slug: `${versionSlug}/guides/agents` },
         ],
       },
       {
-        label: 'Complete guides',
-        translations: {
-          'zh-CN': '完整专题',
-        },
+        label: "Semantic layer",
+        translations: { "zh-CN": "语义层" },
         items: [
-          { slug: `${versionSlug}/guides/time-and-cohorts` },
-          { slug: `${versionSlug}/guides/comparison-and-attribution` },
-          { slug: `${versionSlug}/guides/statistics` },
-          { slug: `${versionSlug}/guides/calendars-and-schedules` },
+          { slug: `${versionSlug}/modeling/semantic-layer` },
         ],
       },
       {
-        label: 'Reference',
-        translations: {
-          'zh-CN': '参考',
-        },
+        label: "Analysis",
+        translations: { "zh-CN": "分析" },
         items: [
-          { slug: `${versionSlug}/concepts` },
-          { slug: `${versionSlug}/concepts/readiness` },
-          { slug: `${versionSlug}/concepts/evidence` },
+          { slug: `${versionSlug}/analysis/dsl` },
+          { slug: `${versionSlug}/analysis/time-series` },
+          { slug: `${versionSlug}/analysis/statistics` },
+          { slug: `${versionSlug}/analysis/results` },
+        ],
+      },
+      {
+        label: "Reference",
+        translations: { "zh-CN": "参考" },
+        items: [
           { slug: `${versionSlug}/reference/backends-and-limits` },
-          { slug: `${versionSlug}/reference/troubleshooting` },
-          { slug: `${versionSlug}/reference/project-configuration` },
+          { slug: `${versionSlug}/reference/configuration` },
           { slug: `${versionSlug}/reference/telemetry` },
-          { slug: `${versionSlug}/reference/deployment` },
-          { slug: `${versionSlug}/contributing` },
+          { slug: `${versionSlug}/reference/troubleshooting` },
         ],
       },
+      { label: "Project", translations: { "zh-CN": "项目" }, items: [{ slug: `${versionSlug}/contributing` }] },
       releaseNotesGroup,
     ];
   }
