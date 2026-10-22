@@ -1,59 +1,208 @@
 ---
 title: 语义层
-description: 连接来源，定义字段、指标、关系和业务日历。
+description: 逐项说明实体、维度、度量、指标与关系的参数和定义方式。
 ---
 
-语义层用 Python 声明数据源、实体、字段、关系和指标。下面的示例按文件和操作组织；快速开始中的六笔订单可作为本地数据。
+语义层用 Python 定义可复用的业务含义。本页依次介绍 Entity、Dimension、Time dimension、Measure、Metric 和 Relationship，说明每类对象表达什么、有哪些属性、如何定义。Datasource 负责物理访问，语义对象在此基础上定义身份、字段、聚合规则和映射关系。
 
 查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 source health 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
 
-## 连接与检查
+各节的简短声明是模型文件片段，不是直接粘贴到分析脚本中的命令。运行时请结合[完整模型](#complete-model)和[本地教程](/zh-cn/docs/latest/start/python/)。在 `models/semantic/sales/_domain.py` 中用 `ms.domain(name="sales", owner="Mina Zhang")` 声明业务域；默认域允许同目录下的定义省略 `domain=`。`ai_context=ms.ai_context(business_definition=..., guardrails=[...])` 记录业务含义与使用限制，不执行计算逻辑。
 
-先通过[本地教程](/zh-cn/docs/latest/start/python/)创建 `warehouse.duckdb` 与数据源声明。将下面保存为 `inspect_data.py`，从项目根运行。
+物理访问配置见[数据源配置](/zh-cn/docs/latest/modeling/datasources/)，时间解析与日历见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。下表默认值均为 Python API 默认值，`None` 不意味着自动推测业务规则。
 
-### 确认访问与结构
+## Domain：所属业务域
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 业务域目录名，如 `sales`，参与下游对象标识。 |
+| `owner` | 是 | — | 对业务语义正确性负责的人。 |
+| `default` | 否 | `True` | 为 True 时，允许该域范围内的定义省略 `domain=`。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+## Entity：实体与身份
+
+Entity 为物理来源定义业务身份和行粒度。对于订单，一笔订单是一个实例，稳定身份为 `order_id`。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 直接形式必填 | `None` | 直接构造时的名称；省略时使用表装饰器，由函数名提供名称。 |
+| `datasource` | 是 | — | 由 `ms.ref.datasource(...)` 获得的数据源符号。 |
+| `source` | 是 | — | 物理来源描述，如 `md.table(...)`；选出的列形成实体来源结构。 |
+| `primary_key` | 否 | `None` | 有序完整稳定身份列；`None` 不声明实体身份，不代表只有一个成员。 |
+| `versioning` | 否 | `None` | `ms.snapshot(...)` 或 `ms.validity(...)`；`None` 不声明历史版本模型。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
 
 ```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-warehouse = ms.ref.datasource("warehouse")
-md.load().test(warehouse).show()
-md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
-```
-
-表中包含 order_id、order_date、region、amount。接入自己的数据时，应向数据负责人确认主键与指标定义，不能仅凭样本值推断。
-
-### 连接远程数据库
-
-下面的声明配方需要真实服务和凭据。替换示例主机并设置命名环境变量，保存为 `models/datasources/lake.py`。
-
-{/* example: trino-declaration */}
-
-```python
-# models/datasources/lake.py
-import marivo.datasource as md
-
-md.trino(
-    name="lake",
-    host="trino.example.internal",
-    catalog="hive",
-    user_env="TRINO_USER",
-    auth_env="TRINO_AUTH",
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
 )
 ```
 
-凭据通过 `*_env` 引用环境变量，不写进模型文件。默认解析在通过连接验证后，可能将秘密明文缓存到 `~/.marivo/secrets.toml`。设置 `MARIVO_PERSIST_CREDENTIALS=0` 可关闭。
+复合身份必须包含全部组成部分，例如租户与订单号。执行需要时才从来源元数据读取物理类型，`ms.load()` 不读取业务行。身份声明是业务契约，不是当前数据符合契约的证明。快照或有效期版本选择需要精确时间边界，不会自动取“最新可用记录”。Help：`semantic.entity.define`。
 
-### 选择物理来源
+## Dimension：维度
 
-实体可以引用受支持的表、Parquet、CSV 或 JSON。文件与 HTTP 的检查能力和数值分析有不同支持条件。参数化 JSON 用于声明与预览，不是已准入的数值 Session 来源路线。
+Dimension 是实体某个确定版本上的属性，用于分组、筛选、分类或声明关系键。类型与可空性由来源绑定或表达式决定。
 
-只为未解决的编码问题读取有界样本。返回行数限制不等于扫描预算。原始 SQL 可以回答物理问题，但其结果是终端数据，不能进入类型化 Frame 分析。查询超时使用后端原生语义，不是整个调用的期限。
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
 
-接下来[定义指标](/zh-cn/docs/latest/modeling/semantic-layer/#定义字段与指标)，并查询[来源限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+```python
+region = ms.dimension_column(name="region", entity=orders, column="region")
 
-## 定义字段与指标
+
+@ms.dimension(entity=orders)
+def normalized_region(rows):
+    return ms.bind(region, rows).upper()
+```
+
+直接字段优先使用列构造函数。派生属性使用装饰器，接收实体表并捕获受限 Ibis 表达式。Null 可以是有效分组类别；当前属性不会自动获得历史时点含义。Help：`semantic.dimension.from_column`、`semantic.dimension.define`。
+
+### 派生维度：`ms.dimension`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 否 | `None` | 覆盖函数名；`None` 使用被装饰的函数名。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+## Time dimension：时间维度
+
+Time dimension 建立明确的业务时间角色。原生日期、时间戳和编码日期有不同的解析与时区要求。完整参数表、解析器、范围和业务日历见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。下方完整模型仍保留 `order_date` 声明。
+
+## Measure：行级度量
+
+Measure 描述来源每行的数值量，例如订单金额或成本。它拥有单位与聚合许可，尚不是 `observe` 消费的已完成聚合的 Metric。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
+| `additivity` | 是 | — | 求和许可：`ms.additive_all(except_=...)`、`ms.additive(over=...)` 或 `ms.non_additive()`。 |
+| `status_time_dimension` | 否 | `None` | 可选状态时间字段；须用 `ms.additive_all(except_=(...))` 排除同一字段。`None` 不声明状态时间角色。 |
+| `unit` | 否 | `None` | 单位如 `"CNY"`；`None` 表示未指定，`"1"` 才明确表示无量纲。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+```python
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="CNY",
+)
+cost = ms.measure_column(
+    name="cost", entity=orders, column="cost",
+    additivity=ms.additive_all(), unit="CNY",
+)
+
+
+@ms.measure()
+def margin():
+    return amount - cost
+```
+
+成本示例使用下方完整模型新增的列。派生 Measure 的函数体不接收参数，组合类型化行级量。单位描述量纲，可加性描述在哪些轴上求和有意义；乘积不会自动变得可加，库存也不会自动沿时间可加。Help：`semantic.measure.from_column`、`semantic.measure.define`。
+
+### 派生度量：`ms.measure`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `unit` | 否 | `None` | 单位声明；`None` 继承表达式单位。 |
+| `additivity` | 否 | `None` | 显式兼容求和许可；`None` 继承表达式事实。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+## Metric：指标
+
+Metric 是完成来源聚合后的表达式，或已有 Metric 的组合。收入对订单金额求和，客单价用该收入除以同一范围的订单数。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+函数名提供发布名称。零参数函数体组合闭合 Metric 或来源聚合；时间、空值、样本策略在这些算子上指定。
+
+```python
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+
+
+@ms.metric()
+def average_order_value():
+    return revenue / orders.count(time=order_date)
+```
+
+函数体可以包含新的局部表达式绑定和最终 return，但不能包含表参数、`ms.bind`、查询或任意 Python 调用。空样本求和为零，非空但全部为空的样本求和为未知；除以零产生 NA。`revenue.where(region == "east")` 限定贡献条件，`revenue.per(region).mean()` 计算地区收入的均值；它们与筛选或平均已完成 Frame 不同。已有闭合 Metric 可以直接组合用于本次问题，无需发布新定义。Help：`semantic.metric.define`、`semantic.expressions`。
+
+<a id="关系与归属"></a>
+
+## Relationship：实体关系
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `from_entity` | 是 | — | 有向关系的来源实体。 |
+| `to_entity` | 是 | — | 有向关系的目标实体。 |
+| `keys` | 是 | — | 表达映射的 `ms.join_on(from_field, to_field)` 列表；须使用确切端点上的直接列 Dimension/TimeDimension。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+基数由连接键是否覆盖两端完整主键推导，不是额外的声明参数。键表达映射，不保证全局匹配完整性，也不决定分摊。版本化端点还需要消费方确定具体版本。
+
+关系说明业务实体如何对应。应根据已知身份与粒度规则声明，不能仅因为列名相似就连接。
+
+### 先明确连接粒度
+
+考虑下面这组完整手算输入：
+
+| 订单 | 客户 | 金额 |
+| --- | --- | ---: |
+| o1 | c1 | 100 |
+| o2 | c1 | 200 |
+| o3 | c2 | 500 |
+
+c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收入分别为 300、500，c3 没有观察贡献；但选定客户集合仍可以包含 c3。
+
+### 让声明符合规则
+
+先声明具有完整主键的订单和客户实体，再使用 `ms.relationship` 与 `ms.join_on` 声明有向关系。通过 `marivo.help("semantic.relationship.define")` 获取精确构造方式。身份是 (tenant, customer) 时必须包含两个部分，只用客户编号可能误连其他租户。
+
+通过[模型检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)中的关系匹配与基数检查核对来源。声明关系不证明当前来源完整。
+
+### 决定多重归属如何贡献
+
+若 c1 同时有 A、B 两个标签，将订单连接到两种标签会重复它的 300。把它计为总收入 600 就错了。先确定是存在性筛选、允许重叠的分组总额，还是有业务依据的分配。`mv.membership(...)` 描述明确的分组与分配规则，不能让任意连接自动可加。
+
+按新属性统计客户时保留身份；先只投影属性再计数，得到的是分类数。接下来[选择分析对象](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)。
+以上关系的声明片段，放在同一模型加载范围内：
+
+```python
+# Declaration fragment: orders, customers, order_customer_id, and customer_id
+# are captured Entity and Dimension refs in the same model.
+orders_to_customers = ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+<a id="定义字段与指标"></a>
+<a id="complete-model"></a>
+
+## 完整模型
 
 先确认含义，再写公式。演示收入是六笔完成订单金额之和，单位 CNY，无退款。客单价应使用相同订单范围的收入和计数。
 
@@ -107,8 +256,6 @@ def normalized_region(rows):
     return ms.bind(region, rows).upper()
 
 
-
-
 @ms.measure()
 def margin():
     return amount - cost
@@ -133,46 +280,6 @@ Measure 和 Metric 声明体不接收表参数，而是构造闭合表达式。�
 空输入求和为零，非空且全空值则未知。应在来源与模型中明确取消和退款规则，不能简单把未知值补零。
 
 编辑后[检查模型](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。涉及其他实体属性时，阅读[关系与归属](/zh-cn/docs/latest/modeling/semantic-layer/#关系与归属)。
-
-## 关系与归属
-
-关系说明业务实体如何对应。应根据已知身份与粒度规则声明，不能仅因为列名相似就连接。
-
-### 先明确连接粒度
-
-考虑下面这组完整手算输入：
-
-| 订单 | 客户 | 金额 |
-| --- | --- | ---: |
-| o1 | c1 | 100 |
-| o2 | c1 | 200 |
-| o3 | c2 | 500 |
-
-c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收入分别为 300、500，c3 没有观察贡献；但选定客户集合仍可以包含 c3。
-
-### 让声明符合规则
-
-先声明具有完整主键的订单和客户实体，再使用 `ms.relationship` 与 `ms.join_on` 声明有向关系。通过 `marivo.help("semantic.relationship.define")` 获取精确构造方式。身份是 (tenant, customer) 时必须包含两个部分，只用客户编号可能误连其他租户。
-
-通过[模型检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)中的关系匹配与基数检查核对来源。声明关系不证明当前来源完整。
-
-### 决定多重归属如何贡献
-
-若 c1 同时有 A、B 两个标签，将订单连接到两种标签会重复它的 300。把它计为总收入 600 就错了。先确定是存在性筛选、允许重叠的分组总额，还是有业务依据的分配。`mv.membership(...)` 描述明确的分组与分配规则，不能让任意连接自动可加。
-
-按新属性统计客户时保留身份；先只投影属性再计数，得到的是分类数。接下来[选择分析对象](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)。
-以上关系的声明片段，放在同一模型加载范围内：
-
-```python
-# Declaration fragment: orders, customers, order_customer_id, and customer_id
-# are captured Entity and Dimension refs in the same model.
-orders_to_customers = ms.relationship(
-    name="orders_to_customers",
-    from_entity=orders,
-    to_entity=customers,
-    keys=[ms.join_on(order_customer_id, customer_id)],
-)
-```
 
 ## 加载与检查
 
@@ -219,90 +326,6 @@ health.show()
 
 [日历证书](/zh-cn/docs/latest/modeling/semantic-layer/#业务日历)缺失或截断，需要覆盖完整有限范围的时间预览。这些检查均不代表业务负责人认可收入口径，最后仍应运行实际观察。
 
-## 业务日历
-
-自然日与月符合业务时，直接使用[时间分析](/zh-cn/docs/latest/analysis/time-series/)中的普通粒度。本页演示如何创建自己的有限业务日历。
-
-### 准备七天日历
-
-使用[安装](/zh-cn/docs/latest/start/installation/)的环境。在独立 `calendar-demo` 项目中创建 `models/datasources/warehouse.py`，使用教程的 DuckDB 声明与本地路径 `warehouse.duckdb`。从新项目执行命令，使用已安装解释器的绝对路径。将下面保存为 `seed_calendar.py` 并运行，它只替换此演示的 calendar 表。
-
-{/* example: calendar-seed */}
-
-```python
-from datetime import date, timedelta
-import duckdb
-
-with duckdb.connect("warehouse.duckdb") as connection:
-    connection.execute(
-        "CREATE OR REPLACE TABLE calendar (day DATE PRIMARY KEY, fiscal_week VARCHAR)"
-    )
-    connection.executemany(
-        "INSERT INTO calendar VALUES (?, ?)",
-        [(date(2026, 1, 1) + timedelta(days=i), "FY2026-W01") for i in range(7)],
-    )
-```
-
-### 声明日期与期间
-
-保存为 `models/semantic/sales/_domain.py`。这是独立项目的完整日历模型，在此独立项目中使用时替换原教程声明。演示周为 1 月 1 日至 8 日，不是 ISO 周，含起点不含终点。
-
-{/* example: calendar-model */}
-
-```python
-from datetime import date
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-calendar_days = ms.entity(
-    name="calendar",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("calendar"),
-    primary_key=["day"],
-)
-day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day")
-week = ms.dimension_column(
-    name="fiscal_week", entity=calendar_days, column="fiscal_week"
-)
-ms.period_calendar(
-    name="fiscal",
-    date=day,
-    boundary_timezone="UTC",
-    coverage=(date(2026, 1, 1), date(2026, 1, 8)),
-    levels={"week": week},
-)
-```
-
-### 认证并读取
-
-保存为 `check_calendar.py` 并运行。完整范围有七行，行数上限设为八，以免截断。
-
-{/* example: calendar-read */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-catalog = ms.load(workspace_dir=".")
-ref = ms.ref.period_calendar("sales.fiscal")
-catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30))
-calendar = catalog.period_calendars.get("sales.fiscal")
-period = calendar.period("week", "FY2026-W01")
-assert period.kind == "calendar_period"
-period.show()
-```
-
-预期期间是 FY2026-W01，覆盖七个日期。把 max_rows 临时改成 1 会导致认证无法覆盖完整范围；恢复为 8 后重试。失败或截断不会发布替代证书。
-
-实际模型应提供经确认的所有业务期间和完整日期，不能靠相同标签推断边界。分析时使用 `calendar.grain("week")` 取得已认证粒度，而不是向普通粒度构造器传入猜测名称。
-
-### 活动与工作日
-
-活动期间用 `ms.temporal_set` 声明唯一发生项 ID、开始、结束和可选分类，并通过完整有界预览认证。日期边界需明确业务时区。同名节日分类不自动配对不同年份；通过 `marivo.help("semantic.temporal_set")` 查询精确声明。
-
-工作日字段必须覆盖所有日期并考虑调休。缺日期或未知状态不等于休息日。不同组织或地区的日程应分开定义。
-
 ## 组合指标表达式
 
 在字段与指标定义完成后，可以组合筛选、逐组计算与派生指标。下面接在本页扩展模型的末尾。
@@ -322,3 +345,13 @@ def gross_margin_rate():
 ```
 
 `east_revenue` 只计算 east 的贡献；`mean_regional_revenue` 是地区收入的均值；毛利率在相同时间口径下计算收入与成本。
+
+## 相关参考
+
+<a id="连接与检查"></a>
+
+连接配置与检查：[数据源配置](/zh-cn/docs/latest/modeling/datasources/)。
+
+<a id="业务日历"></a>
+
+日历定义与认证：[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。

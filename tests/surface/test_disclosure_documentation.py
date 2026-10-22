@@ -207,6 +207,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
             "start/python.mdx",
             "analysis/dsl.mdx",
             "modeling/semantic-layer.mdx",
+            "modeling/dates.mdx",
         )
     )
 
@@ -250,6 +251,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
     run(tmp_path, "quick.py")
     for page, filename in (
         ("analysis/dsl.mdx", "dsl_examples.py"),
+        ("analysis/population.mdx", "population_examples.py"),
         ("analysis/time-series.mdx", "time_examples.py"),
         ("analysis/statistics.mdx", "statistics_examples.py"),
     ):
@@ -311,7 +313,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
                 match.group(1)
                 for match in re.finditer(
                     r"\{/\* example: " + marker + r" \*/\}\s*```python\n(.*?)```",
-                    (pages / "modeling/semantic-layer.mdx").read_text(),
+                    (pages / "modeling/dates.mdx").read_text(),
                     re.DOTALL,
                 )
             )

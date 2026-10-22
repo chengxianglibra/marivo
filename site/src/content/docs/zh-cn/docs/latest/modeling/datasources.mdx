@@ -1,0 +1,176 @@
+---
+title: 数据源配置
+description: 逐项配置 DuckDB、PostgreSQL、MySQL、ClickHouse 和 Trino。
+---
+
+Marivo 支持五种数据源构造函数。将声明保存在 `models/datasources/` 下，loader 收集配置时不打开连接。按实际后端选择构造函数，再从 Entity 引用其名称。远程示例是配置模板，测试访问前请替换主机与数据库名，并设置所引用的环境变量。
+
+每行只说明一个构造参数。“默认值”是 Marivo Python API 的默认值。可选连接参数为 `None` 时不覆盖后端或驱动行为，不等于承诺某个固定端口或匿名登录。参数可选也不意味着服务器不要求认证。每个构造函数都重复列出 `name`、`ai_context` 和 `extra`，便于独立查阅。
+
+| 后端 | 构造函数 | 用途 |
+| --- | --- | --- |
+| DuckDB | `md.duckdb` | 本地数据库与文件来源 |
+| PostgreSQL | `md.postgres` | PostgreSQL |
+| MySQL | `md.mysql` | MySQL |
+| ClickHouse | `md.clickhouse` | ClickHouse |
+| Trino | `md.trino` | 分布式 catalog |
+
+## DuckDB — `md.duckdb`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
+| `path` | 否 | `':memory:'` | DuckDB 文件路径，`":memory:"` 为进程内数据库；教程使用文件。 |
+| `read_only` | 否 | `False` | 为 True 时只读打开数据库。 |
+| `http_scope` | 否 | `None` | 限定远程 JSON 认证范围的 HTTP(S) URL 前缀；指定 HTTP 认证方式时必须提供。 |
+| `http_bearer_token_env` | 否 | `None` | Bearer token 的环境变量名；与请求头认证互斥。 |
+| `http_headers_env` | 否 | `None` | HTTP 请求头名到保存秘密值的环境变量名的映射；与 Bearer 认证互斥。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+| `extra` | 否 | `None` | 上述类型化字段未覆盖的、可 JSON 序列化的 Ibis 连接参数；已有设置应优先使用类型化参数，不能存放明文凭据。`None` 不添加额外参数。 |
+
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False)
+```
+
+精确参考：`marivo.help("datasource.duckdb")`.
+
+## PostgreSQL — `md.postgres`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
+| `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
+| `database` | 是 | — | 要连接的数据库。 |
+| `port` | 否 | `None` | 连接端口；`None` 交由后端驱动决定，非默认端点应显式指定。 |
+| `schema` | 否 | `None` | 表解析使用的默认 schema；`None` 不提供 Marivo 层覆盖。 |
+| `autocommit` | 否 | `None` | 覆盖驱动自动提交行为；`None` 使用驱动默认行为。 |
+| `user_env` | 否 | `None` | 保存用户名的环境变量名称，而非用户名本身；`None` 不声明用户引用。 |
+| `password_env` | 否 | `None` | 保存密码的环境变量名称；`None` 不声明密码引用。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+| `extra` | 否 | `None` | 上述类型化字段未覆盖的、可 JSON 序列化的 Ibis 连接参数；已有设置应优先使用类型化参数，不能存放明文凭据。`None` 不添加额外参数。 |
+
+
+```python
+# models/datasources/reporting.py
+import marivo.datasource as md
+
+md.postgres(
+    name="reporting", host="postgres.example.internal", database="sales",
+    port=5432, schema="public",
+    user_env="PG_USER", password_env="PG_PASSWORD",
+)
+```
+
+精确参考：`marivo.help("datasource.postgres")`.
+
+## MySQL — `md.mysql`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
+| `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
+| `database` | 是 | — | 要连接的数据库。 |
+| `port` | 否 | `None` | 连接端口；`None` 交由后端驱动决定，非默认端点应显式指定。 |
+| `autocommit` | 否 | `None` | 覆盖驱动自动提交行为；`None` 使用驱动默认行为。 |
+| `user_env` | 否 | `None` | 保存用户名的环境变量名称，而非用户名本身；`None` 不声明用户引用。 |
+| `password_env` | 否 | `None` | 保存密码的环境变量名称；`None` 不声明密码引用。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+| `extra` | 否 | `None` | 上述类型化字段未覆盖的、可 JSON 序列化的 Ibis 连接参数；已有设置应优先使用类型化参数，不能存放明文凭据。`None` 不添加额外参数。 |
+
+
+```python
+# models/datasources/commerce.py
+import marivo.datasource as md
+
+md.mysql(
+    name="commerce", host="mysql.example.internal", database="shop",
+    port=3306, user_env="MYSQL_USER", password_env="MYSQL_PASSWORD",
+)
+```
+
+精确参考：`marivo.help("datasource.mysql")`.
+
+## ClickHouse — `md.clickhouse`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
+| `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
+| `port` | 否 | `None` | 连接端口；`None` 交由后端驱动决定，非默认端点应显式指定。 |
+| `database` | 否 | `None` | 数据库名称；`None` 时 Marivo 适配器使用 `"default"`。 |
+| `secure` | 否 | `None` | 为 True 时启用 TLS；`None` 保留驱动设置。 |
+| `settings` | 否 | `None` | ClickHouse 会话设置映射；`None` 不添加声明设置。 |
+| `user_env` | 否 | `None` | 保存用户名的环境变量名称，而非用户名本身；`None` 不声明用户引用。 |
+| `password_env` | 否 | `None` | 保存密码的环境变量名称；`None` 不声明密码引用。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+| `extra` | 否 | `None` | 上述类型化字段未覆盖的、可 JSON 序列化的 Ibis 连接参数；已有设置应优先使用类型化参数，不能存放明文凭据。`None` 不添加额外参数。 |
+
+
+```python
+# models/datasources/events.py
+import marivo.datasource as md
+
+md.clickhouse(
+    name="events", host="clickhouse.example.internal", database="analytics",
+    secure=True, user_env="CH_USER", password_env="CH_PASSWORD",
+    settings={"max_threads": 4},
+)
+```
+
+精确参考：`marivo.help("datasource.clickhouse")`.
+
+## Trino — `md.trino`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
+| `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
+| `catalog` | 是 | — | Trino catalog，连接时映射到 Ibis database 参数。 |
+| `user_env` | 是 | — | 必填的 Trino 用户环境变量名，不隐式回退到后端默认用户。 |
+| `port` | 否 | `None` | 连接端口；`None` 交由后端驱动决定，非默认端点应显式指定。 |
+| `schema` | 否 | `None` | 表解析使用的默认 schema；`None` 不提供 Marivo 层覆盖。 |
+| `source` | 否 | `None` | 发送给 Trino 的客户端应用标识；`None` 不覆盖。 |
+| `timezone` | 否 | `None` | 引擎会话时区，与 Analysis Session 报告时区分开；`None` 不覆盖引擎设置。 |
+| `http_scheme` | 否 | `None` | HTTP 传输协议，TLS 使用 `"https"`；`None` 使用驱动行为。 |
+| `client_tags` | 否 | `None` | 客户端标签元组，向后端传递时转换为列表；`None` 不添加。 |
+| `session_properties` | 否 | `None` | Trino 会话属性映射；`None` 不添加。 |
+| `auth_env` | 否 | `None` | 后端认证材料的环境变量名；`None` 不声明，仅适用于服务器允许的配置。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+| `extra` | 否 | `None` | 上述类型化字段未覆盖的、可 JSON 序列化的 Ibis 连接参数；已有设置应优先使用类型化参数，不能存放明文凭据。`None` 不添加额外参数。 |
+
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake", host="trino.example.internal", catalog="hive", schema="sales",
+    user_env="TRINO_USER", auth_env="TRINO_AUTH", http_scheme="https",
+    client_tags=("marivo", "reporting"),
+)
+```
+
+精确参考：`marivo.help("datasource.trino")`.
+
+## 凭据与连接检查
+
+凭据只通过 `*_env` 引用；运行检查前设置对应环境变量。通过验证的连接往返后，默认凭据解析可能将值明文缓存到 `~/.marivo/secrets.toml`；设置 `MARIVO_PERSIST_CREDENTIALS=0` 可关闭。不要将凭据放入 `extra` 或模型源码。
+
+创建[教程数据库](/zh-cn/docs/latest/start/python/)后，从项目根运行：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = ms.ref.datasource("warehouse")
+md.load().test(warehouse).show()
+md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
+```
+
+## 连接与物理来源
+
+`md.table(...)` 选择数据源内的表或视图。`md.parquet(...)`、`md.csv(...)`、`md.json(...)` 描述 DuckDB 文件或 HTTP 来源，不是新增的数据源类型。可检查不代表一定支持数值分析，参数化 JSON 不能作为数值 Session 来源。返回行数限制不等于扫描量限制。参见[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)，然后[定义 Entity](/zh-cn/docs/latest/modeling/semantic-layer/)。

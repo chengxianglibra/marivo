@@ -52,7 +52,9 @@ function docsItems(version, isLatest = false) {
         label: "Semantic layer",
         translations: { "zh-CN": "语义层" },
         items: [
+          { slug: `${versionSlug}/modeling/datasources` },
           { slug: `${versionSlug}/modeling/semantic-layer` },
+          { slug: `${versionSlug}/modeling/dates` },
         ],
       },
       {
@@ -60,6 +62,7 @@ function docsItems(version, isLatest = false) {
         translations: { "zh-CN": "分析" },
         items: [
           { slug: `${versionSlug}/analysis/dsl` },
+          { slug: `${versionSlug}/analysis/population` },
           { slug: `${versionSlug}/analysis/time-series` },
           { slug: `${versionSlug}/analysis/statistics` },
           { slug: `${versionSlug}/analysis/results` },

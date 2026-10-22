@@ -1,13 +1,32 @@
 ---
 title: 分析 DSL
-description: 使用分析 DSL 查询、筛选、比较和拆分指标。
+description: 按 observe、compare、attribute、correlate、align、reduce 了解分析能力与可运行用法。
 ---
 
 分析 DSL 使用 `Session` 取得语义定义，通过 `observe`、`read` 和 Frame 方法计算结果。先完成快速开始的数据和模型，再按顺序运行本页。后续片段接在 `analysis.py` 后，或在同一 Python 进程中执行。
 
-继续已有任务时，`marivo.help("analysis")` 按下一步缺少的信息选择入口。`analysis.source` 构造显式观察或请求新来源事实；`analysis.frame` 构造数据或对当前行计算。source 构造保持延迟，Frame 求值仍可能执行 pending 输入已捕获的依赖。完成或重开的数据不会恢复原始语义声明。
+继续已有任务时，`marivo.help("analysis")` 按下一步缺少的信息选择入口。`analysis.source` 构造显式观察或请求新来源事实；`analysis.frame` 构造数据或对当前行计算。source 构造保持延迟，Frame 求值仍可能执行 pending 输入已捕获的依赖。已完成的数值不会重建来源声明；同进程 Frame 可以为 attribute 保留声明，独立重新打开的 Frame 则没有该声明。
 
 已有闭合 Metric 能回答问题时直接复用。业务含义与聚合权限已确定、只缺本次算式、条件、内部样本或窗口时，从 `analysis.inputs` 或 `analysis.source` 进入 `semantic.expressions`。本次局部计算不要求发布同名 Metric；确实缺少可复用含义时才编写定义。来源条件和成员条件使用语义表达式角色；结果筛选使用属于确切 Frame 的布尔 Column。
+
+下文按以下顺序介绍算子。它们的 `by` 参数含义不同：observe/attribute 使用语义域，correlate/reduce 使用当前输入 Frame 的轴。
+
+| 算子 | 回答的问题 |
+| --- | --- |
+| `observe` | 指定域与时间内的指标值是多少？ |
+| `compare` | 当前值相对基准如何变化？ |
+| `attribute` | 哪些细分组对受支持目标产生贡献？ |
+| `correlate` | 两个数值表达式如何共同变化？ |
+| `align` | 两个 Frame 的完整坐标如何对应？ |
+| `reduce` | 当前已表示的行有哪些统计特征？ |
+| `over` / `share` | 每个分区的总量、每行的份额是多少？ |
+| `read` / `where` / `select` / `top` | 应读取哪些属性、筛选哪些行和列？ |
+
+## Population：先确定完整域
+
+Population 是完整坐标元组的有限集合，不仅是“人群”。`session.members(...)` 选择来源身份，`mv.coordinates(...)` 指定所需键，`session.population_from(...)` 使用 Frame 已选键。`by=P` 指定输出域，`where=mv.in_population(P)` 限定来源贡献，二者不能互相替代。
+
+[Population 介绍](/zh-cn/docs/latest/analysis/population/)包含身份元组、投影、分类、乘积、集合操作、关系映射与计数，逐项列出默认值并提供可运行示例。确定分母成员范围时应先读这一页。
 
 ## 完整示例与后续输入
 
@@ -46,7 +65,17 @@ saved_session_id = session.id
 saved_artifact_id = saved.artifact.id
 ```
 
-## 观察指标
+<a id="观察指标"></a>
+
+## observe：观察指定域内的指标
+
+`session.observe(metrics, by=..., where=...)` 捕获来源问题，返回待执行的 AnalysisFrame；直到 `compute()` 或 `persist()` 才读取所需的来源结构与业务行。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `metrics` | 是 | — | 输出名到闭合 Metric 表达式的非空映射；名称不能含点号。 |
+| `by` | 否 | `()` | 有序语义字段、TimeScope、分组规则或一个完整 Population；`()` 请求一个单元，`by=P` 保留 P 的完整输出键。 |
+| `where` | 否 | `None` | 来源贡献谓词；`None` 不添加贡献筛选，与 by 中的输出选择独立。 |
 
 ### 读取 8 月收入
 
@@ -65,63 +94,30 @@ assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
 
 接下来[比较时期](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/latest/analysis/results/)。
 
-## 选择与筛选
+TimeScope 包含起点、不包含终点。显式选定的 Population 可以保留没有事实记录的成员；无事实求和为零，非空但全空值求和为 NA。`Population.count()` 统计选中的完整元组，`Entity.count()` 统计来源贡献，`mv.row_count()` 统计当前 Frame 行。Help：`analysis.session.observe`。
 
-先确定要筛选来源贡献、输出对象集合，还是已经计算的行，它们回答不同问题。
+<a id="比较与对齐"></a>
 
-### 选择已知订单并读取属性
+## compare：比较命名基准
 
-{/* example: explicit-identity-read */}
+使用 `current.compare({"reference": baseline}, ...)` 比较同一 Session 内的一个或多个基准。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定。
 
-```python
-Orders = session.catalog.entities.get("sales.orders")
-fixed_orders = mv.coordinates(
-    by=(mv.identity(Orders),),
-    keys=(((4,),), ((5,),), ((6,),)),
-)
-attributes = session.read(fixed_orders, {"region": region}).compute()
-chosen_orders = attributes.where(attributes["region"] == "east").compute()
-east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
-selected = session.observe(
-    {"revenue": revenue}, by=mv.product(august, east), where=mv.in_population(east)
-).compute()
-selected.show()
-session.frame(east).compute().show()
-```
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `baselines` | 是 | — | 非空有序的别名 → 同 Session Frame 映射，`current` 为保留名。 |
+| `on` | 否 | `None` | 按别名指定完整轴配对。`None` 仅允许零轴或两端各一个时间轴时推导，普通轴须显式映射。 |
+| `match` | 否 | `None` | 按别名指定时间对应；`None` 使用兼容的冻结直接关系或坐标相等，不从别名推测日期偏移。 |
 
-选中身份是订单 4、5、6。按属性筛到 east 后，保留订单 4、5，各有收入 100。即使实体只有一个主键字段，完整键仍使用元组。字面键描述选中身份，并不证明来源中存在这些记录。
-
-### 固定选中的群体
-
-{/* example: comparison-endpoint-followup */}
+输出保留当前值，添加 `<alias>.baseline.<name>`、`<alias>.absolute.<name>` 和 `<alias>.relative.<name>`；`current.present` 与 `<alias>.present` 独立表示行是否存在，不等于数值是否为 NA。
 
 ```python
-chosen = current.top(1, by=current["revenue"]).compute()
-parents = session.population_from(chosen, on=((chosen.axes[1], region),))
-prior_selected = session.observe(
-    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
-).compute()
-followup = chosen.compare(
-    {"reference": prior_selected},
-    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
+compared = current.compare(
+    {"reference": baseline},
+    on={"reference": tuple(zip(current.axes, baseline.axes))},
     match={"reference": mv.ordinal()},
 ).compute()
-followup.show()
+compared.show()
 ```
-
-西部是 8 月收入最高地区，为 600。后续群体因此固定为 west；查询 7 月不会重新排名。其 7 月参照是 700，变化为 -100。
-
-来源字段条件用于来源筛选，`mv.in_population(...)` 用于成员筛选；结果筛选使用属于该结果的布尔 Column。`by=population` 选择输出键，`where` 中的成员条件选择贡献。身份集合计数统计完整不同身份，也包含选中但没有事实的身份；仅投影到地区再计数，统计的则是地区数。
-
-改变分母前先了解[范围与粒度](/zh-cn/docs/latest/analysis/dsl/#范围与粒度)。
-
-## 比较与对齐
-
-使用相同地区键比较 8 月与 7 月。
-
-### 计算变化
-
-上文已计算并保存比较，此处直接读取已保存数据。
 
 {/* example: compare-query */}
 
@@ -131,55 +127,21 @@ assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -1
 assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
 ```
 
-{/* example: aligned-absolute-only */}
+此处用 ordinal 主动配对 7 月和 8 月，地区键精确匹配。东部变化 -100（-1/3），西部变化 -100（-1/7）。基准为零时相对变化为 NA；缺失端点或 NA 值不会变成零。外部对应保留单侧缺行，但基准时间行必须映射到当前声明的时间域；一般时间并集应使用 align。Help：`analysis.analysis_frame.compare`。
 
-```python
-aligned = current.align(
-    baseline,
-    on=tuple(zip(current.axes, baseline.axes)),
-    match=mv.ordinal(),
-)
-difference = aligned.select(
-    {
-        "difference": aligned["left.revenue"] - aligned["right.revenue"],
-    }
-).compute()
-difference.show()
-```
+<a id="调查变化"></a>
 
-{/* example: broadcast-reference */}
+## attribute：解释来源贡献
 
-```python
-budget = session.values(
-    by=(region,),
-    columns={"budget": "CNY"},
-    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
-).compute()
-regional = current.reduce(
-    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
-).compute()
-aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
-vs_budget = aligned_budget.select(
-    {
-        "revenue": aligned_budget["left.revenue"],
-        "budget_variance": aligned_budget["left.revenue"]
-        - aligned_budget["right.budget"],
-    }
-).compute()
-vs_budget.show()
-```
+`target.attribute(by=...)` 在新的业务分类上解释选定的受支持输出。它不仅给出分组观察，还返回贡献及解释这些贡献所需的方法事实。
 
-### 解读数值
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `by` | 是 | — | 非空的新语义分类或完整 Population；接收方必须为每个选定的受支持目标保留来源声明。 |
 
-东部变化 -100，相对变化 -1/3；西部变化 -100，相对变化 -1/7。相对变化公式是 `(当前值 - 基准值) / abs(基准值)`。有效基准为零时，相对变化未知。任一侧缺失或数值未知时，差异也未知；presence 标志用于判断对应行是否存在。
+输出包含 `contribution.<name>`、`contribution_share.<name>`、`total.<name>`、`observed_total.<name>` 及细分诊断。`method_facts` 在筛选与持久化后保留方法说明。
 
-`on` 显式对应期间和地区两种轴，ordinal 规则主动配对 7 月与 8 月。同名列并不证明业务可比。
-
-预算示例为东部 250、西部 750，8 月预算差异分别为 -50、-150。示例求和移除了单一期间轴，因为这里是可加收入；不能用它重建任意比率或去重指标。
-
-接下来[调查变化](/zh-cn/docs/latest/analysis/dsl/#调查变化)。
-
-## 调查变化
+完成计算后，选中的父键与原观察值固定。Attribute 重新读取父级和细分来源输入，不重新排名这些键；来源变化时应检查原观察总量与新总量。目前仅准入合格的原生 DuckDB 物理表。普通 Column 运算不会自动成为可归因的来源公式；受支持的线性或比率 Metric 应在观察之前定义。独立重新打开保留值和方法事实，但没有再次请求 attribute 所需的声明。Help：`analysis.analysis_frame.attribute`。
 
 从总额下降出发，再判断各地区解释多少。
 
@@ -243,6 +205,193 @@ nonlinear_investigation = fine_current.compare(
 
 这些算术分解均不证明业务因果。调查原因假设时，需要能区分不同解释的数据。
 
+## correlate：成对数值相关性
+
+使用 `frame.correlate(x, y, method=..., by=...)` 计算当前行的 Pearson 线性相关或 Spearman 秩相关。独立 Frame 应先对齐，不要按导出数据碰巧相同的行号配对。已完成的 compare 结果已包含配对端点。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `x` | 是 | — | 来自确切当前输入 Frame 的数值 Column，不支持 Duration。 |
+| `y` | 是 | — | 来自同一确切 Frame 的数值 Column，单位可与 x 不同。 |
+| `method` | 是 | — | 显式 `"pearson"` 或 `"spearman"`；Spearman 对并列值使用平均秩。 |
+| `by` | 否 | `()` | 保留为相关分组的完整轴；`()` 返回整体相关系数。 |
+
+输出为 `coefficient`（可空 float64、单位 1）与 `n_pairs`（非空 int64），共同使用相同的非 NA 配对样本。
+
+```python
+paired = saved
+association = paired.correlate(
+    paired["revenue"],
+    paired["reference.baseline.revenue"],
+    method="pearson",
+).compute()
+pairs = association.to_pandas()
+assert pairs[("value", "n_pairs")].tolist() == [2]
+assert abs(pairs[("value", "coefficient")].iloc[0] - 1.0) < 1e-12
+association.show()
+```
+
+配对为 (200, 300) 和 (600, 700)，所以示例返回 1，但只有两个观测；这只是 API 演示，不能证明一般关系或因果。两个表达式使用共同的非 NA 配对掩码。少于两对或某端为常量时系数为 NA，仍保留配对数；零配对的组也保留。`by=(paired.axes[0],)` 表示在每个期间内计算。分组系数不能取平均来获得合并样本系数。Help：`analysis.analysis_frame.correlate`。
+
+## align：对齐完整坐标
+
+`left.align(right, on=..., match=...)` 将两个 Frame 放到同一坐标对应中，以便自定义运算。所有值分别保留为 `left.<name>`、`right.<name>`，并添加 `left.present`、`right.present`。与 compare 不同，两端值名称无需相同。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `other` | 是 | — | 同 Session 的另一 Frame，不接受配对轴输入。 |
+| `on` | 否 | `None` | 轴数相同且类型兼容的完整一一映射；`None` 仅推导零轴或两端各一个时间轴。 |
+| `match` | 否 | `None` | 显式受支持的时间规则；`None` 使用冻结坐标相等。 |
+
+{/* example: aligned-absolute-only */}
+
+```python
+aligned = current.align(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+difference = aligned.select(
+    {
+        "difference": aligned["left.revenue"] - aligned["right.revenue"],
+    }
+).compute()
+difference.show()
+```
+
+对齐使用外部对应：未匹配行保留，缺失一侧的值为 NA，并有独立 presence。它不广播缺失轴，也不是任意多对多连接。对齐后从新结果获取 Column。
+
+### 对齐地区预算
+
+{/* example: broadcast-reference */}
+
+```python
+budget = session.values(
+    by=(region,),
+    columns={"budget": "CNY"},
+    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
+).compute()
+regional = current.reduce(
+    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
+).compute()
+aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
+vs_budget = aligned_budget.select(
+    {
+        "revenue": aligned_budget["left.revenue"],
+        "budget_variance": aligned_budget["left.revenue"]
+        - aligned_budget["right.budget"],
+    }
+).compute()
+vs_budget.show()
+```
+
+预算为东部 250、西部 750，8 月差异为 -50、-150。这里先 reduce 显式移除单一期间轴，使两端各有一个地区轴；这适用于本例可加收入，不能用于恢复任意比率或去重计数。Help：`analysis.analysis_frame.align`。
+
+## reduce：汇总当前行
+
+`frame.reduce(values, by=...)` 按当前行分组，为每个保留的完整键返回一行；`by=()` 返回整体汇总。它移除 presence 列并统计已表示的单元，不会按新粒度重新执行原始 Metric。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `values` | 是 | — | 非空输出名 → 待完成统计量映射，每个 sum/mean/corr/pair_count/row_count 生成一列。 |
+| `by` | 否 | `()` | 保留的当前 Frame 完整轴，不能重复；`()` 汇总全部已表示行，未列出的轴被移除。 |
+
+```python
+summary = current.reduce(
+    {
+        "total": current["revenue"].sum(),
+        "mean_region": current["revenue"].mean(),
+        "rows": mv.row_count(),
+    }
+).compute()
+summary_rows = summary.to_pandas()
+assert summary_rows[("value", "total")].tolist() == [800]
+assert summary_rows[("value", "mean_region")].tolist() == [400]
+assert summary_rows[("value", "rows")].tolist() == [2]
+```
+
+400 是地区收入均值，不是客单价。对比率或去重计数求和不能恢复原始整体 Metric；这类问题应重新 observe。空样本求和为零，非空全 NA 求和或没有有效单元的均值为 NA；`row_count()` 包含值为 NA 的行。Help：`analysis.analysis_frame.reduce`。
+
+## over / share：分区统计与行份额
+
+`frame.over(statistic, by=...)` 将各分区统计值广播回原行。`column.share(along=...)` 用每个值除以沿指定轴求得的和，其余轴定义分区。二者都返回供 select 使用的 Column，保留原行及顺序。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `statistic` | 是 | — | 同输入的待完成统计量或 `mv.row_count()`；将分区结果广播回原行。 |
+| `by` | 否 | `()` | 当前 Frame 的完整分区键；`()` 表示全部行属于一个分区。 |
+
+`Column.share` 参数：
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `along` | 是 | — | 求和方向的非空、不重复完整轴；其他轴定义分区。 |
+
+```python
+normalized = current.select(
+    {
+        "revenue": current["revenue"],
+        "total": current.over(current["revenue"].sum()),
+        "share": current["revenue"].share(along=(current.axes[1],)),
+    }
+).compute()
+assert normalized.to_pandas()[("value", "share")].tolist() == [0.25, 0.75]
+```
+
+这里 share 在每个期间内对地区求和；`over(..., by=())` 使用当前全部行。先筛选再 share 会改变分母，计算 share 后再筛选则保留原分母。分区总和为零时结果为 NA；带符号份额可以超出 [0, 1]。Share 至少需要一个轴，也不证明原始 Metric 可加性。Help：`analysis.analysis_frame.over`、`analysis.column.share`。
+
+## 选择与筛选
+
+先确定要筛选来源贡献、输出对象集合，还是已经计算的行，它们回答不同问题。
+
+### 选择已知订单并读取属性
+
+{/* example: explicit-identity-read */}
+
+```python
+Orders = session.catalog.entities.get("sales.orders")
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),)),
+)
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
+selected = session.observe(
+    {"revenue": revenue}, by=mv.product(august, east), where=mv.in_population(east)
+).compute()
+selected.show()
+session.frame(east).compute().show()
+```
+
+选中身份是订单 4、5、6。按属性筛到 east 后，保留订单 4、5，各有收入 100。即使实体只有一个主键字段，完整键仍使用元组。字面键描述选中身份，并不证明来源中存在这些记录。
+
+### 固定选中的群体
+
+{/* example: comparison-endpoint-followup */}
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+prior_selected = session.observe(
+    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
+).compute()
+followup = chosen.compare(
+    {"reference": prior_selected},
+    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
+    match={"reference": mv.ordinal()},
+).compute()
+followup.show()
+```
+
+西部是 8 月收入最高地区，为 600。后续群体因此固定为 west；查询 7 月不会重新排名。其 7 月参照是 700，变化为 -100。
+
+来源字段条件用于来源筛选，`mv.in_population(...)` 用于成员筛选；结果筛选使用属于该结果的布尔 Column。`by=population` 选择输出键，`where` 中的成员条件选择贡献。身份集合计数统计完整不同身份，也包含选中但没有事实的身份；仅投影到地区再计数，统计的则是地区数。
+
+改变分母前先了解[范围与粒度](/zh-cn/docs/latest/analysis/dsl/#范围与粒度)。
+
+`session.read(population, fields)` 在完整 Entity 身份上读取命名属性。`frame.select({...})` 投影或计算命名 Column，`frame.where(predicate)` 筛选当前行，`frame.top(n, by=column)` 选择全局排名。Column 和轴必须来自确切接收方；生成新 Frame 后应重新获取。
+
 ## 范围与粒度
 
 比较数值之前，先确定一行代表什么、哪些记录参与计算。
@@ -262,6 +411,35 @@ nonlinear_investigation = fine_current.compare(
 比较中缺少一行，与该行存在但数值未知不同，两者均不自动表示零。字段空值还可以是有效分类，应分别检查行存在性与数值有效性。
 
 通过[对象选择](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)实现范围，[统计](/zh-cn/docs/latest/analysis/statistics/)说明分母敏感的运算。
+
+## read / select / where / top 参数
+
+### `session.read`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `population` | 是 | — | 一个 Entity 的完整身份域。 |
+| `fields` | 是 | — | 非空的输出名 → 闭合字段表达式映射。 |
+
+### `frame.select`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `values` | 是 | — | 输出名映射到确切当前 Frame 的 Column 或受支持字面值。 |
+
+### `frame.where`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `predicate` | 是 | — | 来自确切当前 Frame 的布尔 Column，用于筛选已表示行。 |
+
+### `frame.top`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `n` | 是 | — | 全局保留的非负有限行数。 |
+| `by` | 是 | — | 来自确切输入 Frame 的排名 Column。 |
+| `descending` | 否 | `True` | True 优先选择大值，False 优先选择小值。 |
 
 ## 常用筛选与排序
 

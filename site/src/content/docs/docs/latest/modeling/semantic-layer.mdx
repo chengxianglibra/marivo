@@ -1,59 +1,207 @@
 ---
 title: Semantic layer
-description: Connect sources and define fields, metrics, relationships, and calendars.
+description: Define entities, dimensions, measures, metrics and relationships with explicit parameter contracts.
 ---
 
-The semantic layer declares datasources, entities, fields, relationships, and metrics in Python. The examples below are organized by files and operations; the six-order quick start supplies local data.
+The semantic layer defines reusable business meaning in Python. This page introduces Entity, Dimension, Time dimension, Measure, Metric, and Relationship: what each object represents, which properties it owns, and how to define it. Datasource owns physical access; semantic objects add identity, fields, aggregation rules, and mappings.
 
 For focused discovery, start at `marivo.help("authoring")`. Use `semantic.model` for identity, fields, relationships and Metric definitions; `semantic.time` for time parsing and certified calendars; `semantic.catalog` for existing definitions; and `semantic.validation` to choose what load, readiness, preview or source health must prove. Supporting constructor values follow their definition. Question-scoped composition of established closed inputs uses `semantic.expressions` without requiring a published Metric.
 
-## Connect and inspect
+The short declarations are model-file fragments, not commands to paste into an analysis script. Use the [complete model](#complete-model) below with the [local tutorial](/docs/latest/start/python/) to run them. A domain is declared in `models/semantic/sales/_domain.py` with `ms.domain(name="sales", owner="Mina Zhang")`; its default domain lets sibling definitions omit `domain=`. `ai_context=ms.ai_context(business_definition=..., guardrails=[...])` records meaning and usage limits, not executable logic.
 
-Use the [local tutorial](/docs/latest/start/python/) to create `warehouse.duckdb` and its datasource declaration. Then save and run this as `inspect_data.py` from the project root.
+Configure physical access on the [Datasource configuration](/docs/latest/modeling/datasources/) page. [Date and time definitions](/docs/latest/modeling/dates/) owns temporal parsing and calendars. Parameter defaults below are Python API defaults; `None` does not imply a guessed business rule.
 
-### Confirm access and structure
+## Domain — owning business scope
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | Yes | — | Domain directory name, for example `sales`; participates in downstream identities. |
+| `owner` | Yes | — | Person accountable for semantic correctness. |
+| `default` | No | `True` | Allows definitions in the domain scope to omit `domain=` when true. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+## Entity — identity and source grain
+
+An Entity gives a physical source a business identity and row grain. For orders, one instance is one order; its stable identity is `order_id`.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | Direct form | `None` | Direct construction name; omit it to use the table decorator, whose function name supplies the name. |
+| `datasource` | Yes | — | Datasource symbol from `ms.ref.datasource(...)`. |
+| `source` | Yes | — | Physical descriptor such as `md.table(...)`; selected columns become the Entity source schema. |
+| `primary_key` | No | `None` | Ordered complete stable identity columns. `None` declares no Entity identity; it does not mean one singleton member. |
+| `versioning` | No | `None` | `ms.snapshot(...)` or `ms.validity(...)`; `None` declares no historical version model. |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
 ```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-warehouse = ms.ref.datasource("warehouse")
-md.load().test(warehouse).show()
-md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
-```
-
-The table has order_id, order_date, region and amount. For your own data, confirm primary keys and metric definitions with the data owner. Samples alone cannot determine those rules.
-
-### Connect a remote database
-
-This declaration recipe requires your real server and credentials. Replace the example host and set the named environment variables; save it under `models/datasources/lake.py`.
-
-{/* example: trino-declaration */}
-
-```python
-# models/datasources/lake.py
-import marivo.datasource as md
-
-md.trino(
-    name="lake",
-    host="trino.example.internal",
-    catalog="hive",
-    user_env="TRINO_USER",
-    auth_env="TRINO_AUTH",
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
 )
 ```
 
-Credentials belong in environment variables referenced by `*_env`, not model files. After a validated roundtrip, default resolution may cache resolved credentials in plaintext in `~/.marivo/secrets.toml`. Set `MARIVO_PERSIST_CREDENTIALS=0` to disable this.
+A composite identity must include every component, such as tenant and order. Physical types come from source metadata when execution needs them; `ms.load()` does not read source rows. Declared identity is a business contract, not proof that current data obeys it. Snapshot/validity selection needs an exact temporal boundary; it never means “use the latest available row.” Help: `semantic.entity.define`.
 
-### Choose the physical source
+## Dimension — categorical attributes
 
-Entities can refer to supported table, Parquet, CSV, or JSON sources. File/HTTP inspection and numerical analysis have different support conditions. Parameterized JSON is a declaration/preview capability, not supported as a numerical Session source.
+A Dimension is an attribute of one resolved Entity representation. Use it to group, filter, classify, or declare relationship keys. Its type and nullability follow its source binding or expression.
 
-Use bounded samples for unresolved encoding questions. A returned-row limit does not cap scanned data. Raw SQL is available for physical questions, but its results are terminal and cannot enter typed Frame analysis. Query timeouts are backend-native, not a whole-call deadline.
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | Yes | — | Semantic name, unique in its owning scope. |
+| `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
+| `column` | Yes | — | Physical column name exposed by the Entity source; may differ from the semantic name. |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
-Next [define metrics](/docs/latest/modeling/semantic-layer/#define-fields-and-metrics) and consult [source limits](/docs/latest/reference/backends-and-limits/).
+```python
+region = ms.dimension_column(name="region", entity=orders, column="region")
 
-## Define fields and metrics
+
+@ms.dimension(entity=orders)
+def normalized_region(rows):
+    return ms.bind(region, rows).upper()
+```
+
+Prefer the column constructor for direct fields. The decorator takes an Entity table and captures a restricted Ibis expression for derived attributes. Null can be a valid grouping category. A current attribute does not automatically describe historical state. Help: `semantic.dimension.from_column` and `semantic.dimension.define`.
+
+### Derived Dimension: `ms.dimension`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | No | `None` | Override the function name; `None` uses the decorated function name. |
+| `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+## Time dimension — business time
+
+A Time dimension establishes an explicit business time role. Native dates, timestamps and encoded dates have different parsing and timezone requirements. See [Date and time definitions](/docs/latest/modeling/dates/) for the complete parameter table, parsers, ranges and business calendars. The complete model below keeps its `order_date` declaration.
+
+## Measure — row quantities
+
+A Measure describes a numeric quantity per source row, such as order amount or cost. It owns units and permission to aggregate; it is not yet the completed Metric consumed by `observe`.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | Yes | — | Semantic name, unique in its owning scope. |
+| `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
+| `column` | Yes | — | Physical column name exposed by the Entity source; may differ from the semantic name. |
+| `additivity` | Yes | — | Summation permission: `ms.additive_all(except_=...)`, `ms.additive(over=...)`, or `ms.non_additive()`. |
+| `status_time_dimension` | No | `None` | Optional status-time field; exclude the same field using `ms.additive_all(except_=(...))`. `None` declares no status-time role. |
+| `unit` | No | `None` | Unit such as `"CNY"`; `None` means unspecified, while `"1"` explicitly means dimensionless. |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+```python
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="CNY",
+)
+cost = ms.measure_column(
+    name="cost", entity=orders, column="cost",
+    additivity=ms.additive_all(), unit="CNY",
+)
+
+
+@ms.measure()
+def margin():
+    return amount - cost
+```
+
+This cost example uses the extra column created in the complete model below. Derived Measure bodies take zero arguments and compose typed row quantities. Units describe dimension; additivity says where summing is meaningful. A product is not automatically summable, and inventory is not automatically additive over time. Help: `semantic.measure.from_column` and `semantic.measure.define`.
+
+### Derived Measure: `ms.measure`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `unit` | No | `None` | Unit assertion; `None` inherits the expression unit. |
+| `additivity` | No | `None` | Explicit compatible summation permission; `None` inherits expression facts. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+## Metric — completed business calculations
+
+A Metric is a completed source reduction or a composition of Metrics. Revenue sums order amounts; average order value divides that revenue by the count of the same orders.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+The function name supplies the published name. Its zero-argument body composes closed Metrics or source reductions; time/null/sample policies belong on those operators.
+
+```python
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+
+
+@ms.metric()
+def average_order_value():
+    return revenue / orders.count(time=order_date)
+```
+
+Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
+
+<a id="relationships-and-membership"></a>
+
+## Relationship — directed entity mappings
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | Yes | — | Semantic name, unique in its owning scope. |
+| `from_entity` | Yes | — | Source Entity of the directed relationship. |
+| `to_entity` | Yes | — | Target Entity of the directed relationship. |
+| `keys` | Yes | — | List of `ms.join_on(from_field, to_field)` pairs covering the intended mapping; fields must be direct Dimensions/TimeDimensions on the exact endpoints. |
+| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
+| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+
+Cardinality is derived from whether join keys cover each endpoint’s complete primary key; it is not an extra declaration argument. Keys express mapping, not global completeness or allocation. Versioned endpoints also need the consumer’s exact version selection.
+
+A relationship explains how business entities correspond. Declare it from known identity and grain rules, not from similar column names.
+
+### Establish the grain before joining
+
+Consider this complete worked example (illustrative input tables):
+
+| Order | Customer | Amount |
+| --- | --- | ---: |
+| o1 | c1 | 100 |
+| o2 | c1 | 200 |
+| o3 | c2 | 500 |
+
+Customers c1 and c2 belong to east and west respectively; c3 has no orders. The overall revenue is 800, and customer revenue is 300, 500, and no observed contribution for c3. A selected customer population can still include c3.
+
+### Make the declaration match the rule
+
+Declare orders and customers as Entities with complete primary keys, then a directed relationship using `ms.relationship` and `ms.join_on`. Obtain the exact constructor with `marivo.help("semantic.relationship.define")`. If identity is (tenant, customer), include both parts; a customer number alone can match another tenant.
+
+Use relationship match/cardinality checks in [model validation](/docs/latest/modeling/semantic-layer/#load-and-validate). A declared relationship does not prove current source completeness.
+
+### Decide how multiple memberships contribute
+
+If c1 has labels A and B, joining orders to both labels repeats its 300. Counting that as 600 would be wrong for total revenue. Decide whether you want an existence filter, overlapping group totals, or a justified allocation. `mv.membership(...)` describes explicit grouping/allocation rules; it does not make an arbitrary join additive.
+
+Keep identity when counting customers by a new attribute. Projecting only the attribute first counts categories instead. Continue with [population selection](/docs/latest/analysis/dsl/#select-and-filter).
+Declaration fragment for this relationship, in the same model load scope:
+
+```python
+# Declaration fragment: orders, customers, order_customer_id, and customer_id
+# are captured Entity and Dimension refs in the same model.
+orders_to_customers = ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+<a id="define-fields-and-metrics"></a>
+
+## Complete model
 
 Agree on meaning before writing an equation. In the demo, revenue is the sum of six completed orders in CNY, without refunds. Average order value divides that revenue by the count of the same orders.
 
@@ -107,8 +255,6 @@ def normalized_region(rows):
     return ms.bind(region, rows).upper()
 
 
-
-
 @ms.measure()
 def margin():
     return amount - cost
@@ -133,46 +279,6 @@ Measure and Metric declaration bodies take no table arguments and build closed e
 An empty sum is zero; a nonempty all-null sum is unknown. Specify how cancellations and refunds enter the source/model rather than filling unknown results with zero.
 
 After editing, [validate the model](/docs/latest/modeling/semantic-layer/#load-and-validate). Use [relationships](/docs/latest/modeling/semantic-layer/#relationships-and-membership) when a metric needs attributes from another entity.
-
-## Relationships and membership
-
-A relationship explains how business entities correspond. Declare it from known identity and grain rules, not from similar column names.
-
-### Establish the grain before joining
-
-Consider this complete worked example (illustrative input tables):
-
-| Order | Customer | Amount |
-| --- | --- | ---: |
-| o1 | c1 | 100 |
-| o2 | c1 | 200 |
-| o3 | c2 | 500 |
-
-Customers c1 and c2 belong to east and west respectively; c3 has no orders. The overall revenue is 800, and customer revenue is 300, 500, and no observed contribution for c3. A selected customer population can still include c3.
-
-### Make the declaration match the rule
-
-Declare orders and customers as Entities with complete primary keys, then a directed relationship using `ms.relationship` and `ms.join_on`. Obtain the exact constructor with `marivo.help("semantic.relationship.define")`. If identity is (tenant, customer), include both parts; a customer number alone can match another tenant.
-
-Use relationship match/cardinality checks in [model validation](/docs/latest/modeling/semantic-layer/#load-and-validate). A declared relationship does not prove current source completeness.
-
-### Decide how multiple memberships contribute
-
-If c1 has labels A and B, joining orders to both labels repeats its 300. Counting that as 600 would be wrong for total revenue. Decide whether you want an existence filter, overlapping group totals, or a justified allocation. `mv.membership(...)` describes explicit grouping/allocation rules; it does not make an arbitrary join additive.
-
-Keep identity when counting customers by a new attribute. Projecting only the attribute first counts categories instead. Continue with [population selection](/docs/latest/analysis/dsl/#select-and-filter).
-Declaration fragment for this relationship, in the same model load scope:
-
-```python
-# Declaration fragment: orders, customers, order_customer_id, and customer_id
-# are captured Entity and Dimension refs in the same model.
-orders_to_customers = ms.relationship(
-    name="orders_to_customers",
-    from_entity=orders,
-    to_entity=customers,
-    keys=[ms.join_on(order_customer_id, customer_id)],
-)
-```
 
 ## Load and validate
 
@@ -219,90 +325,6 @@ If connection testing fails, check the datasource path and credentials before re
 
 A missing or truncated [calendar certificate](/docs/latest/modeling/semantic-layer/#business-calendars) needs a complete bounded temporal preview. None of these checks confirms the business owner intended this revenue policy. Finish by executing the actual observation you need.
 
-## Business calendars
-
-Use ordinary grains in [time analysis](/docs/latest/analysis/time-series/) when civil days and months fit. This page builds a small finite business calendar of your own.
-
-### Create seven calendar dates
-
-Use the environment from [installation](/docs/latest/start/installation/). Work in a separate `calendar-demo` project: create `models/datasources/warehouse.py` with the tutorial’s DuckDB declaration and local path `warehouse.duckdb`. Run the commands from this new project, using the installed interpreter by its absolute path. Save the following as `seed_calendar.py` and run it. It replaces only this demo calendar table.
-
-{/* example: calendar-seed */}
-
-```python
-from datetime import date, timedelta
-import duckdb
-
-with duckdb.connect("warehouse.duckdb") as connection:
-    connection.execute(
-        "CREATE OR REPLACE TABLE calendar (day DATE PRIMARY KEY, fiscal_week VARCHAR)"
-    )
-    connection.executemany(
-        "INSERT INTO calendar VALUES (?, ?)",
-        [(date(2026, 1, 1) + timedelta(days=i), "FY2026-W01") for i in range(7)],
-    )
-```
-
-### Declare dates and periods
-
-Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for the separate project; replace the earlier tutorial declarations when using this separate project. This demonstration week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
-
-{/* example: calendar-model */}
-
-```python
-from datetime import date
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-calendar_days = ms.entity(
-    name="calendar",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("calendar"),
-    primary_key=["day"],
-)
-day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day")
-week = ms.dimension_column(
-    name="fiscal_week", entity=calendar_days, column="fiscal_week"
-)
-ms.period_calendar(
-    name="fiscal",
-    date=day,
-    boundary_timezone="UTC",
-    coverage=(date(2026, 1, 1), date(2026, 1, 8)),
-    levels={"week": week},
-)
-```
-
-### Certify and read
-
-Save as `check_calendar.py` and run it. The complete range has seven rows; use a limit of eight to avoid truncation.
-
-{/* example: calendar-read */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-catalog = ms.load(workspace_dir=".")
-ref = ms.ref.period_calendar("sales.fiscal")
-catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30))
-calendar = catalog.period_calendars.get("sales.fiscal")
-period = calendar.period("week", "FY2026-W01")
-assert period.kind == "calendar_period"
-period.show()
-```
-
-Expect FY2026-W01 covering seven dates. Temporarily setting max_rows to 1 makes certification unable to cover the whole range; restore 8 and retry. Failed or truncated certification does not publish a replacement certificate.
-
-Real models need all approved business periods and complete dates. Equal labels do not establish boundaries. Use `calendar.grain("week")` for the certified grain, rather than passing a guessed name to a builtin grain constructor.
-
-### Activities and working days
-
-Use `ms.temporal_set` to declare unique occurrence IDs, starts, ends and optional categories, then certify through a complete bounded preview. Civil-date boundaries need explicit business timezone. Matching holiday categories do not automatically pair years; query `marivo.help("semantic.temporal_set")` for exact authoring.
-
-Working-day fields must cover all dates and compensating workdays. Missing dates or unknown states are not rest days. Model separate organizational or regional schedules explicitly.
-
 ## Compose metric expressions
 
 After defining fields and metrics, compose filters, per-group calculations, and derived metrics. Append this to the extended model above.
@@ -322,3 +344,13 @@ def gross_margin_rate():
 ```
 
 `east_revenue` selects east contributions; `mean_regional_revenue` averages regional revenues; gross margin rate uses revenue and cost with the same time role.
+
+## Related references
+
+<a id="connect-and-inspect"></a>
+
+Connection settings and inspection: [Datasource configuration](/docs/latest/modeling/datasources/).
+
+<a id="business-calendars"></a>
+
+Calendar declarations and certification: [Date and time definitions](/docs/latest/modeling/dates/).
