@@ -3009,7 +3009,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Interpret a native timestamp. timezone localizes naive values; every parser timezone is rejected for an aware source. Sampling belongs to the time field.",
+            "Interpret a native timestamp. timezone localizes naive values using backend-native gap/fold behavior; aware sources reject parser timezone. Sampling belongs to the time field.",
             output="TimestampSpec",
             effects=_AUTHOR,
             example="ms.timestamp(timezone='UTC')",
@@ -3017,7 +3017,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values localize using parser or reader authority. Sampling belongs to the time field.",
+            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values use parser or reader authority and backend-native gap/fold behavior. Sampling belongs to the time field.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),

@@ -27,7 +27,6 @@ class PreparedMemberships:
     columns: tuple[tuple[str, str], ...]
     originals: tuple[tuple[str, ir.Value], ...]
     dependencies: tuple[ir.Value, ...]
-    checks: tuple[tuple[str, str, str], ...] = ()
 
 
 def prepare_memberships(
@@ -51,7 +50,6 @@ def prepare_memberships(
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     dependencies: list[ir.Value] = []
-    checks: list[tuple[str, str, str]] = []
     for group, binding in enumerate(bindings):
         path = membership_path(binding, root)
         source = entities[root.ref.path].view()
@@ -60,7 +58,6 @@ def prepare_memberships(
             **{slot: source[key] for key, slot in zip(keys, key_slots, strict=True)}
         )
         current = {name: name for name in source.columns}
-        group_checks: list[tuple[str, str, str]] = []
         for index, step in enumerate(path):
             relation = normalize_target_relationship(state.registry, step.ref.ref.path)
             target = entities[relation.to_entity_ref.path].view()
@@ -83,15 +80,10 @@ def prepare_memberships(
                 selection = normalize_target_version_selection(
                     contract, boundary=anchor, interpretation="instant"
                 )
-                target, version_checks = prepare_version_filter(
+                target = prepare_version_filter(
                     target, contract.version, selection, state=state, dependencies=dependencies
                 )
-            else:
-                version_checks = ()
             renamed = {name: unique(f"__member_{group}_{index}_{name}") for name in target.columns}
-            group_checks.extend(
-                (renamed[name], expected, received) for name, expected, received in version_checks
-            )
             target = target.rename(**{new: old for old, new in renamed.items()})
             predicates = [
                 allocation[current[left]] == target[renamed[right]] for left, right in relation.keys
@@ -106,7 +98,6 @@ def prepare_memberships(
         member = allocation.select(
             **{name: allocation[slot] for name, slot in current.items()},
             **{slot: allocation[slot] for slot in key_slots},
-            **{name: allocation[name] for name, _, _ in group_checks},
         )
         slots: list[str] = []
         expressions: dict[str, ir.Value] = {}
@@ -120,7 +111,6 @@ def prepare_memberships(
         pairs = member.select(
             *(member[slot] for slot in key_slots),
             **expressions,
-            **{name: member[name] for name, _, _ in group_checks},
         ).distinct()
         # Internal allocation must retain the incoming parent coordinates even
         # when no sample bucket exists. Its marker keeps that carrier row out
@@ -137,18 +127,14 @@ def prepare_memberships(
         table = joined.select(
             table,
             *(pairs[slot] for slot in slots),
-            *(pairs[name] for name, _, _ in group_checks),
             *((pairs[assigned],) if assigned is not None else ()),
         )
         if assigned is not None:
             table = table.mutate(**{assigned: table[assigned].fill_null(False)})
             columns.append((f"__sample_assigned_{sample_position}", assigned))
             originals.append((assigned, table[assigned]))
-        checks.extend(group_checks)
         reads = membership_reads(binding, root)
         columns.extend(
             (field_read_key(read), slot) for read, slot in zip(reads, slots, strict=True)
         )
-    return PreparedMemberships(
-        table, tuple(columns), tuple(originals), tuple(dependencies), tuple(checks)
-    )
+    return PreparedMemberships(table, tuple(columns), tuple(originals), tuple(dependencies))

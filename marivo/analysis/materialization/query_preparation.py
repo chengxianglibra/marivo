@@ -150,8 +150,6 @@ def prepare_fields(
         path: str,
         table: ir.Table,
         authority_zone: str | None = None,
-        validity_checks: list[ir.BooleanValue] | None = None,
-        alternative_instants: list[ir.TimestampValue] | None = None,
     ) -> ir.Value:
         is_measure = path in registry.measures
         owner = registry.measures[path].entity if is_measure else registry.dimensions[path].entity
@@ -179,7 +177,7 @@ def prepare_fields(
         if target.kind is SemanticKind.TIME_DIMENSION:
             axis = normalize_target_dimension(registry, path, prepared_column=path)
             prefix = (
-                value(axis.parse.prefix, table, authority_zone, validity_checks)
+                value(axis.parse.prefix, table, authority_zone)
                 if isinstance(axis.parse, HourPrefixParse)
                 else None
             )
@@ -194,8 +192,6 @@ def prepare_fields(
                     registry, normalize_target_entity(registry, contribution.root.ref.path)
                 ),
                 prefix=prefix,
-                validity_checks=validity_checks,
-                alternative_instants=alternative_instants,
             )
             time_encodings[path] = (raw, axis, authority)
             if authority.kind == "civil_date":
@@ -262,9 +258,8 @@ def prepare_fields(
         and not contribution.time.path
         and contribution.time.at is None
     ):
-        alternatives: list[ir.TimestampValue] = []
-        time = value(contribution.time.field.ref.path, table, alternative_instants=alternatives)
-        table = table.filter(ibis.or_(*(selected_time(point) for point in (time, *alternatives))))
+        time = value(contribution.time.field.ref.path, table)
+        table = table.filter(selected_time(time))
     if (
         contribution.period is not None
         and contribution.time is not None
@@ -273,8 +268,7 @@ def prepare_fields(
     ):
         from marivo.analysis.compiler.observation import temporal_bound
 
-        alternatives = []
-        time = value(contribution.time.field.ref.path, table, alternative_instants=alternatives)
+        time = value(contribution.time.field.ref.path, table)
         encoding = time_encodings.get(contribution.time.field.ref.path)
         raw_condition = None
         if encoding is not None:
@@ -298,16 +292,11 @@ def prepare_fields(
             table = table.filter(raw_condition)
         else:
             table = table.filter(
-                ibis.or_(
-                    *(
-                        (point < temporal_bound(point, contribution.period.end, zone))
-                        & (
-                            point >= temporal_bound(point, contribution.period.start, zone)
-                            if contribution.period.start is not None
-                            else ibis.literal(True)
-                        )
-                        for point in (time, *alternatives)
-                    )
+                (time < temporal_bound(time, contribution.period.end, zone))
+                & (
+                    time >= temporal_bound(time, contribution.period.start, zone)
+                    if contribution.period.start is not None
+                    else ibis.literal(True)
                 )
             )
     columns: list[tuple[str, str]] = []
@@ -357,8 +346,6 @@ def prepare_fields(
 
         def read_value(
             relation: ir.Table,
-            validity_checks: list[ir.BooleanValue],
-            alternative_instants: list[ir.TimestampValue],
             component: str | None = component,
             read: FieldRead | IdentityRead = read,
         ) -> ir.Value:
@@ -368,12 +355,9 @@ def prepare_fields(
             return value(
                 read.field.ref.path,
                 relation,
-                validity_checks=validity_checks,
-                alternative_instants=alternative_instants,
             )
 
         slot = unique(f"__field_{index}")
-        alternative_slots: list[str] = []
         from marivo.analysis.binding.coordinates import identity_projection
 
         projection = (
@@ -388,26 +372,10 @@ def prepare_fields(
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression})
         elif not read.path and read.at is None:
-            clock_checks: list[ir.BooleanValue] = []
-            clock_alternatives: list[ir.TimestampValue] = []
-            expression = read_value(table, clock_checks, clock_alternatives)
+            expression = read_value(table)
             dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression})
-            if read == time_read:
-                alternative_slots = [
-                    unique(f"__clock_alternative_{index}_{i}")
-                    for i in range(len(clock_alternatives))
-                ]
-                table = table.mutate(
-                    **dict(zip(alternative_slots, clock_alternatives, strict=True))
-                )
-            for invalid_clock in clock_checks:
-                check = unique(f"__clock_check_{len(checks)}")
-                table = table.mutate(**{check: invalid_clock})
-                checks.append(
-                    (check, "an unambiguous existing source civil time", field_read_key(read))
-                )
         else:
             current = {name: name for name in entities[contribution.root.ref.path].columns}
             steps = read.path or (None,)
@@ -422,8 +390,6 @@ def prepare_fields(
                     target_path = relation.to_entity_ref.path
                     keys = relation.keys
                 target = entities[target_path].view()
-                target_clock_checks: list[ir.BooleanValue] = []
-                target_alternatives: list[ir.TimestampValue] = []
                 for left, right in keys:
                     dependencies.extend((table[current[left]], target[right]))
                 if target_path == read.entity.ref.path and read.at is not None:
@@ -439,35 +405,14 @@ def prepare_fields(
                         state=state,
                         reader=reader,
                         dependencies=dependencies,
-                        validity_checks=target_clock_checks,
                     )
-                    target = (
-                        target.filter(version_condition | ibis.or_(*target_clock_checks))
-                        if target_clock_checks
-                        else target.filter(version_condition)
-                    )
+                    target = target.filter(version_condition)
                 final = step_index == len(steps) - 1
                 if final:
-                    expression = read_value(target, target_clock_checks, target_alternatives)
+                    expression = read_value(target)
                     dependencies.append(expression)
                     originals.append((slot, expression))
                     target = target.mutate(**{slot: expression})
-                    if read == time_read:
-                        alternative_slots = [
-                            unique(f"__clock_alternative_{index}_{i}")
-                            for i in range(len(target_alternatives))
-                        ]
-                        target = target.mutate(
-                            **dict(zip(alternative_slots, target_alternatives, strict=True))
-                        )
-                target_check_names = tuple(
-                    unique(f"__clock_check_{len(checks)}_{i}")
-                    for i in range(len(target_clock_checks))
-                )
-                if target_check_names:
-                    target = target.mutate(
-                        **dict(zip(target_check_names, target_clock_checks, strict=True))
-                    )
                 # Collapse before joining; the count makes duplicates an error rather than fanout.
                 right_keys = tuple(right for _, right in keys)
                 prefix = f"__route_{index}_{step_index}_"
@@ -487,14 +432,6 @@ def prepare_fields(
                     [table[current[left]] == grouped[renamed[right]] for left, right in keys],
                 )
                 table = joined.select(table, *(grouped[name] for name in grouped.columns))
-                checks.extend(
-                    (
-                        renamed[name],
-                        "an unambiguous existing source civil time",
-                        field_read_key(read),
-                    )
-                    for name in target_check_names
-                )
                 check = unique(f"__prepare_check_{len(checks)}")
                 table = table.mutate(**{check: table[renamed[count]].fill_null(0) != 1})
                 checks.append(
@@ -503,27 +440,19 @@ def prepare_fields(
                 current = renamed
                 if final:
                     table = table.mutate(**{slot: table[renamed[slot]]})
-                    alternative_slots = [renamed[name] for name in alternative_slots]
         columns.append((read_key, slot))
         if read == time_read and selected_calendars:
-            table = table.filter(
-                ibis.or_(*(selected_time(table[name]) for name in (slot, *alternative_slots)))
-            )
+            table = table.filter(selected_time(table[slot]))
         if read == time_read and contribution.period is not None:
             from marivo.analysis.compiler.observation import temporal_bound
 
+            point = table[slot]
             table = table.filter(
-                ibis.or_(
-                    *(
-                        (table[name] < temporal_bound(table[name], contribution.period.end, zone))
-                        & (
-                            table[name]
-                            >= temporal_bound(table[name], contribution.period.start, zone)
-                            if contribution.period.start is not None
-                            else ibis.literal(True)
-                        )
-                        for name in (slot, *alternative_slots)
-                    )
+                (point < temporal_bound(point, contribution.period.end, zone))
+                & (
+                    point >= temporal_bound(point, contribution.period.start, zone)
+                    if contribution.period.start is not None
+                    else ibis.literal(True)
                 )
             )
     for _, slot in columns:
@@ -566,7 +495,6 @@ def prepare_fields(
     columns.extend(members.columns)
     originals.extend(members.originals)
     dependencies.extend(members.dependencies)
-    checks.extend(members.checks)
     from marivo.analysis.materialization.population_condition import prepare_condition_memberships
 
     prepared_memberships = prepare_condition_memberships(

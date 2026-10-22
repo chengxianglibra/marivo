@@ -150,7 +150,8 @@ row. Missing expected points fail coverage; present points whose completed Metri
 is NULL retain the reducer's null policy. Same-time facts finish spatial
 reduction first. Without cadence, only represented samples are evaluated.
 Local DST gaps create no imaginary points and repeated hours retain distinct
-instants; ambiguous source encodings reject. Complete sampling requires a bounded
+instants. Source wall clocks follow backend-native gap/fold interpretation; a
+native choice does not invent missing sample points. Complete sampling requires a bounded
 contribution interval. An aware non-UTC civil sampling plan is not supported.
 
 Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated

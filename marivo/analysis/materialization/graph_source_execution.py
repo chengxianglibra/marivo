@@ -1476,14 +1476,6 @@ def _source_check_failure(
     received = (
         f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
     )
-    if expected == "an unambiguous existing source civil time":
-        raise MaterializationError(
-            expected=expected,
-            received=received,
-            repair="Use source timestamps carrying an explicit offset or physical timezone for repeated civil times. Correct nonexistent civil values in the source; retry with uniquely interpretable timestamps.",
-            stage="source_time",
-            help_target="analysis_frame.compute",
-        )
     if any(name == column for column, _, _ in stage.preparation_checks):
         raise MaterializationError(
             expected=expected,

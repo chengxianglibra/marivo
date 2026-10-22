@@ -505,7 +505,7 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
 
 
 @pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
-def test_source_wall_clock_gap_and_fold_reject_ambiguous_interpretation(
+def test_source_wall_clock_gap_and_fold_follow_native_interpretation(
     analysis_dsl_case_factory: DslCaseFactory,
     wall: str,
 ) -> None:
@@ -528,12 +528,8 @@ def test_source_wall_clock_gap_and_fold_reject_ambiguous_interpretation(
     query = _observation(
         case, start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
     )
-    with pytest.raises(AnalysisError) as caught:
-        query.compute()
-    assert caught.value.expected == "an unambiguous existing source civil time"
-    assert caught.value.repair is not None
-    assert "explicit offset or physical timezone" in caught.value.repair.action
-    assert "Correct nonexistent civil values" in caught.value.repair.action
+    result = query.compute().to_pandas()
+    assert result[("value", "value")].sum() == 10
 
 
 def test_cumulative_ratio_binds_every_component_to_the_endpoint(

@@ -42,12 +42,13 @@ probe readers nor resolve the current host timezone.
 Civil dates do not shift. Source wall clocks localize before instant comparison;
 physical instants preserve their meaning. Logical temporal kind and physical
 precision are checked independently. Unsupported exact conversion fails without
-truncation. Runtime ZoneInfo supplies named-zone rules; there is no source-wide
-preflight of gap/fold values or engine/runtime rule agreement. Existing source
-rows needed by a contribution retain native gap/fold checks and reject clocks
-without one exact instant; a reporting interval cannot silently choose a fold.
-Backend conversion errors propagate. These checks do not certify unrelated
-source rows or source completeness.
+truncation. Source wall-clock conversion follows the owning backend's native
+interpretation, including repeated and nonexistent local times. Marivo does not
+reject source gap/fold values, inspect alternative instants, or compare backend
+rules with Python's timezone database. Backend NULLs and conversion errors retain
+their native behavior. Different backends may choose different instants for the
+same ambiguous source wall clock. Session input boundaries and calendar
+construction retain their separate exactness and validation contracts.
 Hourly reporting grids retain both occurrences of a repeated civil hour as
 distinct instant buckets, even when their civil labels match. Predicate literals
 must match a field's civil/instant kind.
@@ -187,12 +188,48 @@ that boundary: hour encoding over [10:30,11:30) selects >=11 and <12. Aligned
 exclusive upper bounds stay excluded. Nulls do not contribute, empty intervals
 stay empty, and physical limits/ceiling overflow do not create invalid literals.
 
-Clock inversion requires UTC or fixed-offset authority; unsupported formats,
-hour_prefix and named-zone conversions without fixed offsets retain parsed
-filtering. Exact inverses replace parsed conditions; safe scan envelopes retain
-per-cell conditions. Current-branch predicates do not alter Population selection,
-shared source semantics or version-resolution order. No partition enumeration,
-extra source-validation query or production EXPLAIN is added by this optimization.
+The encoded contribution inverse supports UTC or fixed-offset authority. The
+shared physical rewrite also derives scan guards from the supported
+encoded comparisons beneath calendar selection, ordinary predicates and
+Population reads. Unsupported encodings and composite hour-prefix expressions
+keep native evaluation. Exact contribution inverses replace parsed conditions;
+scan guards retain the original exact predicates.
+Only parser operations carrying the authored `ms.strptime` canonical-encoding
+contract qualify. An ordinary Ibis string-to-timestamp expression does not
+acquire fixed widths or ordering merely because its format looks similar.
+
+## Backend-native physical time execution
+
+Production DuckDB connections use eight threads and UTC. The test suite's
+independent one-thread-per-worker cap is not a production connection setting.
+
+The shared physical temporal pass runs before native SQL lowering for DuckDB,
+PostgreSQL, MySQL, ClickHouse and Trino. It handles observation, calendar,
+Population and version consumers. Compiler-owned UTC inverse pairs are cancelled
+with output type and precision preserved; named-zone round trips retain the
+provider's conversion semantics. This pass performs no backend queries and reads
+no TZif files, transition directories or Python named-zone offsets.
+
+UTC and fixed-offset comparisons have exact raw bounds. Named-zone comparisons
+add conservative raw-column envelopes based on offsets strictly within +/-24
+hours; a civil round trip uses a two-day margin because it contains two offsets.
+The exact native predicate always remains, so gap normalization, fold choice,
+NULL behavior and native errors stay provider-owned. These envelopes can read
+more rows than an exact inverse but require neither endpoint-offset guesses nor
+transition rules. Missing usable bounds or unsafe/unrecognized expression shapes
+retain the original filter. There is no year or horizon-length restriction.
+Only canonical authored encodings support raw encoded inversion; arbitrary Ibis
+parsers do not acquire that promise. Existing UTC/fixed encoded contribution
+inversion remains shared; physical parser recognition retains provider-specific
+operation shapes.
+
+Guards attach to existing filters and preserve boolean structure. Shared source,
+Population, contribution-window and version ordering remain independent. Source
+DST rejection checks and alternative-instant error witnesses are not generated.
+Scalar relationship uniqueness, sample completeness, type/precision and other
+independent semantic checks remain. No partition enumeration, business-row
+preflight or production EXPLAIN is added. SQL compilation support does not itself
+establish real-provider Runtime acceptance or equal performance across engines.
 
 ## Implementation map
 

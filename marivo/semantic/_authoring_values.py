@@ -330,7 +330,8 @@ def timestamp(
     """Declare an already-temporal timestamp column parse.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a native timestamp type.
+    source column is a native timestamp type. Source gap/fold values follow
+    the backend's native interpretation without an additional Marivo rejection.
 
     Args:
         timezone: Optional IANA source zone for naive timestamp columns. When
@@ -376,7 +377,8 @@ def strptime(
 
     Analysis can invert ordered calendar encodings into bare-column range
     predicates without additional queries or source validation. Unsupported
-    inverses keep the parsed predicate. This guarantee assumes compliant source
+    inverses keep the parsed predicate. Time-bearing values follow the backend's
+    native gap/fold interpretation. This guarantee assumes compliant source
     values; values excluded by the range are not inspected for contract violations.
 
     Args:

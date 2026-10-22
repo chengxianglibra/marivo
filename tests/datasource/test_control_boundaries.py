@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from time import monotonic
 
@@ -30,6 +32,24 @@ def test_duckdb_connection_settings_are_effective() -> None:
         assert (timezone, threads, force_download) == ("UTC", 1, True)
     finally:
         backend.disconnect()
+
+
+def test_duckdb_production_connection_uses_eight_threads() -> None:
+    # A fresh interpreter excludes pytest's independent one-thread worker cap.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from marivo.datasource.engines.duckdb import connect; "
+            "b=connect('local', {'path': ':memory:', 'threads': 2}); "
+            "print(b.con.execute(\"select current_setting('threads')\").fetchone()[0]); "
+            "b.disconnect()",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == "8"
 
 
 def test_governed_probe_submits_exact_ibis_compilation(

@@ -84,6 +84,10 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     keyword of the same name.
     """
 
+    from marivo.analysis.materialization.time_filter import cancel_utc, optimize_time
+
+    expression = optimize_time(cancel_utc(expression))
+
     def rewrite(
         node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
     ) -> ops.Node:

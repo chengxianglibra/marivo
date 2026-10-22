@@ -236,7 +236,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs.pop("path", None)
     connect_kwargs["database"] = path
-    connect_kwargs["threads"] = 1
+    connect_kwargs["threads"] = 8
     connect_kwargs["TimeZone"] = "UTC"
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])

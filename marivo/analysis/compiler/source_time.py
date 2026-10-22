@@ -71,6 +71,29 @@ _ORDERED_FORMATS: dict[str, int] = {
 }
 
 
+def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> str | None:
+    """Encode the first declared clock tick at or after a normalized boundary."""
+    step = _ORDERED_FORMATS[fmt]
+    midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
+    elapsed = point - midnight
+    ticks, remainder = divmod(elapsed.seconds * 1_000_000 + elapsed.microseconds, step * 1_000_000)
+    try:
+        point = midnight + timedelta(seconds=(ticks + (strict or bool(remainder))) * step)
+    except OverflowError:
+        return None
+    tokens = {
+        "%Y": f"{point.year:04d}",
+        "%m": f"{point.month:02d}",
+        "%d": f"{point.day:02d}",
+        "%H": f"{point.hour:02d}",
+        "%M": f"{point.minute:02d}",
+        "%S": f"{point.second:02d}",
+    }
+    for token, text in tokens.items():
+        fmt = fmt.replace(token, text)
+    return fmt
+
+
 def encoded_time_predicate(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -104,8 +127,6 @@ def encoded_time_predicate(
         if source_zone.utcoffset(None) is None or boundary_zone.utcoffset(None) is None:
             return None
 
-    step = _ORDERED_FORMATS[parse.format]
-
     def encode(bound: date | datetime) -> str | None:
         point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
         if source_zone is not None and boundary_zone is not None:
@@ -114,28 +135,7 @@ def encoded_time_predicate(
             point = (
                 point.replace(tzinfo=boundary_zone) if point.tzinfo is None else point
             ).astimezone(source_zone)
-        point = point.replace(tzinfo=None)
-        midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
-        elapsed = point - midnight
-        ticks, remainder = divmod(
-            elapsed.seconds * 1_000_000 + elapsed.microseconds, step * 1_000_000
-        )
-        try:
-            point = midnight + timedelta(seconds=(ticks + bool(remainder)) * step)
-        except OverflowError:
-            return None
-        tokens = {
-            "%Y": f"{point.year:04d}",
-            "%m": f"{point.month:02d}",
-            "%d": f"{point.day:02d}",
-            "%H": f"{point.hour:02d}",
-            "%M": f"{point.minute:02d}",
-            "%S": f"{point.second:02d}",
-        }
-        encoded = parse.format
-        for token, text in tokens.items():
-            encoded = encoded.replace(token, text)
-        return encoded
+        return ordered_time_literal(point.replace(tzinfo=None), parse.format)
 
     def comparison(bound: date | datetime, *, lower: bool) -> ir.BooleanValue:
         text = encode(bound)
@@ -165,6 +165,19 @@ def encoded_time_predicate(
 
 def _parse_signature_zoned(text: str, fmt: str, zone: str) -> datetime:
     raise NotImplementedError("native zoned string parse")
+
+
+def _parse_signature_clock(text: str, fmt: str) -> datetime:
+    raise NotImplementedError("native canonical DuckDB time parse")
+
+
+# Preserve the declaration's canonical-encoding authority in the expression.
+# An arbitrary authored Ibis StringToTimestamp does not carry that promise.
+_duckdb_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
+    _parse_signature_clock,
+    name="strptime",
+    signature=((dt.string, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
+)
 
 
 # ClickHouse has no ibis ``StringToTimestamp`` rule. ``parseDateTimeOrNull``
@@ -237,7 +250,7 @@ def native_parse(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.
         # The explicit zone argument keeps the parsed instant labelled UTC
         # whatever the session timezone is.
         return _clickhouse_strptime(text, fmt, "UTC")
-    parsed: ir.Value = text.as_timestamp(fmt)
+    parsed: ir.Value = _duckdb_strptime(text, fmt) if engine == "duckdb" else text.as_timestamp(fmt)
     if _needs_naive_binding(parse.format):
         # Ibis labels StringToTimestamp UTC although a parser without an
         # offset returns a naive timestamp. Bind its actual value domain at
@@ -322,24 +335,6 @@ def render(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
     return _render_native(zone, value)
 
 
-def invalid_local_time(value: ir.TimestampValue, zone: str) -> ir.BooleanValue:
-    """Reject naive civil values with no unique instant using native conversions.
-
-    Neighboring civil days supply the offsets on both sides of a transition;
-    candidate instants are checked by rendering them back to the original wall
-    value. This retains non-hour transitions and never guesses a fold.
-    """
-    day = ibis.interval(seconds=86400)
-    instant = localize(zone, value)
-    previous = localize(zone, value - day) + day
-    following = localize(zone, value + day) - day
-    return (
-        (render(zone, instant) != value)
-        | ((previous != instant) & (render(zone, previous) == value))
-        | ((following != instant) & (render(zone, following) == value))
-    ).fill_null(False)
-
-
 def _retain_authority(
     authority: SourceTimeAuthority, frozen: SourceTimeAuthority | None
 ) -> SourceTimeAuthority:
@@ -377,8 +372,6 @@ def source_time(
     read_source: Literal["engine", "system_fallback"] = "engine",
     prefix: ir.Value | None = None,
     frozen: SourceTimeAuthority | None = None,
-    validity_checks: list[ir.BooleanValue] | None = None,
-    alternative_instants: list[ir.TimestampValue] | None = None,
 ) -> tuple[ir.Value, SourceTimeAuthority]:
     """Parse and localize a column without executing it or consulting ambient state."""
     if frozen is not None:
@@ -490,23 +483,6 @@ def source_time(
             raise compilation_error(
                 "execution-resolved source read timezone", "missing wall-clock authority"
             )
-        if validity_checks is not None and time_zone(adopted).utcoffset(None) is None:
-            validity_checks.append(invalid_local_time(value, adopted))
-        if alternative_instants is not None and time_zone(adopted).utcoffset(None) is None:
-            day = ibis.interval(seconds=86400)
-            for candidate in (
-                localize(adopted, value - day) + day,
-                localize(adopted, value + day) - day,
-            ):
-                alternative_instants.append(
-                    timestamp(
-                        ibis.ifelse(
-                            render(adopted, candidate) == value,
-                            candidate,
-                            ibis.null().cast(candidate.type()),
-                        )
-                    )
-                )
         if adopted == boundary_timezone and time_zone(adopted).utcoffset(None) is not None:
             instant = None
         else:

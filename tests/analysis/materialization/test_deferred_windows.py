@@ -235,7 +235,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
 @pytest.mark.parametrize(
     "window_session", [("TIMESTAMP", "ms.timestamp(timezone='America/New_York')")], indirect=True
 )
-def test_naive_source_sampling_skips_gap_and_rejects_unrepresented_fold(
+def test_naive_source_sampling_keeps_coverage_and_native_fold_choice(
     window_session: Session, tmp_path: Path
 ) -> None:
     session = window_session
@@ -259,20 +259,26 @@ def test_naive_source_sampling_skips_gap_and_rejects_unrepresented_fold(
     scope = session.time_scope(start="2026-11-01T04:00Z", end="2026-11-01T08:00Z")
     with pytest.raises(AnalysisError, match=r"sample|coverage|ambiguous"):
         session.observe({"mean": metric}, by=(scope,)).compute()
-    with pytest.raises(AnalysisError, match="unambiguous"):
-        session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute()
+    assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
+        ("value", "mean")
+    ].tolist() == [20.0]
     first_fold = session.time_scope(start="2026-11-01T05:00Z", end="2026-11-01T06:00Z")
     for selected in (first_fold, first_fold.by(mv.grain("hour"))):
-        with pytest.raises(AnalysisError, match="unambiguous"):
-            session.observe({"mean": amount.mean(time=sample)}, by=(selected,)).compute()
+        result = (
+            session.observe({"mean": amount.mean(time=sample)}, by=(selected,))
+            .compute()
+            .to_pandas()
+        )
+        assert result[("value", "mean")].isna().all()
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-03-08 02:30:00',10)"
         )
     scope = session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T08:00Z")
-    with pytest.raises(AnalysisError, match="unambiguous"):
-        session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute()
+    assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
+        ("value", "mean")
+    ].tolist() == [10.0]
 
 
 def test_sparse_shift_observes_raw_contributions_and_nominal_windows(

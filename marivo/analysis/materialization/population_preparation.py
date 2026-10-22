@@ -377,7 +377,6 @@ def prepare_population(
     if isinstance(node, SourceIdentities):
         source = entities[node.entity.ref.path].view()
         contract = normalize_target_entity(state.registry, node.entity.ref.path)
-        version_checks: tuple[tuple[str, str, str], ...] = ()
         if contract.version is not None:
             if node.at is None:
                 reject(
@@ -389,10 +388,8 @@ def prepare_population(
             selection = normalize_target_version_selection(
                 contract, boundary=node.at, interpretation="instant"
             )
-            source, version_checks = prepare_version_filter(
-                source, contract.version, selection, state=state
-            )
-        checks: tuple[tuple[str, str, str], ...] = version_checks
+            source = prepare_version_filter(source, contract.version, selection, state=state)
+        checks: tuple[tuple[str, str, str], ...] = ()
         summary: ir.Table | None = None
         if node.predicate is not None:
             from marivo.analysis.materialization.query_preparation import prepare_fields
@@ -418,7 +415,7 @@ def prepare_population(
                     "Evaluate the checked quantity before selecting its identity domain.",
                     "population.prepare",
                 )
-            checks = (*version_checks, *identity_fields.checks)
+            checks = identity_fields.checks
             if checks:
                 summary = source.aggregate(
                     **{name: source[name].any().fill_null(False) for name, _, _ in checks}

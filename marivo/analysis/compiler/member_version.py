@@ -46,7 +46,6 @@ def _version_values(
     state: CompiledSemanticState,
     reader: DatasourceEngineTimezone | None,
     dependencies: list[ir.Value] | None,
-    validity_checks: list[ir.BooleanValue] | None,
     originals: list[ir.Value] | None = None,
 ) -> tuple[ir.Value, ...]:
     """Prepare every version consumer with the same physical parser and authority."""
@@ -106,7 +105,6 @@ def _version_values(
                 state.registry, normalize_target_entity(state.registry, axis.entity_ref.path)
             ),
             prefix=prepare(axis.parse.prefix) if isinstance(axis.parse, HourPrefixParse) else None,
-            validity_checks=validity_checks,
         )
         if originals is not None:
             originals.append(raw)
@@ -149,11 +147,10 @@ def version_predicate(
     state: CompiledSemanticState,
     reader: DatasourceEngineTimezone | None = None,
     dependencies: list[ir.Value] | None = None,
-    validity_checks: list[ir.BooleanValue] | None = None,
 ) -> ir.BooleanValue:
     """Build exact snapshot or symbolic validity predicates through Ibis."""
     if isinstance(version, TargetSnapshotVersion) and isinstance(selected, TargetSnapshotSelection):
-        column = _version_values(table, version, state, reader, dependencies, validity_checks)[0]
+        column = _version_values(table, version, state, reader, dependencies)[0]
         period = date.fromisoformat(selected.period)
         if column.type().is_date():
             return column == ibis.literal(period)
@@ -172,9 +169,7 @@ def version_predicate(
         )
     if isinstance(version, TargetValidityVersion) and isinstance(selected, TargetValiditySelection):
         original_fields: list[ir.Value] = []
-        start, end = _version_values(
-            table, version, state, reader, dependencies, validity_checks, original_fields
-        )
+        start, end = _version_values(table, version, state, reader, dependencies, original_fields)
         raw_end = original_fields[-1]
         boundary = datetime.fromisoformat(selected.boundary)
         left = (
@@ -212,31 +207,10 @@ def prepare_version_filter(
     state: CompiledSemanticState,
     reader: DatasourceEngineTimezone | None = None,
     dependencies: list[ir.Value] | None = None,
-) -> tuple[ir.Table, tuple[tuple[str, str, str], ...]]:
-    """Retain per-row time errors alongside the exact selected version rows."""
-    invalid: list[ir.BooleanValue] = []
-    predicate = version_predicate(
-        table,
-        version,
-        selected,
-        state=state,
-        reader=reader,
-        dependencies=dependencies,
-        validity_checks=invalid,
+) -> ir.Table:
+    """Select versions using the backend's native source-time interpretation."""
+    return table.filter(
+        version_predicate(
+            table, version, selected, state=state, reader=reader, dependencies=dependencies
+        )
     )
-    if not invalid:
-        return table.filter(predicate), ()
-    fields: dict[str, ir.Value] = {}
-    checks: list[tuple[str, str, str]] = []
-    path = (
-        version.coordinate_ref.path
-        if isinstance(version, TargetSnapshotVersion)
-        else version.valid_from_ref.path
-    )
-    for index, expression in enumerate(invalid):
-        name = f"__version_time_invalid_{index}"
-        while name in table.columns or name in fields:
-            name += "_"
-        fields[name] = expression
-        checks.append((name, "an unambiguous existing source civil time", path))
-    return table.mutate(**fields).filter(predicate | ibis.or_(*invalid)), tuple(checks)
