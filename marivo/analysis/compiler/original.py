@@ -26,6 +26,7 @@ from marivo._definition.types import (
 )
 from marivo.analysis.compiler.observation import (
     ReductionInput,
+    calendar_field,
     common_slot,
     lower_common_observations,
     lower_observation,
@@ -196,6 +197,10 @@ def lower_components(
     for slot, calendar in calendars:
         if reduction.window_key is not None and calendar == reduction.calendar:
             axes[slot] = ibis.literal(reduction.window_key)
+            continue
+        captured = fields.get(calendar_field(slot))
+        if captured is not None:
+            axes[slot] = captured
             continue
         assert reduction.time_column is not None
         time = fields[reduction.time_column]

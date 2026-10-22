@@ -201,12 +201,14 @@ def _observation(
 ) -> mv.AnalysisFrame:
     session = case.session
     during = session.time_scope(start=start, end=end)
+    population = mv.product(
+        during.by(mv.grain(grain)) if grain is not None else during,
+        session.members(session.catalog.entities.get("sales.customer")),
+    )
+    assert isinstance(population, mv.Population)
     return session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        by=mv.product(
-            during.by(mv.grain(grain)) if grain is not None else during,
-            session.members(session.catalog.entities.get("sales.customer")),
-        ),
+        by=population,
     )
 
 
@@ -215,7 +217,9 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     members = session.members(session.catalog.entities.get("sales.customer"))
-    result = session.frame(mv.product(calendar, members)).persist()
+    population = mv.product(calendar, members)
+    assert isinstance(population, mv.Population)
+    result = session.frame(population).persist()
     frame = result.to_pandas()
     assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
     assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
@@ -236,7 +240,9 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     assert calendar.scope is not None
     members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.revenue")
-    query = session.observe({"value": metric}, by=mv.product(calendar, members))
+    population = mv.product(calendar, members)
+    assert isinstance(population, mv.Population)
+    query = session.observe({"value": metric}, by=population)
     saved = query.persist()
     frame = saved.to_pandas()
     assert frame[("value", "value")].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
@@ -283,12 +289,14 @@ def test_identity_observation_has_no_inferred_relationship(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
+    population = mv.product(
+        session.time_scope(start="2026-08-01", end="2026-09-01"),
+        session.members(session.catalog.entities.get("sales.order")),
+    )
+    assert isinstance(population, mv.Population)
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        by=mv.product(
-            session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.entities.get("sales.order")),
-        ),
+        by=population,
     )
     assert observed.reduce({"value": observed["value"].sum()}).compute().to_pandas()[
         ("value", "value")
@@ -458,14 +466,18 @@ def test_fold_reaggregates_aligned_samples_before_time(
             else mv.product(mv.coordinates(by=(), keys=((),)), calendar)
         )
         metric = getattr(revenue.per(samples), kind)()
-        observed = session.observe({"value": metric}, by=mv.product(calendar.scope, members))
+        population = mv.product(calendar.scope, members)
+        assert isinstance(population, mv.Population)
+        observed = session.observe({"value": metric}, by=population)
         assert observed.compute().to_pandas()[("value", "value")].tolist() == values
         overall = session.observe({"value": metric}, by=(calendar.scope,))
         assert overall.compute().to_pandas()[("value", "value")].tolist() == [10]
     region = session.catalog.fields.get("sales.customer.region")
+    regional_population = mv.product(calendar.scope, members.classify(by=(region,)))
+    assert isinstance(regional_population, mv.Population)
     regional = session.observe(
         {"value": revenue.per(session.catalog.fields.get("sales.order.ordered_at")).first()},
-        by=mv.product(calendar.scope, members.classify(by=(region,))),
+        by=regional_population,
     )
     frame = regional.compute().to_pandas()
     assert frame.iloc[:, 1].tolist() == ["east"]
@@ -485,12 +497,14 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
         .per(session.catalog.fields.get("sales.order.ordered_at"))
         .first()
     )
+    population = mv.product(
+        calendar.scope,
+        session.members(session.catalog.entities.get("sales.customer")),
+    )
+    assert isinstance(population, mv.Population)
     query = session.observe(
         {"value": metric},
-        by=mv.product(
-            calendar.scope,
-            session.members(session.catalog.entities.get("sales.customer")),
-        ),
+        by=population,
     )
     assert query.compute().to_pandas()[("value", "value")].tolist() == [1e308, 1e308]
     with pytest.raises(AnalysisError) as failure:
@@ -542,9 +556,13 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
     ratio = session.catalog.metrics.get("sales.revenue") / session.catalog.metrics.get(
         "sales.order_count"
     )
+    population = mv.product(
+        calendar, session.members(session.catalog.entities.get("sales.customer"))
+    )
+    assert isinstance(population, mv.Population)
     query = session.observe(
         {"value": ratio.window(mv.all_history())},
-        by=mv.product(calendar, session.members(session.catalog.entities.get("sales.customer"))),
+        by=population,
     )
     result = session.observe({"value": ratio.window(mv.all_history())}, by=(calendar,)).persist()
     assert result.to_pandas()[("value", "value")].tolist() == [269.25, 235.2]
@@ -553,27 +571,72 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
     )
 
 
-def test_native_time_conversion_does_not_submit_rule_audit(
+def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import duckdb
     import ibis
     import ibis.expr.types as ir
+    import sqlglot
+    from sqlglot import expressions as sge
 
     from marivo.analysis.compiler import source_time
+    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j1")
+    start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    # The fixture stores native TIMESTAMPTZ instants. This independent raw SQL
+    # oracle bypasses every compiler-owned projection and predicate helper.
+    with duckdb.connect(str(case.database_path)) as connection:
+        selected = connection.execute(
+            'SELECT order_id FROM "order" WHERE ordered_at >= ? AND ordered_at < ? '
+            "ORDER BY order_id",
+            [start, end],
+        ).fetchall()
+        expected = connection.execute(
+            "SELECT c.customer_id, coalesce(sum(o.amount), 0) FROM customer c "
+            'LEFT JOIN "order" o ON o.customer_id = c.customer_id '
+            "AND o.ordered_at >= ? AND o.ordered_at < ? "
+            "GROUP BY c.customer_id ORDER BY c.customer_id",
+            [start, end],
+        ).fetchall()
+    assert selected == [("j1_a",), ("j1_b",), ("j1_c",)]
+    assert expected == [("A", 450), ("B", 150), ("C", 400), ("D", 0)]
     original = source_time.render
-    calls = []
+    calls: list[str] = []
 
     def disagree(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
         calls.append(zone)
         return original(zone, value) + ibis.interval(hours=1)
 
     monkeypatch.setattr(source_time, "render", disagree)
+    backend = ibis.duckdb.connect(case.database_path)
+    try:
+        orders = backend.table("order")
+        projected = backend.execute(
+            orders.select(
+                order_id=orders.order_id, point=source_time.render("UTC", orders.ordered_at)
+            )
+        ).set_index("order_id")
+        assert projected.loc["j1_july", "point"] == datetime(2026, 8, 1, 0, 59, 59)
+        assert projected.loc["j1_c", "point"] == datetime(2026, 9, 1, 0, 59, 59)
+    finally:
+        backend.disconnect()
+    trace = capture_source(monkeypatch)
     result = _observation(case, start="2026-08-01", end="2026-09-01").compute().to_pandas()
-    assert result[("value", "value")].tolist() == [527, 150, 0, 0]
+    assert (
+        list(zip(result[("coordinate", "axis.1")], result[("value", "value")], strict=True))
+        == expected
+    )
     assert calls and set(calls) == {"UTC"}
+    # Native disagreement must not trigger a standalone timezone-rule audit.
+    # Every governed submission still reads the requested business relations.
+    assert trace.native_sql
+    for sql in trace.native_sql:
+        tables = {table.name for table in sqlglot.parse_one(sql, read="duckdb").find_all(sge.Table)}
+        assert tables & {"order", "customer"}
 
 
 def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
@@ -599,9 +662,11 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     grid = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="America/New_York").by(
         mv.grain("day")
     )
+    population = mv.product(grid, session.members(session.catalog.entities.get("sales.customer")))
+    assert isinstance(population, mv.Population)
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        by=mv.product(grid, session.members(session.catalog.entities.get("sales.customer"))),
+        by=population,
     )
     frame = (
         session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=(grid,))
@@ -664,13 +729,15 @@ def test_selected_groups_keep_sample_selection_before_execution(
         selected_rows, on=((selected_rows.axes[0], session.catalog.entities.get("sales.customer")),)
     )
     calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day"))
+    selected_groups = selected.classify(by=(region,))
+    assert isinstance(selected_groups, mv.Population)
     query = session.observe(
         {
             "value": session.catalog.metrics.get("sales.revenue")
             .per(mv.product(mv.coordinates(by=(), keys=((),)), calendar))
             .max()
         },
-        by=selected.classify(by=(region,)),
+        by=selected_groups,
         where=mv.in_population(selected),
     )
     result = query.persist()

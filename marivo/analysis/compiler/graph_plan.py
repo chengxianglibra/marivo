@@ -90,12 +90,13 @@ class SourceSchema:
 
 @dataclass(frozen=True, slots=True)
 class PeriodFilter:
-    """Half-open instant filter on one native timezone-aware time column."""
+    """Captured source period and whether its exact predicate is prepared."""
 
     column: str
     start: datetime | None
     end: datetime
     timezone: str = "UTC"
+    predicate_prepared: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,7 +436,9 @@ def _plan_source_reads(
                     *(
                         item.field
                         for item in schema.fields
-                        if item.field.startswith("__sample_assigned_")
+                        if item.field.startswith(
+                            ("__sample_assigned_", "__calendar_", "__coverage_")
+                        )
                     ),
                 )
             )
@@ -475,6 +478,7 @@ def _plan_source_reads(
                 contribution.period.start,
                 contribution.period.end,
                 contribution.period.timezone,
+                predicate_prepared=any(item.field == "__time_period" for item in schema.fields),
             )
         reads.append(
             SourceRead(
@@ -649,6 +653,7 @@ def _plan_query(
         contribution = replace(contribution, coverage=schema.coverage)
         reduction = replace(
             reduction,
+            coverage=schema.coverage,
             preserve_sample_presence=bool(schema.coverage)
             or (
                 observation is not None
@@ -745,8 +750,16 @@ def _plan_query(
                         for name in expression.columns
                         if name.startswith("__sample_scope_")
                     ),
+                    *(
+                        DataColumn(name, name, data_type(expression[name].type()), True)
+                        for name in expression.columns
+                        if name.startswith("__coverage_")
+                    ),
                 ),
-                keys=tuple(c.slot_id for c in stage_keys),
+                keys=(
+                    *tuple(c.slot_id for c in stage_keys),
+                    *(name for name in expression.columns if name.startswith("__coverage_")),
+                ),
                 program=ReductionRead(reduction),
             )
         )

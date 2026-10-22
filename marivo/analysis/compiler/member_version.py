@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
@@ -13,13 +14,49 @@ if TYPE_CHECKING:
 import ibis
 import ibis.expr.types as ir
 
+from marivo.analysis.compiler.source_time import source_time_comparison, source_time_predicate
+from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.semantic.ir import (
+    TargetDimensionContract,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _VersionValue:
+    value: ir.Value
+    raw: ir.Value
+    axis: TargetDimensionContract
+    authority: SourceTimeAuthority
+    prefix: ir.Value | None = None
+    prefix_axis: TargetDimensionContract | None = None
+
+    def comparison(
+        self, boundary: datetime, operator: Literal["<", "<=", ">", ">="]
+    ) -> ir.BooleanValue:
+        result = source_time_comparison(
+            self.raw,
+            self.axis,
+            self.authority,
+            bound=boundary,
+            comparison=operator,
+            prefix=self.prefix,
+            prefix_axis=self.prefix_axis,
+        )
+        if result is not None:
+            return result
+        bound = _bound(self.value, boundary)
+        if operator == "<":
+            return self.value < bound
+        if operator == "<=":
+            return self.value <= bound
+        if operator == ">":
+            return self.value > bound
+        return self.value >= bound
 
 
 def _bound(column: ir.Value, boundary: datetime) -> ir.Value:
@@ -46,8 +83,7 @@ def _version_values(
     state: CompiledSemanticState,
     reader: DatasourceEngineTimezone | None,
     dependencies: list[ir.Value] | None,
-    originals: list[ir.Value] | None = None,
-) -> tuple[ir.Value, ...]:
+) -> tuple[_VersionValue, ...]:
     """Prepare every version consumer with the same physical parser and authority."""
     from marivo.analysis.compiler.source_time import entity_engine, source_time
     from marivo.datasource.timezone import probe_engine_timezone
@@ -61,11 +97,11 @@ def _version_values(
         if isinstance(version, TargetSnapshotVersion)
         else (version.valid_from_ref.path, version.valid_to_ref.path)
     )
-    values: list[ir.Value] = []
+    values: list[_VersionValue] = []
     kinds: list[str] = []
     zone = version.timezone or "UTC"
 
-    def prepare(path: str) -> ir.Value:
+    def prepare(path: str) -> _VersionValue:
         from marivo.semantic.ir import HourPrefixParse
 
         axis = normalize_target_dimension(state.registry, path, prepared_column=path)
@@ -95,7 +131,8 @@ def _version_values(
                     *(raw == ibis.literal(value).cast(raw.type()) for value in sentinels)
                 )
                 parsed_input = is_open.ifelse(ibis.null().cast(raw.type()), raw)
-        result, _authority = source_time(
+        prefix = prepare(axis.parse.prefix) if isinstance(axis.parse, HourPrefixParse) else None
+        result, authority = source_time(
             parsed_input,
             axis,
             boundary_timezone=zone,
@@ -104,16 +141,22 @@ def _version_values(
             engine=entity_engine(
                 state.registry, normalize_target_entity(state.registry, axis.entity_ref.path)
             ),
-            prefix=prepare(axis.parse.prefix) if isinstance(axis.parse, HourPrefixParse) else None,
+            prefix=prefix.value if prefix is not None else None,
+            prefix_timezone=resolved_reader.engine_timezone_name if prefix is not None else None,
         )
-        if originals is not None:
-            originals.append(raw)
-        return result
+        return _VersionValue(
+            result,
+            raw,
+            axis,
+            authority,
+            prefix.raw if prefix is not None else None,
+            prefix.axis if prefix is not None else None,
+        )
 
     for path in paths:
         value = prepare(path)
         values.append(value)
-        kinds.append("date" if value.type().is_date() else "timestamp")
+        kinds.append("date" if value.value.type().is_date() else "timestamp")
     if isinstance(version, TargetValidityVersion):
         if len(set(kinds)) != 1:
             raise DatasetConstructionError(
@@ -150,17 +193,42 @@ def version_predicate(
 ) -> ir.BooleanValue:
     """Build exact snapshot or symbolic validity predicates through Ibis."""
     if isinstance(version, TargetSnapshotVersion) and isinstance(selected, TargetSnapshotSelection):
-        column = _version_values(table, version, state, reader, dependencies)[0]
+        prepared = _version_values(table, version, state, reader, dependencies)[0]
+        column = prepared.value
         period = date.fromisoformat(selected.period)
         if column.type().is_date():
+            raw = source_time_comparison(
+                prepared.raw,
+                prepared.axis,
+                prepared.authority,
+                bound=period,
+                comparison="==",
+                prefix=prepared.prefix,
+                prefix_axis=prepared.prefix_axis,
+            )
+            if raw is not None:
+                return raw
             return column == ibis.literal(period)
         if column.type().is_timestamp():
             from datetime import timedelta
 
             zone = ZoneInfo(version.timezone)
-            start = datetime.combine(period, time(), zone)
-            end = datetime.combine(period + timedelta(days=1), time(), zone)
-            return (column >= _bound(column, start)) & (column < _bound(column, end))
+            snapshot_start = datetime.combine(period, time(), zone)
+            snapshot_end = datetime.combine(period + timedelta(days=1), time(), zone)
+            raw = source_time_predicate(
+                prepared.raw,
+                prepared.axis,
+                prepared.authority,
+                start=snapshot_start,
+                end=snapshot_end,
+                prefix=prepared.prefix,
+                prefix_axis=prepared.prefix_axis,
+            )
+            if raw is not None:
+                return raw
+            return (column >= _bound(column, snapshot_start)) & (
+                column < _bound(column, snapshot_end)
+            )
         raise DatasetConstructionError(
             expected="a native temporal snapshot coordinate",
             received=str(column.type()),
@@ -168,19 +236,18 @@ def version_predicate(
             location="analysis.members.version",
         )
     if isinstance(version, TargetValidityVersion) and isinstance(selected, TargetValiditySelection):
-        original_fields: list[ir.Value] = []
-        start, end = _version_values(table, version, state, reader, dependencies, original_fields)
-        raw_end = original_fields[-1]
+        start, end = _version_values(table, version, state, reader, dependencies)
+        raw_end = end.raw
         boundary = datetime.fromisoformat(selected.boundary)
         left = (
-            start < _bound(start, boundary)
+            start.comparison(boundary, "<")
             if selected.start_operator == "lt"
-            else start <= _bound(start, boundary)
+            else start.comparison(boundary, "<=")
         )
         right = (
-            end > _bound(end, boundary)
+            end.comparison(boundary, ">")
             if selected.end_operator == "gt"
-            else end >= _bound(end, boundary)
+            else end.comparison(boundary, ">=")
         )
         for sentinel in selected.open_end:
             right = right | (
@@ -208,7 +275,7 @@ def prepare_version_filter(
     reader: DatasourceEngineTimezone | None = None,
     dependencies: list[ir.Value] | None = None,
 ) -> ir.Table:
-    """Select versions using the backend's native source-time interpretation."""
+    """Select versions with each endpoint's captured source-time authority."""
     return table.filter(
         version_predicate(
             table, version, selected, state=state, reader=reader, dependencies=dependencies

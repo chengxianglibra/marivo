@@ -3025,7 +3025,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Interpret a native timestamp. timezone localizes naive values using backend-native gap/fold behavior; aware sources reject parser timezone. Sampling belongs to the time field.",
+            "Interpret a native timestamp using parser or resolved reader authority. Projection uses native gap/fold behavior; raw local-clock membership uses wall order (later fold occurrence, gap transition instant). Aware sources reject parser timezone.",
             output="TimestampSpec",
             effects=_AUTHOR,
             example="ms.timestamp(timezone='UTC')",
@@ -3033,7 +3033,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values use parser or reader authority and backend-native gap/fold behavior. Sampling belongs to the time field.",
+            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values use parser or reader authority. Raw ordered local-clock membership uses wall order; projection remains backend-native.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),
@@ -3042,7 +3042,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "hour_prefix",
             "marivo.semantic._authoring_values.hour_prefix",
-            "Build an hour-prefix parse variant for time dimensions.",
+            "Combine a 0..23 integer or canonical two-digit hour string with a civil-date prefix, inheriting its source timezone context and reader default. Raw local-clock membership uses wall order; no independent timezone parameter.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
             example="ms.hour_prefix(log_date)",

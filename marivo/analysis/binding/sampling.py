@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import timezone
 from typing import TYPE_CHECKING
 
 from marivo._definition.types import (
@@ -14,7 +15,7 @@ from marivo._definition.types import (
 from marivo._temporal import builtin_grain, session_time_scope
 from marivo._temporal_grid import bind_grid
 from marivo.analysis.core.model import reject
-from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding
@@ -30,6 +31,7 @@ def sampling_coverage(
     *,
     calendar: CalendarCoordinate | None,
     authorities: Mapping[str, SourceTimeAuthority],
+    wall_paths: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[SampleCoverage, ...]:
     result: list[SampleCoverage] = []
     offset = 0
@@ -82,6 +84,21 @@ def sampling_coverage(
                 for cell in grid.cells
                 if period.start <= cell.original_start < period.end
             )
+            wall_timezone = source_zone if read.field.ref.path in wall_paths else None
+            if wall_timezone is not None:
+                # Both repeated instants name one raw clock. A skipped clock
+                # has no scheduled sample; real grid instants exclude it.
+                local_zone = time_zone(wall_timezone)
+                points = tuple(
+                    dict.fromkeys(
+                        later
+                        for point in points
+                        for later in (
+                            point.astimezone(local_zone).replace(fold=1).astimezone(timezone.utc),
+                        )
+                        if period.start <= later < period.end
+                    )
+                )
             if outer_calendar is not None and contribution.window_key is None:
                 output_slot, output_calendar = outer_calendar
                 result.extend(
@@ -90,6 +107,7 @@ def sampling_coverage(
                         tuple(point for point in points if cell[2] <= point < cell[3]),
                         index,
                         output_slot,
+                        wall_timezone,
                     )
                     for index, cell in enumerate(
                         output_calendar.cells
@@ -111,6 +129,7 @@ def sampling_coverage(
                         points,
                         contribution.window_key,
                         outer_calendar[0] if outer_calendar is not None else "key.0",
+                        wall_timezone,
                     )
                 )
         offset += width

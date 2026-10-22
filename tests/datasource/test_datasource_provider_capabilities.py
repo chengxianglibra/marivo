@@ -83,6 +83,10 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
             "mysql.authoring.read_select_deadline",
         ): "9abc2d9f258053bc5bca1f82f73cbada2fb81fc577fb2f4af2dc07f376a8fd6c",
         (
+            "mysql",
+            "mysql.timezone.verify",
+        ): "a563dd67e3d1db41c72de1bcbec8abdb6ce5f5d8881bc4d3c826efb8952274f7",
+        (
             "clickhouse",
             "clickhouse.columns.fallback",
         ): "709ba652e01cc50d9b33c7b2fdb18b76d9dc98677da78aa35c26beda0a5af2d2",
@@ -316,6 +320,8 @@ def test_every_production_statement_has_exact_authorized_purposes() -> None:
                 expected = {"analysis.cancel_owned_query"}
             elif statement.statement_id.startswith("mysql.authoring."):
                 expected = {"datasource.native_query_timeout"}
+            elif statement.statement_id == "mysql.timezone.verify":
+                expected = {"datasource.timezone"}
             elif statement.statement_id.startswith("duckdb.http_secret_"):
                 expected = {"datasource.http_credentials"}
             elif statement.statement_id == "duckdb.connection.read_only":

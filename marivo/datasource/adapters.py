@@ -206,6 +206,7 @@ class SourceSession:
         self._query_decoded_strings: dict[str, frozenset[str]] = {}
         self._key_relations: dict[str, ops.InMemoryTable] = {}
         self._key_request_limit: tuple[int, str] | None = None
+        self._verified_source_timezones: set[str] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
         self._query_logs: dict[int, _execution_log.QueryLog] = {}
@@ -217,6 +218,18 @@ class SourceSession:
 
     def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
         self.close()
+
+    def verify_source_timezones(self, names: tuple[str, ...]) -> None:
+        """Verify retained native projection zones on this exact open connection."""
+        from marivo.datasource.timezone import verify_source_timezone
+
+        self._ensure_open()
+        for name in names:
+            if name in self._verified_source_timezones:
+                continue
+            with cr.backend_errors(self._backend):
+                verify_source_timezone(self._backend, name)
+            self._verified_source_timezones.add(name)
 
     def _ensure_open(self) -> None:
         if self._closed:
@@ -649,6 +662,7 @@ class SourceSession:
         self._issued.clear()
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
+        self._verified_source_timezones.clear()
         for node in self._key_relations.values():
             try:
                 self._backend.drop_view(node.name, force=True)

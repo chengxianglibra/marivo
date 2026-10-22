@@ -66,7 +66,7 @@ def prepare_condition_memberships(
             predicates: list[ir.BooleanValue] = []
             for axis, group in zip(domain.axes, selected.key_groups, strict=True):
                 if isinstance(axis, CalendarCoordinate):
-                    from marivo.analysis.compiler.observation import temporal_bound
+                    from marivo.analysis.compiler.observation import calendar_field, temporal_bound
                     from marivo.analysis.core.model import reject
 
                     if contribution.time is None:
@@ -83,8 +83,13 @@ def prepare_condition_memberships(
                         contribution.time.at,
                     )
                     time = table[columns[field_read_key(read)]]
+                    calendar_slot = next(
+                        (slot for slot, item in contribution.calendars if item == axis), None
+                    )
                     if contribution.window_key is not None:
                         buckets = ibis.literal(contribution.window_key)
+                    elif calendar_slot is not None and calendar_field(calendar_slot) in columns:
+                        buckets = table[columns[calendar_field(calendar_slot)]]
                     else:
                         buckets = ibis.cases(
                             *(

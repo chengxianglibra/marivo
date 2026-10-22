@@ -35,7 +35,10 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
+from marivo.datasource.timezone import (
+    DatasourceEngineTimezone,
+    probe_engine_timezone,
+)
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")

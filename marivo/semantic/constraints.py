@@ -377,7 +377,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("time_dimension",),
         "ms.strptime(format) requires canonical source encoding: directive widths, zero padding, exact separators and valid calendar values. Ordered encodings permit bare-column ranges without partition enumeration or validation queries; excluded values are not inspected for violations.",
         "Ordered calendar encodings permit equivalent bare-column time ranges without partition enumeration or validation queries; unqualified inverses retain parsed filtering.",
-        "Declare the raw string/integer column with ms.strptime(format). Keep its values canonical; excluded values are not inspected for violations. Use UTC or a fixed offset for supported clock inverses; named-zone conversion retains parsed filtering.",
+        "Declare the raw string/integer column with ms.strptime(format). Keep its values canonical; excluded values are not inspected for violations. Raw local-clock ranges use wall-order membership in the resolved source timezone; unsupported inverses retain native filtering.",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,
@@ -386,13 +386,12 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("time_dimension",),
         "Native date and timezone-aware datetime/timestamp columns may omit parse; "
         "string/integer columns require ms.strptime(...), hour-only columns require "
-        "ms.hour_prefix(...), and naive datetime/timestamp columns require an explicit "
-        "timezone-bearing parse.",
+        "ms.hour_prefix(prefix); naive timestamps use explicit parser timezone or frozen reader authority.",
         "Deferred parse resolves only native temporal ibis types; encoded time values need "
-        "explicit parse metadata, and naive native timestamps need a declared source timezone.",
-        "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix, ...) "
+        "explicit parse metadata; naive timestamps use parser or resolved reader authority.",
+        "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix) "
         "for hour-only columns, and ms.timestamp(timezone=...) "
-        "for naive native temporal columns.",
+        "to declare a known source timezone for naive native temporal columns.",
     ),
     ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
         ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,

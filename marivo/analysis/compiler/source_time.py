@@ -94,6 +94,246 @@ def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> 
     return fmt
 
 
+TimeComparison = Literal[">=", "<", ">", "<=", "==", "!="]
+
+
+def _nullable_constant(value: ir.Value, truth: bool) -> ir.BooleanValue:
+    result = ibis.ifelse(value.isnull(), ibis.null().cast("boolean"), truth)
+    assert isinstance(result, ir.BooleanValue)
+    return result
+
+
+def _complement(value: ir.BooleanValue) -> ir.BooleanValue:
+    import ibis.expr.operations as ops
+
+    node = value.op()
+    if isinstance(node, (ops.GreaterEqual, ops.Greater)):
+        operation = ops.Less if isinstance(node, ops.GreaterEqual) else ops.LessEqual
+        result = operation(node.left, node.right).to_expr()
+        assert isinstance(result, ir.BooleanValue)
+        return result
+    return ~value
+
+
+def _raw_lineage(value: ir.Value) -> bool:
+    """Admit only physical fields and transparent field projections."""
+    import ibis.expr.operations as ops
+
+    node = value.op()
+    while isinstance(node, ops.Field):
+        if isinstance(node.rel, ops.Project):
+            node = node.rel.values[node.name]
+        elif isinstance(node.rel, (ops.Filter, ops.Reference)):
+            node = ops.Field(node.rel.parent, node.name)
+        else:
+            return isinstance(node.rel, ops.PhysicalTable)
+    return False
+
+
+def _boundary_instant(bound: date | datetime, authority: SourceTimeAuthority) -> datetime:
+    point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
+    if point.tzinfo is None:
+        point = point.replace(tzinfo=time_zone(authority.boundary_timezone))
+    return point.astimezone(timezone.utc)
+
+
+def _scalar_cutoff(
+    raw: ir.Value, parse: StrptimeParse | None, point: datetime, *, inclusive: bool
+) -> ir.BooleanValue | None:
+    """Compare a physical clock to one translated lower cutoff."""
+    physical = raw.type()
+    if parse is not None:
+        if parse.format not in _ORDERED_FORMATS or not (
+            physical.is_string()
+            or (physical.is_integer() and parse.format.replace("%", "").isalpha())
+        ):
+            return None
+        text = ordered_time_literal(point, parse.format, strict=not inclusive)
+        if text is None:
+            return _nullable_constant(raw, False)
+        if physical.is_integer():
+            number = int(text)
+            assert isinstance(physical, dt.Integer)
+            minimum, maximum = physical.bounds
+            if number <= minimum:
+                return _nullable_constant(raw, True)
+            if number > maximum:
+                return _nullable_constant(raw, False)
+            literal = ibis.literal(number, type=physical)
+        else:
+            literal = ibis.literal(text, type=physical)
+        return raw >= literal
+    if physical.is_date():
+        midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
+        try:
+            day = (midnight + timedelta(days=not inclusive or point != midnight)).date()
+        except OverflowError:
+            return _nullable_constant(raw, False)
+        return raw >= ibis.literal(day, type=physical)
+    if isinstance(physical, dt.Timestamp):
+        scale = physical.scale
+        if scale is not None and scale < 6:
+            step = 10 ** (6 - scale)
+            remainder = point.microsecond % step
+            if remainder:
+                try:
+                    point += timedelta(microseconds=step - remainder)
+                except OverflowError:
+                    return _nullable_constant(raw, False)
+                inclusive = True
+        literal = ibis.literal(point, type=physical)
+        return raw >= literal if inclusive else raw > literal
+    return None
+
+
+def _composite_cutoff(
+    raw: ir.Value,
+    prefix: ir.Value,
+    prefix_axis: TargetDimensionContract,
+    point: datetime,
+    *,
+    inclusive: bool,
+) -> ir.BooleanValue | None:
+    physical = raw.type()
+    if not (physical.is_integer() or physical.is_string()):
+        return None
+    fmt = prefix_axis.parse
+    if isinstance(fmt, StrptimeParse):
+        if is_time_bearing_format(fmt.format):
+            return None
+    elif not prefix.type().is_date():
+        return None
+    text = ordered_time_literal(point, "%Y%m%d%H", strict=not inclusive)
+    if text is None:
+        exhausted = ibis.ifelse(raw.isnull() | prefix.isnull(), ibis.null().cast("boolean"), False)
+        assert isinstance(exhausted, ir.BooleanValue)
+        return exhausted
+    tick = datetime.strptime(text, "%Y%m%d%H")
+    midnight = tick.replace(hour=0)
+    date_parse = fmt if isinstance(fmt, StrptimeParse) else None
+    at_day = _scalar_cutoff(prefix, date_parse, midnight, inclusive=True)
+    after_day = _scalar_cutoff(prefix, date_parse, midnight, inclusive=False)
+    if at_day is None or after_day is None:
+        return None
+    on_day = at_day & ~after_day
+    hour = ibis.literal(f"{tick.hour:02d}" if physical.is_string() else tick.hour, type=physical)
+    result = after_day | (on_day & (raw >= hour))
+    if tick.hour == 0 and tick.date() > date.min:
+        previous = midnight - timedelta(days=1)
+        at_previous = _scalar_cutoff(prefix, date_parse, previous, inclusive=True)
+        assert at_previous is not None
+        last = ibis.literal("24" if physical.is_string() else 24, type=physical)
+        result |= (at_previous & ~at_day) & (raw == last)
+    result = ibis.ifelse(raw.isnull() | prefix.isnull(), ibis.null().cast("boolean"), result)
+    assert isinstance(result, ir.BooleanValue)
+    return result
+
+
+def source_time_comparison(
+    value: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    bound: date | datetime,
+    comparison: TimeComparison,
+    prefix: ir.Value | None = None,
+    prefix_axis: TargetDimensionContract | None = None,
+) -> ir.BooleanValue | None:
+    """Build an exact raw predicate, or leave a legal native expression alone.
+
+    Local source clocks use wall order, while physical instants and civil dates
+    keep their own domains. Constants retain the raw type and precision. A
+    composite prefix is its original DATE or canonical date encoding, not its
+    already parsed projection.
+    """
+    if not _raw_lineage(value) or (prefix is not None and not _raw_lineage(prefix)):
+        return None
+    parse = axis.parse
+    if isinstance(parse, HourPrefixParse):
+        if prefix is None or prefix_axis is None:
+            return None
+    elif parse is not None and not isinstance(parse, (TimestampParse, DateParse, StrptimeParse)):
+        return None
+    if isinstance(parse, StrptimeParse) and parse.format not in _ORDERED_FORMATS:
+        return None
+
+    def lower(strict: bool) -> ir.BooleanValue | None:
+        from marivo.analysis.compiler._wall_order import wall_order_bound
+
+        if authority.kind == "civil_date":
+            point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
+            point = point.replace(tzinfo=None)
+            inclusive = not strict
+        else:
+            instant = _boundary_instant(bound, authority)
+            if authority.kind == "localizable":
+                assert authority.read_timezone is not None
+                point, inclusive = wall_order_bound(
+                    instant, time_zone(authority.read_timezone), strict=strict
+                )
+            else:
+                point, inclusive = instant, not strict
+        if isinstance(parse, HourPrefixParse):
+            assert prefix is not None and prefix_axis is not None
+            return _composite_cutoff(value, prefix, prefix_axis, point, inclusive=inclusive)
+        return _scalar_cutoff(
+            value, parse if isinstance(parse, StrptimeParse) else None, point, inclusive=inclusive
+        )
+
+    try:
+        if comparison in (">=", "<"):
+            result = lower(False)
+            return None if result is None else result if comparison == ">=" else _complement(result)
+        if comparison in (">", "<="):
+            result = lower(True)
+            return None if result is None else result if comparison == ">" else _complement(result)
+        first, last = lower(False), lower(True)
+        if first is None or last is None:
+            return None
+        equal = first & ~last
+        return equal if comparison == "==" else ~equal
+    except OverflowError:
+        # A timezone conversion beyond Python's supported date domain has no
+        # qualified constant-side form; retain the existing native expression.
+        return None
+
+
+def source_time_predicate(
+    value: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+    prefix: ir.Value | None = None,
+    prefix_axis: TargetDimensionContract | None = None,
+) -> ir.BooleanValue | None:
+    """Build a half-open raw range with the same nullable comparison semantics."""
+    kwargs = {"prefix": prefix, "prefix_axis": prefix_axis}
+    if start is None and end is None:
+        if (
+            not _raw_lineage(value)
+            or (prefix is not None and not _raw_lineage(prefix))
+            or (isinstance(axis.parse, StrptimeParse) and axis.parse.format not in _ORDERED_FORMATS)
+        ):
+            return None
+        result = _nullable_constant(value, True)
+        return result if prefix is None else result & _nullable_constant(prefix, True)
+    first = (
+        source_time_comparison(value, axis, authority, bound=start, comparison=">=", **kwargs)
+        if start is not None
+        else None
+    )
+    last = (
+        source_time_comparison(value, axis, authority, bound=end, comparison="<", **kwargs)
+        if end is not None
+        else None
+    )
+    if (start is not None and first is None) or (end is not None and last is None):
+        return None
+    return last if first is None else first if last is None else first & last
+
+
 def encoded_time_predicate(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -102,65 +342,10 @@ def encoded_time_predicate(
     start: date | datetime | None,
     end: date | datetime | None,
 ) -> ir.BooleanValue | None:
-    """Invert a half-open range on canonical encoded event points without IO.
-
-    Bounds are in the consumer's normalized coordinate space. Civil-date
-    consumers pass dates; timestamp consumers pass normalized datetimes.
-    ``None`` means this encoding/time authority has no qualified inverse; the
-    caller keeps its original semantic predicate. No source values are probed.
-    """
-    parse = axis.parse
-    physical = value.type()
-    if not isinstance(parse, StrptimeParse) or parse.format not in _ORDERED_FORMATS:
+    """Build the qualified canonical-encoding half-open predicate without IO."""
+    if not isinstance(axis.parse, StrptimeParse):
         return None
-    if not physical.is_string() and not (
-        physical.is_integer() and parse.format.replace("%", "").isalpha()
-    ):
-        return None
-    source_zone = None
-    boundary_zone = None
-    if authority.kind != "civil_date":
-        if authority.read_timezone is None:
-            return None
-        source_zone = time_zone(authority.read_timezone)
-        boundary_zone = time_zone(authority.boundary_timezone)
-        if source_zone.utcoffset(None) is None or boundary_zone.utcoffset(None) is None:
-            return None
-
-    def encode(bound: date | datetime) -> str | None:
-        point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
-        if source_zone is not None and boundary_zone is not None:
-            # Conversion failure is caught outside the inverse; it must not be
-            # confused with the ordered ceiling sentinel above year 9999.
-            point = (
-                point.replace(tzinfo=boundary_zone) if point.tzinfo is None else point
-            ).astimezone(source_zone)
-        return ordered_time_literal(point.replace(tzinfo=None), parse.format)
-
-    def comparison(bound: date | datetime, *, lower: bool) -> ir.BooleanValue:
-        text = encode(bound)
-        if text is None:
-            return ibis.literal(False) if lower else value.notnull()
-        if physical.is_integer():
-            number = int(text)
-            assert isinstance(physical, dt.Integer)
-            minimum, maximum = physical.bounds
-            if number <= minimum:
-                return value.notnull() if lower else ibis.literal(False)
-            if number > maximum:
-                return ibis.literal(False) if lower else value.notnull()
-            literal = ibis.literal(number, type=physical)
-        else:
-            literal = ibis.literal(text, type=physical)
-        return value >= literal if lower else value < literal
-
-    try:
-        if start is None:
-            return value.notnull() if end is None else comparison(end, lower=False)
-        predicate = comparison(start, lower=True)
-        return predicate if end is None else predicate & comparison(end, lower=False)
-    except OverflowError:
-        return None
+    return source_time_predicate(value, axis, authority, start=start, end=end)
 
 
 def _parse_signature_zoned(text: str, fmt: str, zone: str) -> datetime:
@@ -362,6 +547,23 @@ def _frozen_time_origin(
     raise compilation_error("a frozen timestamp source authority", "civil date authority changed")
 
 
+def _hour_clock(value: ir.Value, prefix: ir.DateValue, *, engine: str) -> ir.TimestampValue:
+    """Compose a neutral source wall clock before applying its authority."""
+    hour = value.cast("int64")
+    if not isinstance(hour, ir.IntegerValue):
+        raise compilation_error("an integer hour", "invalid hour representation")
+    prefix_clock = timestamp(prefix)
+    if engine == "clickhouse":
+        # DATE-to-timestamp otherwise adopts the session timezone before the
+        # composite clock can use its inherited source authority.
+        prefix_clock = timestamp(
+            prefix.cast(dt.Timestamp(timezone="UTC", scale=6)).cast(dt.Timestamp(scale=6))
+        )
+    result = prefix_clock + hour.as_interval("h")
+    assert isinstance(result, ir.TimestampValue)
+    return result
+
+
 def source_time(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -371,6 +573,7 @@ def source_time(
     engine: str,
     read_source: Literal["engine", "system_fallback"] = "engine",
     prefix: ir.Value | None = None,
+    prefix_timezone: str | None = None,
     frozen: SourceTimeAuthority | None = None,
 ) -> tuple[ir.Value, SourceTimeAuthority]:
     """Parse and localize a column without executing it or consulting ambient state."""
@@ -386,7 +589,8 @@ def source_time(
     physical_is_aware = (
         frozen.source == "physical"
         if frozen is not None
-        else isinstance(physical, dt.Timestamp) and physical.timezone is not None
+        else isinstance(physical, dt.Timestamp)
+        and (physical.timezone is not None or engine == "clickhouse")
     )
     if declared is not None and physical_is_aware:
         raise DatasetCompilationError(
@@ -398,10 +602,11 @@ def source_time(
     if isinstance(parse, HourPrefixParse):
         if prefix is None:
             raise compilation_error("a bound civil-date hour prefix", "missing prefix axis")
-        hour = value.cast("int64")
-        if not isinstance(hour, ir.IntegerValue):
-            raise compilation_error("an integer hour", "invalid hour representation")
-        value = timestamp(prefix) + hour.as_interval("h")
+        if not isinstance(prefix, ir.DateValue):
+            raise compilation_error("a civil-date hour prefix", "timestamp hour prefix")
+        if frozen is None and prefix_timezone is not None:
+            read_timezone = prefix_timezone
+        value = _hour_clock(value, prefix, engine=engine)
     elif isinstance(parse, StrptimeParse):
         text = value.cast("string")
         if not isinstance(text, ir.StringValue):
@@ -435,6 +640,8 @@ def source_time(
         )
     if not isinstance(value, ir.TimestampValue):
         raise compilation_error("a declared date or timestamp parser", "non-temporal source")
+    if physical_is_aware and engine == "clickhouse" and value.type().timezone is None:
+        value = timestamp(value.cast(dt.Timestamp(timezone="UTC", scale=value.type().scale)))
     kind = value.type()
     if frozen is not None and frozen.source == "civil_date":
         raise compilation_error(
@@ -454,11 +661,22 @@ def source_time(
                     "a frozen timestamp read timezone", "missing read authority"
                 )
             origin = _frozen_time_origin(frozen)
+        elif isinstance(parse, StrptimeParse):
+            adopted = declared or read_timezone
+            origin = "declared" if declared is not None else read_source
+            if adopted is None:
+                raise compilation_error(
+                    "execution-resolved source read timezone", "missing wall-clock authority"
+                )
         elif declared is not None:
             adopted, origin = declared, "declared"
         else:
             adopted, origin = kind.timezone, "physical"
         instant = value
+        if engine == "clickhouse" and isinstance(parse, StrptimeParse):
+            # ClickHouse parses in explicit UTC to avoid session authority.
+            # That UTC label is a neutral parser carrier, not source meaning.
+            instant = localize(adopted, timestamp(value.cast(dt.Timestamp(scale=6))))
         if engine == "mysql" and adopted == "UTC" and boundary_timezone == "UTC":
             # The UTC-zoned value already represents UTC. Rendering UTC is
             # identity; these engines have no DuckDB/PostgreSQL timezone().

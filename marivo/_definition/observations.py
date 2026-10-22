@@ -26,12 +26,13 @@ from marivo._temporal import InstantAnchor
 
 @dataclass(frozen=True, slots=True)
 class SampleCoverage:
-    """Expected instants on one physical internal key and optional calendar output."""
+    """Expected samples and optional raw-wall coverage on one internal key."""
 
     key: str
     points: tuple[datetime, ...]
     output_key: int | None = None
     output_slot: str = "key.0"
+    wall_timezone: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

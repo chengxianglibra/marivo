@@ -102,7 +102,11 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             raise compilation_error(f"a bound relation for {stage.source_id}", "unbound source")
         columns = dict(stage.field_columns)
         conditions: list[ir.BooleanValue] = []
-        if stage.period is not None and read_attribute(stage) is None:
+        if (
+            stage.period is not None
+            and not stage.period.predicate_prepared
+            and read_attribute(stage) is None
+        ):
             from marivo.analysis.compiler.observation import temporal_bound
 
             time = table[stage.period.column]

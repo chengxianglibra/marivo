@@ -2077,6 +2077,25 @@ def assembly_validate(
                             },
                         )
                     )
+            elif isinstance(prefix_field.parse, (TimestampParse, HourPrefixParse)) or (
+                isinstance(prefix_field.parse, StrptimeParse)
+                and is_time_bearing_format(prefix_field.parse.format)
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=f"Time dimension {f_id!r} hour prefix declares timestamp meaning.",
+                        refs=(f_id, prefix_name),
+                        expected="civil-date TimeDimension",
+                        received=type(prefix_field.parse).__name__,
+                        hint="Reference a native DATE or a date-only parser as the hour prefix.",
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="hour_prefix",
+                            action="Choose a civil-date TimeDimension as the prefix and reload the model.",
+                        ),
+                    )
+                )
 
     # -- Validate at most one default time_dimension per entity --------------
     _validate_default_time_dimension_unique(errors, registry)

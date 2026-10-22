@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn
 
 import pandas as pd
 import pyarrow as pa
 
+from marivo._definition.observations import SampleCoverage
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
@@ -115,6 +117,7 @@ def _combine_program(
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         MemberInput,
+        coverage_field,
         duration_type,
         formula_columns,
     )
@@ -149,6 +152,12 @@ def _combine_program(
         for item in grouped.values()
     ]
     program = replace(program, values=tuple(bindings))
+    coverage_frames: dict[tuple[int, ...], pd.DataFrame] = {}
+    for index, (binding, frame) in enumerate(zip(bindings, frames, strict=True)):
+        if "__coverage_row" in frame:
+            mask = frame["__coverage_row"].astype("boolean").fillna(False)
+            coverage_frames[binding.occurrence] = frame.loc[mask].copy()
+            frames[index] = frame.loc[~mask].copy()
     inputs = tuple(frames)
     if keys:
         domain = (
@@ -221,6 +230,7 @@ def _combine_program(
             if keys
             else pd.DataFrame(index=pd.RangeIndex(len(forced_domain)))
         )
+    wall_requirements: dict[tuple[tuple[int, ...], SampleCoverage], pd.DataFrame] = {}
     for binding in bindings:
         for coverage in binding.coverage:
             if coverage.key not in keys:
@@ -235,6 +245,40 @@ def _combine_program(
                 coordinates = pd.DataFrame(index=pd.RangeIndex(1))
             expected_grid = pd.DataFrame({coverage.key: list(coverage.points)})
             complete = coordinates.merge(expected_grid, how="cross")
+            if coverage.wall_timezone is not None:
+                from marivo.analysis.core.time_authority import time_zone
+
+                clock = coverage_field(coverage.key)
+                complete[clock] = pd.Series(
+                    [
+                        point.astimezone(time_zone(coverage.wall_timezone)).replace(
+                            tzinfo=timezone.utc
+                        )
+                        for point in complete[coverage.key]
+                    ],
+                    index=complete.index,
+                    dtype=object,
+                )
+                observed = (
+                    coverage_frames[binding.occurrence]
+                    .loc[:, [*remaining_keys, coverage.key, clock]]
+                    .drop_duplicates()
+                )
+                observed = observed.rename(columns={coverage.key: "__observed_sample"})
+                observed[clock] = observed[clock].astype(object)
+                observed["__wall_present"] = True
+                complete = complete.merge(
+                    observed, on=[*remaining_keys, clock], how="left", validate="one_to_one"
+                )
+                complete[coverage.key] = complete["__observed_sample"].where(
+                    complete["__wall_present"].fillna(False), complete[coverage.key]
+                )
+                complete["__wall_missing"] = complete["__wall_present"].isna()
+                wall_requirements[(binding.occurrence, coverage)] = (
+                    complete.loc[:, [*keys, "__wall_missing"]]
+                    .groupby(keys, dropna=False, as_index=False)
+                    .any()
+                )
             domain = (
                 pd.concat([domain, complete.loc[:, keys]], ignore_index=True)
                 .drop_duplicates()
@@ -434,7 +478,12 @@ def _combine_program(
                                 occurrence=(operand_index, *binding.occurrence[len(prefix) :]),
                             )
                         )
-                        selected_frames.append(frame)
+                        captured_coverage = coverage_frames.get(binding.occurrence)
+                        selected_frames.append(
+                            pd.concat([frame, captured_coverage], ignore_index=True)
+                            if captured_coverage is not None
+                            else frame
+                        )
                         consumed.append(index)
             relevant_counts = {
                 child.population
@@ -593,6 +642,24 @@ def _combine_program(
             physical[key] = aligned[column_name].fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))
         for key, coverage in zip(coverage_names, active_coverage, strict=True):
+            if coverage.wall_timezone is not None:
+                requirements = wall_requirements[(binding.occurrence, coverage)]
+                wall_missing = (
+                    domain.merge(requirements, on=keys, how="left", validate="one_to_one")[
+                        "__wall_missing"
+                    ]
+                    .astype("boolean")
+                    .fillna(False)
+                )
+                physical[key] = wall_missing.astype(object)
+                checks.append(
+                    NumericCheck(
+                        table[key],
+                        "complete fixed-cadence state samples",
+                        f"missing state sample on {coverage.key}",
+                    )
+                )
+                continue
             required = domain[coverage.key].isin(coverage.points)
             if coverage.output_key is not None:
                 required &= domain[coverage.output_slot] == coverage.output_key

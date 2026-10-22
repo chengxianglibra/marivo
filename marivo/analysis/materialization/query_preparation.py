@@ -26,9 +26,11 @@ from marivo._definition.types import (
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import (
-    encoded_time_predicate,
+    _hour_clock,
     localize,
+    parse_strptime,
     source_time,
+    source_time_predicate,
     timestamp,
 )
 from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
@@ -39,6 +41,7 @@ from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic.ir import (
     HourPrefixParse,
+    StrptimeParse,
     TargetDimensionContract,
 )
 from marivo.semantic.validator import (
@@ -143,7 +146,17 @@ def prepare_fields(
                     "Compute an independent Frame and use session.population_from(frame, on=...) across datasources instead of a scalar relationship read.",
                 )
     dependencies: list[ir.Value] = []
-    time_encodings: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}
+    time_encodings: dict[
+        str,
+        tuple[
+            ir.Value,
+            TargetDimensionContract,
+            SourceTimeAuthority,
+            ir.Value | None,
+            TargetDimensionContract | None,
+            ir.Value | None,
+        ],
+    ] = {}
     zone = contribution.period.timezone if contribution.period is not None else "UTC"
 
     def value(
@@ -181,19 +194,51 @@ def prepare_fields(
                 if isinstance(axis.parse, HourPrefixParse)
                 else None
             )
+            prefix_input = (
+                time_encodings.get(axis.parse.prefix)
+                if isinstance(axis.parse, HourPrefixParse)
+                else None
+            )
             raw = result
+            engine = entity_engine(
+                registry, normalize_target_entity(registry, axis.entity_ref.path)
+            )
             result, authority = source_time(
                 result,
                 axis,
                 boundary_timezone="UTC",
                 read_timezone=reader.engine_timezone_name,
                 read_source=reader.read_tz_resolution,
-                engine=entity_engine(
-                    registry, normalize_target_entity(registry, contribution.root.ref.path)
-                ),
+                engine=engine,
                 prefix=prefix,
+                prefix_timezone=reader.engine_timezone_name if prefix is not None else None,
             )
-            time_encodings[path] = (raw, axis, authority)
+            raw_prefix = prefix_input[0] if prefix_input is not None else None
+            prefix_axis = prefix_input[1] if prefix_input is not None else None
+            clock: ir.Value | None = None
+            if (
+                authority.kind == "localizable"
+                and source_time_predicate(
+                    raw,
+                    axis,
+                    authority,
+                    start=None,
+                    end=datetime(2000, 1, 1),
+                    prefix=raw_prefix,
+                    prefix_axis=prefix_axis,
+                )
+                is not None
+            ):
+                if isinstance(axis.parse, HourPrefixParse):
+                    assert isinstance(prefix, ir.DateValue)
+                    clock = _hour_clock(raw, prefix, engine=engine)
+                elif isinstance(axis.parse, StrptimeParse):
+                    text = raw.cast("string")
+                    assert isinstance(text, ir.StringValue)
+                    clock = parse_strptime(engine, text, axis.parse).cast("timestamp")
+                else:
+                    clock = raw
+            time_encodings[path] = (raw, axis, authority, raw_prefix, prefix_axis, clock)
             if authority.kind == "civil_date":
                 from marivo.analysis.binding.windows import validate_date_contribution
 
@@ -226,9 +271,69 @@ def prepare_fields(
         for _, calendar in contribution.calendars
         if contribution.window_key is None or calendar in contribution.sample_axes
     )
+    selected_owns_period = contribution.period is not None and any(
+        all(
+            (contribution.period.start is None or contribution.period.start <= start)
+            and end <= contribution.period.end
+            for _, _, start, end in (
+                calendar.cells
+                if isinstance(calendar, CalendarCoordinate)
+                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+            )
+        )
+        for calendar in selected_calendars
+    )
+
+    def period_condition(
+        time: ir.Value, start: datetime | None, end: datetime, zone: str
+    ) -> ir.BooleanValue:
+        from marivo.analysis.compiler.observation import temporal_bound
+
+        encoding = (
+            time_encodings.get(contribution.time.field.ref.path) if contribution.time else None
+        )
+        if encoding is not None:
+            raw, axis, authority, prefix, prefix_axis, _ = encoding
+            condition = source_time_predicate(
+                raw,
+                axis,
+                authority,
+                start=start.astimezone(time_zone(zone)).replace(tzinfo=None)
+                if start is not None and authority.kind == "civil_date"
+                else start,
+                end=end.astimezone(time_zone(zone)).replace(tzinfo=None)
+                if authority.kind == "civil_date"
+                else end,
+                prefix=prefix,
+                prefix_axis=prefix_axis,
+            )
+            if condition is not None:
+                return condition
+        return (time < temporal_bound(time, end, zone)) & (
+            time >= temporal_bound(time, start, zone) if start is not None else ibis.literal(True)
+        )
+
+    def calendar_bucket(
+        time: ir.Value, calendar: CalendarCoordinate | IntervalCoordinate
+    ) -> ir.Value:
+        cells = (
+            calendar.cells
+            if isinstance(calendar, CalendarCoordinate)
+            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+        )
+        return (
+            ibis.cases(
+                *(
+                    (period_condition(time, start, end, calendar.timezone), index)
+                    for index, (_, _, start, end) in enumerate(cells)
+                ),
+                else_=ibis.null().cast("int64"),
+            )
+            if cells
+            else ibis.null().cast("int64")
+        )
 
     def selected_time(time: ir.Value) -> ir.BooleanValue:
-        from marivo.analysis.compiler.observation import temporal_bound
 
         condition: ir.BooleanValue = ibis.literal(True)
         for calendar in selected_calendars:
@@ -245,10 +350,7 @@ def prepare_fields(
                     intervals.append((start, end))
             member: ir.BooleanValue = ibis.literal(False)
             for left, right in intervals:
-                member = member | (
-                    (time >= temporal_bound(time, left, calendar.timezone))
-                    & (time < temporal_bound(time, right, calendar.timezone))
-                )
+                member = member | period_condition(time, left, right, calendar.timezone)
             condition = condition & member
         return condition
 
@@ -262,43 +364,15 @@ def prepare_fields(
         table = table.filter(selected_time(time))
     if (
         contribution.period is not None
+        and not selected_owns_period
         and contribution.time is not None
         and not contribution.time.path
         and contribution.time.at is None
     ):
-        from marivo.analysis.compiler.observation import temporal_bound
-
         time = value(contribution.time.field.ref.path, table)
-        encoding = time_encodings.get(contribution.time.field.ref.path)
-        raw_condition = None
-        if encoding is not None:
-            raw, axis, authority = encoding
-            raw_condition = encoded_time_predicate(
-                raw,
-                axis,
-                authority,
-                start=(
-                    contribution.period.start.astimezone(time_zone(zone)).date()
-                    if authority.kind == "civil_date"
-                    else contribution.period.start
-                )
-                if contribution.period.start is not None
-                else None,
-                end=contribution.period.end.astimezone(time_zone(zone)).date()
-                if authority.kind == "civil_date"
-                else contribution.period.end,
-            )
-        if raw_condition is not None:
-            table = table.filter(raw_condition)
-        else:
-            table = table.filter(
-                (time < temporal_bound(time, contribution.period.end, zone))
-                & (
-                    time >= temporal_bound(time, contribution.period.start, zone)
-                    if contribution.period.start is not None
-                    else ibis.literal(True)
-                )
-            )
+        table = table.filter(
+            period_condition(time, contribution.period.start, contribution.period.end, zone)
+        )
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     checks: list[tuple[str, str, str]] = []
@@ -333,6 +407,18 @@ def prepare_fields(
     )
     if time_read is not None and time_read in reads:
         reads = (time_read, *(read for read in reads if read != time_read))
+    from marivo.analysis.compiler.observation import calendar_field, coverage_field, reduction_input
+
+    physical_axes = reduction_input(contribution, "", None).axes
+    sampled_reads = {
+        field_read_key(read): slot
+        for read in contribution.coordinates[contribution.output_axis_count :]
+        if isinstance(read, FieldRead)
+        and registry.dimensions[read.field.ref.path].sample_interval is not None
+        for slot, path in physical_axes
+        if path == field_read_key(read)
+    }
+    wall_paths: set[str] = set()
     parts = tuple(
         (read, component, key)
         for read in reads
@@ -343,6 +429,43 @@ def prepare_fields(
         )
     )
     for index, (read, component, read_key) in enumerate(parts):
+        extras: dict[str, ir.Value] = {}
+        extra_keys: dict[str, str] = {}
+
+        def time_columns(
+            expression: ir.Value,
+            read: FieldRead | IdentityRead = read,
+            read_key: str = read_key,
+            index: int = index,
+            extras: dict[str, ir.Value] = extras,
+            extra_keys: dict[str, str] = extra_keys,
+        ) -> dict[str, ir.Value]:
+            if read == time_read:
+                for key, calendar in contribution.calendars:
+                    name = unique("__bucket_" + key.replace(".", "_"))
+                    extras[name] = calendar_bucket(expression, calendar)
+                    extra_keys[name] = calendar_field(key)
+                if selected_calendars:
+                    name = unique("__time_selected")
+                    extras[name] = selected_time(expression)
+                    extra_keys[name] = "__time_selected"
+                if contribution.period is not None:
+                    name = unique("__time_period")
+                    extras[name] = period_condition(
+                        expression, contribution.period.start, contribution.period.end, zone
+                    )
+                    extra_keys[name] = "__time_period"
+            if read_key in sampled_reads and isinstance(read, FieldRead):
+                encoding = time_encodings.get(read.field.ref.path)
+                if encoding is not None and encoding[5] is not None:
+                    name = unique("__sample_clock_" + str(index))
+                    # UTC is only the transport label for this private wall
+                    # clock; it is independent of the public native instant.
+                    extras[name] = localize("UTC", timestamp(encoding[5]))
+                    extra_keys[name] = coverage_field(sampled_reads[read_key])
+                    wall_paths.add(read.field.ref.path)
+            originals.extend(extras.items())
+            return extras
 
         def read_value(
             relation: ir.Table,
@@ -375,7 +498,7 @@ def prepare_fields(
             expression = read_value(table)
             dependencies.append(expression)
             originals.append((slot, expression))
-            table = table.mutate(**{slot: expression})
+            table = table.mutate(**{slot: expression}, **time_columns(expression))
         else:
             current = {name: name for name in entities[contribution.root.ref.path].columns}
             steps = read.path or (None,)
@@ -412,7 +535,7 @@ def prepare_fields(
                     expression = read_value(target)
                     dependencies.append(expression)
                     originals.append((slot, expression))
-                    target = target.mutate(**{slot: expression})
+                    target = target.mutate(**{slot: expression}, **time_columns(expression))
                 # Collapse before joining; the count makes duplicates an error rather than fanout.
                 right_keys = tuple(right for _, right in keys)
                 prefix = f"__route_{index}_{step_index}_"
@@ -439,22 +562,21 @@ def prepare_fields(
                 )
                 current = renamed
                 if final:
-                    table = table.mutate(**{slot: table[renamed[slot]]})
+                    table = table.mutate(
+                        **{slot: table[renamed[slot]]},
+                        **{name: table[renamed[name]] for name in extras},
+                    )
         columns.append((read_key, slot))
-        if read == time_read and selected_calendars:
-            table = table.filter(selected_time(table[slot]))
-        if read == time_read and contribution.period is not None:
-            from marivo.analysis.compiler.observation import temporal_bound
-
-            point = table[slot]
-            table = table.filter(
-                (point < temporal_bound(point, contribution.period.end, zone))
-                & (
-                    point >= temporal_bound(point, contribution.period.start, zone)
-                    if contribution.period.start is not None
-                    else ibis.literal(True)
-                )
-            )
+        columns.extend((key, name) for name, key in extra_keys.items())
+        if read == time_read and (read.path or read.at is not None) and selected_calendars:
+            table = table.filter(table[dict(columns)["__time_selected"]])
+        if (
+            read == time_read
+            and (read.path or read.at is not None)
+            and contribution.period is not None
+            and not selected_owns_period
+        ):
+            table = table.filter(table[dict(columns)["__time_period"]])
     for _, slot in columns:
         if table[slot].type().is_interval():
             from marivo.analysis.compiler.numeric_sql import duration_ticks, interval_part
@@ -468,9 +590,6 @@ def prepare_fields(
             )
             table = table.mutate(**{check: invalid, slot: duration_ticks(amount)})
             checks.append((check, "fixed elapsed Duration without calendar components", slot))
-    from marivo.analysis.compiler.observation import reduction_input
-
-    physical_axes = reduction_input(contribution, "", None).axes
     outer_reads = contribution.coordinates[: contribution.output_axis_count]
     sample_positions = {}
     for binding in contribution.memberships:
@@ -541,7 +660,9 @@ def prepare_fields(
 
     authorities = {path: item[2] for path, item in time_encodings.items()}
     coverage = (
-        sampling_coverage(contribution, state, calendar=None, authorities=authorities)
+        sampling_coverage(
+            contribution, state, calendar=None, authorities=authorities, wall_paths=wall_paths
+        )
         if not any(
             isinstance(axis, CalendarCoordinate) and not axis.cells
             for _, axis in contribution.calendars

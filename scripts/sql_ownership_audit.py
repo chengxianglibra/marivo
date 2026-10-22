@@ -191,6 +191,21 @@ def _manifest() -> Manifest:
         compile_owner,
     )
     add(
+        "analysis/materialization/graph_source_execution",
+        ("_mysql_source_timezones",),
+        (
+            "sqlglot",
+            "sqlglot.expressions",
+            "sqlglot.optimizer.pushdown_projections",
+            "sqlglot.optimizer.pushdown_projections.pushdown_projections",
+            "sqlglot.parse_one",
+        ),
+        Owner(
+            "non_submit_timezone_inspection",
+            "Inspect a copy of actual Ibis MySQL SQL for required literal CONVERT_TZ zones; grouping references are preserved and issued SQL is unchanged.",
+        ),
+    )
+    add(
         "analysis/materialization/graph_preflight",
         ("bind_entity_output",),
         ("source.compile",),

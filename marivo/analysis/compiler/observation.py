@@ -78,6 +78,7 @@ class ReductionInput:
     sampled: bool = False
     retain_quantile_bounds: bool = False
     native_quantile_value: bool = False
+    coverage: tuple[SampleCoverage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +128,16 @@ class FormulaProgram:
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
+
+
+def calendar_field(slot: str) -> str:
+    """Identify a private prepared calendar membership carrier."""
+    return f"__calendar_{slot}"
+
+
+def coverage_field(key: str) -> str:
+    """Identify a private observed wall-sample carrier."""
+    return f"__coverage_{key}"
 
 
 def reduction_input(
@@ -204,6 +215,10 @@ def lower_observation(
             if prepared.window_key is not None and calendar == prepared.calendar:
                 assert window_slot is not None
                 result[slot] = available[window_slot]
+                continue
+            captured = available.get(calendar_field(slot))
+            if captured is not None:
+                result[slot] = captured
                 continue
             assert prepared.time_column is not None
             time = available[prepared.time_column]
@@ -358,6 +373,29 @@ def lower_observation(
             ),
         )
         checks.extend((f"predicate_check.{i}", check) for i, check in enumerate(predicate_checks))
+    wall_keys = tuple(dict.fromkeys(item.key for item in prepared.coverage if item.wall_timezone))
+    if wall_keys:
+        # Coverage carries raw clocks separately from numeric grouping. Native
+        # projections may merge gap clocks or choose either repeated occurrence.
+        clocks = {coverage_field(key): filtered[columns[coverage_field(key)]] for key in wall_keys}
+        observed = filtered.select(**output_axes(fields), **clocks).distinct()
+        normal = result.mutate(
+            __coverage_row=ibis.literal(False),
+            **{name: ibis.null().cast(value.type()) for name, value in clocks.items()},
+        )
+        coverage = observed.select(
+            **{
+                name: observed[name]
+                if name in observed.columns
+                else ibis.literal(True)
+                if name == "__coverage_row"
+                else ibis.literal(False)
+                if normal[name].type().is_boolean()
+                else ibis.null().cast(normal[name].type())
+                for name in normal.columns
+            }
+        )
+        result = normal.union(coverage)
     return result, tuple(checks)
 
 

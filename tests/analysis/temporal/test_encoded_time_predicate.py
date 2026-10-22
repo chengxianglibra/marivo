@@ -125,7 +125,6 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         ("%d/%m/%Y", "string", "UTC"),
         ("%Y%m%d", "float64", "UTC"),
         ("%Y-%m-%d", "int64", "UTC"),
-        ("%Y-%m-%d %H:%M:%S", "string", "America/New_York"),
     ],
 )
 def test_unqualified_inverse_keeps_semantic_filter(fmt: str, kind: str, zone: str) -> None:

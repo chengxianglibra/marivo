@@ -1272,6 +1272,46 @@ def _actual_attribute_layout(
     )
 
 
+def _mysql_source_timezones(sql: str) -> tuple[str, ...]:
+    """Inspect required native conversion zones without changing issued SQL."""
+    import sqlglot
+    from sqlglot import expressions as sge
+    from sqlglot.optimizer.pushdown_projections import pushdown_projections
+
+    statement = sqlglot.parse_one(sql, read="mysql")
+    # Projection pruning does not resolve positional grouping references.
+    # Expand those references while the original SELECT list is still intact.
+    for select in statement.find_all(sge.Select):
+        group = select.args.get("group")
+        if not isinstance(group, sge.Group):
+            continue
+        values = select.expressions
+        references: list[sge.Expression] = []
+        for item in group.expressions:
+            if isinstance(item, sge.Literal) and item.is_int and 1 <= int(item.this) <= len(values):
+                selected = values[int(item.this) - 1]
+                references.append(
+                    (selected.this if isinstance(selected, sge.Alias) else selected).copy()
+                )
+            else:
+                references.append(item)
+        group.set("expressions", references)
+    # Ibis can retain unused values in inner SELECTs. Inspect only the required
+    # projection closure; raw-only membership needs no named zone tables.
+    statement = pushdown_projections(statement)
+    return tuple(
+        sorted(
+            {
+                zone.this
+                for conversion in statement.find_all(sge.ConvertTimezone)
+                for name in ("source_tz", "target_tz")
+                for zone in (conversion.args.get(name),)
+                if isinstance(zone, sge.Literal) and zone.is_string
+            }
+        )
+    )
+
+
 def read_stage(
     prepared: PreparedSources,
     stage: SourceRead,
@@ -1297,6 +1337,8 @@ def read_stage(
         purpose=f"query.{stage.stage_id}",
         expected_schema=expression.schema().to_pyarrow(),
     )
+    if source.provider.name == "mysql" and "CONVERT_TZ(" in issued.sql.upper():
+        source.verify_source_timezones(_mysql_source_timezones(issued.sql))
     from decimal import DecimalException
 
     try:
@@ -2023,13 +2065,16 @@ def _attribute_calendar_value(
     time_column: str,
     calendar: CalendarCoordinate | IntervalCoordinate,
     window_key: int | None,
+    slot: str,
 ) -> ir.Value:
     import ibis
 
-    from marivo.analysis.compiler.observation import temporal_bound
+    from marivo.analysis.compiler.observation import calendar_field, temporal_bound
 
     if window_key is not None:
         return ibis.literal(window_key).cast("int64")
+    if calendar_field(slot) in columns:
+        return table[columns[calendar_field(slot)]]
     time = table[columns[time_column]]
     if isinstance(calendar, IntervalCoordinate):
         return ibis.ifelse(
@@ -2240,6 +2285,7 @@ def prepare_attribute_sources(
                                 reduction.time_column,
                                 calendar,
                                 first.window_key,
+                                slot,
                             )
                         }
                     ),
@@ -2254,6 +2300,7 @@ def prepare_attribute_sources(
                                 reduction.time_column,
                                 calendar,
                                 first.window_key,
+                                slot,
                             )
                         }
                     ),

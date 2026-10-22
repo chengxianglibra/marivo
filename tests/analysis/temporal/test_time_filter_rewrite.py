@@ -204,11 +204,106 @@ def test_native_envelope_compiles_for_every_backend(engine: str) -> None:
     assert "point" in sql
 
 
-def test_named_zone_envelope_never_removes_native_residual() -> None:
+def test_named_zone_with_raw_lineage_uses_exact_wall_bound() -> None:
     table = ibis.table({"point": "timestamp"}, name="events")
     value = localize("America/New_York", table.point)
     left = datetime(2050, 1, 1, tzinfo=timezone.utc)
     expression = table.filter(value >= left)
     rewritten = time_filter.optimize_time(expression)
-    assert expression.op().predicates[0] in rewritten.op().predicates
-    assert len(rewritten.op().predicates) == 2
+    assert expression.op().predicates[0] not in rewritten.op().predicates
+    assert len(rewritten.op().predicates) == 1
+    assert rewritten.equals(table.filter(table.point >= datetime(2049, 12, 31, 19)))
+
+
+@pytest.mark.parametrize("owned", [True, False])
+def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback(
+    owned: bool,
+) -> None:
+    table = ibis.memtable(
+        {
+            "id": [0, 1, 2, 3],
+            "point": [
+                datetime(2026, 3, 8, 2, 30),
+                datetime(2026, 3, 8, 3),
+                datetime(2026, 3, 8, 3, 30),
+                None,
+            ],
+        },
+        schema={"id": "int64", "point": "timestamp"},
+    )
+    raw = table.point if owned else table.point.coalesce(datetime(2026, 3, 8, 2, 30))
+    value = localize("America/New_York", raw)
+    start = datetime(2026, 3, 8, 7, tzinfo=timezone.utc)
+    expression = table.filter((value >= start) & (value < start + timedelta(minutes=15))).select(
+        id=table.id, projected=value
+    )
+    backend = ibis.duckdb.connect(TimeZone="UTC")
+    try:
+        result = backend.execute(lower_temporal(expression, "duckdb"))
+        if owned:
+            assert result.id.tolist() == [0, 1]
+            assert result.projected.tolist() == [start + timedelta(minutes=30), start]
+        else:
+            pd.testing.assert_frame_equal(result, backend.execute(expression))
+            assert result.id.tolist() == [1]
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize(
+    "day,clocks,start,end,expected",
+    [
+        (
+            "2026-03-08",
+            ("02:30", "03:00", "03:30"),
+            "07:00",
+            "07:15",
+            [0, 1],
+        ),
+        (
+            "2026-11-01",
+            ("00:59", "01:00", "01:15", "01:30", "01:59", "02:00"),
+            "05:30",
+            "06:30",
+            [1, 2],
+        ),
+    ],
+)
+def test_prepared_view_retains_exact_gap_and_fold_raw_predicates(
+    day: str,
+    clocks: tuple[str, ...],
+    start: str,
+    end: str,
+    expected: list[int],
+) -> None:
+    import ibis.expr.operations as ops
+
+    table = ibis.memtable(
+        {
+            "id": range(len(clocks) + 1),
+            "point": [*(datetime.fromisoformat(f"{day} {clock}") for clock in clocks), None],
+        },
+        schema={"id": "int64", "point": "timestamp"},
+    )
+    prepared = table.mutate(v=localize("America/New_York", table.point)).view()
+    left = datetime.fromisoformat(f"{day} {start}").replace(tzinfo=timezone.utc)
+    right = datetime.fromisoformat(f"{day} {end}").replace(tzinfo=timezone.utc)
+    expression = prepared.filter(prepared.v >= left, prepared.v < right)
+    rewritten = time_filter.optimize_time(expression)
+    # Both predicates must reach retained raw clocks through the prepared view.
+    # This also distinguishes the fold path where native NY membership agrees.
+    assert all(
+        isinstance(predicate, (ops.GreaterEqual, ops.Less))
+        and isinstance(predicate.left, ops.Field)
+        and predicate.left.name == "point"
+        for predicate in rewritten.op().predicates
+    )
+    backend = ibis.duckdb.connect(TimeZone="UTC")
+    try:
+        result = backend.execute(lower_temporal(expression, "duckdb"))
+        assert result.id.tolist() == expected
+        if day == "2026-03-08":
+            # Membership changed, while native projected gap values stay intact.
+            assert result.v.tolist() == [left + timedelta(minutes=30), left]
+    finally:
+        backend.disconnect()

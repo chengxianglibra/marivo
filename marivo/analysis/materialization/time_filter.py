@@ -9,13 +9,19 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo.analysis.compiler._wall_order import wall_order_bound
 from marivo.analysis.compiler.source_time import (
     _ORDERED_FORMATS,
+    _complement,
     _duckdb_strptime,
     _localize_native,
+    _raw_lineage,
     _render_native,
+    _scalar_cutoff,
     ordered_time_literal,
 )
+from marivo.analysis.core.time_authority import time_zone
+from marivo.semantic.ir import StrptimeParse
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _PROBE).op())
@@ -62,7 +68,7 @@ def _resolved(node: ops.Value) -> ops.Value:
     while isinstance(node, ops.Field):
         if isinstance(node.rel, ops.Project):
             node = node.rel.values[node.name]
-        elif isinstance(node.rel, ops.Filter):
+        elif isinstance(node.rel, (ops.Filter, ops.Reference)):
             node = ops.Field(node.rel.parent, node.name)
         else:
             break
@@ -169,6 +175,68 @@ def _encoded_guard(
     return raw == literal if operation is ops.Equals else raw != literal
 
 
+def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
+    """Translate only compiler-owned clocks with a retained physical field."""
+    if not isinstance(node, _COMPARISONS):
+        return None
+    clock, bound, reverse = _clock(node.left), _bound(node.right), False
+    if clock is None or bound is None:
+        clock, bound, reverse = _clock(node.right), _bound(node.left), True
+    if clock is None or bound is None:
+        return None
+    zone, raw_node, shift, civil = clock
+    if civil and zone != "UTC":
+        return None
+    encoded = _encoded(raw_node)
+    raw = _raw_for(encoded[0] if encoded else raw_node, parent)
+    if raw is None or not _raw_lineage(raw):
+        return None
+    operation = type(node)
+    if reverse:
+        operation = {
+            ops.Greater: ops.Less,
+            ops.GreaterEqual: ops.LessEqual,
+            ops.Less: ops.Greater,
+            ops.LessEqual: ops.GreaterEqual,
+        }.get(operation, operation)
+
+    def lower(strict: bool) -> ir.BooleanValue | None:
+        cutoff, inclusive = wall_order_bound(bound, time_zone(zone), strict=strict)
+        return _scalar_cutoff(
+            raw,
+            StrptimeParse(encoded[1]) if encoded else None,
+            cutoff - shift,
+            inclusive=inclusive,
+        )
+
+    try:
+        if operation in (ops.GreaterEqual, ops.Less):
+            result = lower(False)
+            return (
+                None
+                if result is None
+                else result
+                if operation is ops.GreaterEqual
+                else _complement(result)
+            )
+        if operation in (ops.Greater, ops.LessEqual):
+            result = lower(True)
+            return (
+                None
+                if result is None
+                else result
+                if operation is ops.Greater
+                else _complement(result)
+            )
+        first, last = lower(False), lower(True)
+        if first is None or last is None:
+            return None
+        equal = first & ~last
+        return equal if operation is ops.Equals else ~equal
+    except OverflowError:
+        return None
+
+
 def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
     if isinstance(node, ops.Literal) and isinstance(node.value, bool):
         return ibis.literal(node.value)
@@ -239,9 +307,7 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
 
 
 def optimize_time(expression: ir.Expr) -> ir.Expr:
-    """Add safe scan envelopes while retaining exact backend time semantics."""
-    # Keep the exact original predicates. Additional bare-column guards are
-    # implications of each existing filter, including every OR branch.
+    """Lower qualified local clocks and add guards to remaining native filters."""
     existing_ranges = tuple(
         atom
         for filtered in expression.op().find(ops.Filter)
@@ -252,6 +318,18 @@ def optimize_time(expression: ir.Expr) -> ir.Expr:
     def scan(node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
         value = node.copy(**kwargs)
         if isinstance(value, ops.Filter):
+
+            def exact(
+                item: ops.Node, _children: Mapping[ops.Node, ops.Node], **parts: object
+            ) -> ops.Node:
+                updated = item.copy(**parts)
+                replacement = (
+                    _exact(updated, value.parent) if isinstance(updated, ops.Value) else None
+                )
+                return replacement.op() if replacement is not None else updated
+
+            predicates = tuple(p.map(exact)[p] for p in value.predicates)
+            value = ops.Filter(value.parent, predicates)
             guards = tuple(_scan(p, value.parent) for p in value.predicates)
             existing = (
                 *existing_ranges,

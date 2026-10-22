@@ -217,11 +217,11 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     ]
     bucket_branches.sort(key=lambda branch: int(branch.args["true"].this))
     assert [branch.args["true"].this for branch in bucket_branches] == ["0", "1"]
-    # The current source lowering puts bucket assignment in SELECT. Placement
-    # under a JOIN was a legacy plan detail; both exact half-open intervals matter.
-    expected_bounds = (
-        ("MAKE_TIMESTAMP(2026, 8, 1, 0, 0, 0.0)", "MAKE_TIMESTAMP(2026, 9, 1, 0, 0, 0.0)"),
-        ("MAKE_TIMESTAMP(2026, 9, 1, 0, 0, 0.0)", "MAKE_TIMESTAMP(2026, 10, 1, 0, 0, 0.0)"),
+    # Selection and bucket assignment use the same typed raw encoding bounds.
+    quote = "" if integer else "'"
+    expected_bounds = tuple(
+        (f"{quote}{start}{quote}", f"{quote}{end}{quote}")
+        for start, end in (("20260801", "20260901"), ("20260901", "20261001"))
     )
     for branch, (start, end) in zip(bucket_branches, expected_bounds, strict=True):
         lower, upper = branch.this.find(sge.GTE), branch.this.find(sge.LT)

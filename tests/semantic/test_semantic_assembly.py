@@ -583,3 +583,25 @@ def test_physical_entity_dependency_fingerprint_preserves_consumed_identity() ->
     assert entity_dependency_fingerprint(_make_registry(), "sales.orders") == (
         "286567904d7b1d6f84c8fc8aaad672d0e901d816268de1a831cead1d7690cde1"
     )
+
+
+@pytest.mark.parametrize("parse", [StrptimeParse("%Y%m%d%H"), HourPrefixParse(prefix="other")])
+def test_hour_prefix_rejects_known_timestamp_prefix_kind(
+    parse: StrptimeParse | HourPrefixParse,
+) -> None:
+    registry = _make_registry()
+    registry.dimensions["sales.orders.order_date"] = dataclasses.replace(
+        registry.dimensions["sales.orders.order_date"], parse=parse
+    )
+    registry.dimensions["sales.orders.order_hour"] = dataclasses.replace(
+        registry.dimensions["sales.orders.order_date"],
+        semantic_id="sales.orders.order_hour",
+        name="order_hour",
+        parse=HourPrefixParse(prefix="order_date"),
+    )
+    errors, _warnings = assembly_validate(registry)
+    matching = [error for error in errors if "sales.orders.order_hour" in error.semantic_refs]
+    assert len(matching) == 1
+    assert matching[0].expected == "civil-date TimeDimension"
+    assert matching[0].received == type(parse).__name__
+    assert "civil-date" in matching[0].repair.action

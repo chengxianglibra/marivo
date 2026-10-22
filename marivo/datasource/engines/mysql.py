@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
@@ -195,8 +196,50 @@ register_provider_statements(
             template="SELECT @@session.max_allowed_packet AS packet_limit",
             allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
+        "timezone.verify": ProviderStatement(
+            statement_id="mysql.timezone.verify",
+            template=(
+                "SELECT CONVERT_TZ('2000-01-01 00:00:00', '+00:00', {timezone}) AS converted"
+            ),
+            literal_slots=frozenset({"timezone"}),
+            allowed_purposes=frozenset({"datasource.timezone"}),
+        ),
     },
 )
+
+
+def verify_source_timezone(backend: BaseBackend, name: str) -> None:
+    """Require MySQL's native projection to recognize one selected timezone."""
+    try:
+        rows = execute_provider_statement(
+            backend,
+            PROFILE,
+            "mysql.timezone.verify",
+            values={"timezone": name},
+            purpose="datasource.timezone",
+        )
+    except Exception as cause:
+        raise _source_timezone_unavailable(name) from cause
+    converted = rows[0].get("converted") if len(rows) == 1 else None
+    if not isinstance(converted, datetime):
+        raise _source_timezone_unavailable(name)
+
+
+def _source_timezone_unavailable(name: str) -> DatasourceConnectionError:
+    return DatasourceConnectionError(
+        message="The MySQL reader cannot convert the selected source timezone.",
+        expected="a non-NULL native CONVERT_TZ result for the selected timezone",
+        received=name,
+        location="datasource.timezone",
+        repair=repair(
+            kind="configure",
+            canonical_id="mysql",
+            action=(
+                "Load MySQL time zone tables for the selected timezone and reconnect "
+                "the datasource before time-sensitive analysis."
+            ),
+        ),
+    )
 
 
 def _mysql_rows(

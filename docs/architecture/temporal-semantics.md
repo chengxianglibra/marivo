@@ -39,19 +39,30 @@ Schema preparation captures reader timezone and origin; execution rechecks engin
 authority before business reads. Fixed-data operations and cold recovery neither
 probe readers nor resolve the current host timezone.
 
-Civil dates do not shift. Source wall clocks localize before instant comparison;
-physical instants preserve their meaning. Logical temporal kind and physical
-precision are checked independently. Unsupported exact conversion fails without
-truncation. Source wall-clock conversion follows the owning backend's native
-interpretation, including repeated and nonexistent local times. Marivo does not
-reject source gap/fold values, inspect alternative instants, or compare backend
-rules with Python's timezone database. Backend NULLs and conversion errors retain
-their native behavior. Different backends may choose different instants for the
-same ambiguous source wall clock. Session input boundaries and calendar
-construction retain their separate exactness and validation contracts.
-Hourly reporting grids retain both occurrences of a repeated civil hour as
-distinct instant buckets, even when their civil labels match. Predicate literals
-must match a field's civil/instant kind.
+Civil dates do not shift; physical instants preserve their meaning. Logical
+kind and physical precision are checked independently. Unsupported exact
+conversion fails without truncation. Projected source values retain the backend's
+native gap/fold interpretation.
+
+Constant-bound membership of a source local clock with raw lineage uses wall
+order in its resolved source timezone. An ordinary clock denotes its unique
+instant, a repeated clock the later occurrence, and a skipped clock the transition
+instant. The compiler translates each exact boundary into the first qualifying
+wall clock, then rounds up to the physical representation. Filtering, calendar
+assignment, windows, Population and version selection share these boundaries.
+Consequently the first occurrence of a repeated reporting hour can be an empty
+cell; both instant coordinates remain in the calendar. Skipped source clocks
+violate the producer declaration but are placed deterministically without a row
+audit. Native projected values can differ from this membership at transitions.
+Expressions without admitted raw lineage keep native membership.
+
+Session input boundaries and calendar construction retain their exact validation:
+unresolved ambiguous/nonexistent civil boundaries reject; aware instants remain
+exact. Reporting grids retain both occurrences of a repeated civil hour.
+`hour_prefix(prefix)` combines a civil-date prefix and hour using the prefix's
+source context and reader default. A CivilDate has no intrinsic timezone; the
+composite does not copy the report timezone or introduce an independent parser
+parameter. Predicate literals match the field's civil/instant kind.
 
 ## Output axes and observation time
 
@@ -188,48 +199,44 @@ that boundary: hour encoding over [10:30,11:30) selects >=11 and <12. Aligned
 exclusive upper bounds stay excluded. Nulls do not contribute, empty intervals
 stay empty, and physical limits/ceiling overflow do not create invalid literals.
 
-The encoded contribution inverse supports UTC or fixed-offset authority. The
-shared physical rewrite also derives scan guards from the supported
-encoded comparisons beneath calendar selection, ordinary predicates and
-Population reads. Unsupported encodings and composite hour-prefix expressions
-keep native evaluation. Exact contribution inverses replace parsed conditions;
-scan guards retain the original exact predicates.
-Only parser operations carrying the authored `ms.strptime` canonical-encoding
-contract qualify. An ordinary Ibis string-to-timestamp expression does not
-acquire fixed widths or ordering merely because its format looks similar.
+Raw ordered clock encodings use the same wall-order boundary translation in
+named or fixed source zones. Hour-prefix composition can use lexicographic raw
+`(date, hour)` bounds when the date prefix and hour have admitted lineage.
+Non-ordered encodings and custom expressions retain native execution. Ordinary
+Ibis parser syntax alone does not establish canonical encoding or ordering.
 
-## Backend-native physical time execution
+## Physical time execution
 
 Production DuckDB connections use eight threads and UTC. The test suite's
 independent one-thread-per-worker cap is not a production connection setting.
 
-The shared physical temporal pass runs before native SQL lowering for DuckDB,
-PostgreSQL, MySQL, ClickHouse and Trino. It handles observation, calendar,
-Population and version consumers. Compiler-owned UTC inverse pairs are cancelled
-with output type and precision preserved; named-zone round trips retain the
-provider's conversion semantics. This pass performs no backend queries and reads
-no TZif files, transition directories or Python named-zone offsets.
+The compiler distinguishes three forms per predicate: an exact typed raw-column
+comparison (A), a safe coarse scan guard plus the exact native predicate (B), or
+native filtering (C). Missing an inverse is an optimization miss. For raw local
+clocks, A supplies governed wall-order membership and the native predicate must
+not be added back, since it can select skipped clocks differently. Other valid
+expressions continue through B/C when exact inversion is unavailable.
 
-UTC and fixed-offset comparisons have exact raw bounds. Named-zone comparisons
-add conservative raw-column envelopes based on offsets strictly within +/-24
-hours; a civil round trip uses a two-day margin because it contains two offsets.
-The exact native predicate always remains, so gap normalization, fold choice,
-NULL behavior and native errors stay provider-owned. These envelopes can read
-more rows than an exact inverse but require neither endpoint-offset guesses nor
-transition rules. Missing usable bounds or unsafe/unrecognized expression shapes
-retain the original filter. There is no year or horizon-length restriction.
-Only canonical authored encodings support raw encoded inversion; arbitrary Ibis
-parsers do not acquire that promise. Existing UTC/fixed encoded contribution
-inversion remains shared; physical parser recognition retains provider-specific
-operation shapes.
+Native Instant/CivilDate rewrites preserve backend meaning, endpoints, precision
+and nullable truth values. Constants match the raw type; transformed aliases and
+implicit column casts do not establish A. Finite sparse calendars retain exact
+cell unions, and bucket CASE expressions use the same raw boundaries as filtering.
+One-sided windows need no invented lower bound or horizon enumeration.
 
-Guards attach to existing filters and preserve boolean structure. Shared source,
-Population, contribution-window and version ordering remain independent. Source
-DST rejection checks and alternative-instant error witnesses are not generated.
-Scalar relationship uniqueness, sample completeness, type/precision and other
-independent semantic checks remain. No partition enumeration, business-row
-preflight or production EXPLAIN is added. SQL compilation support does not itself
-establish real-provider Runtime acceptance or equal performance across engines.
+Compiler-owned UTC cancellation preserves output type and precision. Existing
+safe envelopes remain useful for unsupported shapes. No source declaration audit,
+production EXPLAIN, generic inverse registry or backend policy replica is added.
+Scalar relationship uniqueness, sample completeness, version cardinality and
+other independent checks remain. Sampling on raw local clocks uses representable
+wall points under the same membership instead of requiring an indistinguishable
+first fold occurrence.
+
+Predicate shape alone does not establish physical pruning or index usage.
+Runtime evidence identifies the actual provider, connector and table; local SQL
+compilation does not qualify an unrun remote backend. Frozen output coordinates
+and source-free cold reads retain their owning contracts without optimizer-state
+persistence. Implementation and validation evidence is recorded in the
+[progress ledger](temporal-timezone-filtering-progress.md).
 
 ## Implementation map
 

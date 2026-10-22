@@ -234,7 +234,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
 @pytest.mark.parametrize(
     "window_session", [("TIMESTAMP", "ms.timestamp(timezone='America/New_York')")], indirect=True
 )
-def test_naive_source_sampling_keeps_coverage_and_native_fold_choice(
+def test_naive_source_sampling_uses_representable_wall_clocks(
     window_session: Session, tmp_path: Path
 ) -> None:
     session = window_session
@@ -256,8 +256,9 @@ def test_naive_source_sampling_keeps_coverage_and_native_fold_choice(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 00:00:00',10), (2,'2026-11-01 01:00:00',20), (3,'2026-11-01 02:00:00',30)"
         )
     scope = session.time_scope(start="2026-11-01T04:00Z", end="2026-11-01T08:00Z")
-    with pytest.raises(AnalysisError, match=r"sample|coverage|ambiguous"):
-        session.observe({"mean": metric}, by=(scope,)).compute()
+    assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        ("value", "mean")
+    ].tolist() == [20.0]
     assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
         ("value", "mean")
     ].tolist() == [20.0]
@@ -278,6 +279,104 @@ def test_naive_source_sampling_keeps_coverage_and_native_fold_choice(
     assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
         ("value", "mean")
     ].tolist() == [10.0]
+
+    # DuckDB projects skipped 02:00 to the same instant as 03:00. That raw
+    # skipped clock must not satisfy a missing representable 03:00 sample.
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES "
+            "(1,'2026-03-08 00:00:00',10), (2,'2026-03-08 01:00:00',20), "
+            "(3,'2026-03-08 02:00:00',30)"
+        )
+    with pytest.raises(AnalysisError, match=r"sample|coverage"):
+        session.observe({"mean": metric}, by=(scope,)).compute()
+
+
+@pytest.mark.parametrize(
+    "window_session", [("TIMESTAMP", "ms.timestamp(timezone='America/New_York')")], indirect=True
+)
+@pytest.mark.parametrize(
+    "start,end,clocks,expected,clipped,selected_ids",
+    [
+        (
+            "2026-11-01T04:00Z",
+            "2026-11-01T08:00Z",
+            (
+                "2026-11-01 00:45",
+                "2026-11-01 01:00",
+                "2026-11-01 01:15",
+                "2026-11-01 01:45",
+                "2026-11-01 02:15",
+            ),
+            [1, 0, 14, 16],
+            ("2026-11-01T05:30Z", "2026-11-01T06:30Z"),
+            [2, 3],
+        ),
+        (
+            "2026-03-08T06:00Z",
+            "2026-03-08T08:00Z",
+            (
+                "2026-03-08 01:15",
+                "2026-03-08 02:00",
+                "2026-03-08 02:30",
+                "2026-03-08 03:15",
+                "2026-03-08 04:00",
+            ),
+            [1, 14],
+            ("2026-03-08T07:00Z", "2026-03-08T07:30Z"),
+            [2, 3, 4],
+        ),
+    ],
+)
+def test_wall_membership_calendar_windows_and_population_agree(
+    window_session: Session,
+    tmp_path: Path,
+    start: str,
+    end: str,
+    clocks: tuple[str, ...],
+    expected: list[int],
+    clipped: tuple[str, str],
+    selected_ids: list[int],
+) -> None:
+    session = window_session
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (?, ?, ?)",
+            [(index + 1, clock, 2**index) for index, clock in enumerate(clocks)],
+        )
+        connection.execute("INSERT INTO orders (id, amount) VALUES (99, 999)")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    at = session.catalog.fields.get("sales.orders.sample_at")
+    metric = amount.sum(time=at)
+    scope = session.time_scope(start=start, end=end)
+    calendar = scope.by(mv.grain("hour"))
+    values = (
+        session.observe(
+            {"ordinary": metric, "history": metric.window(mv.all_history())}, by=(calendar,)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert values.iloc[:, 0].tolist() == list(range(len(expected)))
+    assert values[("value", "ordinary")].tolist() == expected
+    assert values[("value", "history")].tolist() == [
+        sum(expected[: index + 1]) for index in range(len(expected))
+    ]
+    selected_scope = session.time_scope(start=clipped[0], end=clipped[1])
+    members = session.members(
+        session.catalog.entities.get("sales.orders"), where=at.within(selected_scope)
+    )
+    assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == selected_ids
+    total = sum(2 ** (index - 1) for index in selected_ids)
+    assert session.observe({"value": metric}, by=(selected_scope,)).compute().to_pandas()[
+        ("value", "value")
+    ].tolist() == [total]
+    # Membership owns its clipped selection even when contribution time expands.
+    assert session.observe(
+        {"value": metric}, by=(scope,), where=mv.in_population(members)
+    ).compute().to_pandas()[("value", "value")].tolist() == [total]
 
 
 def test_sparse_shift_observes_raw_contributions_and_nominal_windows(

@@ -326,8 +326,10 @@ def timestamp(
     """Declare an already-temporal timestamp column parse.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a native timestamp type. Source gap/fold values follow
-    the backend's native interpretation without an additional Marivo rejection.
+    source column is a native timestamp type. Projection follows the backend's
+    native interpretation. Constant-bound membership of a raw local clock uses
+    wall order: repeated clocks denote the later occurrence and skipped clocks
+    denote the transition instant.
 
     Args:
         timezone: Optional IANA source zone for naive timestamp columns. When
@@ -373,8 +375,9 @@ def strptime(
 
     Analysis can invert ordered calendar encodings into bare-column range
     predicates without additional queries or source validation. Unsupported
-    inverses keep the parsed predicate. Time-bearing values follow the backend's
-    native gap/fold interpretation. This guarantee assumes compliant source
+    inverses keep the parsed predicate. Ordered raw local-clock membership uses
+    wall order; projected values retain native gap/fold interpretation.
+    This guarantee assumes compliant source
     values; values excluded by the range are not inspected for contract violations.
 
     Args:
@@ -419,8 +422,11 @@ def hour_prefix(
     """Declare an hour-only partition parse using a day prefix column.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column encodes only the hour component (e.g. ``"01"``, ``"23"``)
-    and must be combined with a day-level time dimension prefix. The physical
+    source column encodes an hour in 0..23 (canonical two-digit strings such as
+    ``"01"`` and ``"23"``, or integers)
+    and must be combined with a civil-date time dimension prefix. The combined
+    clock inherits the prefix source context, using its resolved reader timezone
+    when the date has no intrinsic timezone. The physical
     column type (string or integer) is inferred from the ibis expression at
     analysis time.
 

@@ -7,6 +7,8 @@ from datetime import timezone, tzinfo
 from typing import Literal
 from zoneinfo import ZoneInfoNotFoundError
 
+from ibis.backends import BaseBackend
+
 from marivo._timezones import (
     fixed_offset_timezone_candidate,
     system_timezone_candidate,
@@ -115,6 +117,19 @@ def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
         engine_timezone_resolution="fixed_offset" if isinstance(zone, timezone) else "iana",
         read_tz_resolution="engine",
     )
+
+
+def verify_source_timezone(backend: BaseBackend, name: str) -> None:
+    """Verify a selected native projection timezone where the provider requires it."""
+    profile = profile_for_backend(backend)
+    if profile.name == "mysql":
+        from marivo.datasource.engines.mysql import verify_source_timezone as verify_mysql
+
+        normalized, zone = parse_timezone(name)
+        # Fixed offsets use clock arithmetic and UTC is lowered to +00:00;
+        # neither path depends on MySQL's optional named time zone tables.
+        if normalized != "UTC" and not isinstance(zone, timezone):
+            verify_mysql(backend, normalized)
 
 
 def system_timezone_name() -> str:

@@ -116,6 +116,7 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
             assert isinstance(timestamp, ir.TimestampValue)
             localize = type(value) is _LOCALIZE
             if engine == "mysql":
+                zone = "+00:00" if zone == "UTC" else zone
                 source, target = (zone, "+00:00") if localize else ("+00:00", zone)
                 convert = _mysql_localize if localize else _mysql_convert
                 return convert(timestamp, source, target).op()
