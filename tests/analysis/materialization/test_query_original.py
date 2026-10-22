@@ -155,10 +155,6 @@ def test_explicit_source_signed_sum_and_zero_denominator(original_source_session
     ).compute()
     assert result.to_pandas()[("value", "sum")].tolist() == [0]
     assert result.to_pandas()[("value", "ratio")].isna().all()
-    with pytest.raises(AnalysisError, match="denominator"):
-        session.observe(
-            {"ratio": amount.count().divide(amount.sum(), zero_denominator="error")}
-        ).compute()
 
 
 def test_member_count_uses_complete_identities_and_selected_fine_keys(

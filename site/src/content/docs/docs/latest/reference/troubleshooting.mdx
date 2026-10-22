@@ -25,13 +25,13 @@ cannot rebind them. Continuing the [tutorial](/docs/latest/guides/python-quick-s
 
 ```python
 aligned = current.align(
-    baseline, on=((current.axes[0], baseline.axes[0]),), how="outer",
+    baseline, on=((current.axes[0], baseline.axes[0]),),
 )
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
 difference.show()
 ```
 
-Exact requires unique complete joint matching keys. Outer keeps missing sides
+Outer correspondence requires unique complete joint keys and keeps missing sides
 with independent presence, without zero fill. Field Null is a valid category.
 read requires a complete Entity identity domain, nonempty fields and valid
 single-valued routes/version anchors. A later filter cannot hide required errors.

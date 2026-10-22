@@ -24,13 +24,11 @@ def _plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     return plain(result)
 
 
-def _proportions(frame: pd.DataFrame, *, zero_denominator: str = "null") -> pd.DataFrame:
+def _proportions(frame: pd.DataFrame) -> pd.DataFrame:
     """Compute explicit represented-value proportions, with no contribution claim."""
     result = frame.copy(deep=True)
     numbers = [_number(value) for value in frame["value"]]
     denominator = sum((value for value in numbers if value is not None), Fraction())
-    if not denominator and zero_denominator == "error":
-        raise ValueError("nonzero represented denominator is required")
     result["value.share"] = pd.Series(
         [
             pd.NA if value is None or not denominator else float(value / denominator)
@@ -441,8 +439,6 @@ def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory
         db.execute('UPDATE "order" SET amount=0')
     values = _monthly(case, "revenue")
     assert _proportions(_plain(values.compute()))["value.share"].isna().all()
-    with pytest.raises(ValueError, match="nonzero represented denominator"):
-        _proportions(_plain(values.compute()), zero_denominator="error")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             "UPDATE \"order\" SET amount=CASE customer_id WHEN 'A' THEN 60 WHEN 'B' THEN 120 WHEN 'C' THEN -30 ELSE 0 END"

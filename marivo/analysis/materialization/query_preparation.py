@@ -539,8 +539,28 @@ def prepare_fields(
             )
             table = table.mutate(**{check: invalid, slot: duration_ticks(amount)})
             checks.append((check, "fixed elapsed Duration without calendar components", slot))
+    from marivo.analysis.compiler.observation import reduction_input
+
+    physical_axes = reduction_input(contribution, "", None).axes
+    outer_reads = contribution.coordinates[: contribution.output_axis_count]
+    sample_positions = {}
+    for binding in contribution.memberships:
+        allocated = membership_reads(binding, contribution.root)
+        if any(read in outer_reads for read in allocated):
+            continue
+        paths = {path for read in allocated for path in coordinate_read_keys(read)}
+        sample_positions[binding] = min(
+            int(slot.split(".")[1]) for slot, path in physical_axes if path in paths
+        )
     members = prepare_memberships(
-        table, contribution.root, contribution.memberships, entities, state, value, unique
+        table,
+        contribution.root,
+        contribution.memberships,
+        entities,
+        state,
+        value,
+        unique,
+        sample_positions=sample_positions,
     )
     table = members.table
     columns.extend(members.columns)

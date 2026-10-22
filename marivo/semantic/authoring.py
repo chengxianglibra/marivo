@@ -105,7 +105,6 @@ class _RetiredPolicy:
 
 empty = _RetiredPolicy("empty")
 nulls = _RetiredPolicy("nulls")
-zero_denominator = _RetiredPolicy("zero_denominator")
 
 __all__ = [
     "additive",

@@ -160,23 +160,18 @@ def test_decimal38_negation_preserves_every_digit_under_caller_context(
     assert str(result[("value", "negative")].dtype) == "decimal128(38, 0)[pyarrow]"
 
 
-def test_column_na_over_zero_propagates_but_nonmissing_zero_divisions_fail(
+def test_column_na_and_zero_division_remain_nullable(
     core_session: Session,
 ) -> None:
     base = core_session.values(by=(), columns={"zero": None}, rows=(((), {"zero": 0}),))
     nullable = base.select({"x": base["zero"] / base["zero"], "zero": base["zero"]})
-    result = (
-        nullable.select({"v": nullable["x"].divide(nullable["zero"], zero_denominator="error")})
-        .compute()
-        .to_pandas()
-    )
+    result = nullable.select({"v": nullable["x"] / nullable["zero"]}).compute().to_pandas()
     assert len(result) == 1 and result[("value", "v")].isna().all()
     for numerator in (0, 1):
         query = core_session.values(by=(), columns={"x": None}, rows=(((), {"x": numerator}),))
-        with pytest.raises(AnalysisError) as error:
-            query.select({"v": query["x"].divide(0, zero_denominator="error")}).compute()
-        assert isinstance(error.value.__cause__, SemanticExpressionError)
-        assert error.value.__cause__.expected == "a nonzero denominator"
+        assert (
+            query.select({"v": query["x"] / 0}).compute().to_pandas()[("value", "v")].isna().all()
+        )
 
 
 def test_literal_duration_sum_and_mean_keep_declared_microseconds(core_session: Session) -> None:
@@ -401,16 +396,10 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         4,
     ]
     missing = query.select({"d": query["d"] / 0})
-    finished = (
-        missing.reduce({"sum": missing["d"].divide(0, zero_denominator="error").sum()})
-        .compute()
-        .to_pandas()
-    )
+    finished = missing.reduce({"sum": (missing["d"] / 0).sum()}).compute().to_pandas()
     assert pa.array(finished[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
-    with pytest.raises(AnalysisError) as zero:
-        query.reduce({"d": query["d"].divide(0, zero_denominator="error").sum()}).compute()
-    assert isinstance(zero.value.__cause__, SemanticExpressionError)
-    assert zero.value.__cause__.expected == "a nonzero denominator"
+    zero = query.reduce({"d": (query["d"] / 0).sum()}).compute().to_pandas()
+    assert zero[("value", "d")].isna().all()
     pq.write_table(
         pa.table({"id": [1], "elapsed": pa.array([2**62], type=pa.duration("ns"))}), path
     )

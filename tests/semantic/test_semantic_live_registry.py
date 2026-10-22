@@ -228,7 +228,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "population_value",
                 "construction_mode",
                 "aggregation_filter",
-                "denominator_failure",
                 "root_fanout",
                 "unit_additivity",
                 "temporal_behavior",

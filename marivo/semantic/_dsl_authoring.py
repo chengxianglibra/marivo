@@ -143,17 +143,6 @@ class EmptyContributionPolicyV1:
             raise TypeError("Use ms.empty.zero() or ms.empty.null()")
 
 
-@dataclass(frozen=True, slots=True)
-class ZeroDenominatorPolicyV1:
-    kind: Literal["undefined", "error"]
-    version: Literal[1] = 1
-    _token: InitVar[object] = None
-
-    def __post_init__(self, _token: object) -> None:
-        if _token is not _TOKEN:
-            raise TypeError("Use ms.zero_denominator.undefined() or .error()")
-
-
 class _Nulls:
     def reject(self) -> NullInputPolicyV1:
         """Declare that selected Null inputs reject aggregation.
@@ -194,26 +183,6 @@ class _Empty:
         return _empty_null()
 
 
-class _ZeroDenominator:
-    def undefined(self) -> ZeroDenominatorPolicyV1:
-        """Declare Undefined for division by zero.
-
-        Returns: A versioned denominator policy.
-        Example: ``zero_denominator=ms.zero_denominator.undefined()``.
-        Constraints: Execution requires a method that supports this policy.
-        """
-        return _zero_denominator_undefined()
-
-    def error(self) -> ZeroDenominatorPolicyV1:
-        """Reject division by zero.
-
-        Returns: A versioned denominator policy.
-        Example: ``zero_denominator=ms.zero_denominator.error()``.
-        Constraints: Execution requires a method that supports this policy.
-        """
-        return ZeroDenominatorPolicyV1("error", _token=_TOKEN)
-
-
 def _nulls_ignore() -> NullInputPolicyV1:
     """Construct the ignore-Null policy for ``ms.nulls.ignore()``."""
     return NullInputPolicyV1("ignore", _token=_TOKEN)
@@ -224,11 +193,5 @@ def _empty_null() -> EmptyContributionPolicyV1:
     return EmptyContributionPolicyV1("null", _token=_TOKEN)
 
 
-def _zero_denominator_undefined() -> ZeroDenominatorPolicyV1:
-    """Construct the Undefined-zero policy for ``ms.zero_denominator.undefined()``."""
-    return ZeroDenominatorPolicyV1("undefined", _token=_TOKEN)
-
-
 nulls = _Nulls()
 empty = _Empty()
-zero_denominator = _ZeroDenominator()

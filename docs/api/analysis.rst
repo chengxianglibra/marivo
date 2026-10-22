@@ -26,8 +26,9 @@ Coordinates also accepts field coordinates and correlated field/identity tuples.
 ``population.axes`` reuses grouping definitions without selected keys.
 ``by=population`` selects complete output keys, including keys without facts.
 CalendarAxis is a calendar Grouping. Membership rules preserve correlated tuples
-through the separate ``memberships`` parameter on observe or Metric.per;
-Population stores no allocation rules.
+directly in observe.by or Metric.per, including interleaved field positions;
+Population stores no allocation rules. External output domains must cover necessary
+complete keys before internal sampling; internal sample domains may select subsets.
 
 ``population.count()`` counts complete distinct tuples as a lazy integer Metric,
 including Null categories and references without source facts. Empty domains
@@ -64,11 +65,11 @@ complete current axes; () uses all rows. Empty input stays empty. Nested over
 counts repeated broadcast values, and where/top consume the full input partition
 before selecting rows.
 
-``column.share(along=axes, zero_denominator="null")`` divides current values by
+``column.share(along=axes)`` divides current values by
 their partition sum, summing along the named axes and partitioning by the remaining
 axes. ``along`` is a nonempty tuple of distinct complete same-input axes; zero-axis
 inputs require explicit division. Signed shares can exceed [0,1]; zero totals give
-NA unless this division requests ``"error"``. Unknown units stay unknown. Filtering
+NA after masking the zero denominator before arithmetic. Unknown units stay unknown. Filtering
 before share changes the denominator; filtering its output preserves it. Both
 operations use current data on pending, memory and stored carriers without new
 source questions or method facts.
@@ -113,14 +114,14 @@ produces ``revenue`` and ``yoy.baseline.revenue``, ``yoy.absolute.revenue``,
 ``yoy.relative.revenue``. Relative is ``(current-baseline)/abs(baseline)``.
 ``current.present`` and ``yoy.present`` are row-existence flags independent of
 value NA; inherited flags live below ``current.presence.*`` / ``yoy.presence.*``.
-Missing rows/NA never become zero. Duration baseline/absolute retain their tick
+Zero baselines return relative NA. Missing rows/NA never become zero. Duration baseline/absolute retain their tick
 unit and relative is dimensionless; strict child policies remain required.
 
 Each alias's ``on`` binds every complete axis, except zero axes or one sole
 interval/calendar axis permit unique structural inference. ``match`` is also
 alias-keyed. A compatible immediate frozen shift relationship can supply it;
-wrong anchors and conflicting explicit rules reject. ``exact`` checks complete
-actual joint keys; ``outer`` preserves current order then mapped baseline-only
+wrong anchors and conflicting explicit rules reject. Fixed ``outer`` correspondence
+preserves current order then mapped baseline-only
 keys in alias order. Actual baseline time rows outside the declared current time
 domain reject; use ``align`` for a general two-ended time union.
 

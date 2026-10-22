@@ -162,7 +162,7 @@ current_progress = session.observe({"revenue": revenue}, by=(months,))
 previous_progress = session.observe(
     {"revenue": revenue}, by=(months.shift(mv.offset(periods=-1)),),
 )
-progress = current_progress.compare({"mom": previous_progress}, how="outer").compute()
+progress = current_progress.compare({"mom": previous_progress}).compute()
 progress.show()
 ```
 

@@ -157,8 +157,8 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.AnalysisFrame)
     assert_type(query.over(query['revenue'].sum(), by=query.axes), mv.Column)
     assert_type(query.over(mv.row_count()), mv.Column)
-    assert_type(query['revenue'].share(along=query.axes, zero_denominator='error'), mv.Column)
-    assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}, how='outer'), mv.AnalysisFrame)
+    assert_type(query['revenue'].share(along=query.axes), mv.Column)
+    assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}), mv.AnalysisFrame)
     assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """
     )

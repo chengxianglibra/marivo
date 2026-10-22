@@ -33,7 +33,6 @@ def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
     return current.compare(
         {"reference": baseline},
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        how="outer",
     )
 
 
@@ -90,8 +89,8 @@ def test_same_root_ratio_one_actual_read_per_endpoint(
     weight = session.catalog.fields.get("sales.facts.weight")
     channel = session.catalog.fields.get("sales.facts.channel")
     request = _comparison_inputs(
-        session.observe({"q": value.sum().divide(weight.sum())}, by=()),
-        session.observe({"q": value.sum().divide(weight.sum())}, by=()),
+        session.observe({"q": value.sum() / weight.sum()}, by=()),
+        session.observe({"q": value.sum() / weight.sum()}, by=()),
         by=(channel,),
     )
     reads = []
@@ -218,8 +217,8 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
     parents = mv.coordinates(by=(region,), keys=() if empty else (("absent",),))
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
-            session.observe({"q": value.sum()}, by=parents),
-            session.observe({"q": value.sum()}, by=parents),
+            session.observe({"q": value.sum()}, by=parents, where=region == "absent"),
+            session.observe({"q": value.sum()}, by=parents, where=region == "absent"),
             by=(channel,),
         )
     )
@@ -247,8 +246,8 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
-            session.observe({"q": value.sum()}, memberships=(membership,), by=parents),
-            session.observe({"q": value.sum()}, memberships=(membership,), by=parents),
+            session.observe({"q": value.sum()}, by=(parents, membership)),
+            session.observe({"q": value.sum()}, by=(parents, membership)),
             by=(channel,),
         )
     )
@@ -632,8 +631,8 @@ def test_complete_compound_identity_parent_mapping(session: Session) -> None:
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
-            session.observe({"q": value.sum()}, by=parents),
-            session.observe({"q": value.sum()}, by=parents),
+            session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
+            session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
             by=(channel,),
         )
     )
@@ -680,8 +679,8 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
     with pytest.raises(MaterializationError) as caught:
         evaluate_attribute_inputs(
             _comparison_inputs(
-                session.observe({"q": value.sum()}, by=parents),
-                session.observe({"q": value.sum()}, by=parents),
+                session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
+                session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
                 by=(channel,),
             )
         )
@@ -735,10 +734,10 @@ def test_empty_zero_axis_parent_has_no_required_weighted_total(session: Session)
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
             session.observe(
-                {"q": value.weighted_mean(weight=weight, zero_denominator="error")}, by=empty
+                {"q": value.weighted_mean(weight=weight)}, by=empty, where=mv.in_population(empty)
             ),
             session.observe(
-                {"q": value.weighted_mean(weight=weight, zero_denominator="error")}, by=empty
+                {"q": value.weighted_mean(weight=weight)}, by=empty, where=mv.in_population(empty)
             ),
             by=(channel,),
         )
@@ -845,16 +844,20 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
         _comparison_inputs(
             session.observe(
                 {"q": value.mean()},
-                memberships=(membership,),
-                by=mv.coordinates(
-                    by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
+                by=(
+                    mv.coordinates(
+                        by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
+                    ),
+                    membership,
                 ),
             ),
             session.observe(
                 {"q": value.mean()},
-                memberships=(membership,),
-                by=mv.coordinates(
-                    by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
+                by=(
+                    mv.coordinates(
+                        by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
+                    ),
+                    membership,
                 ),
             ),
             by=(channel,),
@@ -884,10 +887,14 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
     output = evaluate_attribute_inputs(
         _comparison_inputs(
             session.observe(
-                {"q": value.sum()}, by=mv.coordinates(by=(region,), keys=(("east",), ("absent",)))
+                {"q": value.sum()},
+                where=region == "east",
+                by=mv.coordinates(by=(region,), keys=(("east",), ("absent",))),
             ),
             session.observe(
-                {"q": value.sum()}, by=mv.coordinates(by=(region,), keys=(("east",), ("absent",)))
+                {"q": value.sum()},
+                where=region == "east",
+                by=mv.coordinates(by=(region,), keys=(("east",), ("absent",))),
             ),
             by=(channel,),
         )
@@ -1030,8 +1037,16 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
     channel = session.catalog.fields.get("sales.facts.channel")
     output = evaluate_attribute_inputs(
         _comparison_inputs(
-            session.observe({"q": value.sum()}, by=mv.coordinates(by=(identifier,), keys=((1,),))),
-            session.observe({"q": value.sum()}, by=mv.coordinates(by=(identifier,), keys=((1,),))),
+            session.observe(
+                {"q": value.sum()},
+                by=mv.coordinates(by=(identifier,), keys=((1,),)),
+                where=identifier == 1,
+            ),
+            session.observe(
+                {"q": value.sum()},
+                by=mv.coordinates(by=(identifier,), keys=((1,),)),
+                where=identifier == 1,
+            ),
             by=(channel,),
         )
     )
@@ -1040,33 +1055,30 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
         assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
 
 
-def test_known_empty_weighted_parent_retains_original_numeric_source_context(
-    session: Session,
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
+def test_known_empty_weighted_parent_retains_na_original_total(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     weight = session.catalog.fields.get("sales.facts.weight")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    with pytest.raises(MaterializationError) as actual:
-        evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe(
-                    {"q": value.weighted_mean(weight=weight, zero_denominator="error")},
-                    by=mv.coordinates(by=(region,), keys=(("absent",),)),
-                ),
-                session.observe(
-                    {"q": value.weighted_mean(weight=weight, zero_denominator="error")},
-                    by=mv.coordinates(by=(region,), keys=(("absent",),)),
-                ),
-                by=(channel,),
-            )
+    output = evaluate_attribute_inputs(
+        _comparison_inputs(
+            session.observe(
+                {"q": value.weighted_mean(weight=weight)},
+                where=region == "absent",
+                by=mv.coordinates(by=(region,), keys=(("absent",),)),
+            ),
+            session.observe(
+                {"q": value.weighted_mean(weight=weight)},
+                where=region == "absent",
+                by=mv.coordinates(by=(region,), keys=(("absent",),)),
+            ),
+            by=(channel,),
         )
-    assert actual.value.location == "dataset.numeric_value"
-    assert actual.value.received is not None
-    assert "source=sales.facts" in actual.value.received
-    assert "coordinates=[{'key.0': 'absent'}]" in actual.value.received
+    )
+    for root in output.attribute_inputs:
+        leaf = root.layout.leaves[0]
+        assert root.parent_state == ("known_empty",)
+        assert root.parent[require_reduction(leaf.read).value_slot].isna().all()
 
 
 @pytest.mark.parametrize("failing_scope", ("parent", "fine"))
@@ -1084,7 +1096,9 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER value TYPE DOUBLE")
     captured = session.observe(
-        {"q": value.sum()}, by=mv.coordinates(by=(region,), keys=(("east",),))
+        {"q": value.sum()},
+        by=mv.coordinates(by=(region,), keys=(("east",),)),
+        where=region == "east",
     ).compute()
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=? WHERE region='east'", [valid])

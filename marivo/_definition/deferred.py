@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from marivo._definition.relations import PopulationParameter
     from marivo.datasource.typing import AiContextValue
 
-RECIPE_RULE_VERSION: Final = 1
+RECIPE_RULE_VERSION: Final = 2
 _LITERAL_TYPES: Final = (str, bool, int, float, Decimal, date, datetime, InstantAnchor)
 _IBIS_LITERAL_TYPES: Final = (
     ir.IntegerScalar,
@@ -106,7 +106,6 @@ SEMANTIC_METHODS: Final = frozenset(
         "via",
         "at",
         "within",
-        "divide",
         "where",
         "per",
         "window",
@@ -607,8 +606,6 @@ class _Inspector:
             role = roles[index] if index < len(roles) else f"operand:{index}"
             self.token(role)
             self.visit(arg, (*path, role))
-        if symbol == "divide":
-            kwargs.setdefault("zero_denominator", Just("null"))
         for key, value in sorted(kwargs.items()):
             self.token("parameter", key)
             self.visit(value, (*path, f"parameter:{key}"))

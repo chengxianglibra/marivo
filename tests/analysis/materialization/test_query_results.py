@@ -280,7 +280,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
     ).compute().to_pandas()[("value", "total")].tolist() == [40]
 
 
-def test_result_division_policy_and_exact_domain_binding(result_session: Session) -> None:
+def test_result_fixed_null_division_and_exact_input_binding(result_session: Session) -> None:
     session = result_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
@@ -288,7 +288,7 @@ def test_result_division_policy_and_exact_domain_binding(result_session: Session
     divided = q.select({"ratio": q["sum"] / 0}).compute().to_pandas()
     assert divided[("value", "ratio")].isna().all()
     with pytest.raises(AnalysisError) as failure:
-        q.select({"ratio": q["sum"].divide(0, zero_denominator="error")}).compute()
+        q.select({"ratio": q["sum"] * 1e308}).compute()
     _assert_compute_repair(failure.value)
     assert not hasattr(failure.value, "run_ref") and terminal_runs(session) == ()
     other = session.observe({"sum": amount.sum()}, by=(region,))
@@ -317,7 +317,7 @@ def test_public_compare_retains_presence_and_projection_on_cold_read(
         rows=((("A",), {"sales": -20}), (("B",), {"sales": 0}), (("D",), {"sales": 10})),
     )
     comparison = current.compare(
-        {"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)}, how="outer"
+        {"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)}
     )
     artifact = comparison.persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
@@ -438,7 +438,7 @@ def test_frame_population_uses_selected_keys_and_preserves_checks(result_session
     domain = _population(session, chosen, region).union(fixed)
     result = session.frame(domain).compute().to_pandas()
     assert [None if pd.isna(value) else value for value in result.iloc[:, 0]] == ["A", None, "B"]
-    strict = q.select({"bad": q["sum"].divide(0, zero_denominator="error")})
+    strict = q.select({"bad": q["sum"] * 1e308})
     with pytest.raises(AnalysisError):
         session.frame(_population(session, strict, region)).compute()
 
@@ -464,7 +464,11 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     assert result[("value", "total")].tolist() == [30]
     assert result[("value", "people")].tolist() == [3]
     assert result[("value", "per_person")].tolist() == [10.0]
-    complete = session.observe({"total": amount.sum()}, by=requested).compute().to_pandas()
+    complete = (
+        session.observe({"total": amount.sum()}, by=requested, where=mv.in_population(requested))
+        .compute()
+        .to_pandas()
+    )
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
     assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: 0}
     assert isinstance(requested.axes[0], mv.Grouping)
@@ -1210,7 +1214,11 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
     domain = mv.coordinates(by=(region, channel), keys=(("A", "Web"), ("B", "Store")))
-    rows = session.observe({"mean": amount.mean()}, by=domain).compute().to_pandas()
+    rows = (
+        session.observe({"mean": amount.mean()}, by=domain, where=mv.in_population(domain))
+        .compute()
+        .to_pandas()
+    )
     assert list(zip(rows.iloc[:, 0], rows.iloc[:, 1], strict=True)) == [
         ("A", "Web"),
         ("B", "Store"),
@@ -1220,7 +1228,16 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
     unit = mv.coordinates(by=(), keys=((),))
     empty = mv.coordinates(by=(), keys=())
     assert len(session.observe({"total": amount.sum()}, by=unit).compute().to_pandas()) == 1
-    assert len(session.observe({"total": amount.sum()}, by=empty).compute().to_pandas()) == 0
+    with pytest.raises(AnalysisError, match="missing output coordinates"):
+        session.observe({"total": amount.sum()}, by=empty).compute()
+    assert (
+        len(
+            session.observe({"total": amount.sum()}, by=empty, where=mv.in_population(empty))
+            .compute()
+            .to_pandas()
+        )
+        == 0
+    )
 
 
 def test_population_counts_are_independent_of_fact_conditions(result_session: Session) -> None:

@@ -207,7 +207,7 @@ def provider() -> DisclosureProvider:
     )
     acquisition = {
         "frame": "Pass an AnalysisFrame from this exact Store/Session, not an Artifact, ID or raw table.",
-        "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs; () is legal only for a zero-axis projection. Bind complete ordinary field/identity axes explicitly; calendar/paired axes are unsupported. Names, tokens and same types do not infer semantic targets.",
+        "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs. Only ordinary complete field/identity axes; () selects zero axes. Names/types never infer targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "On create, None resolves and freezes the system timezone; instant/time_scope use the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
@@ -215,7 +215,6 @@ def provider() -> DisclosureProvider:
         "where": "Pass a Deferred combining field and Population membership conditions. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
-        "memberships": "Pass a tuple of mv.membership(...) rules for output coordinates. Rules map fact contributions; by supplies axes or selected keys. Internal sample rules belong to Metric.per(..., memberships=...).",
         "fields": "Pass a nonempty named mapping of resolved scalar fields with explicit paths and required version anchors.",
         "columns": "Map each literal value name to its one declared unit, or None.",
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
@@ -265,7 +264,7 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     P(
                         n,
-                        "Empty () is one zero-axis cell. Pass fields, non-membership Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
+                        "Empty () is one zero-axis cell. Pass ordered fields, Grouping, TimeScope and membership rules, a Population P, or (P, rule, ...). Membership expands in place; non-first fields can locate interleaved axes. P fixes complete joint keys; cover necessary output keys before sampling; extra keys retain empty-input values. Internal per(P) permits subsets. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries coordinates without selected keys or allocations."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"

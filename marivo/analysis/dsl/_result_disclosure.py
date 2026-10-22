@@ -287,7 +287,6 @@ def provider() -> DisclosureProvider:
                     "match",
                     "Explicit supported CalendarCorrespondence or None for frozen coordinate equality; never inferred.",
                 ),
-                P("how", "exact or outer; presence is independent of value NA."),
             ),
             "AnalysisFrame",
             "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
@@ -311,14 +310,9 @@ def provider() -> DisclosureProvider:
                     "match",
                     "Per-alias explicit rules; omitted rules use compatible immediate frozen direct relations or equality.",
                 ),
-                P("how", "exact or outer."),
-                P(
-                    "zero_denominator",
-                    "null or error for newly computed relative differences only; divide by the absolute baseline.",
-                ),
             ),
             "AnalysisFrame",
-            "Retain current values and add <alias>.baseline.<name>, <alias>.absolute.<name> and <alias>.relative.<name>; relative divides the difference by the absolute baseline.",
+            "Retain current values and add <alias>.baseline.<name>, <alias>.absolute.<name> and <alias>.relative.<name>; relative divides the difference by the absolute baseline, with zero baseline yielding NA.",
             "result = frame.compare({'reference': baseline})",
             ("frame", "baseline"),
             "methods.compare",
@@ -335,31 +329,11 @@ def provider() -> DisclosureProvider:
         ),
         (
             Column,
-            "divide",
-            (
-                P("other", "Same-input Column or compatible numeric literal."),
-                P(
-                    "zero_denominator",
-                    "null by default or error; controls this division node only.",
-                ),
-            ),
-            "Column",
-            "Divide pointwise; NA propagates and zero is masked before arithmetic.",
-            "result = column.divide(2)",
-            ("column",),
-            "methods.rows",
-        ),
-        (
-            Column,
             "share",
             (
                 P(
                     "along",
                     "Nonempty tuple of distinct complete axes from this exact input; the remaining axes define partitions.",
-                ),
-                P(
-                    "zero_denominator",
-                    "null by default or error; applies to this share's division only.",
                 ),
             ),
             "Column",
@@ -441,9 +415,9 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar ordinal requires complete nominal/actual buckets; offset also supports saved week/month/year bucket-start prefixes with exactly equal progress. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
+                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Outer correspondence keeps the ordered union; presence is independent of value NA. Calendar ordinal requires complete nominal/actual buckets; offset also supports saved week/month/year bucket-start prefixes with exactly equal progress. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
                     if name == "align"
-                    else "Validate each named same-Session endpoint and complete on binding; on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Current axes and value paths stay unchanged. exact checks every actual complete joint key; outer preserves current order then mapped baseline-only keys in alias order. Reject baseline time rows outside the declared current time domain; use align for a general time union. Compatible direct shift relations may infer match; mismatched anchors or conflicting explicit rules reject. Prefix offset matching supports week/month/year with exact saved progress; ordinal requires complete buckets. current.present and <alias>.present are independent nonnullable row flags, distinct from value NA and inherited current.presence.* / <alias>.presence.*. Duration baseline/absolute preserve the original tick unit; relative is dimensionless. No missing value becomes zero; strict child errors remain required."
+                    else "Validate each named same-Session endpoint and complete on binding; on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Current axes and value paths stay unchanged. Outer correspondence preserves current order then mapped baseline-only keys in alias order. Reject baseline time rows outside the declared current time domain; use align for a general time union. Compatible direct shift relations may infer match; mismatched anchors or conflicting explicit rules reject. Prefix offset matching supports week/month/year with exact saved progress; ordinal requires complete buckets. current.present and <alias>.present are independent nonnullable row flags, distinct from value NA and inherited current.presence.* / <alias>.presence.*. Duration baseline/absolute preserve the original tick unit; relative is dimensionless. No missing value becomes zero; strict child errors remain required."
                     if name == "compare"
                     else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
                     if name == "correlate"
@@ -451,7 +425,7 @@ def provider() -> DisclosureProvider:
                     if name in ("corr", "pair_count")
                     else "Use reduce's statistic types, independent NA masks, units and numeric policies. Preserve exact input identity, complete keys, row count and row order; empty input stays empty. row_count counts every coordinate and binds without mutating its reusable request. Existing ordinary, interval, calendar and paired axes use frozen keys without rematching. Nested over evaluates dependencies in order; repeated broadcast totals remain repeated samples. In where/top, partitions are evaluated before selection. No source reread, Metric decomposition or new method facts."
                     if name == "over"
-                    else "Equivalent to this Column divided by over(this Column.sum(), by=the complementary axes), with the captured zero_denominator policy. Axis order normalizes to input order; empty along and zero-axis inputs reject. Numeric and legal Duration sum/divide types follow their existing kernels; boolean/string/date reject. NA propagates; zero totals give NA or error, including cancelling signed values. Ratios are not percentages and may lie outside [0,1]. Unit is '1' when known equal units cancel, otherwise None for unknown units. Filtering before share changes the denominator; filtering afterward preserves it. Current-value normalization does not certify source Metric additivity or contribution; it creates no method facts."
+                    else "Equivalent to this Column divided by over(this Column.sum(), by=the complementary axes), with zero totals masked before division. Axis order normalizes to input order; empty along and zero-axis inputs reject. Numeric and legal Duration sum/divide types follow their existing kernels; boolean/string/date reject. NA propagates; zero totals give NA, including cancelling signed values. Ratios are not percentages and may lie outside [0,1]. Unit is '1' when known equal units cancel, otherwise None for unknown units. Filtering before share changes the denominator; filtering afterward preserves it. Current-value normalization does not certify source Metric additivity or contribution; it creates no method facts."
                     if name == "share"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Summed inventory or ratios remain current-row statistics, not monthly inventory or an overall ratio."
                     if name == "reduce"
@@ -506,7 +480,7 @@ def provider() -> DisclosureProvider:
                 output="Column",
                 constraints=(
                     "Decimal add/subtract/multiply bind capped p/s with ties-away convergence; division is float64. Local integers are checked; source overflow follows its backend, including ClickHouse wrapping. Float64 may lose low bits beyond 2**53; identity/count/time/Duration stay exact.",
-                    "Nullable values propagate; known units and literal kinds must agree. Division defaults to null at zero; divide(...,zero_denominator='error') is explicit.",
+                    "Nullable values propagate; known units and literal kinds must agree. Use / for division; zero denominators give NA before arithmetic.",
                 ),
                 effects="Capture a result expression without I/O.",
                 failures=(

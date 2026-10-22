@@ -106,7 +106,6 @@ def nullable_arithmetic(
     left: pd.Series,
     right: pd.Series,
     *,
-    zero_denominator: str = "null",
     exact_duration: bool = False,
 ) -> pd.Series:
     """Compute over nullable pandas values, masking zeros before division.
@@ -133,8 +132,6 @@ def nullable_arithmetic(
         )
     if operation == "divide":
         zero = b.notna() & ((b == 0) | (b == timedelta(0))).fillna(False)
-        if zero_denominator == "error" and (a.notna() & zero).any():
-            numeric_failure("a nonzero denominator", "metric.divide(zero_denominator='error')")
         b = b.mask(zero, pd.NA)
     try:
         with localcontext() as context:
@@ -207,7 +204,6 @@ def duration_arithmetic(
     left_type: DataType,
     right_type: DataType,
     output: DurationDataType | ScalarDataType,
-    zero_denominator: str,
 ) -> pd.Series:
     """Execute already typed Duration arithmetic in its exact original ticks."""
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -226,7 +222,6 @@ def duration_arithmetic(
         operation,
         operand(left, left_type),
         operand(right, right_type),
-        zero_denominator=zero_denominator,
         exact_duration=True,
     )
     if not isinstance(output, DurationDataType):

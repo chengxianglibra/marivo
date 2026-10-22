@@ -84,7 +84,7 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
 ) -> None:
     case, frame = boolean_frame
     right = frame.where(frame.coord(frame.axes[0]) != "D")
-    joined = frame.align(right, on=tuple(zip(frame.axes, right.axes, strict=True)), how="outer")
+    joined = frame.align(right, on=tuple(zip(frame.axes, right.axes, strict=True)))
     for name in joined.presence_names:
         assert type(joined[name]) is mv.Column
         assert joined[name]._kind == "boolean"

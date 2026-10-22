@@ -76,7 +76,7 @@ if TYPE_CHECKING:
         revenue = session.catalog.metrics.get("sales.revenue")
         assert_type(revenue, Deferred)
         assert_type(
-            session.observe({"value": revenue}, by=(region,), memberships=(descriptor,)),
+            session.observe({"value": revenue}, by=(descriptor,)),
             mv.AnalysisFrame,
         )
         assert_type(session.observe({"value": revenue}, by=complete), mv.AnalysisFrame)
@@ -114,9 +114,9 @@ if TYPE_CHECKING:
         assert_type(query.persist(), mv.AnalysisFrame)
         assert_type(value + 1, mv.Column)
         assert_type(value / 2, mv.Column)
-        assert_type(value.divide(2, zero_denominator="error"), mv.Column)
+        assert_type(value / 2, mv.Column)
         assert_type(value.share(along=(axis,)), mv.Column)
-        assert_type(value.share(along=query.axes, zero_denominator="error"), mv.Column)
+        assert_type(value.share(along=query.axes), mv.Column)
         assert_type(query.over(value.sum(), by=(axis,)), mv.Column)
         assert_type(query.over(mv.row_count()), mv.Column)
         assert_type(query.over(query.over(value.sum()).mean()), mv.Column)
@@ -131,7 +131,7 @@ if TYPE_CHECKING:
             mv.AnalysisFrame,
         )
         assert_type(query.align(other, on=((axis, other.axes[0]),)), mv.AnalysisFrame)
-        assert_type(query.compare({"reference": other}, zero_denominator="null"), mv.AnalysisFrame)
+        assert_type(query.compare({"reference": other}), mv.AnalysisFrame)
         return query.select({"ratio": value / 2})
 
     def explicit_identity(

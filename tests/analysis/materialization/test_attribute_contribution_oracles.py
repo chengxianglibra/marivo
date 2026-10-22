@@ -122,7 +122,7 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     phase = session.catalog.fields.get("sales.facts.phase")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    metric = amount.sum().divide(weight.sum())
+    metric = amount.sum() / weight.sum()
     global_result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
         session.observe({"q": metric}, where=phase == "base"),

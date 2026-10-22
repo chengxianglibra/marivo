@@ -211,7 +211,7 @@ def test_native_numeric_parent_failures_survive_top_zero(
             if boundary == "overflow"
             else amount.sum(nulls="error")
             if boundary == "strict"
-            else big.weighted_mean(weight=weight, zero_denominator="error")
+            else big.weighted_mean(weight=weight)
         )
         fine = session.observe({"value": metric}, by=(category,))
         trace = capture_source(monkeypatch)

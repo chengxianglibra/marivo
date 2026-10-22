@@ -98,15 +98,15 @@ def test_grouping_is_the_public_observation_family() -> None:
             ("field or identity Grouping", "complete primary-key tuple", "Rejects membership"),
         ),
         ("membership", ("resolved fields", "one member Entity")),
-        ("population.project", ("existing coordinates", "population.axes", "memberships")),
+        ("population.project", ("existing coordinates", "population.axes", "observe.by")),
         ("population.classify", ("same-Entity", "existing identity", "calendar", "routed fields")),
         ("session.values", ("field or identity Grouping", "calendar and membership")),
         (
             "session.observe",
             (
-                "Grouping rules or TimeScope",
+                "Grouping, TimeScope and membership",
                 "population.axes",
-                "Population selecting complete output keys",
+                "P fixes complete joint keys",
             ),
         ),
     ),

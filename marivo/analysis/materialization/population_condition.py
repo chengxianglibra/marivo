@@ -7,8 +7,13 @@ from collections.abc import Mapping
 import ibis
 import ibis.expr.types as ir
 
+from marivo._definition.graph import walk
 from marivo._definition.observations import ContributionBinding
-from marivo._definition.relations import PopulationDependency, condition_populations
+from marivo._definition.relations import (
+    AttributeKeys,
+    PopulationDependency,
+    condition_populations,
+)
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
@@ -19,6 +24,7 @@ from marivo._definition.types import (
 from marivo.analysis.compiler.predicate import population_key
 from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
 from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.validator import normalize_target_entity
 
 
 def prepare_condition_memberships(
@@ -99,6 +105,16 @@ def prepare_condition_memberships(
             table = table.left_join(allowed, predicates or ibis.literal(True)).select(
                 table, allowed[marker]
             )
-            table = table.mutate(**{marker: table[marker].fill_null(False)})
+            matched = table[marker].fill_null(False)
+            if contribution.memberships and not any(
+                isinstance(node, AttributeKeys)
+                for node in walk((domain,), resolve=lambda _: None).order
+            ):
+                identity = normalize_target_entity(state.registry, contribution.root.ref.path)
+                root_keys = identity.version_row_key or identity.primary_key
+                matched = matched.any().over(
+                    ibis.window(group_by=[table[key] for key in root_keys])
+                )
+            table = table.mutate(**{marker: matched})
             marks[domain] = marker
     return table, tuple((population_key(domain), marker) for domain, marker in marks.items())

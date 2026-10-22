@@ -174,8 +174,6 @@ class AdditiveRule:
 class DirectRatio:
     numerator: AdditiveRule
     denominator: AdditiveRule
-    syntax: Literal["operator", "divide_method"]
-    zero_denominator: Literal["null", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,12 +438,10 @@ def build_attribute_rule(
         def ratio(
             left: _RecipeValue,
             right: _RecipeValue,
-            syntax: Literal["operator", "divide_method"],
-            policy: Literal["null", "error"],
         ) -> RatioComponentRule:
             if not isinstance(left, AdditiveRule) or not isinstance(right, AdditiveRule):
                 fail(path, "a divide without two ordered additive components")
-            return RatioComponentRule(DirectRatio(left, right, syntax, policy))
+            return RatioComponentRule(DirectRatio(left, right))
 
         def recipe(value: Resolver) -> _RecipeValue:
             if type(value) is Variable:
@@ -473,26 +469,13 @@ def build_attribute_rule(
                 if value.func is operator.sub:
                     return combine(RuleSubtract(rule(left), rule(right)))
                 if value.func is operator.truediv:
-                    return ratio(left, right, "operator", "null")
+                    return ratio(left, right)
                 if value.func is operator.mul:
                     if isinstance(left, FixedScalar) and not isinstance(right, FixedScalar):
                         return combine(RuleScale(right, left, "left"))
                     if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
                         return combine(RuleScale(left, right, "right"))
                 fail(path, "an unsupported completed-Metric operator")
-            if (
-                type(value) is Call
-                and type(value.func) is Attr
-                and attribute_name(value.func) == "divide"
-            ):
-                if len(value.args) != 1 or set(value.kwargs) - {"zero_denominator"}:
-                    fail(path, "invalid divide arguments")
-                policy = value.kwargs.get("zero_denominator", Just("null"))
-                if type(policy) is not Just or policy.value not in ("null", "error"):
-                    fail(path, "invalid divide zero-denominator policy")
-                return ratio(
-                    recipe(value.func.obj), recipe(value.args[0]), "divide_method", policy.value
-                )
             fail(path, f"unsupported Metric recipe {type(value).__name__}")
 
         result = rule(recipe(item.recipe))
@@ -573,7 +556,7 @@ def _source_signature(request: AttributeSourceRequest) -> tuple[object, ...]:
     if isinstance(node, SourceAggregate):
         return (*identity, node.reducer, node.nulls, node.q, node.rule_version)
     if isinstance(node, SourceWeightedMean):
-        return (*identity, "weighted_mean", node.nulls, node.zero_denominator, node.rule_version)
+        return (*identity, "weighted_mean", node.nulls, node.rule_version)
     return (*identity, "entity_count")
 
 
@@ -588,8 +571,6 @@ def _signature(rule: AttributeRule) -> tuple[object, ...]:
         return (
             kind,
             "divide",
-            operation.syntax,
-            operation.zero_denominator,
             _signature(operation.numerator),
             _signature(operation.denominator),
         )
@@ -646,13 +627,7 @@ def require_rules_match(left: AttributeRule, right: AttributeRule, *, metric: st
             ):
                 visit(x.operand, y.operand, (*path, 0))
                 return
-        if (
-            same
-            and isinstance(x, DirectRatio)
-            and isinstance(y, DirectRatio)
-            and x.syntax == y.syntax
-            and x.zero_denominator == y.zero_denominator
-        ):
+        if same and isinstance(x, DirectRatio) and isinstance(y, DirectRatio):
             visit(x.numerator, y.numerator, (*path, 0))
             visit(x.denominator, y.denominator, (*path, 1))
             return

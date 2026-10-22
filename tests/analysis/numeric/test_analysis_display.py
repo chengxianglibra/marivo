@@ -516,8 +516,13 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     defined = ranking.loc[ranking["rank"].notna()]
     assert len(defined.loc[defined["rank"] <= 1]) == 2
     shorter = query.where(~query["region"].is_null())
-    with pytest.raises(AnalysisError):
-        query.align(shorter, on=tuple(zip(query.axes, shorter.axes, strict=True))).compute()
+    paired = (
+        query.align(shorter, on=tuple(zip(query.axes, shorter.axes, strict=True)))
+        .compute()
+        .to_pandas()
+    )
+    assert paired[("presence", "left_present")].all()
+    assert (~paired[("presence", "right_present")]).any()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
     with pytest.raises(AnalysisError) as caught:

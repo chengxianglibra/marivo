@@ -495,10 +495,13 @@ def test_multiple_member_classifications_keep_complete_time_keys(
         ("south", "C", august): 400,
     }
     incomplete = identities.where(identities["identity"] == "A")
-    with pytest.raises(AnalysisError):
-        identities.align(
-            incomplete, on=tuple(zip(identities.axes, incomplete.axes, strict=True))
-        ).persist()
+    paired = (
+        identities.align(incomplete, on=tuple(zip(identities.axes, incomplete.axes, strict=True)))
+        .compute()
+        .to_pandas()
+    )
+    assert paired[("presence", "left_present")].all()
+    assert (~paired[("presence", "right_present")]).any()
     if logical_axes:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
         assert session.persisted_frame(saved.artifact.id).to_pandas().equals(frame)

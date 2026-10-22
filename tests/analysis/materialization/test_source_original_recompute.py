@@ -139,7 +139,7 @@ def test_native_top_drill_returns_only_selected_group_values(
     assert trace.returned_rows
 
 
-@pytest.mark.parametrize("failure", ["null", "overflow", "denominator"])
+@pytest.mark.parametrize("failure", ["null", "overflow", "domain"])
 def test_source_original_preserves_parent_numeric_contract_after_empty_selection(
     original_session: Session, failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -159,7 +159,7 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
             metric = amount.sum()
         else:
             connection.execute("UPDATE orders SET amount=0 WHERE bucket=0")
-            metric = amount.sum().divide(amount.sum(), zero_denominator="error")
+            metric = amount.sum().log()
     fine = session.observe({"metric": metric}, by=(bucket,))
     trace = capture_source(monkeypatch)
     if failure == "overflow":
@@ -260,10 +260,9 @@ def test_fractional_original_values_are_not_integer_truncated(
 
 
 @pytest.mark.parametrize("kind", ("DOUBLE", "DECIMAL(18,2)"))
-def test_fractional_weighted_target_retains_zero_denominator_error(
+def test_fractional_weighted_target_masks_cancelled_weight_sum(
     original_session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     session = original_session
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
@@ -275,10 +274,11 @@ def test_fractional_weighted_target_retains_zero_denominator_error(
     amount = session.catalog.fields.get("sales.orders.amount")
     weight = session.catalog.fields.get("sales.orders.weight")
     bucket = session.catalog.fields.get("sales.orders.bucket")
-    metric = amount.weighted_mean(weight=weight, zero_denominator="error")
+    metric = amount.weighted_mean(weight=weight)
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="nonzero denominator"):
-        session.observe({"metric": metric}).compute()
+    assert (
+        session.observe({"metric": metric}).compute().to_pandas()[("value", "metric")].isna().all()
+    )
     assert trace.returned_rows == [1]
 
 
@@ -453,9 +453,9 @@ def test_nested_float_formula_checks_its_native_denominator(
     amount = session.catalog.fields.get("sales.orders.amount")
     bucket = session.catalog.fields.get("sales.orders.bucket")
     denominator = amount.sum() / amount.count() - 3002399751580330.5
-    metric = amount.count().divide(denominator, zero_denominator="error")
+    metric = amount.count() / denominator
     trace = capture_source(monkeypatch)
-    from marivo.analysis.errors import AnalysisError
 
-    with pytest.raises(AnalysisError, match="nonzero denominator"):
-        session.observe({"metric": metric}).compute()
+    assert (
+        session.observe({"metric": metric}).compute().to_pandas()[("value", "metric")].isna().all()
+    )

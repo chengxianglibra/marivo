@@ -27,14 +27,14 @@ Strict `nulls="error"` belongs to the source/internal reduction that captures it
 Checks cover its demanded sample/contribution domain. A later where, select, zero
 multiplier or empty output cannot suppress a required error.
 
-Division uses `zero_denominator="null"` by default and masks zero before dividing.
-Explicit `"error"` fails only the demanded non-NA division. The parameter belongs
-to that new operation; a parent comparison or formula cannot overwrite a child's
-strict policy. Nonfinite results and invalid domains are errors, never missing states
+Division uses `/` and masks zero before dividing; both 0/0 and nonzero/0
+return NA. Weighted means return NA when valid paired weights sum to zero,
+including signed cancellation. Nonfinite results and invalid domains are errors,
+never missing states
 or a reason to retry another algorithm. Ordinary source integer and Decimal
 arithmetic follows backend overflow behavior, including ClickHouse wrapping.
 Local integer arithmetic uses checked kernels. An unevaluated source subexpression
-need not trigger overflow, including under empty output; explicit null/zero/domain
+need not trigger overflow, including under empty output; explicit null/domain
 checks retain their own demanded domains. Source
 field reads check actual NaN/Infinity before selection, ordering or a pandas
 carrier can hide them. A pandas missing-value encoding remains NULL; an Arrow
@@ -153,18 +153,17 @@ several rows remain repeated samples for an outer sum or mean. In where/top,
 each partition is evaluated before the operation selects rows. The selection
 cannot shrink an earlier statistic's denominator or bypass required checks.
 
-`column.share(along=axes, zero_denominator="null")` requires a nonempty tuple of
+`column.share(along=axes)` requires a nonempty tuple of
 distinct complete axes from that Column's input. All other input axes define
-partitions. It expands to `column.divide(frame.over(column.sum(), by=remaining),
-zero_denominator=...)`, retaining input rows, order and ordinary NA behavior.
-Axis order normalizes to input order. A zero-axis Frame rejects share; use an
-explicit divide for a scalar ratio. Numeric and legal Duration sum/divide
+partitions. It expands to `column / frame.over(column.sum(), by=remaining)`,
+retaining input rows, order and ordinary NA behavior. Axis order normalizes to
+input order. A zero-axis Frame rejects share; use an explicit / expression for
+a scalar ratio. Numeric and legal Duration sum/divide
 combinations retain their existing type rules; boolean, string and date reject.
 Unsupported carriers fail before execution rather than converting silently.
 
 Shares are signed ratios, not percentages, and may lie outside [0,1]. Zero
-partition totals, including cancellation of nonzero values, give NA or the
-captured division error. Known equal units cancel to `1`; unknown units remain
+partition totals, including cancellation of nonzero values, give NA. Known equal units cancel to `1`; unknown units remain
 None. Filtering before share changes the denominator; filtering a selected share
 afterward preserves the computed denominator. For month × region × category,
 along=(region,) sums within each month/category, while along=(region, category)

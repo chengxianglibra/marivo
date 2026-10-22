@@ -143,7 +143,6 @@ INPUT_FAMILIES = frozenset(
         "tuple[Ref[relationship], ...]",
         "NullInputPolicyV1",
         "EmptyContributionPolicyV1",
-        "ZeroDenominatorPolicyV1",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[dimension | time_dimension]",
@@ -158,7 +157,7 @@ INPUT_FAMILIES = frozenset(
         "SourceHealthCheckResult",
         "ReadinessInputSummary",
         "ReadinessIssue",
-        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
+        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
         "tuple[Grouping, ...]",
         "CatalogEntry | Ref",
         "CatalogCollection",
@@ -844,11 +843,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "Which source contribution scope owns each predicate?",
                     "Metric.where",
                 ),
-                _business_decision(
-                    "denominator_failure",
-                    "Should this division yield null or explicitly fail on zero?",
-                    "Metric.divide",
-                ),
                 _source_business_decision(
                     "root_fanout",
                     "Are source roots and mappings explicit without implicit multi-value grouping?",
@@ -890,7 +884,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "Metric.where",
                 "Metric.per",
                 "Field.via",
-                "Metric.divide",
                 "measure",
             ),
             checks=("readiness",),
@@ -2348,10 +2341,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "approx_nunique",
                 "approx_median",
                 "approx_quantile",
-                "divide",
             ),
         ),
-        ("Metric", "Metric", "Deferred", ("where", "per", "divide", "window")),
+        ("Metric", "Metric", "Deferred", ("where", "per", "window")),
         (
             "MetricSamples",
             "MetricSamples",
@@ -2378,21 +2370,15 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
         for method in methods:
             inputs = [AuthoringInputRequirement(role="receiver", family=family)]
             if prefix == "row":
-                if method == "divide":
-                    inputs.append(_parameter_input("dependency", "Deferred", "other"))
-                    example = "amount.divide(cost, zero_denominator='error')"
-                else:
-                    inputs.append(
-                        _parameter_input("dependency", "TimeField", "time", optional=True)
-                    )
-                    argument = (
-                        "0.95, "
-                        if method in {"quantile", "approx_quantile"}
-                        else "weight=quantity, "
-                        if method == "weighted_mean"
-                        else ""
-                    )
-                    example = f"amount.{method}({argument}time=paid_at)"
+                inputs.append(_parameter_input("dependency", "TimeField", "time", optional=True))
+                argument = (
+                    "0.95, "
+                    if method in {"quantile", "approx_quantile"}
+                    else "weight=quantity, "
+                    if method == "weighted_mean"
+                    else ""
+                )
+                example = f"amount.{method}({argument}time=paid_at)"
             elif prefix == "MetricSamples":
                 argument = (
                     "0.95"
@@ -2411,19 +2397,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "where": ("predicate", "Deferred", "revenue.where(status == 'paid')"),
                     "per": (
                         "samples",
-                        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
+                        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
                         "revenue.per(customer_id)",
                     ),
-                    "divide": ("other", "Deferred", "revenue.divide(order_count)"),
                     "window": ("rule", "WindowRule", "revenue.window(mv.all_history())"),
                 }[method]
                 inputs.append(_parameter_input("dependency", input_family, parameter))
-                if method == "per":
-                    inputs.append(
-                        _parameter_input(
-                            "dependency", "tuple[Grouping, ...]", "memberships", optional=True
-                        )
-                    )
             elif prefix == "Entity":
                 inputs.append(_parameter_input("dependency", "TimeField", "time", optional=True))
                 example = "orders.count(time=paid_at)"
@@ -2447,12 +2426,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         _parameter_input("dependency", "bool", "include_null", optional=True),
                     )
                 )
-            if method in {"divide", "weighted_mean"}:
-                inputs.append(
-                    _parameter_input("dependency", "Text", "zero_denominator", optional=True)
-                )
             if prefix in {"row", "MetricSamples"} and method not in {
-                "divide",
                 "count",
                 "count_distinct",
             }:
@@ -2460,11 +2434,14 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             summary = "Construct a native Deferred recipe at this receiver's stage without business source reads. "
             if prefix == "Metric" and method == "per":
                 summary += (
-                    "per accepts a Dimension, TimeField or native field Grouping, a nonempty tuple of these, "
+                    "per accepts a Dimension, TimeField, native field Grouping or membership, a nonempty tuple of these, "
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
                     "keys; Population binds every compatible tuple, including empty samples. "
-                    "Pass correlated mv.membership(...) rules through memberships=(rule,); "
-                    "rules map contributions to existing sample coordinates and do not select keys."
+                    "Place correlated mv.membership(...) rules directly in samples, or use (P, rule, ...). "
+                    "Membership fields expand in order; explicit non-first fields locate interleaved axes. "
+                    "Reject repeated first fields, overlapping rules and reordered member fields. "
+                    "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
+                    "Each nested layer keeps its own domain and complete allocation rules."
                 )
             elif prefix == "Metric" and method == "where":
                 summary += (
@@ -2490,7 +2467,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Unevaluated source arithmetic need not fail. Identity/count/time/Duration stay exact. "
                     "Numeric inputs must be finite or NULL; actual NaN/Infinity are errors. "
                     "window accepts a source-free rule and rejects nested windows. "
-                    "Divide defaults to null for a zero denominator; error stays on this operation."
+                    "Use / for division; zero denominators and cancelling weight sums yield NA before arithmetic."
                 )
             rows.append(
                 _capability(

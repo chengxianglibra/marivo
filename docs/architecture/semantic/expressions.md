@@ -153,8 +153,7 @@ Local DST gaps create no imaginary points and repeated hours retain distinct
 instants; ambiguous source encodings reject. Complete sampling requires a bounded
 contribution interval. An aware non-UTC civil sampling plan is not supported.
 
-Membership allocation rules are explicit in the memberships parameter of each
-observe/per consumer; they are independent at inner and outer levels. Correlated
+Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated
 member fields stay in one tuple descriptor. [Observation](../analysis/populations-and-observation.md)
 owns allocation and output-domain behavior.
 
@@ -173,8 +172,9 @@ Other admitted sample reducers return NA without valid samples. Strict
 nulls="error" is checked on its demanded source/sample domain. Actual source
 NaN and Infinity are rejected before pandas conversion can conflate NaN with
 NULL; raw reads and numeric reductions retain the same checks.
-Division and weighted mean default to zero_denominator="null"; explicit "error"
-changes only that operation. An outer formula cannot overwrite a strict child.
+Division uses `/` as its only public syntax. Division and weighted mean mask
+zero denominators before arithmetic and return NA, including cancelling signed
+weights. An outer formula cannot overwrite a strict nulls child.
 Demand-aware native ifelse evaluates its selected branch while retaining static
 checks on both; multiplication by zero and coalesce do not catch strict failures.
 

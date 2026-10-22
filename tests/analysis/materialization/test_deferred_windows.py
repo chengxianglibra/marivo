@@ -334,7 +334,7 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
         .by(mv.grain("week"))
         .shift(mv.offset(years=-1))
     )
-    metric = amount.count().divide(amount.count() * 0, zero_denominator="error")
+    metric = amount.count() / (amount.count() * 0)
     if windowed:
         metric = metric.window(mv.trailing_periods(count=2))
     sampled = session.catalog.fields.get("sales.orders.sample_at")
@@ -351,8 +351,13 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
     tables = {part.name: part for part in result._backing.data.copy_attachments()}
     assert tables[axis.frozen.directory_name].rows.empty
     assert tables[axis.frozen.direct.mapping_name].rows["reason"].tolist() == ["period_absent"]
-    with pytest.raises(AnalysisError, match="denominator"):
-        session.observe({"bad": amount.count().divide(0, zero_denominator="error")}).compute()
+    assert (
+        session.observe({"bad": amount.count() / 0})
+        .compute()
+        .to_pandas()[("value", "bad")]
+        .isna()
+        .all()
+    )
 
 
 def test_sparse_calendar_joint_groups_and_fixed_populations(
@@ -368,7 +373,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         .by(mv.grain("week"))
         .shift(mv.offset(years=1))
     )
-    strict = amount.sum().divide(amount.count() - 1, zero_denominator="error")
+    strict = amount.sum() / (amount.count() - 1)
     assert session.observe({"strict": strict}, by=(calendar,)).compute().to_pandas()[
         ("value", "strict")
     ].tolist() == [40.0, 75.0]
@@ -384,11 +389,18 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     }
     assert len(rows) == 6
     gap = session.time_scope(start="2020-12-28", end="2021-01-04").by(mv.grain("week"))
-    with pytest.raises(AnalysisError, match="denominator"):
-        session.observe({"strict": strict}, by=(gap,)).compute()
+    assert (
+        session.observe({"strict": strict}, by=(gap,))
+        .compute()
+        .to_pandas()[("value", "strict")]
+        .isna()
+        .all()
+    )
     pairs = mv.coordinates(by=(region, channel), keys=(("north", "web"), ("south", "shop")))
     explicit = (
-        session.observe({"total": amount.sum()}, by=mv.product(calendar, pairs))
+        session.observe(
+            {"total": amount.sum()}, by=mv.product(calendar, pairs), where=mv.in_population(pairs)
+        )
         .compute()
         .to_pandas()
     )

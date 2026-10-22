@@ -143,7 +143,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
         by=mv.product(august, members),
     )
-    trace.help(mv.Column.divide)
+    trace.help(mv.Column.__truediv__)
     quotient = amounts.select({"value": amounts["count"] / amounts["revenue"]})
     trace.read("ratio metadata", quotient.show)
 

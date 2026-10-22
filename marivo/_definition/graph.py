@@ -64,7 +64,8 @@ from marivo._definition.relations import (
     SourceIdentities,
 )
 from marivo._definition.types import (
-    SUPPORTED_RULE_VERSIONS,
+    NUMERIC_RULE_VERSION,
+    RULE_VERSION,
     ExactRef,
     Owner,
     invalid,
@@ -454,10 +455,15 @@ def walk(
         if declared is not None:
             active_refs.add((declared, scope_id))
         rule_version = getattr(node, "rule_version", None)
-        if rule_version is not None and rule_version not in SUPPORTED_RULE_VERSIONS:
+        expected_version = (
+            NUMERIC_RULE_VERSION
+            if isinstance(node, (SourceWeightedMean, PerWeightedMean))
+            else RULE_VERSION
+        )
+        if rule_version is not None and rule_version != expected_version:
             invalid(
-                f"{type(node).__name__} expected rule version in "
-                f"{sorted(SUPPORTED_RULE_VERSIONS)}; received {rule_version!r}. "
+                f"{type(node).__name__} expected rule version {expected_version}; "
+                f"received {rule_version!r}. "
                 "Rebuild the definition with the current Marivo version.",
                 kind="unknown_rule_version",
                 path=path,

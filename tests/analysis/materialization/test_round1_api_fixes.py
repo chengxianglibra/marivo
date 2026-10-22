@@ -270,7 +270,7 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
             (("<null>",), {"v": 1}),
         ),
     )
-    scores = different.select({"score": different["v"].divide(different["v"]) * different["v"]})
+    scores = different.select({"score": different["v"] / different["v"] * different["v"]})
     saved = scores.top(3, by=scores["score"]).persist()
     exported = saved.to_pandas()
     assert exported.iloc[:2, 0].tolist() == ["A", "<null>"] and pd.isna(exported.iloc[2, 0])

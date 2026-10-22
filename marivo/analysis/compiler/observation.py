@@ -226,8 +226,30 @@ def lower_observation(
         f"predicate_check.{i}": check.violation.any().fill_null(False)
         for i, check in enumerate(predicate_checks)
     }
+    assignments = {
+        int(path.removeprefix("__sample_assigned_")): table[name]
+        for path, name in columns.items()
+        if path.startswith("__sample_assigned_")
+    }
+    if assignments:
+        # Each recursive reducer consumes one physical key prefix. A deeper
+        # unmatched sample must not erase the coordinates already received.
+        for width in range(len(predicate_axes) + 1):
+            scope_predicates = (
+                *(item.value for item in selected),
+                *(value for position, value in assignments.items() if position < width),
+            )
+            predicate_metrics[f"__sample_scope_{width}"] = (
+                ibis.and_(*scope_predicates).any().fill_null(False)
+                if scope_predicates
+                else table.count() > 0
+            )
     if prepared.preserve_sample_presence:
-        predicate_metrics["__sample_present"] = table.count() > 0
+        predicate_metrics["__sample_present"] = (
+            ibis.and_(*(item.value for item in selected)).any().fill_null(False)
+            if selected
+            else table.count() > 0
+        )
     predicate_summary = (
         (
             table.group_by(**predicate_axes).aggregate(**predicate_metrics)
@@ -237,7 +259,8 @@ def lower_observation(
         if predicate_metrics
         else None
     )
-    filtered = table.filter(*(item.value for item in selected)) if selected else table
+    value_predicates = (*(item.value for item in selected), *assignments.values())
+    filtered = table.filter(*value_predicates) if value_predicates else table
     fields = {path: filtered[name] for path, name in columns.items()}
     if window_slot is not None:
         fields[window_slot] = filtered[window_slot]

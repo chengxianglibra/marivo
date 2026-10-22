@@ -165,7 +165,8 @@ def test_relationship_member_count_keeps_its_actual_member_input(
 
 
 @pytest.mark.parametrize(
-    "backend,profile", source_params([("trino", "iceberg"), ("clickhouse", "mergetree")])
+    "backend,profile",
+    source_params([("postgres", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]),
 )
 def test_remote_relationship_domains_and_explicit_frame_targets(
     semantic_project_factory: Callable[..., SemanticProject],
@@ -279,4 +280,51 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 .to_pandas()
             )
             assert frame[("value", "v")].tolist() == [expected]
-        assert trace.uploaded_key_rows == [1, 0]
+        if backend != "postgres":
+            assert trace.uploaded_key_rows == [1, 0]
+        category = session.catalog.fields.get("sales.tags.label")
+        allocation = mv.membership(category, via=(path,), unmatched="exclude")
+        incomplete = mv.coordinates(by=(category,), keys=(("A",),))
+        empty = mv.coordinates(by=(session.catalog.fields.get("sales.orders.id"),), keys=())
+        required = session.observe(
+            {"v": session.catalog.metrics.get("sales.revenue").per(empty).mean()},
+            by=(incomplete, allocation),
+            where=mv.in_population(source.preimage(image, via=path)),
+        )
+        with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+            required.top(0, by=required["v"]).compute()
+        assert error.value.stage == "population_coverage"
+        assert "B" in error.value.received
+        if backend != "postgres":
+            assert trace.uploaded_key_rows == [1, 0]
+
+
+def test_output_coverage_survives_source_population_fusion_and_empty_top(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    orders = session.members(session.catalog.entities.get("sales.orders"))
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    # The independent relationship image is source-fused into the fact predicate.
+    selected = orders.image(via=path)
+    label = session.catalog.fields.get("sales.tags.label")
+    allocation = mv.membership(label, via=(path,), unmatched="exclude")
+    incomplete = mv.coordinates(by=(label,), keys=(("A",),))
+    empty = mv.coordinates(by=(session.catalog.fields.get("sales.orders.id"),), keys=())
+    query = session.observe(
+        {"v": revenue.per(empty).mean()},
+        by=(incomplete, allocation),
+        where=mv.in_population(orders.preimage(selected, via=path)),
+    )
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        query.top(0, by=query["v"]).compute()
+    assert error.value.stage == "population_coverage"
+    assert "B" in error.value.received
+    assert trace.uploaded_key_rows == []

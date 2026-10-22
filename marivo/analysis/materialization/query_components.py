@@ -447,12 +447,8 @@ def complete_attribute_parent_domain(
     root: AttributeRootInputs, projection: StageOutput
 ) -> AttributeRootInputs:
     """Retain every selected parent, distinguishing checked emptiness from absence."""
-    from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
-    from marivo.analysis.core.attribute import AttributeCheckWitness
+    from marivo._definition.expressions import EntityCount, SourceAggregate
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
-    from marivo.analysis.materialization.graph_source_execution import (
-        _attribute_source_check_failure,
-    )
 
     columns = {column.slot_id: column for column in root.layout.columns}
     parent_columns = tuple(columns[name] for name in root.layout.parent_keys)
@@ -491,23 +487,6 @@ def complete_attribute_parent_domain(
             reduction = read_reduction(leaf.read)
             assert reduction is not None
             node = reduction.node
-            if isinstance(node, SourceWeightedMean) and node.zero_denominator == "error":
-                witness = AttributeCheckWitness(
-                    "__attribute_empty_parent_denominator",
-                    leaf.read.source_id,
-                    (key,),
-                    parent_columns,
-                )
-                _attribute_source_check_failure(
-                    leaf.read,
-                    "__attribute_empty_parent_denominator",
-                    "a nonzero denominator",
-                    "weighted_mean(zero_denominator='error')",
-                    selected.iloc[[index]],
-                    attribute_failure_context(
-                        root.layout, selected.iloc[[index]], (leaf,), parent_columns, witness
-                    ),
-                )
             zero = isinstance(node, EntityCount) or (
                 isinstance(node, SourceAggregate)
                 and (node.reducer in ("sum", "count", "count_distinct"))

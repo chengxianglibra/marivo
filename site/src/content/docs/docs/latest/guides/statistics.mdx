@@ -77,14 +77,14 @@ broadcast value as a sample.
 
 `share(along=...)` sums along the named axes, partitions by all remaining axes,
 then divides this Column by that sum. The nonempty tuple must contain distinct
-complete axes from the exact input; zero-axis data requires an explicit divide.
+complete axes from the exact input; zero-axis data requires an explicit / expression.
 For month × region × category, along=(region,) normalizes within month/category;
 along=(region, category) normalizes within month. To remove category first,
 reduce it explicitly and take fresh handles from the returned Frame.
 
 Shares are signed ratios, may exceed [0,1], and are not multiplied by 100.
-NA propagates; zero totals, including cancellation, give NA by default or fail
-with `zero_denominator="error"`. Numeric and legal Duration sum/divide types
+NA propagates; zero totals, including cancellation, give NA after masking
+the denominator before arithmetic. Numeric and legal Duration sum/divide types
 follow the existing kernels; known equal units cancel to `1`, unknown units stay
 unknown. Filtering before normalization changes its denominator; filtering the
 normalized result afterward preserves it. over in where/top evaluates complete

@@ -28,7 +28,7 @@ from marivo.semantic.reader import SemanticProject
         ("38", None, None, None),
     ),
 )
-def test_decimal_compare_ignores_caller_precision_and_keeps_zero_policy(
+def test_decimal_compare_ignores_caller_precision_and_masks_zero(
     current: str | None,
     baseline: str | None,
     absolute: str | None,
@@ -43,7 +43,7 @@ def test_decimal_compare_ignores_caller_precision_and_keeps_zero_policy(
         )
         if value is not None:
             return source
-        return source.select({"v": source["v"].divide(0)})
+        return source.select({"v": source["v"] / 0})
 
     left, right = endpoint(current), endpoint(baseline)
     with localcontext() as context:
@@ -62,19 +62,6 @@ def test_decimal_compare_ignores_caller_precision_and_keeps_zero_policy(
         )
         assert pd.isna(delta) if absolute is None else delta == Decimal(absolute)
         assert pd.isna(change) if relative is None else change == relative
-        if current is not None and baseline is not None and Decimal(baseline).is_zero():
-            with pytest.raises(AnalysisError, match="nonzero denominator"):
-                left.compare(
-                    {"base": right},
-                    zero_denominator="error",
-                    on={"base": tuple(zip(left.axes, right.axes, strict=True))},
-                ).compute()
-        else:
-            left.compare(
-                {"base": right},
-                zero_denominator="error",
-                on={"base": tuple(zip(left.axes, right.axes, strict=True))},
-            ).compute()
 
 
 @pytest.fixture

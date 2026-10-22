@@ -176,7 +176,6 @@ def test_complex_top_uses_the_exact_completed_parent_score(
 def test_complex_top_zero_preserves_the_fine_formula_failure(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -188,11 +187,11 @@ def test_complex_top_zero_preserves_the_fine_formula_failure(
     amount = session.catalog.fields.get("sales.order.amount")
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
-    metric = amount.count().divide(amount.sum(), zero_denominator="error").per(customer).mean()
+    metric = (amount.count() / amount.sum()).per(customer).mean()
     fine = session.observe({"value": metric}, by=(channel,))
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="zero denominator"):
-        fine.top(0, by=fine["value"]).compute()
+    assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+    assert fine.compute().to_pandas()[("value", "value")].isna().any()
 
 
 def test_dynamic_sample_domain_transports_distinct_complete_coordinates(

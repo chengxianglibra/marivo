@@ -48,7 +48,6 @@ def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]
     left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
     union = left.compare(
         {"reference": right},
-        how="outer",
         on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
         match={"reference": mv.ordinal()},
     )

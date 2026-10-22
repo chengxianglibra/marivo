@@ -749,7 +749,6 @@ class AnalysisFrame:
         *,
         on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
         match: CalendarCorrespondence | None = None,
-        how: Literal["exact", "outer"] = "exact",
     ) -> AnalysisFrame:
         """Align all current values by complete axes, adding independent row presence.
 
@@ -757,7 +756,6 @@ class AnalysisFrame:
             other: Same-Session Frame.
             on: Complete FrameAxis-pair bijection or None.
             match: Optional closed calendar rule.
-            how: 'exact' or ordered 'outer'.
 
         Returns:
             A lazy Frame containing all left/right values and presence.
@@ -770,7 +768,7 @@ class AnalysisFrame:
         does not check original Entity/Field equality. Paired inputs reject. No Catalog or row reads.
         """
         pairs = self._axis_pairs(other, on=on, match=match)
-        operation = AlignFrameValues(pairs, how, match)
+        operation = AlignFrameValues(pairs, match)
         schema = infer_frame_combine_schema(self._schema, other._schema, operation)
         return self._from_expression(
             self._local, schema, OperationFrameBinding(operation, (self, other))
@@ -782,8 +780,6 @@ class AnalysisFrame:
         *,
         on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None = None,
         match: Mapping[str, CalendarCorrespondence] | None = None,
-        how: Literal["exact", "outer"] = "exact",
-        zero_denominator: Literal["null", "error"] = "null",
     ) -> AnalysisFrame:
         """Compare current values with one or more explicitly named baseline Frames.
 
@@ -791,8 +787,6 @@ class AnalysisFrame:
             baselines: Nonempty ordered mapping of same-Session Frames; current is reserved.
             on: Per-alias complete axis bijections. Omitted aliases require unique inference.
             match: Per-alias closed time rules, consistent with any frozen direct relation.
-            how: Exact joint actual domains or an ordered outer union within the current time domain.
-            zero_denominator: Null or error for valid pairs with a zero baseline.
 
         Returns:
             A lazy ordinary Frame with current values, named baseline/difference groups and presence.
@@ -801,7 +795,7 @@ class AnalysisFrame:
             ``change = current.compare({"reference": baseline}, match={"reference": mv.ordinal()})``.
 
         Constraints: Equal nonempty numeric value paths and units; no paired inputs. Relative
-        change is (current-baseline)/abs(baseline). Missing rows and NA precede zero policy.
+        change is (current-baseline)/abs(baseline). Missing rows and NA propagate; zero baselines return NA. Outer correspondence preserves missing-side rows.
         Ordinary-axis on declares caller business correspondence without checking original
         Entity/Field equality. Equal value names select pairs, not Metric identity or business comparability.
         No source replay or date inference from alias names.
@@ -822,13 +816,6 @@ class AnalysisFrame:
                 "baseline aliases other than current",
                 repr(names),
                 "Rename the baseline alias.",
-                "frame.compare",
-            )
-        if how not in ("exact", "outer") or zero_denominator not in ("null", "error"):
-            reject(
-                "exact/outer and null/error comparison policies",
-                repr((how, zero_denominator)),
-                "Use how='exact' or 'outer' and zero_denominator='null' or 'error'.",
                 "frame.compare",
             )
         for mapping in (on, match):
@@ -869,7 +856,7 @@ class AnalysisFrame:
             )
             for name, baseline in baselines.items()
         )
-        operation = CompareFrameValues(bindings, how, zero_denominator)
+        operation = CompareFrameValues(bindings)
         inputs = (self, *baselines.values())
         schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
@@ -1242,12 +1229,9 @@ def _value_summary(value: object, source: AnalysisFrame, depth: int = 0) -> str:
     if isinstance(value, ValueUnary):
         return f"{value.operation}({_value_summary(value.operand, source, depth + 1)})"
     if isinstance(value, ValueBinary):
-        policy = (
-            f", zero_denominator={value.zero_denominator!r}" if value.operation == "div" else ""
-        )
         return (
             f"{value.operation}({_value_summary(value.left, source, depth + 1)}, "
-            f"{_value_summary(value.right, source, depth + 1)}{policy})"
+            f"{_value_summary(value.right, source, depth + 1)})"
         )
     return type(value).__name__
 
@@ -1269,10 +1253,10 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
             f"descending={operation.descending})"
         )
     if isinstance(operation, CompareFrameValues):
-        return f"compare(baselines={operation.baselines!r}, how={operation.how!r}, zero_denominator={operation.zero_denominator!r})"
+        return f"compare(baselines={operation.baselines!r})"
     if isinstance(operation, AlignFrameValues):
         match = f", match={operation.match!r}" if operation.match is not None else ""
-        return f"align(on={operation.pairs!r}, how={operation.how!r}{match})"
+        return f"align(on={operation.pairs!r}{match})"
     if isinstance(operation, AttributeContributionValues):
         target = operation.target
         return (

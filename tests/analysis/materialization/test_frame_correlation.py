@@ -441,7 +441,7 @@ def test_strict_subexpression_is_not_hidden_by_na_or_continuations(
 ) -> None:
     """C07/C11: both API layers retain child checking before the pair mask."""
     frame = _pairs(local, (1, 2), (None, None))
-    strict = frame["x"].divide(0, zero_denominator="error")
+    strict = frame["x"] * 1e308
     candidates = (
         frame.correlate(strict, frame["y"], method="pearson"),
         frame.reduce(
@@ -458,7 +458,7 @@ def test_strict_subexpression_is_not_hidden_by_na_or_continuations(
             candidate = candidate.select({"constant": 1})
         elif continuation == "filtered":
             candidate = candidate.where(candidate["n_pairs"] < 0)
-        with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
+        with pytest.raises(MaterializationError, match="finite") as failure:
             candidate.compute()
         assert failure.value.repair is not None
 
@@ -530,7 +530,7 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
         schema,
         pd.DataFrame({"tenant": ["A", "A", "C"], "id": [1, 2, 1], "x": [0, 2, 4]}, dtype=object),
     )
-    aligned = left.align(right, on=((left.axes[0], right.axes[0]),), how="outer").compute()
+    aligned = left.align(right, on=((left.axes[0], right.axes[0]),)).compute()
     result = (
         aligned.correlate(aligned["left.x"], aligned["right.x"], method="pearson")
         .compute()

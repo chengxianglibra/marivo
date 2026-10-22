@@ -73,7 +73,6 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
     (
         ("nulls.reject", ms.nulls.reject),
         ("empty.zero", ms.empty.zero),
-        ("zero_denominator.error", ms.zero_denominator.error),
     ),
 )
 def test_retired_value_policy_variants_are_not_help_targets(
@@ -86,9 +85,16 @@ def test_retired_value_policy_variants_are_not_help_targets(
     for query in (target, callable_value):
         with pytest.raises(SemanticHelpTargetError):
             resolve_live_target(query, SEMANTIC_LIVE_SURFACE)
-    assert (
-        resolve_live_target("metric.divide", SEMANTIC_LIVE_SURFACE).canonical_id == "metric.divide"
-    )
+
+
+@pytest.mark.parametrize("target", ("zero_denominator.error", "metric.divide", "row.divide"))
+def test_removed_numeric_policies_and_divide_are_not_help_targets(target: str) -> None:
+    from marivo.introspection.live.resolve import resolve_live_target
+    from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+
+    with pytest.raises(SemanticHelpTargetError):
+        resolve_live_target(target, SEMANTIC_LIVE_SURFACE)
+    assert not hasattr(ms, "zero_denominator")
 
 
 def test_semantic_live_surface_rejects_cross_surface_target() -> None:
@@ -701,9 +707,10 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "Field samples use observed keys" in text
     assert "Population binds every compatible tuple, including empty samples" in text
     assert "native field Grouping" in text
-    assert "memberships=(rule,)" in text and "parameters: memberships" in text
-    assert "rules map contributions to existing sample coordinates" in text
-    assert "membership Grouping" not in text
+    assert "Place correlated mv.membership(...) rules directly in samples" in text
+    assert "explicit non-first fields locate interleaved axes" in text
+    assert "(P, rule, ...)" in text
+    assert "parameters: memberships" not in text
 
 
 def test_semantic_concept_constructor_and_expression_role_share_one_navigation(
@@ -718,7 +725,6 @@ def test_semantic_concept_constructor_and_expression_role_share_one_navigation(
         "semantic.metric.define",
         "semantic.metric.where",
         "semantic.metric.per",
-        "semantic.metric.divide",
         "semantic.metric.window",
     ):
         assert target in concept

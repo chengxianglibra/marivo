@@ -140,6 +140,7 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     following = session.observe(
         {"value": session.catalog.metrics.get("sales.total")},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), selected),
+        where=mv.in_population(selected),
     )
     assert _values(following) == {"A": 100}
 

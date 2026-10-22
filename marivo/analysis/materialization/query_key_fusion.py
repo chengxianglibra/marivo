@@ -167,18 +167,6 @@ def _checked_value(
                 left,
                 right,
             )
-            if value.operation == "div" and value.zero_denominator == "error":
-                result = NumericValue(
-                    result.value,
-                    (
-                        *result.checks,
-                        NumericCheck(
-                            left.value.notnull() & (right.value == 0),
-                            "a nonzero denominator",
-                            "Column.divide(zero_denominator='error')",
-                        ),
-                    ),
-                )
             return result
         expression = _predicate_value(
             replace(value, left=ValueSlot(0), right=ValueSlot(1)),

@@ -304,13 +304,13 @@ def test_full_key_and_nonnullable_presence_checks_precede_top_zero(corruption: s
 def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
     strict = SelectValues(
         (
-            ("strict", ValueBinary("div", ValueSlot(0), ValueLiteral(0), "error")),
+            ("strict", ValueBinary("mul", ValueSlot(0), ValueLiteral(1e308))),
             ("kept", ValueSlot(1)),
         )
     )
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
+    with pytest.raises(SemanticExpressionError, match="finite"):
         _run(_data(), strict, SelectValues((("only", ValueSlot(1)),)))
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
+    with pytest.raises(SemanticExpressionError, match="finite"):
         _run(_data(), strict, TopValues(0, ValueSlot(1), True))
 
 

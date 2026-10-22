@@ -158,11 +158,9 @@ def test_native_float_binary_pending_shared_input_matches_completed(
         right = frame.where(~frame["big"].is_null())
         if operation == "compare":
             return frame.compare(
-                {"reference": right},
-                on={"reference": ((frame.axes[0], right.axes[0]),)},
-                how="outer",
+                {"reference": right}, on={"reference": ((frame.axes[0], right.axes[0]),)}
             )
-        return getattr(frame, operation)(right, on=((frame.axes[0], right.axes[0]),), how="outer")
+        return getattr(frame, operation)(right, on=((frame.axes[0], right.axes[0]),))
 
     pending = combine(source).compute()
     assert calls == [4, 4]  # The two branches consume one explicit source input.
@@ -290,7 +288,7 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
     assert terminal_runs(session) == ()
     _native_float(monkeypatch)
     source = _read(session)
-    invalid = source.select({"bad": source["big"].divide(0, zero_denominator="error")})
-    with pytest.raises(MaterializationError, match="nonzero denominator"):
+    invalid = source.select({"bad": source["big"] * 1e308})
+    with pytest.raises(MaterializationError, match="finite"):
         invalid.top(0, by=invalid["bad"]).compute()
     assert terminal_runs(session) == ()

@@ -129,7 +129,7 @@ def provider() -> DisclosureProvider:
     grouping_inputs = {
         "coordinates": "Pass resolved fields or field or identity Grouping values. Each identity value is a complete primary-key tuple; identity(entity, at=...) supplies its anchor. Rejects membership and calendar groupings; use product for calendar domains.",
         "membership": "Pass one resolved field or a nonempty tuple of resolved fields from one member Entity; put allocation paths in via, not in routed fields.",
-        "Population.project": "Select or reorder existing coordinates using population.axes or matching fields. Projection cannot read new fields; allocation rules belong to consuming memberships parameters.",
+        "Population.project": "Select or reorder existing coordinates using population.axes or matching fields. Projection cannot read new fields; allocation rules belong to observe.by or Metric.per inputs.",
         "Population.classify": "Pass direct same-Entity fields, field groupings or the receiver's existing identity. Rejects membership, interval/calendar groupings and routed fields; requires one identity-axis Population.",
     }
     parameter_facts = {
@@ -174,6 +174,8 @@ def provider() -> DisclosureProvider:
                         "binds complete primary keys through single-valued routes and validates version anchors."
                     )
                     if function is identity
+                    else "Place membership in observe.by or Metric.per; it expands its full ordered fields without splitting its correlated rule. For rule=(tag, channel), (rule, customer, channel) locates channel explicitly; the first field cannot be repeated. For R=(a,b), S=(c,d), (R,S,b,d) yields (a,c,b,d). Reject overlapping rules or reordered fields. (P, rule) retains P axes and joint keys; observe requires output coverage, per allows a subset. Each nested layer retains independent rules."
+                    if function is membership
                     else "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; explicit Population domains select only their complete keys.",
                 ),
                 effects="Capture an immutable domain, allocation descriptor, predicate or window rule.",

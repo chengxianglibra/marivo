@@ -2,17 +2,21 @@
 
 from dataclasses import FrozenInstanceError, replace
 
+import duckdb
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.relations import LiteralPopulation, population_keys
+from marivo._definition.expressions import PerReduce
+from marivo._definition.relations import LiteralPopulation, SampleDomain, population_keys
+from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticError
 from tests.analysis.graph.execution_fixtures import source_graph
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
@@ -164,3 +168,200 @@ def test_population_algebra_matches_business_coordinates_across_definition_versi
     assert population_keys(older.union(current)._definition) == (("east",), ("west",))
     assert population_keys(older.project(by=current.axes)._definition) == (("east",),)
     assert population_keys(current.where(mv.in_population(older))._definition) == (("east",),)
+
+
+def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    channel = session.catalog.fields.get("sales.order.channel")
+    status = session.catalog.fields.get("sales.order.status")
+    region = session.catalog.fields.get("sales.customer.region")
+    period = session.time_scope(start="2026-08-01", end="2026-09-01")
+    rule = mv.membership((channel, status), via=(), unmatched="exclude")
+    before = terminal_runs(session)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Unified grouping capture must not read source rows")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(SourceSession, "__enter__", forbidden)
+        compact = session.observe({"value": revenue}, by=(period, rule))
+        positioned = session.observe({"value": revenue}, by=(period, rule, status))
+        assert source_graph(compact).fingerprint == source_graph(positioned).fingerprint
+        interleaved = session.observe({"value": revenue}, by=(period, rule, region, status))
+        axes = source_graph(interleaved).signature.axes
+        assert tuple(
+            axis.field.ref.path for axis in axes[1:] if isinstance(axis, AxisBinding) and axis.field
+        ) == ("sales.order.channel", "sales.customer.region", "sales.order.status")
+        observation = source_graph(interleaved).signature.observation
+        assert observation is not None
+        assert observation.coordinates.memberships == (rule._binding,)
+        assert (
+            consume_metric(revenue.per(rule).mean()).node
+            == consume_metric(revenue.per((rule, status)).mean()).node
+        )
+        inner = revenue.per((rule, region, status)).mean()
+        nested = consume_metric(inner.per(channel).mean()).node
+        assert nested != consume_metric(revenue.per(channel).mean().per(rule).mean()).node
+    assert terminal_runs(session) == before
+    result = interleaved.compute().to_pandas()
+    assert result[("value", "value")].tolist() == [150, 450, 400]
+
+
+@pytest.mark.parametrize("invalid_by", (None, 1, True))
+def test_observe_invalid_grouping_shape_has_structured_repair(
+    analysis_dsl_case_factory: DslCaseFactory, invalid_by: object
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    with pytest.raises(AnalysisError) as caught:
+        # Exercise the runtime boundary with deliberately invalid public inputs.
+        session.observe({"value": revenue}, by=invalid_by)  # type: ignore[arg-type]
+    assert caught.value.expected and caught.value.received and caught.value.repair
+
+
+def test_unified_memberships_reject_ambiguous_positions_and_domain_shapes(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    channel = session.catalog.fields.get("sales.order.channel")
+    status = session.catalog.fields.get("sales.order.status")
+    identity = mv.identity(session.catalog.entities.get("sales.order"))
+    rule = mv.membership((channel, status), via=(), unmatched="exclude")
+    domain = mv.coordinates(by=(channel, status), keys=(("web", "paid"),))
+    other = mv.coordinates(by=(status, channel), keys=(("paid", "web"),))
+    malformed = (
+        (rule, channel),
+        (status, rule),
+        (rule, status, status),
+        (rule, rule),
+        (domain,),
+        (domain, channel),
+        (rule, domain),
+        (domain, rule, domain),
+        (domain, rule, status),
+        (other, rule),
+    )
+    for by in malformed:
+        with pytest.raises(AnalysisError) as caught:
+            session.observe({"value": revenue}, by=by)
+        assert caught.value.expected and caught.value.received and caught.value.repair
+        with pytest.raises(SemanticError):
+            consume_metric(revenue.per(by).mean())
+    # An identity axis is distinct from a field position even on the same Entity.
+    frame = session.observe({"value": revenue}, by=(rule, identity))
+    assert len(source_graph(frame).signature.axes) == 3
+    with pytest.raises(AnalysisError):
+        mv.membership((channel, channel), via=(), unmatched="exclude")
+    with pytest.raises(TypeError):
+        session.observe({"value": revenue}, memberships=(rule,))  # type: ignore[call-arg]  # Removed public keyword.
+    with pytest.raises(SemanticError):
+        consume_metric(revenue.per(channel, memberships=(rule,)).mean())
+    for consumer in (
+        lambda: mv.coordinates(by=(rule,), keys=()),
+        lambda: domain.project(by=(rule,)),
+        lambda: session.values(by=(rule,), columns={"value": None}, rows=()),
+    ):
+        with pytest.raises(AnalysisError):
+            consumer()
+
+
+def test_complete_population_keeps_axis_order_and_rule_scope(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    channel = session.catalog.fields.get("sales.order.channel")
+    status = session.catalog.fields.get("sales.order.status")
+    region = session.catalog.fields.get("sales.customer.region")
+    rule = mv.membership((channel, status), via=(), unmatched="exclude")
+    domain = mv.coordinates(
+        by=(channel, region, status),
+        keys=(("web", "east", "paid"), ("mobile", "east", "paid"), ("web", "south", "paid")),
+    )
+    observed = session.observe({"value": revenue}, by=(domain, rule))
+    graph = source_graph(observed)
+    assert graph.root.population == domain._definition
+    assert graph.signature.axes == domain._definition.axes
+    sampled = consume_metric(revenue.per((domain, rule)).mean()).node
+    assert isinstance(sampled, PerReduce) and isinstance(sampled.samples, SampleDomain)
+    assert sampled.samples.population == domain._definition
+    assert sampled.samples.axes == domain._definition.axes
+    assert sampled.samples.memberships == (rule._binding,)
+
+
+def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("SET threads=1")
+        connection.execute(
+            "INSERT INTO \"order\" VALUES ('extra', 'A', 'mobile', 'paid', "
+            "TIMESTAMPTZ '2026-08-15T12:00:00+00:00', 52)"
+        )
+    revenue = session.catalog.metrics.get("sales.revenue")
+    channel = session.catalog.fields.get("sales.order.channel")
+    status = session.catalog.fields.get("sales.order.status")
+    customer = session.catalog.fields.get("sales.customer.customer_id")
+    region = session.catalog.fields.get("sales.customer.region")
+    buyer = session.catalog.relationships.get("sales.order_buyer")
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    channels = mv.membership((channel, status), via=(), unmatched="exclude")
+    customers = mv.membership((customer, region), via=((buyer,),), unmatched="exclude")
+    # R=(channel,status), S=(customer,region); (R,S,status,region) gives a,c,b,d.
+    ordinary_status = mv.coordinates(by=(status,), keys=()).axes[0]
+    pending = session.observe(
+        {"value": revenue}, by=(scope, channels, customers, ordinary_status, region)
+    )
+    axes = source_graph(pending).signature.axes
+    assert tuple(
+        axis.field.ref.path for axis in axes[1:] if isinstance(axis, AxisBinding) and axis.field
+    ) == (
+        "sales.order.channel",
+        "sales.customer.customer_id",
+        "sales.order.status",
+        "sales.customer.region",
+    )
+    observation = source_graph(pending).signature.observation
+    assert observation is not None
+    assert observation.coordinates.memberships == (channels._binding, customers._binding)
+    result = pending.compute().to_pandas()
+    keys = ordinary_columns(result)
+    assert list(result[[*keys, ("value", "value")]].itertuples(index=False, name=None)) == [
+        ("mobile", "A", "paid", "east", 52),
+        ("mobile", "B", "paid", "east", 150),
+        ("web", "A", "paid", "east", 450),
+        ("web", "C", "paid", "south", 400),
+    ]
+    nested = revenue.per((channels, status)).mean().per((customers, region)).mean()
+    reversed_layers = revenue.per((customers, region)).mean().per((channels, status)).mean()
+    captured = consume_metric(nested).node
+    assert isinstance(captured, PerReduce) and isinstance(captured.samples, SampleDomain)
+    assert captured.samples.memberships == (customers._binding,)
+    assert isinstance(captured.operand, PerReduce) and isinstance(
+        captured.operand.samples, SampleDomain
+    )
+    assert captured.operand.samples.memberships == (channels._binding,)
+    values = (
+        session.observe(
+            {
+                "joint": revenue.per((channels, customers, status, region)).mean(),
+                "by_customer": nested,
+                "by_channel": reversed_layers,
+            },
+            by=(scope,),
+        )
+        .compute()
+        .to_pandas()
+    )
+    # A has two channels (450,52), B one (150), C one (400): (251+150+400)/3.
+    assert values[("value", "by_customer")].tolist() == [267]
+    # Four joint buckets average 1052/4; channel means are 425 and 101.
+    assert values[("value", "joint")].tolist() == [263]
+    assert values[("value", "by_channel")].tolist() == [263]

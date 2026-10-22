@@ -57,6 +57,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
     TimeBinding,
 )
+from marivo._definition.grouping import normalize_groupings
 from marivo._definition.relations import (
     LiteralPopulation,
     MembershipBinding,
@@ -64,7 +65,6 @@ from marivo._definition.relations import (
     PopulationParameter,
     PopulationProgram,
     SampleDomain,
-    validate_memberships,
 )
 from marivo._definition.types import (
     Authorization,
@@ -459,38 +459,113 @@ def _constant(recipe: Resolver, default: object = None) -> object:
     return recipe.value if isinstance(recipe, Just) else default
 
 
-def _sample_memberships(
-    recipe: Resolver, axes: tuple[ComparisonAxis, ...]
-) -> tuple[MembershipBinding, ...]:
-    values = recipe.values if isinstance(recipe, Sequence) and recipe.typ is tuple else ()
-    if isinstance(recipe, Just) and recipe.value == ():
-        return ()
-    if not isinstance(recipe, Sequence) or recipe.typ is not tuple:
+def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
+    if (
+        not isinstance(axis, AxisBinding)
+        or axis.role != "field"
+        or axis.path
+        or axis.field is None
+        or axis.field.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+    ):
         _fail(
-            "memberships requires a tuple of membership Grouping values.",
-            expected="memberships=(mv.membership(...),)",
+            "Internal samples require native Dimension or TimeField groupings.",
+            expected="native field or explicit Population",
+            received=repr(axis),
+        )
+    assert isinstance(axis, AxisBinding)
+    return axis
+
+
+def _sample_domain(
+    recipe: Resolver,
+) -> tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain:
+    domain = _constant(recipe)
+    if isinstance(domain, PopulationParameter):
+        return domain._definition
+    if isinstance(recipe, Sequence) and recipe.typ is not tuple:
+        _fail(
+            "Internal sample tuples must use a built-in tuple.",
+            expected="a field, membership, nonempty tuple or Population",
             received=repr(recipe),
         )
-    bindings: list[MembershipBinding] = []
-    for value in values:
-        rule = _constant(value)
-        if not isinstance(rule, Grouping) or not isinstance(rule._binding, MembershipBinding):
+    members = recipe.values if isinstance(recipe, Sequence) else (recipe,)
+    population = _constant(members[0]) if members else None
+    domain = population if isinstance(population, PopulationParameter) else None
+    items: list[ComparisonAxis | MembershipBinding] = []
+    for member in members[1:] if domain is not None else members:
+        value = _constant(member)
+        if isinstance(value, Grouping) and isinstance(value._binding, MembershipBinding):
+            binding = value._binding
+            if domain is None:
+                for read in binding.fields:
+                    _native_sample_axis(
+                        AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                    )
+            items.append(binding)
+            continue
+        if domain is not None or isinstance(value, PopulationParameter):
             _fail(
-                "memberships accepts only membership Grouping values.",
-                expected="memberships=(mv.membership(...),)",
-                received=type(rule).__name__,
+                "A sample Population must be first and followed only by membership rules.",
+                expected="per(P) or per((P, rule, ...))",
+                received=type(value).__name__,
             )
-        assert isinstance(rule, Grouping) and isinstance(rule._binding, MembershipBinding)
-        bindings.append(rule._binding)
+        if isinstance(value, Grouping):
+            coordinate = value._binding
+            assert not isinstance(coordinate, MembershipBinding)
+            items.append(_native_sample_axis(coordinate))
+            continue
+        axis = _consume(member)
+        if (
+            not isinstance(axis, RowFacts)
+            or axis.field is None
+            or axis.field.reference.ref.kind
+            not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+        ):
+            _fail(
+                "Internal samples require semantic fields.",
+                expected="resolved field",
+                received=type(axis).__name__,
+            )
+        assert isinstance(axis, RowFacts) and axis.field is not None
+        axis_read = axis.field.field_read
+        if axis_read is not None and axis_read.path:
+            _fail(
+                "A scalar via field is not an internal sample domain.",
+                kind=ErrorKind.INVALID_TIME_PATH,
+                expected="native field or explicit Population",
+                received=axis.field.reference.ref.key,
+            )
+        items.append(
+            AxisBinding(
+                axis.root,
+                axis.field.reference,
+                axis_read.path if axis_read else (),
+                "field",
+                axis_read.at if axis_read else None,
+            )
+        )
     try:
-        validate_memberships(axes, tuple(bindings))
+        axes, memberships = normalize_groupings(
+            tuple(items), population_axes=domain._definition.axes if domain is not None else None
+        )
     except DefinitionGraphError as error:
         _fail(
-            "Membership rules must match distinct sample coordinates in captured order.",
-            expected="one allocation per existing sample coordinate",
+            "Sample coordinates and membership rules must be unique and retain captured order.",
+            expected="distinct sample coordinates with one allocation per field",
             received=str(error),
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
         )
-    return tuple(bindings)
+    if domain is not None:
+        return SampleDomain(axes, memberships, domain._definition)
+    if not axes:
+        _fail(
+            "Internal sample axes must be nonempty and unique.",
+            expected="distinct semantic axes",
+            received="empty axes",
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+        )
+    native_axes = tuple(_native_sample_axis(axis) for axis in axes)
+    return SampleDomain(native_axes, memberships) if memberships else native_axes
 
 
 def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
@@ -529,7 +604,7 @@ def _reduce(
     args: tuple[Resolver, ...],
     kwargs: dict[str, Resolver],
 ) -> MetricFacts:
-    from marivo.semantic.expressions import _nulls, _quantile, _zero_denominator
+    from marivo.semantic.expressions import _nulls, _quantile
 
     allowed = {"time", "nulls", "where"} if isinstance(receiver, RowFacts) else {"nulls"}
     if name in {"quantile", "approx_quantile"}:
@@ -537,7 +612,7 @@ def _reduce(
     if isinstance(receiver, _Samples) and name in {"first", "last"}:
         allowed.update(("order_by", "include_null"))
     if name == "weighted_mean":
-        allowed.update(("weight", "zero_denominator"))
+        allowed.add("weight")
     unexpected = set(kwargs) - allowed
     if unexpected or (args and name not in {"quantile", "approx_quantile"}) or len(args) > 1:
         _fail(
@@ -568,9 +643,6 @@ def _reduce(
                 weight.node,
                 receiver.axes,
                 nulls=policy,
-                zero_denominator=_zero_denominator(
-                    _constant(kwargs.get("zero_denominator", Just("null")))
-                ),
             )
             return MetricFacts(
                 node,
@@ -691,9 +763,6 @@ def _reduce(
             weight.node,
             time,
             nulls=policy,
-            zero_denominator=_zero_denominator(
-                _constant(kwargs.get("zero_denominator", Just("null")))
-            ),
         )
     else:
         node = SourceAggregate(row.node, reducer, time, q=q, nulls=policy)
@@ -1010,114 +1079,14 @@ def _consume(recipe: Resolver) -> _Facts:
                 assert isinstance(receiver, (RowFacts, _Samples))
                 return _reduce(receiver, name, recipe.args, dict(recipe.kwargs))
             if name == "per":
-                if (
-                    not isinstance(receiver, MetricFacts)
-                    or len(recipe.args) != 1
-                    or any(key != "memberships" for key in recipe.kwargs)
-                ):
+                if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1 or recipe.kwargs:
                     _fail(
                         "per requires a Metric and one sample specification.",
-                        expected="Metric.per(field, tuple or Population, memberships=(...))",
+                        expected="Metric.per(field, membership, tuple or Population)",
                         received="invalid receiver or arguments",
                     )
-                axes_recipe = recipe.args[0]
-                domain = _constant(axes_recipe)
-                if isinstance(domain, PopulationParameter):
-                    assert isinstance(receiver, MetricFacts)
-                    memberships = _sample_memberships(
-                        recipe.kwargs.get("memberships", Just(())), domain._definition.axes
-                    )
-                    return _Samples(
-                        receiver,
-                        SampleDomain(domain._definition.axes, memberships, domain._definition)
-                        if memberships
-                        else domain._definition,
-                    )
-
-                members = (
-                    axes_recipe.values if isinstance(axes_recipe, Sequence) else (axes_recipe,)
-                )
-                axes: list[AxisBinding] = []
-                for member in members:
-                    membership = _constant(member)
-                    if isinstance(membership, Grouping):
-                        binding = membership._binding
-                        if isinstance(binding, MembershipBinding):
-                            _fail(
-                                "Membership is a contribution mapping, not a sample coordinate.",
-                                expected="field samples with memberships=(rule,)",
-                                received="membership grouping in samples",
-                            )
-                        elif (
-                            isinstance(binding, AxisBinding)
-                            and binding.role == "field"
-                            and not binding.path
-                            and binding.field is not None
-                            and binding.field.ref.kind
-                            in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                        ):
-                            axes.append(binding)
-                        else:
-                            _fail(
-                                "Internal samples require native Dimension or TimeField groupings.",
-                                expected="native field or explicit Population",
-                                received=membership.kind,
-                            )
-                        continue
-                    axis = _consume(member)
-                    if (
-                        not isinstance(axis, RowFacts)
-                        or axis.field is None
-                        or axis.field.reference.ref.kind
-                        not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
-                    ):
-                        _fail(
-                            "Internal samples require semantic fields.",
-                            expected="resolved field",
-                            received=type(axis).__name__,
-                        )
-                    assert isinstance(axis, RowFacts) and axis.field is not None
-                    axis_read = axis.field.field_read
-                    if axis_read is not None and axis_read.path:
-                        _fail(
-                            "A scalar via field is not an internal sample domain.",
-                            kind=ErrorKind.INVALID_TIME_PATH,
-                            expected="native field or explicit population",
-                            received=axis.field.reference.ref.key,
-                        )
-                    axes.append(
-                        AxisBinding(
-                            axis.root,
-                            axis.field.reference,
-                            axis_read.path if axis_read else (),
-                            "field",
-                            axis_read.at if axis_read else None,
-                        )
-                    )
-                if not axes or len(
-                    {
-                        (
-                            axis.field.ref if axis.field else axis.entity.ref,
-                            tuple(step.ref for step in axis.path),
-                            axis.at,
-                        )
-                        for axis in axes
-                    }
-                ) != len(axes):
-                    _fail(
-                        "Internal sample axes must be nonempty and unique.",
-                        expected="distinct semantic axes",
-                        received="empty or repeated axes",
-                        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-                    )
                 assert isinstance(receiver, MetricFacts)
-                memberships = _sample_memberships(
-                    recipe.kwargs.get("memberships", Just(())), tuple(axes)
-                )
-                return _Samples(
-                    receiver,
-                    SampleDomain(tuple(axes), memberships) if memberships else tuple(axes),
-                )
+                return _Samples(receiver, _sample_domain(recipe.args[0]))
             if name == "where":
                 if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1:
                     _fail(
@@ -1152,27 +1121,6 @@ def _consume(recipe: Resolver) -> _Facts:
                 predicate = _consume_predicate_recipe(recipe.args[0])
                 _require_condition_roots(predicate, receiver.roots)
                 return replace(receiver, node=ContributionFilter(receiver.node, predicate.node))
-            if name == "divide":
-                from marivo.semantic.expressions import _zero_denominator
-
-                if not recipe.args and "other" in recipe.kwargs:
-                    return _consume(
-                        Call(
-                            recipe.func,
-                            recipe.kwargs["other"],
-                            **{
-                                key: value for key, value in recipe.kwargs.items() if key != "other"
-                            },
-                        )
-                    )
-
-                if len(recipe.args) != 1 or set(recipe.kwargs) - {"zero_denominator"}:
-                    _fail(
-                        "divide requires one denominator and its policy.",
-                        expected="divide(other, zero_denominator='null' or 'error')",
-                        received="unsupported arguments",
-                    )
-                _zero_denominator(_constant(recipe.kwargs.get("zero_denominator", Just("null"))))
             values = (receiver, *(_consume(arg) for arg in recipe.args))
             keyword_keys = tuple(recipe.kwargs)
             values += tuple(_consume(recipe.kwargs[key]) for key in keyword_keys)

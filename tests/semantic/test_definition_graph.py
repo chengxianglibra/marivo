@@ -73,11 +73,9 @@ def _constant(value: int | float | Decimal) -> MetricExpression:
     return MetricExpression(resolver_of(const(value)), ())
 
 
-def _divide(
-    left: MetricNode, right: MetricNode, *, zero_denominator: str = "null"
-) -> MetricExpression:
+def _divide(left: MetricNode, right: MetricNode) -> MetricExpression:
     return MetricExpression(
-        resolver_of(var("slot_0").divide(var("slot_1"), zero_denominator=zero_denominator)),
+        resolver_of(var("slot_0") / var("slot_1")),
         (left, right),
     )
 
@@ -137,16 +135,15 @@ def test_measure_assertion_enters_fingerprint() -> None:
         MeasureAssertion(product, unit=None, permission=None, authorization=asserted.authorization)
 
 
-def test_zero_denominator_policy_is_part_of_the_computation() -> None:
+def test_division_fingerprint_preserves_operand_order() -> None:
     revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
     cost = SourceAggregate(_field("cost"), "sum", time=PAID, nulls="error")
-
-    default = _divide(cost, revenue)
-    explicit_null = _divide(cost, revenue, zero_denominator="null")
-    strict = _divide(cost, revenue, zero_denominator="error")
-
-    assert computation_fingerprint(default) == computation_fingerprint(explicit_null)
-    assert computation_fingerprint(default) != computation_fingerprint(strict)
+    assert computation_fingerprint(_divide(cost, revenue)) == computation_fingerprint(
+        _divide(cost, revenue)
+    )
+    assert computation_fingerprint(_divide(cost, revenue)) != computation_fingerprint(
+        _divide(revenue, cost)
+    )
 
 
 def test_declared_metric_cycle_is_located() -> None:

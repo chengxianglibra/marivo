@@ -52,9 +52,8 @@ def invalid(
 
 
 RULE_VERSION: Final = 1
-SUPPORTED_RULE_VERSIONS: Final = frozenset({RULE_VERSION})
+NUMERIC_RULE_VERSION: Final = 2
 
-ZeroDenominator: TypeAlias = Literal["null", "error"]
 NullPolicy: TypeAlias = Literal["ignore", "error"]
 
 FiniteNumber: TypeAlias = int | float | Decimal

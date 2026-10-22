@@ -24,7 +24,6 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_local_execution, graph_source_execution
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -681,9 +680,9 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
     right = right.select({"value": right["amount"]})
     on = ((left.axes[0], right.axes[0]),)
     paired = (
-        left.align(right, on=on, how="outer")
+        left.align(right, on=on)
         if operation == "align"
-        else left.compare({"base": right}, on={"base": on}, how="outer")
+        else left.compare({"base": right}, on={"base": on})
     )
     rows = paired.compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == [1, 3, 4, 2]
@@ -695,7 +694,7 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
     assert rows["value", current_value].dropna().tolist() == [10, 20]
 
 
-def test_same_source_exact_alignment_failure_survives_top_zero(
+def test_same_source_outer_alignment_allows_top_zero(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
@@ -703,20 +702,7 @@ def test_same_source_exact_alignment_failure_survives_top_zero(
     right = source.where(source["amount"] >= 20)
     paired = left.align(right, on=((left.axes[0], right.axes[0]),))
     trace = capture_source(monkeypatch)
-    reads, outputs, locals_ = _capture_stages(monkeypatch)
-    with pytest.raises(AnalysisError, match=r"complete|exact") as caught:
-        paired.top(0, by=paired["left.amount"]).compute()
-    assert isinstance(caught.value, MaterializationError)
-    assert caught.value.stage == "frame_combine"
-    assert caught.value.expected == "equal actual complete row-key domains"
-    assert len(reads) == len(outputs) == len(trace.native_sql) == 1
-    assert len(locals_) == 2
-    assert not any(
-        isinstance(stage.program, (FrameProgram, ResultProgram))
-        and isinstance(stage.program.operation, TopValues)
-        for stage, _, _ in locals_
-    )
-    assert trace.returned_rows == [4]
+    assert paired.top(0, by=paired["left.amount"]).compute().to_pandas().empty
     assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
 
@@ -749,11 +735,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     zero = nullable.select({"value": nullable["baseline"]})
     nullable = nullable.select({"value": nullable["amount"]})
     rows = (
-        nullable.compare(
-            {"base": zero},
-            on={"base": ((nullable.axes[0], zero.axes[0]),)},
-            zero_denominator="error",
-        )
+        nullable.compare({"base": zero}, on={"base": ((nullable.axes[0], zero.axes[0]),)})
         .compute()
         .to_pandas()
     )

@@ -89,6 +89,7 @@ def test_exported_scores_select_an_explicit_followup_query(
     following = case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
         by=mv.product(scope.by(mv.grain("day")), population),
+        where=mv.in_population(population),
     )
     output = plain(following.compute())
     assert len(output) == 62

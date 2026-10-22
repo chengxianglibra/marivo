@@ -289,7 +289,6 @@ def _produce(
             {"reference": filtered},
             on={"reference": tuple(zip(current.axes, filtered.axes, strict=True))},
             match={"reference": mv.ordinal()},
-            how="outer",
         )
         counts_by_month = [
             session.observe(

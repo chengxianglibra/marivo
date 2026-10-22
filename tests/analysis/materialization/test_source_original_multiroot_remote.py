@@ -125,7 +125,7 @@ def fractional():
     return a/2+w/4
 @ms.measure(additivity=ms.additive_all())
 def guarded():
-    return a.divide(w,zero_denominator='error')
+    return a+w.log()
 @ms.metric()
 def adjusted_total():
     return adjusted.sum()

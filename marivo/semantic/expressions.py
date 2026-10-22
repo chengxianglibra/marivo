@@ -29,7 +29,6 @@ from marivo._definition.types import (
     SumAxes,
     SumNone,
     SumPermission,
-    ZeroDenominator,
 )
 from marivo._definition.types import (
     SourceLocation as DefinitionSourceLocation,
@@ -433,20 +432,6 @@ def declare_measure(
             ai_context=ai_context,
             location=DefinitionSourceLocation(location.file, location.line),
         ),
-    )
-
-
-def _zero_denominator(value: object) -> ZeroDenominator:
-    if value == "null":
-        return "null"
-    if value == "error":
-        return "error"
-    _fail(
-        ErrorKind.INVALID_EXPRESSION_VALUE,
-        "divide received an unsupported zero_denominator policy.",
-        expected='zero_denominator="null" or zero_denominator="error"',
-        received=_received(value),
-        action='Use "null" (default) or "error" for this division.',
     )
 
 

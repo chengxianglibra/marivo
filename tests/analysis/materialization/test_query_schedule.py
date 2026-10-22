@@ -587,10 +587,6 @@ def test_weighted_mean_pairs_and_zero_policies(warehouse_session: Session) -> No
     assert output.table["value.0"].iloc[0] == 10
     output = _compute(session, {"weighted": amount.weighted_mean(weight=weight)})
     assert pd.isna(output.table["value.0"].iloc[0])
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
-        _compute(
-            session, {"weighted": amount.weighted_mean(weight=weight, zero_denominator="error")}
-        )
     with pytest.raises(SemanticExpressionError, match="non-NA value/weight pairs"):
         _compute(session, {"weighted": amount.weighted_mean(weight=weight, nulls="error")})
 
@@ -614,8 +610,6 @@ def test_row_and_metric_formulas_mask_before_division(warehouse_session: Session
     zero = amount.sum() - amount.sum()
     output = _compute(session, {"ratio": amount.sum() / zero})
     assert pd.isna(output.table["value.0"].iloc[0])
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
-        _compute(session, {"ratio": amount.sum().divide(zero, zero_denominator="error")})
 
 
 def test_complete_keys_and_null_classification(warehouse_session: Session) -> None:
@@ -690,8 +684,8 @@ def test_strict_row_division_cannot_be_hidden_by_a_predicate(
         connection.close()
     default = _compute(session, {"row": (amount / weight).mean()})
     assert default.table["value.0"].iloc[0] == -10
-    strict = amount.divide(weight, zero_denominator="error")
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
+    strict = weight.log()
+    with pytest.raises(SemanticExpressionError, match="valid finite numeric function inputs"):
         _compute(
             session, {"sum": amount.sum()}, where=strict > 1000, by=(region,) if grouped else ()
         )

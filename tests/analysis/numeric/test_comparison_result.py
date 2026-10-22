@@ -12,7 +12,7 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
@@ -126,16 +126,7 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     frame = frame.set_index(ordinary_columns(frame)[0])
     assert frame.loc["C", ("value", "reference.absolute.value")] == Decimal("-0.05")
     assert frame.loc["C", ("value", "reference.relative.value")] == -1.0
-    # A zero denominator rejects the whole comparison before any partial output.
-    before = terminal_runs(case.session)
-    with pytest.raises(AnalysisError):
-        current.compare(
-            {"reference": baseline},
-            zero_denominator="error",
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
-        ).compute()
-    assert terminal_runs(case.session) == before
+    assert frame[("value", "reference.relative.value")].isna().any()
 
 
 def test_comparison_output_rejects_incomplete_and_forged_columns(

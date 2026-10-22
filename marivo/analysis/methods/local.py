@@ -156,7 +156,9 @@ def _combine_program(
                 [
                     frame.loc[
                         frame[
-                            "__sample_present"
+                            f"__sample_scope_{len(keys)}"
+                            if f"__sample_scope_{len(keys)}" in frame.columns
+                            else "__sample_present"
                             if "__sample_present" in frame.columns
                             else "__numeric_present"
                         ]
@@ -165,6 +167,8 @@ def _combine_program(
                         keys,
                     ]
                     if "__numeric_present" in frame.columns
+                    or "__sample_present" in frame.columns
+                    or f"__sample_scope_{len(keys)}" in frame.columns
                     else frame.loc[:, keys]
                     for frame in inputs
                 ],
@@ -200,11 +204,22 @@ def _combine_program(
         domain = domain.reset_index(drop=True)
     else:
         domain = pd.DataFrame(index=pd.RangeIndex(1))
+        if program.output_population is not None and inputs:
+            has_required_coordinate = any(
+                bool(frame["__sample_scope_0"].astype("boolean").fillna(False).any())
+                if "__sample_scope_0" in frame.columns
+                else bool(frame["__sample_present"].astype("boolean").fillna(False).any())
+                if "__sample_present" in frame.columns
+                else bool(len(frame))
+                for frame in inputs
+            )
+            if not has_required_coordinate:
+                domain = domain.iloc[:0].copy()
     if forced_domain is not None:
         domain = (
             forced_domain.loc[:, keys].drop_duplicates().reset_index(drop=True)
             if keys
-            else pd.DataFrame(index=pd.RangeIndex(1))
+            else pd.DataFrame(index=pd.RangeIndex(len(forced_domain)))
         )
     for binding in bindings:
         for coverage in binding.coverage:
@@ -319,6 +334,24 @@ def _combine_program(
     domain = parent_scoped(domain)
     if program.output_population is not None:
         complete_domain = parent_scoped(population_domain(program.output_population, key_slots))
+        if program.values:
+            if keys:
+                missing = domain.merge(
+                    complete_domain.drop_duplicates(), on=keys, how="left", indicator=True
+                )
+                missing = missing.loc[missing["_merge"] == "left_only", keys]
+            else:
+                missing = domain if not len(complete_domain) else domain.iloc[:0]
+            if len(missing):
+                from marivo.analysis.materialization.errors import MaterializationError
+
+                raise MaterializationError(
+                    expected="an output Population covering every required complete coordinate",
+                    received=f"missing output coordinates={missing.head(6).to_dict(orient='records') if keys else [()]}",
+                    repair="Expand by=Population to include the missing complete keys, or explicitly restrict fact contributions before choosing the output domain.",
+                    stage="population_coverage",
+                    help_target="session.observe",
+                )
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
     declarations = dict(program.declared)
     type_values = {

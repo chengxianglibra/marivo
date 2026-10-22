@@ -51,7 +51,7 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
     text = capsys.readouterr().out
     assert "Input by: Empty () is one zero-axis cell" in text
     assert "TimeScope contributes an interval axis" in text
-    assert "Population selecting complete output keys" in text
+    assert "P fixes complete joint keys" in text
     assert "CalendarAxis contributes calendar buckets" in text
     assert "Input during:" not in text and "Input members:" not in text
     show_help("analysis.population.count")

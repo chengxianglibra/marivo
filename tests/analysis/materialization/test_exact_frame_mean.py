@@ -149,11 +149,7 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
         ),
     ).compute()
     subset = base.where(base.coord(base.axes[1]) < "3")
-    joined = base.align(
-        subset,
-        on=tuple(zip(base.axes, subset.axes, strict=True)),
-        how="outer",
-    )
+    joined = base.align(subset, on=tuple(zip(base.axes, subset.axes, strict=True)))
     nullable = joined.select({"x": joined["right.x"], "y": joined["left.y"]}).compute()
     result = nullable.reduce(
         {"x": nullable["x"].mean(), "y": nullable["y"].mean(), "rows": mv.row_count()},

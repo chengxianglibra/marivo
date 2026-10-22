@@ -54,3 +54,11 @@ by consumer lifetime. Fixed-data composition does not authorize upload to a
 remote source or implicit rereading. Numeric/backend qualification, source
 coverage and error checks remain owned by the consuming operation. Local code
 alignment and examples do not establish an unrun provider or release matrix.
+
+## Implementation decisions
+
+[Analysis DSL simplification](dsl-simplification-proposal.md) records the inline
+membership/coordinate inputs, fixed outer/null policies and external-domain
+coverage repair. Current contracts are listed above; implementation and validation
+evidence is tracked in [the progress record](dsl-simplification-progress.md).
+Attribute refactoring remains outside this scope.

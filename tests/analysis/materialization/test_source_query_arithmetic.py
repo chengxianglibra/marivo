@@ -72,21 +72,11 @@ def test_query_arithmetic_keeps_selected_completed_values(
             )
             if operation == "na_zero":
                 source = source.where(source["amount"].is_null())
-                query = source.select(
-                    {
-                        "value": source["amount"].divide(
-                            source["big"] - source["big"], zero_denominator="error"
-                        )
-                    }
-                )
+                query = source.select({"value": source["amount"] / (source["big"] - source["big"])})
             else:
                 source = source.where(source["big"] + 5 > 20)
                 source = source.select(
-                    {
-                        "value": (source["big"] * 2 - source["weight"]).divide(
-                            source["weight"] + 1, zero_denominator="error"
-                        )
-                    }
+                    {"value": (source["big"] * 2 - source["weight"]) / (source["weight"] + 1)}
                 )
                 query = source.top(2, by=-(source["value"] + 1))
             expected_rows = 2
@@ -114,55 +104,27 @@ def test_query_arithmetic_keeps_selected_completed_values(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-@pytest.mark.parametrize("boundary", ("overflow", "zero", "formula_zero"))
-def test_checked_query_arithmetic_fails_before_empty_top(
+def test_checked_query_overflow_fails_before_empty_top(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    boundary: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with source_case(
-        backend,
-        profile,
-        tmp_path,
-        monkeypatch,
-        _case_data(backend, "overflow" if boundary == "overflow" else "strict"),
+        backend, profile, tmp_path, monkeypatch, _case_data(backend, "overflow")
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("source-query-checks", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
-        weight = session.catalog.fields.get("sales.facts.weight")
-        category = session.catalog.fields.get("sales.facts.category")
-        if boundary == "formula_zero":
-            source = session.observe(
-                {
-                    "value": big.sum().divide(
-                        big.count().where(category == "missing"), zero_denominator="error"
-                    )
-                },
-                by=(category,),
-            )
-        else:
-            source = session.read(
-                session.members(session.catalog.entities.get("sales.facts")),
-                {"big": big, "weight": weight},
-            )
-            source = source.select(
-                {
-                    "value": source["big"] + 1
-                    if boundary == "overflow"
-                    else source["big"].divide(source["weight"] - 1, zero_denominator="error")
-                }
-            )
+        source = session.read(
+            session.members(session.catalog.entities.get("sales.facts")), {"big": big}
+        )
+        source = source.select({"value": source["big"] + 1})
         query = source.top(0, by=source["value"])
         trace = capture_source(monkeypatch)
-        with pytest.raises(
-            MaterializationError,
-            match="overflow" if boundary == "overflow" else "nonzero denominator",
-        ):
+        with pytest.raises(MaterializationError, match="overflow"):
             query.compute()
         assert trace.uploaded_key_rows == []
 

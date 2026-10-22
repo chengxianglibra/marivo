@@ -112,9 +112,7 @@ def test_identity_outer_keeps_na_presence_and_complete_composite_keys(
 ) -> None:
     left = _memory(local, (MEMBER,), (("t1", "A", None), ("t2", "A", 0)))
     right = _memory(local, (MEMBER,), (("t1", "A", 7), ("t3", "A", 9)))
-    with pytest.raises(AnalysisError):
-        left.align(right, on=_on(left, right)).compute()
-    result = left.align(right, on=_on(left, right), how="outer").compute().to_pandas()
+    result = left.align(right, on=_on(left, right)).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [("t1", "A"), ("t2", "A"), ("t3", "A")]
     assert result[("presence", "left_present")].tolist() == [True, True, False]
     assert result[("presence", "right_present")].tolist() == [True, False, True]
@@ -131,16 +129,10 @@ def test_compare_signed_baseline_null_zero_policy_and_precision(local: LocalFram
     assert result[("value", "base.relative.m")].iloc[0] == 2.5
     assert result[("value", "base.relative.m")].iloc[1:3].isna().all()
     assert result[("value", "m")].iloc[3] == 9007199254740993
-    with pytest.raises(AnalysisError, match="nonzero denominator"):
-        left.compare(
-            {"base": right}, on={"base": _on(left, right)}, zero_denominator="error"
-        ).compute()
     missing = left.where(left["m"].is_null())
     zero = right.where(right["m"] == 0)
     zero = zero.where(zero.coord(zero.axes[0]) == "C")
-    missing.compare(
-        {"base": zero}, on={"base": _on(missing, zero)}, zero_denominator="error"
-    ).compute()
+    missing.compare({"base": zero}, on={"base": _on(missing, zero)}).compute()
 
 
 def test_compare_schema_is_known_before_values_and_checks_quantity_contracts(
@@ -169,11 +161,7 @@ def test_compare_schema_is_known_before_values_and_checks_quantity_contracts(
 def test_nullable_float_endpoints_keep_their_declared_carrier(local: LocalFrameServices) -> None:
     left = _memory(local, (FIELD,), (("A", None), ("B", 1.5)), dtype=ScalarDataType("float64"))
     right = _memory(local, (FIELD,), (("A", 0.0), ("C", 1.0)), dtype=ScalarDataType("float64"))
-    result = (
-        left.compare({"base": right}, on={"base": _on(left, right)}, how="outer")
-        .compute()
-        .to_pandas()
-    )
+    result = left.compare({"base": right}, on={"base": _on(left, right)}).compute().to_pandas()
     assert result[("value", "m")].isna().tolist() == [True, False, True]
     assert result[("value", "base.absolute.m")].isna().all()
     assert pd.api.types.is_float_dtype(result[("value", "m")].dtype)
@@ -189,7 +177,7 @@ def test_field_null_key_is_a_real_shared_coordinate(local: LocalFrameServices) -
 def test_ordinal_uses_frozen_positions_after_filtering(local: LocalFrameServices) -> None:
     left = _calendar(local, "2026-10-01", "2026-10-04", ((1, 20),))
     right = _calendar(local, "2026-09-01", "2026-09-04", ((0, 100), (1, 200)))
-    result = left.align(right, match=mv.ordinal(), how="outer").compute().to_pandas()
+    result = left.align(right, match=mv.ordinal()).compute().to_pandas()
     assert len(result) == 2
     assert result[("value", "left.m")].isna().tolist() == [False, True]
     assert result[("value", "right.m")].tolist() == [200, 100]
@@ -198,9 +186,7 @@ def test_ordinal_uses_frozen_positions_after_filtering(local: LocalFrameServices
 def test_ordinal_tail_outer_and_grain_timezone_partial_rejection(local: LocalFrameServices) -> None:
     left = _calendar(local, "2026-10-01", "2026-10-03", ((0, 1), (1, 2)))
     right = _calendar(local, "2026-09-01", "2026-09-04", ((0, 3), (1, 4), (2, 5)))
-    with pytest.raises(AnalysisError):
-        left.align(right, match=mv.ordinal()).compute()
-    result = left.align(right, match=mv.ordinal(), how="outer").compute().to_pandas()
+    result = left.align(right, match=mv.ordinal()).compute().to_pandas()
     assert result[("presence", "left_present")].tolist() == [True, True, False]
     for start, end, grain, zone in (
         ("2026-09-01", "2026-11-01", "month", "UTC"),
@@ -209,18 +195,14 @@ def test_ordinal_tail_outer_and_grain_timezone_partial_rejection(local: LocalFra
     ):
         bad = _calendar(local, start, end, ((0, 3),), grain=grain, zone=zone)
         with pytest.raises(AnalysisError):
-            left.align(bad, match=mv.ordinal(), how="outer").compute()
+            left.align(bad, match=mv.ordinal()).compute()
 
 
 def test_leap_day_exact_outer_keeps_presence_and_values(local: LocalFrameServices) -> None:
     left = _calendar(local, "2024-02-28", "2024-03-02", ((0, 10), (1, 20), (2, 30)))
     right = _calendar(local, "2023-02-28", "2023-03-02", ((0, 5), (1, 10)))
-    with pytest.raises(AnalysisError):
-        left.compare({"base": right}, match={"base": mv.offset(years=-1)}).compute()
     result = (
-        left.compare({"base": right}, match={"base": mv.offset(years=-1)}, how="outer")
-        .compute()
-        .to_pandas()
+        left.compare({"base": right}, match={"base": mv.offset(years=-1)}).compute().to_pandas()
     )
     assert result[("presence", "base.present")].tolist() == [True, False, True]
     assert result[("value", "base.absolute.m")].tolist() == [5, pd.NA, 20]
@@ -230,9 +212,7 @@ def test_filtered_leap_endpoint_uses_actual_complete_rows(local: LocalFrameServi
     left = _calendar(local, "2025-02-28", "2025-03-02", ((0, 10), (1, 20)))
     right = _calendar(local, "2024-02-28", "2024-03-02", ((0, 3), (2, 5)))
     result = (
-        left.compare({"base": right}, match={"base": mv.offset(years=-1)}, how="outer")
-        .compute()
-        .to_pandas()
+        left.compare({"base": right}, match={"base": mv.offset(years=-1)}).compute().to_pandas()
     )
     assert result[("value", "base.absolute.m")].tolist() == [7, 15]
     assert result[("presence", "current.present")].tolist() == [True, True]
@@ -253,8 +233,7 @@ def test_complete_february_and_calendar_period_offset(local: LocalFrameServices)
     with pytest.raises(AnalysisError):
         mv.offset(periods=True)
     week = _calendar(local, "2026-01-05", "2026-01-12", ((0, 1),), grain="week")
-    with pytest.raises(AnalysisError):
-        week.align(week, match=mv.offset(years=-1)).compute()
+    assert len(week.align(week, match=mv.offset(years=-1)).compute().to_pandas()) == 2
 
 
 def test_full_quarter_offset_and_ordinal_align_retain_paired_values(
@@ -273,7 +252,7 @@ def test_full_quarter_offset_and_ordinal_align_retain_paired_values(
 def test_nested_presence_stays_authoritative(local: LocalFrameServices) -> None:
     left = _memory(local, (FIELD,), (("A", 10),))
     right = _memory(local, (FIELD,), (("B", 20),))
-    first = left.align(right, on=_on(left, right), how="outer").compute()
+    first = left.align(right, on=_on(left, right)).compute()
     nested = first.align(first, on=_on(first, first)).compute().to_pandas()
     assert nested[("presence", "left_present")].tolist() == [True, True]
     assert nested[("presence", "left.left_present")].tolist() == [True, False]

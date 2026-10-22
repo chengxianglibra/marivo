@@ -201,12 +201,12 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
 def test_boolean_membership_does_not_shield_strict_checks(
     predicate_session: mv.Session, boolean_operator: str
 ) -> None:
-    """U04: O3's strict divide is checked regardless of the membership boolean."""
+    """U04: invalid field functions remain checked across membership booleans."""
     session = predicate_session
     amount = session.catalog.fields.get("sales.order.amount")
     divisor = session.catalog.fields.get("sales.order.divisor")
     entity = session.catalog.entities.get("sales.order")
-    risky = amount.divide(divisor, zero_denominator="error") > 0
+    risky = divisor.log() > 0
     population = (
         mv.coordinates(by=(mv.identity(entity),), keys=((("O1",),),))
         if boolean_operator == "and"
@@ -214,7 +214,7 @@ def test_boolean_membership_does_not_shield_strict_checks(
     )
     member = mv.in_population(population)
     condition = member & risky if boolean_operator == "and" else member | risky
-    with pytest.raises(AnalysisError, match="nonzero denominator"):
+    with pytest.raises(AnalysisError, match="valid finite numeric function inputs"):
         session.observe({"amount": amount.sum()}, where=condition).compute()
     with pytest.raises(AnalysisError, match="strict arithmetic checks"):
         session.frame(session.members(entity, where=condition)).compute()
@@ -276,7 +276,7 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
     session = predicate_session
     amount = session.catalog.fields.get("sales.order.amount")
     divisor = session.catalog.fields.get("sales.order.divisor")
-    risky = amount.divide(divisor, zero_denominator="error")
+    risky = amount / divisor
     guarded = (divisor != 0).ifelse(risky, 0) > 0
     result = (
         session.observe(
@@ -288,11 +288,11 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
     assert result[("value", "amount")].tolist() == [100]
     entity = session.catalog.entities.get("sales.order")
     source = session.read(session.members(entity), {"amount": amount})
-    invalid = source.select({"invalid": source["amount"].divide(0, zero_denominator="error")})
+    invalid = source.select({"invalid": source["amount"] * 1e308})
     empty = invalid.top(0, by=invalid["invalid"])
     producer = session.population_from(empty, on=((empty.axes[0], entity),))
     for condition in (mv.in_population(producer) | True, mv.in_population(producer) & False):
-        with pytest.raises(AnalysisError, match="nonzero denominator"):
+        with pytest.raises(AnalysisError, match="finite numeric output"):
             session.observe({"amount": amount.sum()}, where=condition).compute()
 
 

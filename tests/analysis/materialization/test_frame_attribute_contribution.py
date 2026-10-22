@@ -128,7 +128,7 @@ def test_rule_families(session: Session, kind: str) -> None:
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     if kind == "ratio":
-        metric = amount.sum().divide(weight.sum())
+        metric = amount.sum() / weight.sum()
     elif kind == "mean":
         metric = amount.mean()
     elif kind == "weighted":
@@ -229,23 +229,25 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     from marivo.datasource.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
-        connection.execute("UPDATE facts SET weight=0 WHERE id=4")
+        connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
+        connection.execute(
+            "UPDATE facts SET amount=CASE id WHEN 3 THEN -5e307 WHEN 4 THEN 1e308 ELSE amount END"
+        )
     amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     pending = _contribution(
         session.observe(
             {
                 "safe": amount.sum(),
-                "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
+                "bad": amount.sum() * 2,
             },
             where=phase == "current",
         ),
         session.observe(
             {
                 "safe": amount.sum(),
-                "bad": amount.sum().divide(weight.sum(), zero_denominator="error"),
+                "bad": amount.sum() * 2,
             },
             where=phase == "base",
         ),
@@ -281,7 +283,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     assert fiber.parent == ()
     assert fiber.fine == ((ScalarDataType("string"), "B"),)
     assert len(fiber.fine_columns) == 1
-    assert error.repair is not None and "zero_denominator" in error.repair.action
+    assert error.repair is not None and "numeric" in error.repair.action
 
 
 @pytest.mark.parametrize("shape", ("direct", "derived", "shared", "distinct", "source"))
@@ -474,7 +476,7 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    metric = amount.sum().divide(weight.sum())
+    metric = amount.sum() / weight.sum()
     with pytest.raises(AttributeInputError) as caught:
         _contribution(
             session.observe({"q": metric}, where=phase == "current"),
@@ -551,7 +553,7 @@ def test_linear_ratio_children_and_original_scalar_order(session: Session) -> No
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    ratio = amount.sum().divide(weight.sum())
+    ratio = amount.sum() / weight.sum()
     metric = ratio - 2 * ratio
     rows = (
         _contribution(
@@ -623,7 +625,7 @@ def test_payload_satisfies_existing_fact_model(
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    ratio = bare.sum().divide(weight.sum())
+    ratio = bare.sum() / weight.sum()
     metric = bare.sum() if kind == "additive" else ratio
     if kind == "linear":
         metric = ratio - 2 * ratio
@@ -707,12 +709,15 @@ def test_new_attribute_uses_only_its_own_live_components(
         metrics,
         by=parents,
         where=(phase == "current")
+        & mv.in_population(parents)
         & ((channel == "A") if shape != "scalar" else (phase == "current")),
     )
     right = session.observe(
         metrics,
         by=parents,
-        where=(phase == "base") & ((channel == "A") if shape != "scalar" else (phase == "base")),
+        where=(phase == "base")
+        & mv.in_population(parents)
+        & ((channel == "A") if shape != "scalar" else (phase == "base")),
     )
     final = _contribution(left, right, by=(channel,))
     from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
@@ -1048,7 +1053,7 @@ def test_captured_rule_families(session: Session, kind: str, mode: str) -> None:
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     if kind == "ratio":
-        metric = amount.sum().divide(weight.sum())
+        metric = amount.sum() / weight.sum()
     elif kind == "mean":
         metric = amount.mean()
     elif kind == "weighted":
@@ -1088,14 +1093,14 @@ def test_captured_original_fine_formula_checks_survive_pruning(
     from marivo.analysis.materialization.errors import MaterializationError
 
     with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
-        connection.execute("UPDATE facts SET weight=0 WHERE id=4")
+        connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
+        connection.execute(
+            "UPDATE facts SET amount=CASE id WHEN 3 THEN -5e307 WHEN 4 THEN 1e308 ELSE amount END"
+        )
     amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    source = session.observe(
-        {"q": amount.sum().divide(weight.sum(), zero_denominator="error")}, where=phase == "current"
-    ).compute()
+    source = session.observe({"q": amount.sum() * 2}, where=phase == "current").compute()
     report = source.attribute(by=(channel,))
     if prune == "select":
         report = report.select({"kept": report["contribution.q"]})
@@ -1124,7 +1129,7 @@ def test_captured_known_empty_sample_retains_original_na(session: Session, kind:
         if kind == "mean"
         else amount.weighted_mean(weight=weight)
         if kind == "weighted"
-        else amount.sum().divide(weight.sum())
+        else amount.sum() / weight.sum()
     )
     source = session.observe({"q": metric}, where=phase == "current").compute()
     if kind == "ratio":

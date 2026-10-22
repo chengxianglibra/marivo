@@ -238,7 +238,6 @@ def expression_series(
                 left_type=duration.left,
                 right_type=duration.right,
                 output=duration.output,
-                zero_denominator=expression.zero_denominator,
             )
 
         computed = nullable_arithmetic(
@@ -247,7 +246,6 @@ def expression_series(
             ],
             left,
             right,
-            zero_denominator=expression.zero_denominator,
         )
         import ibis
 
@@ -289,7 +287,7 @@ def expression_series(
     result: list[object] = []
     with localcontext() as context:
         context.prec = 120
-        for index, (a, b) in enumerate(zip(left, right, strict=True)):
+        for a, b in zip(left, right, strict=True):
             if pd.isna(a) or pd.isna(b):
                 result.append(None)
                 continue
@@ -302,11 +300,6 @@ def expression_series(
                     "a timezone-aware timestamp and a timezone-free timestamp",
                 )
             if expression.operation == "div" and b == 0:
-                if expression.zero_denominator == "error":
-                    numeric_failure(
-                        "a nonzero denominator for demanded non-NA values",
-                        f"zero denominator at coordinate {tuple(frame.iloc[index][key] for key in program.keys)!r}",
-                    )
                 result.append(None)
                 continue
             try:

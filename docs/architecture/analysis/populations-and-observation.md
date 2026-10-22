@@ -12,7 +12,7 @@ without restoring those source definitions.
 | --- | --- | --- |
 | session.members(entity, at=..., where=...) | Source identities with exact membership/version scope | Population |
 | mv.coordinates(by=..., keys=...) | Literal complete coordinates | Population |
-| session.observe(metrics, by=..., where=..., memberships=...) | Named Metric evaluation on an explicit output domain | AnalysisFrame |
+| session.observe(metrics, by=..., where=...) | Named Metric evaluation on an explicit output domain | AnalysisFrame |
 | session.read(population, fields) | Nonempty attributes on one Entity identity domain | AnalysisFrame |
 | session.frame(population) | Complete keys of a general Population | AnalysisFrame, possibly with no values |
 | session.values(by=..., columns=..., rows=...) | Literal keys and named values under the Session owner | AnalysisFrame |
@@ -99,22 +99,46 @@ roles, then combine on complete target keys. One root's facts cannot be multipli
 by another root's rows. Existence selection, overlapping membership allocation
 and modeled association events retain different contribution meanings.
 
-A membership descriptor in the explicit `memberships` parameter of observe or
-Metric.per preserves correlated fields within one tuple. The coordinates are
-declared separately in by/samples; Population contains keys, not allocation rules.
-Outer and inner rules are independent. Separate
-descriptors form independent factors. Repeated `(contribution identity, bucket)`
-pairs are set occurrences; equal-valued distinct contributions remain separate.
-unmatched is explicit exclude or Null. A Population in by selects exactly its
-complete output keys, including keys without facts. Selection preserves original
-contribution identities. Membership repeats the full contribution in each distinct
-bucket; explicit weighted allocation needs its own declared contribution source,
-without renormalizing after selection.
+Place a membership descriptor directly in `observe.by` or `Metric.per` inputs.
+It expands its ordered fields while retaining one complete correlated allocation
+rule. For a rule containing `(tag, channel)`, `(rule, customer, channel)` gives
+`(tag, customer, channel)`: a non-first field supplies its explicit position.
+The first field cannot appear separately. Two rules R=(a,b), S=(c,d) in
+`(R, S, b, d)` preserve `(a,c,b,d)`. Repeated coordinates, overlapping rules and
+member fields in the wrong relative order reject; matching uses full coordinate
+identity, including paths and time roles.
 
-`Metric.per(samples, memberships=())` completes the entire child Metric within each external and
+Use `by=P` without allocation or `by=(P, rule, ...)` with allocation. P must be
+first and its complete axes, order and joint keys remain authoritative. Extra
+ordinary fields, multiple P values and `(P,)` reject. Population stores no
+allocation rules; `population.axes` reuses only coordinate definitions.
+Outer and inner rules are independent. Separate descriptors form independent
+factors. Repeated `(contribution identity, bucket)` pairs are set occurrences;
+equal-valued distinct contributions remain separate. unmatched is explicit
+exclude or Null. Membership repeats the full contribution in each distinct
+bucket without renormalizing after selection.
+
+External P must cover all necessary complete output keys after explicit fact
+conditions, time constraints and unmatched handling, before internal sampling or
+output cropping. Check complete tuples with Null-safe identity equality, rather
+than each axis projection. Missing keys raise a typed coverage error with bounded
+examples; enlarge P or explicitly restrict fact contributions. An existence
+condition `in_population(P)` can retain a fact that also allocates to other buckets,
+so it does not guarantee coverage. Extra keys in P retain the Metric's empty-input
+value. Empty P is legal only when the necessary key set is empty; a necessary
+zero-axis `()` key requires the singleton domain. Multi-root necessary keys union
+across roots. Internal sample selection, empty samples, Top-0 and later operations
+cannot hide required coverage failures. Completed historical Frames consume fixed
+data without rechecking their original sources.
+
+`Metric.per(samples)` completes the entire child Metric within each external and
 internal key pair before applying the sample reducer. An average of per-customer
 ratios is not an overall ratio. A complete explicit internal domain retains empty
 samples under the child's empty policy; it may deliberately select a subset.
+Use a membership directly, an ordered nonempty tuple, P, or `(P, rule, ...)`.
+Each nested layer independently selects and completes samples. Even empty or
+entirely unmatched samples preserve necessary external coordinates, producing
+zero for empty sum children and NA where the reducer's empty policy requires it.
 
 ## Fixed-data bridge to a new source question
 

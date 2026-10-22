@@ -121,12 +121,14 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         before = terminal_runs(session)
         paired = left.align(matching, on=tuple(zip(left.axes, matching.axes, strict=True)))
         assert terminal_runs(session) == before
-        with pytest.raises(AnalysisError, match="equal actual complete row-key domains"):
-            left.align(unequal, on=tuple(zip(left.axes, unequal.axes, strict=True))).persist()
+        union = left.align(unequal, on=tuple(zip(left.axes, unequal.axes, strict=True))).compute()
+        union_rows = union.to_pandas()
+        assert union_rows[("presence", "right_present")].all()
+        assert (~union_rows[("presence", "left_present")]).any()
         ratios = paired.select({"value": paired["left.value"] / paired["right.value"]}).persist()
         expected = sum(isinstance(row["y"], int) and row["y"] > 20 for row in work.rows)
         assert ratios.to_pandas()[("value", "value")].tolist() == [1.0] * expected
-        # Same-domain Columns share an input; independent Queries require actual exact pairing.
+        # Same-input Columns retain their original rows and values.
         shared = values.select({"value": values["value"] / values["value"]}).persist()
         assert shared.to_pandas()[("value", "value")].tolist() == [1.0] * 64
         assert session.persisted_frame(ratios.artifact.id).to_pandas().equals(ratios.to_pandas())
@@ -151,7 +153,7 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         assert session.persisted_frame(trusted.artifact.id).to_pandas().equals(frame)
 
 
-def test_exact_has_no_public_verification_choice() -> None:
+def test_outer_alignment_has_one_public_correspondence_contract() -> None:
     from inspect import signature
 
     assert tuple(signature(mv.AnalysisFrame.align).parameters) == (
@@ -159,7 +161,6 @@ def test_exact_has_no_public_verification_choice() -> None:
         "other",
         "on",
         "match",
-        "how",
     )
     assert "verification" not in signature(mv.AnalysisFrame.compare).parameters
 

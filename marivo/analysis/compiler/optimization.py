@@ -109,7 +109,13 @@ def _support(stage: QueryStage) -> set[str]:
             column.slot_id
             for column in stage.columns
             if column.slot_id.startswith(
-                ("numeric_check.", "predicate_check.", "__numeric_present", "__sample_present")
+                (
+                    "numeric_check.",
+                    "predicate_check.",
+                    "__numeric_present",
+                    "__sample_present",
+                    "__sample_scope_",
+                )
             )
         )
     elif isinstance(stage.program, ResultProgram) and stage.program.output_layout is not None:

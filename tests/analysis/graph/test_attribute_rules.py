@@ -237,25 +237,12 @@ def test_linear_over_ratio_and_additive_scaling_have_separate_kinds() -> None:
     assert isinstance(negative, LinearRule)
 
 
-def test_divide_preserves_native_policy_and_operator_spelling() -> None:
-    def divided(policy: str) -> MetricExpression:
-        return formula(
-            Call(
-                Attr(Variable("slot_0"), "divide"),
-                Variable("slot_1"),
-                zero_denominator=Just(policy),
-            ),
-            total(),
-            total("orders"),
-        )
-
-    rule = build(divided("error"))
-    assert isinstance(rule, RatioComponentRule) and isinstance(rule.operation, DirectRatio)
-    assert rule.operation.zero_denominator == "error"
-    assert not rules_match(rule, build(divided("null")))
-    assert not rules_match(
-        build(divided("null")), build(binary(operator.truediv, total(), total("orders")))
+def test_ratio_rejects_retired_divide_recipe() -> None:
+    old = formula(
+        Call(Attr(Variable("slot_0"), "divide"), Variable("slot_1")), total(), total("orders")
     )
+    with pytest.raises(AttributeRuleError, match="unsupported Metric recipe"):
+        build(old)
 
 
 def test_signature_preserves_actual_topology_and_exact_fixed_scalars() -> None:

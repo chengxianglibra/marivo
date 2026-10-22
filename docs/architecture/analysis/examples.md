@@ -35,7 +35,8 @@ assert change.to_pandas()[("value", "reference.absolute.revenue")].tolist() == [
 
 The TimeScope is an actual interval axis in by. Full on binds interval and region;
 ordinal explicitly pairs the two single-interval directories. Compare keeps
-current values plus named baseline/absolute/relative values. Independent presence
+current values plus named baseline/absolute/relative values. Correspondence is
+outer, preserving missing-side rows and NA; a zero baseline gives relative NA. Independent presence
 states row existence rather than whether revenue is NA. Compute fixes each source
 read separately, without a shared transaction snapshot promise.
 
@@ -56,7 +57,9 @@ assert prior_for_chosen.to_pandas()[("value", "revenue")].tolist() == [700]
 The selected west region stays fixed even if a later source read changes values.
 The bridge projects complete ordinary joint keys and declares the target field;
 it does not recover nominal identity from a label. by supplies complete output
-keys while where explicitly restricts contributions. New source values can differ
+keys and must cover every necessary complete output key, while where explicitly
+restricts contributions. Internal per(P) may select a subset; empty samples
+still retain external output coordinates. New source values can differ
 from those used to select parents. A pending selection would rerun before its
 keys were consumed; retain the returned completed Frame when prior keys matter.
 

@@ -8,11 +8,14 @@ from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import MetricNode
+from marivo._definition.grouping import normalize_groupings
 from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
+    MembershipBinding,
     ObserveQuery,
     PopulationContains,
     PopulationProgram,
@@ -23,6 +26,7 @@ from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     CoordinateValue,
+    DefinitionGraphError,
     ExactRef,
     FieldRead,
     IdentityRead,
@@ -250,9 +254,8 @@ def capture_metrics(
     metrics: Mapping[str, Deferred],
     owner: Owner,
     *,
-    by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
+    by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
     where: Deferred | None = None,
-    memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
@@ -289,44 +292,54 @@ def capture_metrics(
             "Pass by=(field,) using resolved semantic fields.",
             "session.observe",
         )
-    if isinstance(by, Population):
-        if _owner(by._definition) not in (None, owner):
+    domain = (
+        by
+        if isinstance(by, Population)
+        else by[0]
+        if by and isinstance(by[0], Population)
+        else None
+    )
+    if domain is not None:
+        if _owner(domain._definition) not in (None, owner):
             reject(
                 "a Population from this Session",
                 "different Session owner",
                 "Rebuild the domain in this Session.",
                 "session.observe",
             )
-        axes = by._definition.axes
-        population = by._definition
+        axes = domain._definition.axes
+        population = domain._definition
     else:
-        axes = _axes(by)
         population = None
-
-    from marivo._definition.relations import MembershipBinding, validate_memberships
-    from marivo._definition.types import DefinitionGraphError
-
-    if not isinstance(memberships, tuple) or any(
-        not isinstance(rule, Grouping) or not isinstance(rule._binding, MembershipBinding)
-        for rule in memberships
-    ):
-        reject(
-            "a tuple of membership Grouping rules",
-            repr(memberships),
-            "Pass memberships=(mv.membership(...),).",
-            "Session.observe.memberships",
-        )
-    bindings = tuple(
-        rule._binding for rule in memberships if isinstance(rule._binding, MembershipBinding)
-    )
+    items = () if isinstance(by, Population) else by[1:] if domain is not None else by
+    captured: list[ComparisonAxis | MembershipBinding] = []
+    for item in items:
+        if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
+            captured.append(item._binding)
+        elif domain is None and isinstance(item, (Deferred, Grouping, TimeScope)):
+            captured.extend(_axes((item,)))
+        else:
+            reject(
+                "ordinary coordinates or a first Population followed only by membership rules",
+                type(item).__name__,
+                "Use by=(field, rule, ...) or by=(population, rule, ...).",
+                "Session.observe.by",
+            )
+    bindings: tuple[MembershipBinding, ...]
     try:
-        validate_memberships(axes, bindings)
+        if isinstance(by, Population):
+            bindings = ()
+        else:
+            axes, bindings = normalize_groupings(
+                tuple(captured),
+                population_axes=domain._definition.axes if domain is not None else None,
+            )
     except DefinitionGraphError as error:
         reject(
-            "membership rules for distinct existing coordinates in captured order",
+            "distinct coordinates with membership fields in captured order",
             str(error),
-            "Match each rule to the ordered by coordinates and allocate each coordinate once.",
-            "Session.observe.memberships",
+            "Put each rule at its first field position; position its later fields explicitly when needed.",
+            "Session.observe.by",
         )
 
     source_axes = tuple(

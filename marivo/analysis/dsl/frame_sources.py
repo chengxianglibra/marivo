@@ -165,9 +165,8 @@ def observe(
     connection: DatasourceConnectionConfig,
     metrics: Mapping[str, Deferred],
     *,
-    by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
+    by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
     where: Deferred | None = None,
-    memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     _parent_filter: Deferred | None = None,
@@ -180,7 +179,13 @@ def observe(
         *metrics.values(),
         _parent_filter,
         where,
-        by if isinstance(by, Population) else None,
+        *(
+            (by,)
+            if isinstance(by, Population)
+            else tuple(item for item in by if isinstance(item, Population))
+            if isinstance(by, tuple)
+            else ()
+        ),
         owner=local.owner,
     )
     graph = capture_metrics(
@@ -188,7 +193,6 @@ def observe(
         local.owner,
         by=by,
         where=where,
-        memberships=memberships,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,

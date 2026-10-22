@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 from ibis.common.deferred import Resolver
 
 from marivo._definition.types import (
+    NUMERIC_RULE_VERSION,
     RULE_VERSION,
     Authorization,
     AxisBinding,
@@ -21,7 +22,6 @@ from marivo._definition.types import (
     NullPolicy,
     SourceLocation,
     SumPermission,
-    ZeroDenominator,
     invalid,
 )
 from marivo._definition.windows import ObservationWindow
@@ -199,8 +199,7 @@ class SourceWeightedMean:
     weight: RowNode
     time: TimeBinding | None
     nulls: NullPolicy = "ignore"
-    zero_denominator: ZeroDenominator = "null"
-    rule_version: int = RULE_VERSION
+    rule_version: int = NUMERIC_RULE_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +235,7 @@ class PerWeightedMean:
     weight: MetricNode
     samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram
     nulls: NullPolicy = "ignore"
-    zero_denominator: ZeroDenominator = "null"
-    rule_version: int = RULE_VERSION
+    rule_version: int = NUMERIC_RULE_VERSION
 
     def __post_init__(self) -> None:
         if self.samples == ():

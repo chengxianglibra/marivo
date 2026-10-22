@@ -60,7 +60,11 @@ resolve the shared contracts.
 ``finalized.show()`` has its own ``semantic.FinalizedDeclarations.show`` contract. Numeric
 rows reduce through ``sum/mean/min/max/median/quantile/weighted_mean``; completed
 Metrics combine through arithmetic and accept scope-checked ``where`` and
-``per(...).reducer()``. Policies are operator-local strings; declaration-wide
+``per(...).reducer()``. Place membership rules directly in ``per`` samples or
+``observe.by``; explicit external domains require complete output-key coverage,
+while internal domains allow subsets. Division uses ``/``; zero denominators and
+zero paired-weight sums return NA before arithmetic. Independent ``nulls``
+policies remain operator-local strings; declaration-wide
 empty/null/zero-denominator policies, old factories and default folds are
 rejected with a concrete reauthoring action.
 

@@ -55,9 +55,7 @@ def numeric_failure(expected: str, received: str) -> NoReturn:
     from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
     action = "Repair the input values to satisfy the expected numeric/type constraints, then retry."
-    if "nonzero denominator" in expected:
-        action = "Use a nonzero denominator, or explicitly select zero_denominator='null' on this operator."
-    elif "non-NA" in expected:
+    if "non-NA" in expected:
         action = "Supply non-NA inputs, or explicitly select nulls='ignore' on this reducer."
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_VALUE,
@@ -78,9 +76,7 @@ def _finite_check(value: ir.Value, operation: str) -> tuple[NumericCheck, ...]:
     )
 
 
-def numeric_binary(
-    operation: str, left: NumericValue, right: NumericValue, *, zero_denominator: str = "null"
-) -> NumericValue:
+def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> NumericValue:
     """Emit arithmetic with the denominator masked before division."""
     a, b = bind_numeric_literal(left.value), bind_numeric_literal(right.value)
     if a.type().is_floating() and b.type().is_decimal():
@@ -90,15 +86,6 @@ def numeric_binary(
     checks = (*left.checks, *right.checks)
     if operation == "divide":
         zero = b == 0
-        if zero_denominator == "error":
-            checks = (
-                *checks,
-                NumericCheck(
-                    a.notnull() & zero,
-                    "a nonzero denominator",
-                    "divide(zero_denominator='error')",
-                ),
-            )
         safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
         if a.type().is_decimal() or safe.type().is_decimal():
             a, safe = a.cast("float64"), safe.cast("float64")
@@ -233,7 +220,6 @@ def lower_source_reduction(
             "divide",
             NumericValue(numerator, _finite_check(numerator, "weighted numerator sum")),
             NumericValue(denominator, _finite_check(denominator, "weight sum")),
-            zero_denominator=node.zero_denominator,
         )
         return NumericValue(
             divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks)
@@ -351,7 +337,6 @@ def lower_metric_formula(
             "divide",
             numeric_binary("multiply", value, weight),
             weight,
-            zero_denominator=node.zero_denominator,
         )
     numeric_failure(
         "ordinary source reductions and Metric arithmetic",

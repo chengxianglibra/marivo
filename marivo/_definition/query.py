@@ -47,7 +47,6 @@ class ValueBinary:
     operation: Literal["add", "sub", "mul", "div", "eq", "ne", "lt", "le", "gt", "ge", "and", "or"]
     left: ValueExpression
     right: ValueExpression
-    zero_denominator: Literal["null", "error"] = "null"
 
 
 @dataclass(frozen=True, slots=True)

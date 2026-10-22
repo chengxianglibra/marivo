@@ -108,11 +108,11 @@ mv.row_count()。by 是当前完整轴的无重复 tuple，按输入轴序规范
 消费时绑定且不被修改。允许同输入合法嵌套，内层广播值在外层仍按实际出现次数统计。
 where/top 先计算其操作输入上的完整分区，再筛选或排序；下游选择不反向缩小分母。
 
-`column.share(along=axes, zero_denominator="null")` 将 along 指定的轴参与加总，其余轴
+`column.share(along=axes)` 将 along 指定的轴参与加总，其余轴
 构成分区，等价于当前 Column 除以相应 over(sum)。along 必须是同输入完整轴的非空、
 无重复 tuple；不改变行粒度，零轴 Frame 拒绝。需要先去掉其它轴时显式 reduce，再从
 返回 Frame 重新获取句柄。份额是有符号比例，不乘 100，也不保证在 [0,1]。
-零分母使用本节点的 null/error 政策，未知单位保持 None；合法 Duration 组合沿用
+零分母固定为 NA，未知单位保持 None；合法 Duration 组合沿用
 sum/divide 合同。筛选前后的位置有意义：先筛选改变分母，后筛选保留已有分母。
 两者不重读来源、不生成新 method_facts，不认证原 Metric 的可加性或来源贡献。
 
@@ -124,7 +124,7 @@ align 接收另一 Frame；compare 始终接收非空有序命名 Frame 映射�
 compare 的 on/match 按基期别名分别提供；未知别名拒绝，部分 on 不自动补足。
 FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
 普通轴显式 on 声明本次业务对应；检查只保证结构相容以及所选政策下的实际键域，
-不验证原 Entity/Field 相同。Customer/Product 的同类型身份键可以显式配对；exact 成功不证明业务身份等价。
+不验证原 Entity/Field 相同。Customer/Product 的同类型身份键可以显式配对；结构检查成功不证明业务身份等价。
 compare 的同名量配对同样是调用方组织输入的方式，兼容类型与单位不证明相同 Metric 或业务可比性。
 
 compare 的时间关系按每个已绑定基期独立选择：显式 match 优先表达意图，但须与存在的直接
@@ -134,9 +134,10 @@ shift 关系一致；省略时仅消费锚点与本期完整冻结域相符的�
 align 仍使用显式 match 或等值，不引入自动 shift 推导。
 
 每个基期的实际完整联合键先映到本期坐标，其它普通轴仍完整键等值。
-exact 要求各端实际键域相等；outer 先保留本期行序，再按基期声明序/原行序加入新联合键。
-额外目录桶无实际行时不制造输出行，也不单独使 exact 失败。实际基期时间行无法映到本期
-声明域时，两种政策均拒绝；需要一般双端时间并集时使用 align。
+align/compare 固定 outer，先保留本期行序，再按基期声明序/原行序加入新联合键。
+额外目录桶无实际行时不制造输出行。实际基期时间行无法映到本期声明域时仍拒绝；
+需要一般双端时间并集时使用 align。相对变化为 (current-baseline)/abs(baseline)，
+零基期固定返回 NA；缺侧和值 NA 传播，不自动填零。
 compare 不裁短本期、不填零、不为某个别名重求本期量或分类。显式贡献 Population 不重选；
 显式 by=P 是该端完整输出域，基期对应时间×普通键域须由调用方独立构造。
 
@@ -170,7 +171,7 @@ periods = session.time_scope(start="2026-01-01", end="2026-10-20T12:00:00Z").by(
 metrics = {"revenue": revenue}
 current_series = session.observe(metrics, by=(periods,))
 previous_series = session.observe(metrics, by=(periods.shift(mv.offset(years=-1)),))
-yearly = current_series.compare({"yoy": previous_series}, how="outer").compute()
+yearly = current_series.compare({"yoy": previous_series}).compute()
 ```
 
 这里 revenue 为显式已解析来源 Metric。每个端点独立完整求值；同图可以共享合格依赖，
@@ -239,7 +240,7 @@ AnalysisFrame 的计算逻辑决定结果行序；物化、存储、恢复、sho
 - over/Column.share 返回同输入 Column，不重排原行；by/along 参数顺序不改变行序。
 - top 保留 descending: bool = True；升降序均 NA 最后，完整键按既有规范次序裁决并列，不能用局部 token 或随机 ID 排名。
 - reduce 的输出按完整分组键的既有规范次序产生；这是算子输出合同，存储不再排序。
-- exact align/compare 保持左侧/当前输入行序；outer 先按该行序输出匹配/独有键，再按右侧/基准行序追加独有键；日历映射不改此行序合同。
+- align/compare 先按左侧/当前输入行序输出匹配/独有键，再按右侧/基准行序追加独有键；日历映射不改此行序合同。
 - 文件分片与批次读取按写入序列拼接，不以文件枚举或并发完成顺序替代。
 
 索引或唯一性检查不得改变主数据行序；按键定位的附件不承担显示排列。

@@ -85,7 +85,6 @@ class Column:
         ],
         *,
         reverse: bool = False,
-        zero_denominator: Literal["null", "error"] = "null",
     ) -> Column:
         if isinstance(other, Column):
             if self._input_id != other._input_id:
@@ -195,7 +194,7 @@ class Column:
         )
         return Column(
             self._input_id,
-            ValueBinary(operation, left, right, zero_denominator),
+            ValueBinary(operation, left, right),
             None if result_kind == "boolean" else result_unit,
             result_kind,
             self._frame,
@@ -260,9 +259,9 @@ class Column:
 
         Args: other: Same-input Column or compatible immutable literal.
         Returns: A lazy Column over this exact input. Example: ``column / 2``.
-        Constraints: Use divide for an explicit error policy. Construction performs no I/O.
+        Constraints: NA values propagate. Construction performs no I/O.
         """
-        return self.divide(other)
+        return self._binary(other, "div")
 
     def __rtruediv__(self, other: LiteralValue) -> Column:
         """Divide a literal by nullable values, with null at zero.
@@ -391,24 +390,6 @@ class Column:
             self._frame,
         )
 
-    def divide(
-        self, other: Column | LiteralValue, *, zero_denominator: Literal["null", "error"] = "null"
-    ) -> Column:
-        """Divide pointwise, masking zero denominators by the node's policy.
-
-        Args: other: Same-input Column or literal. zero_denominator: null or error.
-        Returns: A lazy Column. Example: ``q['revenue'].divide(q['count'])``.
-        Constraints: The policy affects this division only; NA propagates.
-        """
-        if zero_denominator not in ("null", "error"):
-            reject(
-                "null or error",
-                repr(zero_denominator),
-                "Choose the division policy.",
-                "Column.divide",
-            )
-        return self._binary(other, "div", zero_denominator=zero_denominator)
-
     def is_null(self) -> Column:
         """Test nullable values; returns a same-input predicate without execution.
 
@@ -428,13 +409,11 @@ class Column:
         self,
         *,
         along: tuple[FrameAxis, ...],
-        zero_denominator: Literal["null", "error"] = "null",
     ) -> Column:
         """Divide current values by their partition sum along the specified axes.
 
         Args:
             along: Nonempty tuple of distinct complete axes from this exact input.
-            zero_denominator: This division's null or error policy, default null.
         Returns: A same-input Column using the actual sum/divide dtype and unit.
         Example: ``frame.select({'share': frame['revenue'].share(along=frame.axes)})``.
         Constraints: Other axes define partitions. Signed values may produce shares
@@ -446,7 +425,7 @@ class Column:
             reject(
                 "a nonempty tuple of complete axes from this Column's Frame",
                 repr(along),
-                "Acquire the Column and axes from one Frame; use divide for a scalar ratio.",
+                "Acquire the Column and axes from one Frame; use / for a scalar ratio.",
                 "Column.share",
             )
         frame._require_column(self)
@@ -460,7 +439,7 @@ class Column:
             )
         partitions = tuple(axis for index, axis in enumerate(frame.axes) if index not in positions)
         denominator = frame.over(self.sum(), by=partitions)
-        result = self.divide(denominator, zero_denominator=zero_denominator)
+        result = self / denominator
         from marivo._definition.query import SelectValues
         from marivo.analysis.core.frame_expression import infer_frame_schema
         from marivo.analysis.core.frame_structure import column_kind

@@ -28,13 +28,13 @@ _REPAIRS = {
     "fanout_policy": (
         "Remove fanout_policy. For existence filtering, use Population.preimage(...) and "
         "mv.in_population(...); for overlapping labels, pass mv.membership(...) through "
-        "Metric.per(samples, memberships=(rule,)). When association or allocation rows are contributions, model them "
+        "Metric.per((rule, ...)). When association or allocation rows are contributions, model them "
         "as a separately keyed Entity and define the row measure and any allocation weight; "
         "preserve each source root."
     ),
     "empty": "Use sum() without an empty policy: empty contributions return zero, nonempty all-NULL contributions return NULL. Preserve the selected contributions and output domain.",
     "nulls": "Set nulls='ignore' or 'error' on the actual reducer in the expression.",
-    "zero_denominator": "Set zero_denominator='null' or 'error' on the actual divide or weighted_mean operation.",
+    "zero_denominator": "Remove zero_denominator; / and weighted_mean return NA when their denominator is zero.",
 }
 
 
@@ -70,7 +70,7 @@ def retired_factory(name: str, arguments: dict[str, object]) -> NoReturn:
         "count": "Use Entity.count() for complete rows or Field.count()/count_distinct() for field values; retain the original time and predicate.",
         "weighted_mean": "Use value.weighted_mean(weight=weight, ...) with a row weight on the same contribution root.",
         "where": "Build typed field comparisons and pass the predicate to the single source Metric.where(...).",
-        "ratio": "Divide completed Metrics with / or divide(..., zero_denominator='error'); explicitly choose the new zero-denominator policy.",
+        "ratio": "Divide completed Metrics with /; zero denominators return NA.",
         "linear": "Combine completed Metrics with + and - in a pure @ms.metric() declaration.",
         "empty": _REPAIRS["empty"],
         "nulls": _REPAIRS["nulls"],

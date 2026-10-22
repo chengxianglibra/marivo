@@ -88,9 +88,6 @@ from marivo.semantic.authoring import (
 from marivo.semantic.authoring import (
     where as where,
 )
-from marivo.semantic.authoring import (
-    zero_denominator as zero_denominator,
-)
 from marivo.semantic.catalog import (
     CalendarLevelDetails,
     CalendarPeriodPage,

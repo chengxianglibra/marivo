@@ -854,9 +854,7 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
     assert isinstance(amount, Deferred)
     total = amount.sum()
     with pytest.raises(MaterializationError) as caught:
-        source_session.observe(
-            {"ratio": total.divide(total * 0, zero_denominator="error")}
-        ).persist()
+        source_session.observe({"overflow": total * 1e308}).persist()
     from marivo.semantic.errors import SemanticExpressionError
 
     assert isinstance(caught.value.__cause__, SemanticExpressionError)

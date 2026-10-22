@@ -18,22 +18,20 @@ This guide continues the [local tutorial](/docs/latest/guides/python-quick-start
 
 ```python
 on = tuple(zip(current.axes, baseline.axes))
-change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="exact").compute()
+change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}).compute()
 comparison = change.to_pandas()
 assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
 assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
-outer = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="outer")
 ```
 
 Compare retains current `revenue`, then adds `reference.baseline.revenue`,
 `reference.absolute.revenue` and `reference.relative.revenue`. Relative is
-(current-baseline)/abs(baseline). A valid zero baseline defaults only the new
-relative to NA; `zero_denominator="error"` fails that demanded division. Missing
+(current-baseline)/abs(baseline). A valid zero baseline gives NA for the new relative value. Missing
 rows or NA yield NA differences; strict child policies stay required.
 `current.present` and `reference.present` are independent row flags; inherited
 presence lives below `current.presence.*` and `reference.presence.*`.
 
-Exact checks actual complete joint keys. Outer retains current order then
+Outer correspondence retains current order then
 mapped baseline-only keys; actual baseline time rows outside the declared current
 domain reject. Use align for a general two-ended time union. Each input here has
 interval and region axes: the alias-keyed on entry covers both, and the

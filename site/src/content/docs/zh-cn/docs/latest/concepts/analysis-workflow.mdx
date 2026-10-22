@@ -134,9 +134,11 @@ interval 轴、日历轴、配对轴与任意值列不能桥接。by=Population 
 ## 保持来源贡献与时间含义
 
 Metric.per 先在每个样本完成完整子公式再规约。显式样本 Population 按子政策保留空样本；
-内部样本域与外部指定输出域各自独立。归属规则单独通过
-`observe(..., memberships=(rule,))` 或 `metric.per(samples, memberships=(rule,))` 传入，
-只映射本层 by/samples 已声明的坐标，外层/内层规则互相独立。Population 只保存键和依赖。
+内部样本域与外部指定输出域各自独立。归属规则直接通过
+`observe(..., by=(rule, ...))` 或 `metric.per((rule, ...))` 传入，展开本层有序字段并保留完整规则。
+rule=(tag, channel) 时，`(rule, customer, channel)` 显式定位 channel；首字段重复、规则重叠
+和字段错序均拒绝。`(P, rule)` 保留 P 的完整轴序与联合键。外层/内层规则互相独立。
+Population 只保存键和依赖。
 membership 保留关联元组与分配因子，重复链接不重复同次贡献，
 等值但不同身份的贡献仍分别计算。多根公式先各自规约，再对齐完整域。
 
@@ -167,8 +169,10 @@ result ID。Session 恢复不重新计算未知提交。返回引用丢失时显
 
 
 分组规则使用 `by=(field_or_grouping, ...)`。`mv.identity(entity)` 声明完整身份分组，
-`scope.by(grain)` 声明时间分桶；`mv.membership(...)` 只传入消费端 memberships 参数。
-`population.axes` 复用坐标定义；`by=population` 选择完整输出键，包含空桶，不要求覆盖域外来源坐标。
+`scope.by(grain)` 声明时间分桶；`mv.membership(...)` 直接传入 observe.by 或 Metric.per。
+`population.axes` 复用坐标定义；`by=population` 选择完整输出键，包含空桶，并须覆盖明确事实过滤和 unmatched 处理后的必要完整外部键。
+覆盖检查在内部采样前完成；内部空样本和后续 Top-0 不能隐藏遗漏键。内部 per(P) 允许子集，
+空样本仍保留外部坐标。
 `mv.coordinates(...)` 统一构造有限字段/身份域及相关多轴元组，每个身份值始终是完整主键元组；
 `mv.identity(entity, at=...)` 可指定版本锚点。
 Population.where 接受 `mv.in_population(...)` 谓词，字段条件通过 members/read/Frame 筛选。

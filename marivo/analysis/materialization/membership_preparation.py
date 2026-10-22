@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+import ibis
 import ibis.expr.types as ir
 
 from marivo._definition.relations import MembershipBinding
@@ -37,6 +38,8 @@ def prepare_memberships(
     state: CompiledSemanticState,
     value: Callable[[str, ir.Table], ir.Value],
     unique: Callable[[str], str],
+    *,
+    sample_positions: Mapping[MembershipBinding, int] | None = None,
 ) -> PreparedMemberships:
     """Join one set of complete root/bucket pairs per membership factor.
 
@@ -119,12 +122,28 @@ def prepare_memberships(
             **expressions,
             **{name: member[name] for name, _, _ in group_checks},
         ).distinct()
-        joined = table.inner_join(
-            pairs, [table[key] == pairs[slot] for key, slot in zip(keys, key_slots, strict=True)]
+        # Internal allocation must retain the incoming parent coordinates even
+        # when no sample bucket exists. Its marker keeps that carrier row out
+        # of the numeric contribution and sample domains below this layer.
+        sample_position = None if sample_positions is None else sample_positions.get(binding)
+        assigned = unique(f"__member_{group}_assigned") if sample_position is not None else None
+        if assigned is not None:
+            pairs = pairs.mutate(**{assigned: ibis.literal(True)})
+        joined = table.join(
+            pairs,
+            [table[key] == pairs[slot] for key, slot in zip(keys, key_slots, strict=True)],
+            how="left" if assigned is not None else "inner",
         )
         table = joined.select(
-            table, *(pairs[slot] for slot in slots), *(pairs[name] for name, _, _ in group_checks)
+            table,
+            *(pairs[slot] for slot in slots),
+            *(pairs[name] for name, _, _ in group_checks),
+            *((pairs[assigned],) if assigned is not None else ()),
         )
+        if assigned is not None:
+            table = table.mutate(**{assigned: table[assigned].fill_null(False)})
+            columns.append((f"__sample_assigned_{sample_position}", assigned))
+            originals.append((assigned, table[assigned]))
         checks.extend(group_checks)
         reads = membership_reads(binding, root)
         columns.extend(

@@ -306,7 +306,10 @@ def prepare_population(
         if not rows:
             return PreparedPopulation(
                 unit.select(
-                    **{column: ibis.literal(None, type=types[column]) for column in columns}
+                    **{
+                        column: ibis.literal(None, type=types[column].copy(nullable=True))
+                        for column in columns
+                    }
                 ).filter(ibis.literal(False)),
                 key_groups,
             )

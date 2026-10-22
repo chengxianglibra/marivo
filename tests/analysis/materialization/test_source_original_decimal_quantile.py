@@ -126,17 +126,17 @@ def test_decimal_quantile_strict_nulls_survive_top_zero(
 @pytest.mark.parametrize(
     "backend,profile", source_params([("duckdb", "table"), ("postgres", "table")])
 )
-def test_decimal_quantile_parent_formula_error_precedes_valid_target(
+def test_decimal_quantile_parent_formula_masks_zero(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = decimal_session
     amount = session.catalog.fields.get("sales.facts.amount")
     tenant = session.catalog.fields.get("sales.facts.tenant")
     quantile = amount.quantile(0.25)
-    metric = quantile.divide(quantile - 1.25, zero_denominator="error")
+    metric = quantile / (quantile - 1.25)
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="zero denominator"):
-        session.observe({"value": metric}, by=(tenant,)).compute()
+    result = session.observe({"value": metric}, by=(tenant,)).compute().to_pandas()
+    assert result[("value", "value")].isna().any()
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))

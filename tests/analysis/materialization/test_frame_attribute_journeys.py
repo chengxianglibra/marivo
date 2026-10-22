@@ -36,7 +36,6 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
             "august": tuple(zip(september.axes, august.axes, strict=True)),
         },
         match={"july": mv.ordinal(), "august": mv.ordinal()},
-        how="outer",
     ).compute()
     selected = compared.where(
         compared.coord(compared.axis("sales.customer.region")) == "east"

@@ -109,6 +109,7 @@ def spending_amount():
     spending = session.observe(
         {"value": session.catalog.metrics.get("sales.spending_amount")},
         by=mv.product(session.time_scope(start="2026-08-10", end="2026-08-17"), eligible),
+        where=mv.in_population(eligible),
     )
     assert terminal_runs(session) == ()
     frame = spending.compute().to_pandas()

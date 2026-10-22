@@ -380,8 +380,8 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
 ) -> None:
     source = _observe(session)
     before = _inventory(session)
-    invalid = source.select({"invalid": source["ratio"].divide(0, zero_denominator="error")})
-    with pytest.raises(MaterializationError, match="nonzero denominator"):
+    invalid = source.select({"invalid": source["ratio"] * 1e308})
+    with pytest.raises(MaterializationError, match="finite"):
         invalid.compute()
     assert _inventory(session) == before and terminal_runs(session) == ()
     close = SourceSession.close
@@ -414,11 +414,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {
-            "invalid": numerator.sum().divide(
-                denominator.sum() - denominator.sum(), zero_denominator="error"
-            )
-        },
+        {"invalid": numerator.sum() * 1e308},
     )
     before = _inventory(session)
     closed: list[SourceSession] = []
@@ -429,7 +425,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
         closed.append(self)
 
     monkeypatch.setattr(SourceSession, "close", record_close)
-    with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
+    with pytest.raises(MaterializationError, match="finite") as failure:
         source.compute()
     error = failure.value
     cause = error.__cause__
@@ -839,7 +835,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     domain = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
-    pending = session.observe({"revenue": revenue}, by=domain, memberships=(buckets,))
+    pending = session.observe({"revenue": revenue}, by=(domain, buckets))
     before = _inventory(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:

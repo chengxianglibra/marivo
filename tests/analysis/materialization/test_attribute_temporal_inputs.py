@@ -77,7 +77,6 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
         {"base": baseline},
         on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
         match={"base": mv.ordinal()} if temporal else None,
-        how="outer",
     )
     return compared.select({"q": compared["base.absolute.q"]}).compute()
 
@@ -135,7 +134,6 @@ def test_cross_period_paired_calendar_parent(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
-        how="outer",
     ).compute()
     selected = paired.select({"q": paired["left.q"] - paired["right.q"]}).compute()
     calls: list[object] = []
@@ -371,9 +369,7 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     parent = (
         session.observe({"q": metric}, by=(current,))
         .align(
-            session.observe({"q": metric}, by=(baseline,)),
-            match=CalendarCorrespondence("ordinal"),
-            how="outer",
+            session.observe({"q": metric}, by=(baseline,)), match=CalendarCorrespondence("ordinal")
         )
         .compute()
     )
@@ -436,9 +432,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     paired = (
         session.observe({"q": metric}, by=(current,))
         .align(
-            session.observe({"q": metric}, by=(baseline,)),
-            match=CalendarCorrespondence("ordinal"),
-            how="outer",
+            session.observe({"q": metric}, by=(baseline,)), match=CalendarCorrespondence("ordinal")
         )
         .compute()
     )
@@ -631,7 +625,6 @@ def test_paired_source_failure_retains_original_full_parent(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
-        how="outer",
     )
     parent = aligned.select({"q": aligned["left.q"] - aligned["right.q"]}).compute()
     if failure == "native":

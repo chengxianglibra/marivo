@@ -61,7 +61,6 @@ def test_period_alignment_native_carriers(
         comparison = current.compare(
             {"reference": baseline},
             match={"reference": mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1)},
-            how="outer",
             on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         )
         with pytest.raises(AnalysisError, match="actual baseline time row"):
@@ -69,7 +68,6 @@ def test_period_alignment_native_carriers(
         aligned = current.align(
             baseline,
             match=mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1),
-            how="outer",
             on=tuple(zip(current.axes, baseline.axes, strict=True)),
         )
         result = aligned.select(

@@ -167,9 +167,11 @@ See the [comparison and investigation guide](/docs/latest/guides/comparison-and-
 Metric.per evaluates the full child formula per sample before reducing. Explicit
 sample Populations retain complete empty samples under the child's policy;
 internal sample selection and the requested output domain remain independent.
-Pass membership rules separately as `observe(..., memberships=(rule,))` or
-`metric.per(samples, memberships=(rule,))`. Each rule maps facts to coordinates
-already declared in that consumer's by/samples; outer and inner rules are independent.
+Place membership rules directly in `observe(..., by=(rule, ...))` or
+`metric.per((rule, ...))`. Each rule expands its ordered fields while keeping one
+complete allocation. For rule=(tag, channel), `(rule, customer, channel)` locates
+channel explicitly; repeated first fields, overlapping rules and wrong field order
+reject. `(P, rule)` preserves P axes and joint keys. Outer and inner rules are independent.
 Population contains keys and dependencies. Membership keeps correlated tuple paths
 and allocation factors; duplicate links do not
 multiply one contribution/bucket, equal-valued distinct contributions remain.
@@ -212,10 +214,12 @@ See [statistics](/docs/latest/guides/statistics/),
 
 Grouping rules use `by=(field_or_grouping, ...)`. Obtain complete identity rules
 with `mv.identity(entity)` and calendar rules with `scope.by(grain)`.
-`mv.membership(...)` belongs to the consumer's `memberships` parameter.
+`mv.membership(...)` belongs directly in observe.by or Metric.per inputs.
 `population.axes` reuses coordinate definitions; `by=population` selects its
-complete output keys, including empty buckets; source coordinates outside it do not
-fail coverage. `mv.coordinates(...)` constructs finite field/identity domains,
+complete output keys, including empty buckets; it must cover all necessary complete
+source output keys after explicit fact filters and unmatched handling, before internal
+sampling. Missing keys reject even with empty samples or a later Top-0. Internal
+per(P) allows subsets and retains external coordinates when samples are empty. `mv.coordinates(...)` constructs finite field/identity domains,
 including correlated multi-axis tuples. Each identity value is one complete
 primary-key tuple; `mv.identity(entity, at=...)` can specify its version anchor.
 Population.where accepts `mv.in_population(...)` predicates, not field conditions;

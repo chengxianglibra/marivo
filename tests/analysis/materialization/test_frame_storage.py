@@ -591,7 +591,7 @@ def test_sparse_records_are_not_complete_directories(local: LocalFrameServices) 
 def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices) -> None:
     paired = (
         calendar(local, 3)
-        .align(calendar(local, 2, offset=10), match=CalendarCorrespondence("ordinal"), how="outer")
+        .align(calendar(local, 2, offset=10), match=CalendarCorrespondence("ordinal"))
         .compute()
     )
     saved = paired.persist()
@@ -803,7 +803,7 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, genera
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
     paired = (
         calendar(local, 3)
-        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
+        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"))
         .compute()
         .persist()
     )
@@ -835,7 +835,7 @@ def test_paired_partial_records_reject_missing_and_false_presence(
 
     memory = (
         calendar(local, 3)
-        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
+        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"))
         .compute()
     )
     prefix = local.preview(_stored_backing(memory.persist()), 1)
@@ -2069,7 +2069,7 @@ def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrame
 
     first, second = interval(local, 1, 4), interval(local, 2, 5)
     before = counts(local)
-    outer = first.align(second, how="outer").compute()
+    outer = first.align(second).compute()
     assert counts(local) == before
     selected = outer.where(outer["left.amount"] > 0)
     sparse = selected.select({"amount": selected["left.amount"]}).compute().persist()

@@ -86,7 +86,6 @@ def _numeric_binary(
             left_type=a.column.dtype,
             right_type=b.column.dtype,
             output=dtype,
-            zero_denominator="null",
         )
     else:
         values = nullable_arithmetic(names[operation], a.values, b.values)

@@ -88,7 +88,7 @@ def test_outer_compare_manual_order_presence_and_negative_baseline(
     left = _memory(local, ["C", "A", None], [12, None, 3])
     right = _memory(local, ["B", None, "C"], [5, 0, -4])
     combined = left.compare(
-        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how="outer"
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
     ).compute()
     rows = _memory_backing(combined).data.copy_rows()
     assert rows["key"].tolist() == ["C", "A", pd.NA, "B"]
@@ -118,24 +118,18 @@ def test_self_compare_reads_shared_input_and_records_binary_operation(
     assert output.to_pandas()[("value", "reference.absolute.amount")].tolist() == [0, 0]
 
 
-def test_compare_check_cannot_be_hidden_by_select(local: LocalFrameServices) -> None:
-    left = _memory(local, ["A"], [1])
-    right = _memory(local, ["A"], [0])
-    combined = left.compare(
-        {"reference": right},
-        on={"reference": ((left.axes[0], right.axes[0]),)},
-        zero_denominator="error",
-    )
-    with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
-        combined.select({"constant": 1}).compute()
-    error = failure.value
-    cause = error.__cause__
-    assert error.stage == "numeric_value" and not hasattr(error, "run_ref")
-    assert isinstance(cause, SemanticExpressionError)
-    assert error.expected == cause.expected == "a nonzero denominator"
-    assert error.received == cause.received == "metric.divide(zero_denominator='error')"
-    assert error.repair is not None and cause.repair is not None
-    assert error.repair.action == cause.repair.action
+def test_fixed_comparison_policies_reject_retired_arguments(local: LocalFrameServices) -> None:
+    left, right = _memory(local, ["A"], [1]), _memory(local, ["A"], [0])
+    on = ((left.axes[0], right.axes[0]),)
+    for how in ("exact", "outer"):
+        with pytest.raises(TypeError, match="unexpected keyword argument 'how'"):
+            left.align(right, on=on, **{"how": how})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'how'"):
+            left.compare({"reference": right}, on={"reference": on}, **{"how": how})
+    for policy in ("null", "error"):
+        with pytest.raises(TypeError, match="unexpected keyword argument 'zero_denominator'"):
+            left.compare({"reference": right}, on={"reference": on}, **{"zero_denominator": policy})
+    assert not hasattr(left["amount"], "divide")
 
 
 def _data_frame(
@@ -182,9 +176,9 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
         {"tenant": ["t1", "t2"], "id": [1, 1], "region": [None, "A"], "v": [3, 5]},
     )
     on = ((left.axes[0], right.axes[1]), (left.axes[1], right.axes[0]))
-    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        left.align(right, on=on).compute()
-    output = left.compare({"reference": right}, on={"reference": on}, how="outer").compute()
+    aligned = left.align(right, on=on).compute()
+    assert len(aligned.to_pandas()) == 4
+    output = left.compare({"reference": right}, on={"reference": on}).compute()
     rows = _memory_backing(output).data.copy_rows()
     assert rows["tenant"].tolist() == ["t2", "t1", "t1", "t2"]
     assert rows["region"].isna().tolist() == [True, False, True, False]
@@ -209,9 +203,7 @@ def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices, explic
     align_options: AlignOptions = {"on": ()} if explicit else {}
     assert len(empty.align(empty, **align_options).compute().to_pandas()) == 0
     compare_options: CompareOptions = {"on": {"reference": ()}} if explicit else {}
-    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        singleton.compare({"reference": empty}, **compare_options).compute()
-    result = singleton.compare({"reference": empty}, how="outer", **compare_options).compute()
+    result = singleton.compare({"reference": empty}, **compare_options).compute()
     assert _values(result, "amount") == [8]
     assert _values(result, "reference.absolute.amount") == [pd.NA]
     assert (
@@ -281,9 +273,7 @@ def test_key_role_time_and_value_compatibility(local: LocalFrameServices, change
 
 def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFrameServices) -> None:
     a, b = _memory(local, ["B", "A"], [8, 2]), _memory(local, ["C", "B"], [4, 2])
-    outer = a.compare(
-        {"reference": b}, on={"reference": ((a.axes[0], b.axes[0]),)}, how="outer"
-    ).compute()
+    outer = a.compare({"reference": b}, on={"reference": ((a.axes[0], b.axes[0]),)}).compute()
     other = outer.where(outer["current.present"]).compute()
     # Compare all four current values; right values deliberately use a different order.
     reordered_schema = replace(
@@ -300,7 +290,7 @@ def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFram
         },
     )
     nested = outer.compare(
-        {"second": reordered}, on={"second": ((outer.axes[0], reordered.axes[0]),)}, how="outer"
+        {"second": reordered}, on={"second": ((outer.axes[0], reordered.axes[0]),)}
     ).compute()
     assert nested.output_names[:4] == (
         "amount",
@@ -329,7 +319,7 @@ def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFram
 
 
 @pytest.mark.parametrize("prune", ["select", "where", "top"])
-@pytest.mark.parametrize("invalid", ["zero", "overflow", "domain"])
+@pytest.mark.parametrize("invalid", ["overflow"])
 def test_required_compare_checks_survive_downstream_pruning(
     local: LocalFrameServices, prune: str, invalid: str
 ) -> None:
@@ -338,9 +328,7 @@ def test_required_compare_checks_survive_downstream_pruning(
         local, ["B" if invalid == "domain" else "A"], [-1 if invalid == "overflow" else 0]
     )
     combined = left.compare(
-        {"reference": right},
-        on={"reference": ((left.axes[0], right.axes[0]),)},
-        zero_denominator="error",
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
     )
     tail = (
         combined.select({"constant": 1})
@@ -359,9 +347,7 @@ def test_na_precedes_zero_error(
 ) -> None:
     left, right = _memory(local, ["A"], [left_value]), _memory(local, ["A"], [right_value])
     output = left.compare(
-        {"reference": right},
-        on={"reference": ((left.axes[0], right.axes[0]),)},
-        zero_denominator="error",
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
     ).compute()
     assert _values(output, "reference.absolute.amount") == [pd.NA]
     assert _values(output, "reference.relative.amount") == [pd.NA]
@@ -574,7 +560,7 @@ def test_nullable_field_union_and_null_is_not_a_string_sentinel(local: LocalFram
     )
     left = _data_frame(local, schema, {"key": ["null"], "amount": [8]})
     right = _memory(local, [None], [2])
-    result = left.align(right, on=((left.axes[0], right.axes[0]),), how="outer").compute()
+    result = left.align(right, on=((left.axes[0], right.axes[0]),)).compute()
     assert result._schema.axes[0].columns[0].nullable is True
     assert _memory_backing(result).data.copy_rows()["key"].tolist() == ["null", pd.NA]
     assert result.to_pandas()[("presence", "left_present")].tolist() == [True, False]
@@ -622,12 +608,7 @@ def test_pending_binary_show_is_metadata_only(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     left = _memory(local, ["A"], [8])
-    combined = left.compare(
-        {"reference": left},
-        on={"reference": ((left.axes[0], left.axes[0]),)},
-        how="outer",
-        zero_denominator="error",
-    )
+    combined = left.compare({"reference": left}, on={"reference": ((left.axes[0], left.axes[0]),)})
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("metadata show cannot read")
@@ -636,7 +617,8 @@ def test_pending_binary_show_is_metadata_only(
     monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
     combined.show()
     text = capsys.readouterr().out
-    assert "compare" in text and "outer" in text and "zero_denominator='error'" in text
+    assert "compare(baselines=" in text
+    assert "zero_denominator" not in text and "how=" not in text
     with pytest.raises(AnalysisError):
         combined["current.present"].sum()
 
@@ -699,9 +681,7 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
 
     monkeypatch.setattr(SourceSession, "close", fail_close)
     with pytest.raises(MaterializationError, match="source cleanup"):
-        source.compare({"reference": zero}, zero_denominator="error").select(
-            {"ignored": 1}
-        ).compute()
+        source.compare({"reference": zero}).select({"ignored": 1}).compute()
     assert closed and terminal_runs(session) == ()
 
 
@@ -710,7 +690,7 @@ def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices)
     result = empty.align(empty, on=((empty.axes[0], empty.axes[0]),)).compute()
     assert len(result.to_pandas()) == 0 and len(result.axes) == 1
     result = empty.compare(
-        {"reference": one}, on={"reference": ((empty.axes[0], one.axes[0]),)}, how="outer"
+        {"reference": one}, on={"reference": ((empty.axes[0], one.axes[0]),)}
     ).compute()
     assert _memory_backing(result).data.copy_rows()["key"].tolist() == ["A"]
     assert _values(result, "reference.baseline.amount") == [1]
@@ -723,12 +703,10 @@ def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices)
         (TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC")),
     ],
 )
-@pytest.mark.parametrize("how", ["exact", "outer"])
 def test_minimum_nanosecond_field_key_is_not_null(
     local: LocalFrameServices,
     dtype: DataType,
     physical: pa.DataType,
-    how: Literal["exact", "outer"],
 ) -> None:
     schema = DataSchema(
         (DataAxis("axis.0", (DataColumn("k", "time", dtype, True),), name="time"),),
@@ -744,18 +722,14 @@ def test_minimum_nanosecond_field_key_is_not_null(
 
     left, right = frame(-(2**63), 10), frame(None, 3)
     expression = left.compare(
-        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how=how
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
     )
-    if how == "exact":
-        with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-            expression.compute()
-    else:
-        output = expression.compute()
-        rows = _memory_backing(output).data.copy_rows()
-        assert pa.array(rows["k"]).cast(pa.int64()).to_pylist() == [-(2**63), None]
-        assert rows[output._schema.presence[0].slot_id].tolist() == [True, False]
-        assert rows[output._schema.presence[1].slot_id].tolist() == [False, True]
-        assert rows[output._schema.values[2].slot_id].isna().tolist() == [True, True]
+    output = expression.compute()
+    rows = _memory_backing(output).data.copy_rows()
+    assert pa.array(rows["k"]).cast(pa.int64()).to_pylist() == [-(2**63), None]
+    assert rows[output._schema.presence[0].slot_id].tolist() == [True, False]
+    assert rows[output._schema.presence[1].slot_id].tolist() == [False, True]
+    assert rows[output._schema.values[2].slot_id].isna().tolist() == [True, True]
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
@@ -855,16 +829,15 @@ def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) ->
     same = left.compare({"reference": equal}).compute()
     assert _values(same, "reference.absolute.amount") == [pd.NA]
     assert same.to_pandas()[("presence", "reference.present")].tolist() == [True]
-    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        left.align(other).compute()
+    assert len(left.align(other).compute().to_pandas()) == 2
     with pytest.raises(AnalysisError, match="actual baseline time row"):
-        left.compare({"reference": other}, how="outer").compute()
+        left.compare({"reference": other}).compute()
     paired = left.compare({"reference": other}, match={"reference": ordinal()}).compute()
     assert paired.axes[0].role == "interval"
     assert _values(paired, "reference.absolute.amount") == [0]
     with pytest.raises(AnalysisError):
         left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), match=ordinal()).compute()
-    different_zone = left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), how="outer").compute()
+    different_zone = left.align(_interval(local, 1, 4, zone="Asia/Shanghai")).compute()
     assert len(different_zone.to_pandas()) == 2
     assert len(_memory_backing(different_zone).data.copy_attachments()[0].rows) == 2
 
@@ -875,7 +848,7 @@ def test_interval_declared_directory_survives_filter_reduce_and_matching(
     from marivo.analysis.dsl.correspondence import ordinal
 
     left, right = _interval(local, 1, 4, amount=2), _interval(local, 2, 5, amount=3)
-    merged = left.align(right, how="outer").compute()
+    merged = left.align(right).compute()
     selected = merged.where(merged["left.amount"] > 0)
     sparse = selected.select({"amount": selected["left.amount"]}).compute()
     assert len(sparse.to_pandas()) == 1
@@ -898,7 +871,7 @@ def test_named_baselines_share_current_values_and_preserve_ordered_union(
         name: ((current.axes[0], baseline.axes[0]),)
         for name, baseline in (("yoy", yoy), ("mom", mom))
     }
-    combined = current.compare({"yoy": yoy, "mom": mom}, on=on, how="outer").compute()
+    combined = current.compare({"yoy": yoy, "mom": mom}, on=on).compute()
     assert _memory_backing(combined).data.copy_rows()["key"].tolist() == ["C", "A", pd.NA, "B", "D"]
     assert combined.output_names == (
         "amount",
@@ -915,15 +888,13 @@ def test_named_baselines_share_current_values_and_preserve_ordered_union(
     assert combined.presence_names == ("current.present", "yoy.present", "mom.present")
     table = combined.to_pandas()
     assert table[("presence", "mom.present")].tolist() == [True, False, False, False, True]
-    independent = current.compare({"yoy": yoy}, on={"yoy": on["yoy"]}, how="outer").compute()
+    independent = current.compare({"yoy": yoy}, on={"yoy": on["yoy"]}).compute()
     assert _values(combined, "yoy.relative.amount")[:4] == _values(
         independent, "yoy.relative.amount"
     )
-    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        current.compare({"yoy": yoy, "mom": mom}, on=on).compute()
 
 
-def test_unused_second_baseline_retains_its_strict_numeric_checks(
+def test_zero_second_baseline_returns_na_and_allows_downstream_selection(
     local: LocalFrameServices,
 ) -> None:
     current, good, zero = (
@@ -934,14 +905,10 @@ def test_unused_second_baseline_retains_its_strict_numeric_checks(
     compared = current.compare(
         {"good": good, "zero": zero},
         on={"good": ((current.axes[0], good.axes[0]),), "zero": ((current.axes[0], zero.axes[0]),)},
-        zero_denominator="error",
     )
-    for tail in (
-        compared.select({"current": compared["amount"]}),
-        compared.top(0, by=compared["good.absolute.amount"]),
-    ):
-        with pytest.raises(MaterializationError, match="nonzero denominator"):
-            tail.compute()
+    assert _values(compared.compute(), "zero.relative.amount") == [pd.NA]
+    assert _values(compared.select({"current": compared["amount"]}).compute(), "current") == [4]
+    assert compared.top(0, by=compared["good.absolute.amount"]).compute().to_pandas().empty
 
 
 def test_comparison_path_collision_requires_explicit_rename(local: LocalFrameServices) -> None:
@@ -958,9 +925,7 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
 ) -> None:
     current, baseline = _memory(local, ["A"], [4]), _memory(local, ["B"], [2])
     first = current.compare(
-        {"reference": baseline},
-        on={"reference": ((current.axes[0], baseline.axes[0]),)},
-        how="outer",
+        {"reference": baseline}, on={"reference": ((current.axes[0], baseline.axes[0]),)}
     )
     selected = first.select(
         {"one": first["amount"], "two": first["amount"], "derived": first["amount"] + 1}

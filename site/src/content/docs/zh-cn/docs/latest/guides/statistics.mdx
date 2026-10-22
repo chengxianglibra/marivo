@@ -64,13 +64,13 @@ row_count 计算全部坐标；空输入仍为空。允许嵌套 over，外层�
 重复广播值。
 
 share(along=...) 沿指定轴加总，其余轴构成分区，再将当前 Column 除以对应总和。
-along 必须是同精确输入完整轴的非空、无重复 tuple；零轴数据使用显式 divide。
+along 必须是同精确输入完整轴的非空、无重复 tuple；零轴数据使用显式 /。
 对于 month × region × category，along=(region,) 在每个 month/category 内归一化，
 along=(region, category) 在每个月内归一化。需要先去掉 category 时显式 reduce，
 再从返回 Frame 获取新句柄。
 
-份额是有符号比例，可以超出 [0,1]，不乘 100。NA 传播；零总和（包括正负抵消）默认
-产生 NA，或由 `zero_denominator="error"` 拒绝。numeric 与合法 Duration 组合沿用
+份额是有符号比例，可以超出 [0,1]，不乘 100。NA 传播；零总和（包括正负抵消）在除法前屏蔽，
+固定产生 NA。numeric 与合法 Duration 组合沿用
 sum/divide 内核；已知同单位消去为 `1`，未知单位保持未知。先筛选再归一化会改变分母，
 筛选归一化后的结果则保留已有分母。where/top 中的 over 在选择前计算完整输入分区。
 这些操作使用当前数据、不生成新方法事实，也不认证原 Metric 可加性或来源贡献。

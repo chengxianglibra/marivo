@@ -22,7 +22,6 @@ def test_public_ordinal_retains_original_positions_after_selection(
     comparison = selected.compare(
         {"reference": baseline},
         match={"reference": mv.ordinal()},
-        how="outer",
         on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
     )
     paired = lengths[1] > lengths[0]
@@ -30,10 +29,7 @@ def test_public_ordinal_retains_original_positions_after_selection(
         with pytest.raises(AnalysisError, match="actual baseline time row"):
             comparison.compute()
         comparison = selected.align(
-            baseline,
-            match=mv.ordinal(),
-            how="outer",
-            on=tuple(zip(selected.axes, baseline.axes, strict=True)),
+            baseline, match=mv.ordinal(), on=tuple(zip(selected.axes, baseline.axes, strict=True))
         )
     result = comparison.persist()
     frame = result.to_pandas()
@@ -119,16 +115,9 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     baseline_axis = session.time_scope(start="2023-02-28", end="2023-03-01").by(mv.grain("day"))
     current = session.observe({"value": metric}, by=(current_axis,))
     baseline = session.observe({"value": metric}, by=(baseline_axis,))
-    with pytest.raises(AnalysisError, match="complete"):
-        current.compare(
-            {"reference": baseline},
-            match={"reference": mv.offset(years=-1)},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        ).compute()
     result = current.compare(
         {"reference": baseline},
         match={"reference": mv.offset(years=-1)},
-        how="outer",
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).compute()
     frame = result.to_pandas()

@@ -314,7 +314,7 @@ def test_source_coordinates_statistics_and_original_state(
         ]
         before = set(tmp_path.rglob("*.parquet"))
         with pytest.raises(AnalysisError):
-            full.select({"value": full["value"].divide(0, zero_denominator="error")}).persist()
+            full.select({"value": full["value"] / 0}).persist()
         assert set(tmp_path.rglob("*.parquet")) == before
         assert _value(original).tolist() == [2]
         absent = read.where(read["value"] == "missing")

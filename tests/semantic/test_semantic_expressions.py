@@ -870,10 +870,10 @@ def test_measure_body_resolves_receivers_without_executing_external_calls(
     @ms.measure()
     def scaled_amount() -> Deferred:
         divisor = -2
-        return amount.divide(other=divisor, zero_denominator="error")
+        return amount / divisor
 
     assert computation_fingerprint(_facts(scaled_amount).node) == computation_fingerprint(
-        _facts(amount.divide(-2, zero_denominator="error")).node
+        _facts(amount / -2).node
     )
     assert root_declaration(scaled_amount).location is not None
     assert root_declaration(scaled_amount).location.path == __file__
@@ -1123,21 +1123,19 @@ def test_row_subtraction_builds_one_fingerprint_on_one_root(catalog: SemanticCat
     assert _facts(margin).node.recipe == resolver_of(var("slot_0") - var("slot_1"))
 
 
-def test_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -> None:
+def test_row_division_uses_operator_and_rejects_retired_method(catalog: SemanticCatalog) -> None:
     amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
-    fingerprints = {
-        computation_fingerprint(_facts(expression).node)
-        for expression in (
-            amount / cost,
-            amount.divide(cost),
-            amount.divide(cost, zero_denominator="null"),
-        )
-    }
-    strict = amount.divide(cost, zero_denominator="error")
-    assert len(fingerprints) == 1
-    assert computation_fingerprint(_facts(strict).node) not in fingerprints
-    assert isinstance(_facts(strict).node, RowExpression)
-    assert (_facts(amount / cost).unit, _facts(amount / cost).permission) == ("1", SumNone())
+    result = _facts(amount / cost)
+    assert isinstance(result.node, RowExpression)
+    assert (result.unit, result.permission) == ("1", SumNone())
+    for expression in (
+        amount.divide(cost),
+        amount.divide(cost, zero_denominator="null"),
+        amount.divide(cost, zero_denominator="error"),
+    ):
+        with pytest.raises(SemanticExpressionError) as caught:
+            _consume_value(expression)
+        assert caught.value.expected and caught.value.received and caught.value.repair
 
 
 def test_sum_permission_is_kept_narrowed_or_lost(catalog: SemanticCatalog) -> None:
@@ -1325,12 +1323,11 @@ def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(catalog: Semantic
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     weighted = amount.weighted_mean(weight=quantity)
     assert isinstance(_facts(weighted).node, SourceWeightedMean)
-    assert _facts(weighted).node.zero_denominator == "null"
     assert (_facts(weighted).roots, _facts(weighted).unit) == ((_facts(amount).root,), "CNY")
-    strict = amount.weighted_mean(weight=quantity, zero_denominator="error")
-    assert computation_fingerprint(_facts(strict).node) != computation_fingerprint(
-        _facts(weighted).node
-    )
+    for policy in ("null", "error"):
+        with pytest.raises(SemanticExpressionError) as caught:
+            _consume_value(amount.weighted_mean(weight=quantity, zero_denominator=policy))
+        assert caught.value.expected and caught.value.received and caught.value.repair
     with pytest.raises(SemanticExpressionError) as roots:
         _consume_value(amount.weighted_mean(weight=credit))
     assert roots.value.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION.value
@@ -1390,22 +1387,19 @@ def test_repeated_metric_keeps_two_ordered_uses(catalog: SemanticCatalog) -> Non
     assert (_facts(doubled).roots, _facts(doubled).unit) == (_facts(revenue).roots, "CNY")
 
 
-def test_metric_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -> None:
+def test_metric_division_uses_operator_and_rejects_retired_method(catalog: SemanticCatalog) -> None:
     revenue = _measure(catalog, "amount").sum()
     cost = _measure(catalog, "cost").sum()
-    fingerprints = {
-        computation_fingerprint(_facts(metric).node)
-        for metric in (
-            revenue / cost,
-            revenue.divide(cost),
-            revenue.divide(cost, zero_denominator="null"),
-        )
-    }
-    strict = revenue.divide(cost, zero_denominator="error")
-    assert len(fingerprints) == 1
-    assert computation_fingerprint(_facts(strict).node) not in fingerprints
-    assert isinstance(_facts(strict).node, MetricExpression)
+    assert isinstance(_facts(revenue / cost).node, MetricExpression)
     assert _facts(revenue / cost).unit == "1"
+    for expression in (
+        revenue.divide(cost),
+        revenue.divide(cost, zero_denominator="null"),
+        revenue.divide(cost, zero_denominator="error"),
+    ):
+        with pytest.raises(SemanticExpressionError) as caught:
+            _consume_value(expression)
+        assert caught.value.expected and caught.value.received and caught.value.repair
 
 
 def test_metric_constants_and_negation_follow_unit_rules(catalog: SemanticCatalog) -> None:
@@ -1540,7 +1534,6 @@ def test_per_field_samples_reduce_through_per_nodes(catalog: SemanticCatalog) ->
     order_count = resolve(catalog, ms.ref.entity("sales.orders")).count()
     weighted = (revenue / order_count).per(customer_id).weighted_mean(weight=order_count)
     assert isinstance(_facts(weighted).node, PerWeightedMean)
-    assert _facts(weighted).node.zero_denominator == "null"
     assert _facts(weighted).unit == "CNY"
 
 
@@ -1569,7 +1562,7 @@ def test_per_rejects_invalid_axes_weights_and_policies(catalog: SemanticCatalog)
     assert policy.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as zero:
         _consume_value(samples.weighted_mean(weight=revenue, zero_denominator="skip"))
-    assert zero.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
+    assert zero.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as quantile:
         _consume_value(samples.quantile(2.0))
     assert quantile.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value

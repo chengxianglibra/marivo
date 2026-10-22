@@ -16,21 +16,19 @@ description: 比较固定数据，或显式请求新来源调查与合格贡献�
 
 ```python
 on = tuple(zip(current.axes, baseline.axes))
-change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="exact").compute()
+change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}).compute()
 comparison = change.to_pandas()
 assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
 assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
-outer = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="outer")
 ```
 
 compare 保留当前 `revenue`，再生成 `reference.baseline.revenue`、
 `reference.absolute.revenue` 和 `reference.relative.revenue`。相对变化为
-(current-baseline)/abs(baseline)。有效基期值为零时默认仅新增 relative 为 NA；
-`zero_denominator="error"` 使该次有效除法失败。缺行或 NA 的差值为 NA，严格子式继续有效。
+(current-baseline)/abs(baseline)。有效基期值为零时新增 relative 固定为 NA。缺行或 NA 的差值为 NA，严格子式继续有效。
 `current.present` 与 `reference.present` 独立表示端点行存在；继承 presence 分别位于
 `current.presence.*` 与 `reference.presence.*`。
 
-exact 检查实际完整联合键；outer 先保留本期行序，再添加映到本期域的基期独有联合键。
+固定 outer 先保留本期行序，再添加映到本期域的基期独有联合键。
 实际基期时间行超出本期声明域时拒绝，一般双端时间并集使用 align。本例双方都有 interval
 和 region 轴：按别名提供的 on 覆盖全部轴，按别名提供的 ordinal 显式对应两期。
 显示名相同不证明身份。单、多基期使用同一命名映射；`yoy` 等名称不推断规则或来源计算。

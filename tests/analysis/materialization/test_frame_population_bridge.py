@@ -325,6 +325,15 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
         .empty
     )
     selected = _population(session, _memory(session))
+    pending = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        by=selected,
+    )
+    with pytest.raises(MaterializationError, match="missing output coordinates"):
+        pending.compute()
     exact = (
         frame_sources.observe(
             session._runtime.local,
@@ -332,6 +341,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
             session._runtime.connection_config,
             {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
             by=selected,
+            where=in_population(selected),
         )
         .compute()
         .to_pandas()
@@ -367,12 +377,12 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
         {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
         by=(region,),
     )
-    invalid = source.select({"invalid": source["amount"].divide(0, zero_denominator="error")})
+    invalid = source.select({"invalid": source["amount"] * 1e308})
     empty = invalid.top(0, by=invalid["invalid"])
     selected = population_from(
         session._runtime.local, session.catalog._state, empty, on=((empty.axes[0], region),)
     )
-    with pytest.raises(MaterializationError, match="nonzero denominator"):
+    with pytest.raises(MaterializationError, match="finite"):
         _observe(session, selected).compute()
     assert calls == ["read"]
 
@@ -762,7 +772,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
 def test_frame_only_nested_metric_where_survives_private_capture_guard(session: Session) -> None:
     domain = _population(session, _memory(session))
     amount = session.catalog.fields.get("sales.facts.amount").sum()
-    metric = amount.where(~(~in_population(domain))).divide(2)
+    metric = amount.where(~~in_population(domain)) / 2
     result = (
         frame_sources.observe(
             session._runtime.local,

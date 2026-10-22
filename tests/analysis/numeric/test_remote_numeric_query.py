@@ -99,7 +99,7 @@ def _project(
             + "@ms.metric()\ndef distinct():\n    return a.count_distinct()\n"
             + "@ms.metric()\ndef quantile():\n    return a.quantile(q=0.5)\n"
             + "@ms.metric()\ndef empty():\n    return a.sum().where(a>100)\n"
-            + "@ms.metric()\ndef zero_error():\n    return a.weighted_mean(weight=w-w,zero_denominator='error')\n",
+            + "@ms.metric()\ndef zero_weight():\n    return a.weighted_mean(weight=w-w)\n",
         }
     )
 
@@ -329,10 +329,19 @@ def test_public_native_numeric_methods(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.create("remote_methods", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        weight = session.catalog.fields.get("sales.facts.weight")
         query = session.observe(
             {
                 name: session.catalog.metrics.get("sales." + name)
                 for name in ("average", "weighted", "distinct")
+            }
+            | {
+                "row_zero": (amount / 0).mean(),
+                "metric_zero": amount.sum() / 0,
+                "zero_over_zero": (amount.sum() - amount.sum()) / 0,
+                "zero_weight": amount.weighted_mean(weight=weight - weight),
+                "cancelled_weight": amount.weighted_mean(weight=weight - 2),
             }
         )
         native_table = case.session.bind(
@@ -363,6 +372,14 @@ def test_public_native_numeric_methods(
             assert "uniqExact(" in "\n".join(statements)
             assert "uniq(" not in "\n".join(statements)
         assert frame[("value", "distinct")].tolist() == [2]
+        for name in (
+            "row_zero",
+            "metric_zero",
+            "zero_over_zero",
+            "zero_weight",
+            "cancelled_weight",
+        ):
+            assert frame[("value", name)].isna().tolist() == [True]
         quantile = session.observe({"q": session.catalog.metrics.get("sales.quantile")})
         if backend not in ("duckdb", "postgres"):
             from marivo.analysis.errors import AnalysisStageUnavailableError
@@ -422,12 +439,13 @@ def test_native_time_dependencies_and_drill(
         assert [float(value) for value in cumulative[("value", "total")]] == [4.0, 4.0]
         empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).compute()
         assert empty.to_pandas()[("value", "empty")].tolist() == [Decimal("0.00")]
-        from marivo.analysis.errors import AnalysisError
         from tests.analysis.materialization.publication_fixtures import publication_counts
 
         before = publication_counts(session)
-        with pytest.raises(AnalysisError, match="denominator"):
-            session.observe({"zero": session.catalog.metrics.get("sales.zero_error")}).compute()
+        result = session.observe(
+            {"zero": session.catalog.metrics.get("sales.zero_weight")}
+        ).compute()
+        assert result.to_pandas()[("value", "zero")].isna().all()
         assert publication_counts(session) == before
 
 

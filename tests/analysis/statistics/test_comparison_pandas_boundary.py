@@ -5,9 +5,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
-from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
@@ -19,8 +17,6 @@ def test_mixed_numeric_nullable_arithmetic_preserves_object_masks(decimal: bool)
     assert result.iloc[0] == 5.0
     assert result.iloc[1] is pd.NA and result.iloc[2] is pd.NA
     assert result.dtype == object
-    with pytest.raises(SemanticExpressionError):
-        nullable_arithmetic("divide", left, right, zero_denominator="error")
 
 
 def test_public_float_compare_keeps_absolute_and_outer_presence(
@@ -40,9 +36,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
         rows=((("A",), {"sales": 2.0}), (("B",), {"sales": 0.0}), (("D",), {"sales": 7.0})),
     )
     artifact = current.compare(
-        {"reference": baseline},
-        on={"reference": ((current.axes[0], baseline.axes[0]),)},
-        how="outer",
+        {"reference": baseline}, on={"reference": ((current.axes[0], baseline.axes[0]),)}
     ).persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
     assert frame[("value", "reference.absolute.sales")].iloc[:2].tolist() == [8.0, 0.0]
@@ -51,12 +45,4 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
     assert frame[("value", "reference.absolute.sales")].iloc[2:].isna().all()
     assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
     assert frame[("presence", "reference.present")].tolist() == [True, True, False, True]
-    before = terminal_runs(session, status="succeeded")
-    with pytest.raises(AnalysisError):
-        current.compare(
-            {"reference": baseline},
-            on={"reference": ((current.axes[0], baseline.axes[0]),)},
-            how="outer",
-            zero_denominator="error",
-        ).persist()
-    assert terminal_runs(session, status="succeeded") == before
+    assert terminal_runs(session, status="succeeded")

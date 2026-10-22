@@ -35,7 +35,6 @@ def reduce_samples(
             "non-NA internal samples",
             f"{node.reducer if isinstance(node, PerReduce) else 'weighted_mean'}(nulls='error')",
         ),
-        ("sample.zero", "a nonzero denominator", "weighted_mean(zero_denominator='error')"),
         (
             "sample.numeric",
             "finite values in the admitted numeric type",
@@ -48,11 +47,16 @@ def reduce_samples(
         numeric = [value for value in items if isinstance(value, (int, float, Decimal))]
         if len(numeric) != len(items):
             numeric_failure("typed numeric internal sample values", "non-numeric sample")
-        return (
+        result = (
             math.fsum(float(value) for value in numeric)
             if any(isinstance(value, float) for value in numeric)
             else sum(numeric, 0)
         )
+        if (isinstance(result, float) and not math.isfinite(result)) or (
+            isinstance(result, Decimal) and not result.is_finite()
+        ):
+            raise ArithmeticError("internal sample arithmetic must remain finite")
+        return result
 
     records: list[dict[str, object]] = []
     for _, coordinate in domain.iterrows():
@@ -67,7 +71,6 @@ def reduce_samples(
         record.update(
             {
                 "sample.null": False,
-                "sample.zero": False,
                 "sample.numeric": False,
                 "sample.order": False,
             }
@@ -90,16 +93,15 @@ def reduce_samples(
                         if pd.notna(value) and pd.notna(mass)
                     ]
                     denominator = total([mass for _, mass in pairs])
-                    record["sample.zero"] = denominator == 0 and node.zero_denominator == "error"
+                    numerator = total(
+                        [
+                            float(value) * float(mass)
+                            if isinstance(value, float) or isinstance(mass, float)
+                            else value * mass
+                            for value, mass in pairs
+                        ]
+                    )
                     if denominator != 0:
-                        numerator = total(
-                            [
-                                float(value) * float(mass)
-                                if isinstance(value, float) or isinstance(mass, float)
-                                else value * mass
-                                for value, mass in pairs
-                            ]
-                        )
                         if exact_duration:
                             result = Fraction(numerator) / Fraction(denominator)
                         elif isinstance(numerator, float) or isinstance(denominator, float):

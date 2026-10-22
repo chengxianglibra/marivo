@@ -74,7 +74,6 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class AlignFrameValues:
     pairs: tuple[tuple[int, int], ...]
-    how: Literal["exact", "outer"] = "exact"
     match: CalendarCorrespondence | None = None
 
 
@@ -88,8 +87,6 @@ class NamedFrameComparison:
 @dataclass(frozen=True, slots=True)
 class CompareFrameValues:
     baselines: tuple[NamedFrameComparison, ...]
-    how: Literal["exact", "outer"] = "exact"
-    zero_denominator: Literal["null", "error"] = "null"
 
 
 @dataclass(frozen=True, slots=True)
@@ -716,13 +713,11 @@ def infer_frame_combine_schema(
             "Resolve complete axis handles before planning.",
             "frame.combine",
         )
-    if (
-        operation.match is not None and type(operation.match) is not CalendarCorrespondence
-    ) or operation.how not in ("exact", "outer"):
+    if operation.match is not None and type(operation.match) is not CalendarCorrespondence:
         reject(
             "closed binary policies",
             repr(operation),
-            "Use exact/outer and null/error policies.",
+            "Use a closed calendar correspondence rule.",
             "frame.combine",
         )
     left_axes: tuple[DataAxis | PendingDataAxis, ...] = left.axes
@@ -850,7 +845,7 @@ def infer_frame_combine_schema(
         side, original = path[0], path[1:]
         source = right if side == "right" else left
         column = source.values[source.value_paths.index(original)]
-        nullable = True if operation.how == "outer" else column.nullable
+        nullable = True
         unit = column.unit
         if pending:
             kind = column_kind(column)
@@ -979,13 +974,11 @@ def infer_frame_compare_schema(
         or not operation.baselines
         or any(type(item) is not NamedFrameComparison for item in operation.baselines)
         or len(inputs) != len(operation.baselines) + 1
-        or operation.how not in ("exact", "outer")
-        or operation.zero_denominator not in ("null", "error")
     ):
         reject(
             "one current input and ordered named baseline bindings",
             repr(operation),
-            "Bind a nonempty named baseline mapping with exact/outer and null/error policies.",
+            "Bind a nonempty named baseline mapping.",
             "frame.compare",
         )
     aliases = tuple(item.alias for item in operation.baselines)
@@ -1020,7 +1013,7 @@ def infer_frame_compare_schema(
         slot = f"compare.value.{len(values)}"
         while slot in key_slots:
             slot += ".value"
-        nullable = True if difference or operation.how == "outer" else source.nullable
+        nullable = True
         unit = None if relative else source.unit
         if pending:
             values.append(
@@ -1042,9 +1035,7 @@ def infer_frame_compare_schema(
         value(path, column)
     for item, baseline in zip(operation.baselines, inputs[1:], strict=True):
         baseline_values: tuple[DataColumn | PendingDataColumn, ...] = baseline.values
-        validated = infer_frame_combine_schema(
-            current, baseline, AlignFrameValues(item.pairs, operation.how)
-        )
+        validated = infer_frame_combine_schema(current, baseline, AlignFrameValues(item.pairs))
         axes = validated.axes
         for left_position, right_position in item.pairs:
             left_components: tuple[DataColumn | PendingDataColumn, ...] = current.axes[

@@ -75,7 +75,14 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
     saved = fixed.persist()
     pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact.id).to_pandas(), rows)
     empty = members.where(~mv.in_population(members))
-    assert session.observe({"total": amount.sum()}, by=empty).compute().to_pandas().empty
+    with pytest.raises(AnalysisError, match="missing output coordinates"):
+        session.observe({"total": amount.sum()}, by=empty).compute()
+    assert (
+        session.observe({"total": amount.sum()}, by=empty, where=mv.in_population(empty))
+        .compute()
+        .to_pandas()
+        .empty
+    )
 
 
 def test_native_formula_does_not_zero_fill_a_present_all_null_group(

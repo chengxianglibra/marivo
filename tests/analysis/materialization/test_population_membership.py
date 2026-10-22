@@ -4,10 +4,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.population import population_keys
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory
@@ -172,10 +174,12 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     assert len(session.frame(full).compute().to_pandas()) == 3
     omitted = mv.coordinates(by=(customer,), keys=((1,),))
     observed = session.observe({"revenue": revenue}, by=omitted)
-    captured = session.population_from(observed, on=((observed.axes[0], customer),))
-    keys = session.frame(captured).compute().to_pandas()
-    assert keys.iloc[:, 0].tolist() == [1]
-    assert observed.compute().to_pandas()[("value", "revenue")].tolist() == [40]
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        observed.compute()
+    assert error.value.stage == "population_coverage"
+    assert session.observe({"v": revenue.per(omitted).mean()}).compute().to_pandas()[
+        ("value", "v")
+    ].tolist() == [40]
 
 
 def test_membership_deduplicates_root_bucket_and_complete_domain(
@@ -194,29 +198,15 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
-    result = (
-        session.observe({"revenue": revenue}, by=full, memberships=(buckets,)).compute().to_pandas()
-    )
+    result = session.observe({"revenue": revenue}, by=(full, buckets)).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
     unmatched = mv.membership(label, via=(path,), unmatched="null")
-    with_null = (
-        session.observe({"revenue": revenue}, by=(label,), memberships=(unmatched,))
-        .compute()
-        .to_pandas()
-    )
+    with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
     assert sorted(with_null[("value", "revenue")].tolist()) == [10, 20, 100]
-    samples = (
-        session.observe({"mean": revenue.per(full, memberships=(buckets,)).mean()})
-        .compute()
-        .to_pandas()
-    )
+    samples = session.observe({"mean": revenue.per((full, buckets)).mean()}).compute().to_pandas()
     assert samples[("value", "mean")].tolist() == [10]
     classified = session.members(session.catalog.entities.get("sales.tags")).classify(by=(label,))
-    result = (
-        session.observe({"revenue": revenue}, by=classified, memberships=(buckets,))
-        .compute()
-        .to_pandas()
-    )
+    result = session.observe({"revenue": revenue}, by=(classified, buckets)).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
 
 
@@ -236,16 +226,8 @@ def test_membership_correlated_tuple_differs_from_independent_product(
     joint = mv.membership((label, channel), via=(path,), unmatched="exclude")
     tags = mv.membership(label, via=(path,), unmatched="exclude")
     channels = mv.membership(channel, via=(path,), unmatched="exclude")
-    correlated = (
-        session.observe({"revenue": revenue}, by=(label, channel), memberships=(joint,))
-        .compute()
-        .to_pandas()
-    )
-    independent = (
-        session.observe({"revenue": revenue}, by=(label, channel), memberships=(tags, channels))
-        .compute()
-        .to_pandas()
-    )
+    correlated = session.observe({"revenue": revenue}, by=(joint,)).compute().to_pandas()
+    independent = session.observe({"revenue": revenue}, by=(tags, channels)).compute().to_pandas()
     assert len(correlated) == 2
     assert len(independent) == 4
     assert sorted(independent[("value", "revenue")].tolist()) == [10, 10, 10, 40]
@@ -276,12 +258,23 @@ def test_nested_per_keeps_each_layers_membership_rule(
     )
     inner, outer = (association, direct) if outer_route == "direct" else (direct, association)
     samples = mv.coordinates(by=(label,), keys=(("A",), ("B",), (None,)))
-    inner_samples = revenue.per(samples, memberships=(inner,))
+    inner_samples = revenue.per((samples, inner))
+    association_subset = mv.coordinates(by=(label,), keys=(("A",), ("B",)))
+    direct_subset = mv.coordinates(by=(label,), keys=(("A",), ("C",)))
+    inner_domain, outer_domain = (
+        (association_subset, direct_subset)
+        if outer_route == "direct"
+        else (direct_subset, association_subset)
+    )
     result = (
         session.observe(
             {
-                "mean_of_means": inner_samples.mean().per(samples, memberships=(outer,)).mean(),
-                "mean_of_maxima": inner_samples.max().per(samples, memberships=(outer,)).mean(),
+                "mean_of_means": inner_samples.mean().per((samples, outer)).mean(),
+                "mean_of_maxima": inner_samples.max().per((samples, outer)).mean(),
+                "subset_maxima": revenue.per((inner_domain, inner))
+                .max()
+                .per((outer_domain, outer))
+                .mean(),
             }
         )
         .compute()
@@ -293,6 +286,9 @@ def test_nested_per_keeps_each_layers_membership_rule(
     # [17,33,0], association layers [13,3,33], before the outer mean.
     assert result[("value", "mean_of_means")].tolist() == [17 if outer_route == "direct" else 16]
     assert result[("value", "mean_of_maxima")].tolist() == [47 if outer_route == "direct" else 50]
+    # The selected rectangle carries A/A=40 and B/A=10, with empty C samples.
+    # Grouping by direct first yields maxima 40/0; association first yields 40/10.
+    assert result[("value", "subset_maxima")].tolist() == [20 if outer_route == "direct" else 25]
 
 
 def test_population_filters_and_relationship_images_preserve_typed_keys(
@@ -405,3 +401,211 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
         session.observe({"value": revenue}, where=mv.in_population(selected)).compute().to_pandas()
     )
     assert result[("value", "value")].tolist() == [40]
+
+
+def test_output_coverage_and_internal_subset_have_distinct_policies(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    label = session.catalog.fields.get("sales.tags.label")
+    channel = session.catalog.fields.get("sales.tags.channel")
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    allocation = mv.membership((label, channel), via=(path,), unmatched="exclude")
+    selected = mv.coordinates(by=(label, channel), keys=(("A", "web"),))
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        session.observe({"v": revenue}, by=(selected, allocation)).compute()
+    assert error.value.stage == "population_coverage"
+    assert "B" in error.value.received and "store" in error.value.received
+    # Selecting a fact through A still retains that fact's B allocation.
+    with pytest.raises(MaterializationError, match="missing output coordinates"):
+        session.observe(
+            {"v": revenue}, by=(selected, allocation), where=mv.in_population(selected)
+        ).compute()
+    complete = mv.coordinates(
+        by=(label, channel), keys=(("A", "web"), ("B", "store"), ("C", "other"))
+    )
+    result = session.observe({"v": revenue}, by=(complete, allocation)).compute().to_pandas()
+    assert list(result.itertuples(index=False, name=None)) == [
+        ("A", "web", 40),
+        ("B", "store", 10),
+        ("C", "other", 0),
+    ]
+    # Every required component exists in these projections, but the tuples differ.
+    crossed = mv.coordinates(by=(label, channel), keys=(("A", "store"), ("B", "web")))
+    with pytest.raises(MaterializationError, match="missing output coordinates"):
+        session.observe({"v": revenue}, by=(crossed, allocation)).compute()
+    with_empty = mv.coordinates(by=(label, channel), keys=(("A", "web"), ("C", "other")))
+    result = (
+        session.observe(
+            {
+                "selected": revenue.per((selected, allocation)).mean(),
+                "completed": revenue.per((with_empty, allocation)).mean(),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert result[("value", "selected")].tolist() == [40]
+    assert result[("value", "completed")].tolist() == [20]
+
+
+@pytest.mark.parametrize(
+    "sampling", ("missing", "empty", "nested_missing", "nested_empty", "outer_empty")
+)
+def test_sample_selection_preserves_required_external_coordinates(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sampling: str,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    order = session.catalog.fields.get("sales.orders.id")
+    missing = mv.coordinates(by=(order,), keys=((999,),))
+    empty = mv.coordinates(by=(order,), keys=())
+    another = mv.coordinates(by=(order,), keys=((1,), (2,)))
+    metric = revenue.per(empty if sampling in ("empty", "nested_empty") else missing).mean()
+    if sampling.startswith("nested"):
+        metric = metric.per(another).mean()
+    elif sampling == "outer_empty":
+        metric = revenue.per(another).mean().per(empty).mean()
+    complete = mv.coordinates(by=(customer,), keys=((1,), (2,)))
+    result = session.observe({"v": metric}, by=complete).compute().to_pandas()
+    assert result.iloc[:, 0].tolist() == [1, 2]
+    if "empty" in sampling:
+        assert result[("value", "v")].isna().tolist() == [True, True]
+    else:
+        assert result[("value", "v")].tolist() == [0, 0]
+    subset = mv.coordinates(by=(customer,), keys=((1,),))
+    failed = session.observe({"v": metric}, by=subset)
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        failed.top(0, by=failed["v"]).compute()
+    assert error.value.stage == "population_coverage"
+    assert "2" in error.value.received
+    filtered = session.observe({"v": metric}, by=subset, where=customer == 1).compute().to_pandas()
+    assert filtered.iloc[:, 0].tolist() == [1]
+    assert (
+        pd.isna(filtered[("value", "v")].iloc[0])
+        if "empty" in sampling
+        else filtered[("value", "v")].tolist() == [0]
+    )
+
+
+def test_empty_output_population_checks_fact_keys_including_zero_axis(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    for domain in (mv.coordinates(by=(customer,), keys=()), mv.coordinates(by=(), keys=())):
+        with pytest.raises(MaterializationError, match="missing output coordinates"):
+            session.observe({"v": revenue}, by=domain).compute()
+        result = (
+            session.observe({"v": revenue}, by=domain, where=customer == 999).compute().to_pandas()
+        )
+        assert result.empty
+    singleton = mv.coordinates(by=(), keys=((),))
+    result = session.observe({"v": revenue}, by=singleton).compute().to_pandas()
+    assert result[("value", "v")].tolist() == [140]
+
+
+def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = (
+        _MODEL.replace(
+            "frozen = ms.finalize()",
+            'refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])\n'
+            'refund_customer = ms.dimension_column(name="customer", entity=refunds, column="customer")\n'
+            'refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all())\n'
+            'refund_tags = ms.relationship(name="refund_tags", from_entity=refunds, to_entity=tags, keys=[ms.join_on(refund_customer, tid)])\n'
+            "frozen = ms.finalize()",
+        )
+        + "\nr = frozen.resolve(refund_amount)\n@ms.metric()\ndef refunded():\n    return r.sum()\n"
+    )
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("CREATE TABLE refunds(id BIGINT, customer BIGINT, amount BIGINT)")
+        connection.execute("INSERT INTO refunds VALUES (1,3,7)")
+    revenue = session.catalog.metrics.get("sales.revenue")
+    refunded = session.catalog.metrics.get("sales.refunded")
+    label = session.catalog.fields.get("sales.tags.label")
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    allocation = mv.membership(label, via=(path,), unmatched="null")
+    nonnull = mv.coordinates(by=(label,), keys=(("A",), ("B",)))
+    with pytest.raises(MaterializationError, match="missing output coordinates"):
+        session.observe({"v": revenue}, by=(nonnull, allocation)).compute()
+    full = mv.coordinates(by=(label,), keys=(("A",), ("B",), (None,)))
+    result = session.observe({"v": revenue}, by=(full, allocation)).compute().to_pandas()
+    assert dict(zip(result.iloc[:, 0].fillna("<null>"), result[("value", "v")], strict=True)) == {
+        "A": 40,
+        "B": 10,
+        "<null>": 100,
+    }
+    independent = mv.membership(
+        label,
+        via=(path, (session.catalog.relationships.get("sales.refund_tags"),)),
+        unmatched="exclude",
+    )
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        session.observe({"v": revenue + refunded}, by=(nonnull, independent)).compute()
+    assert "C" in error.value.received
+    complete = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
+    result = (
+        session.observe({"v": revenue + refunded}, by=(complete, independent)).compute().to_pandas()
+    )
+    assert result[("value", "v")].tolist() == [40, 10, 7]
+
+
+@pytest.mark.parametrize("sampling", ("selected", "open", "nested"))
+def test_internal_membership_exclusion_preserves_parent_coordinates(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sampling: str,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    label = session.catalog.fields.get("sales.tags.label")
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    allocation = mv.membership(label, via=(path,), unmatched="exclude")
+    samples = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
+    metric = revenue.per((allocation,) if sampling == "open" else (samples, allocation)).mean()
+    if sampling == "nested":
+        order = session.catalog.fields.get("sales.orders.id")
+        metric = metric.per(mv.coordinates(by=(order,), keys=((999,),))).mean()
+    complete = mv.coordinates(by=(customer,), keys=((1,), (2,)))
+    for output in ((customer,), complete):
+        rows = session.observe({"v": metric}, by=output).compute().to_pandas()
+        assert rows.iloc[:, 0].tolist() == [1, 2]
+        expected = [25, None] if sampling == "open" else [0, 0] if sampling == "nested" else [17, 0]
+        assert rows[("value", "v")].iloc[0] == expected[0]
+        assert (
+            pd.isna(rows[("value", "v")].iloc[1])
+            if expected[1] is None
+            else rows[("value", "v")].iloc[1] == expected[1]
+        )
+    subset = mv.coordinates(by=(customer,), keys=((1,),))
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        session.observe({"v": metric}, by=subset).compute()
+    assert "2" in error.value.received
+    rows = session.observe({"v": metric}, by=subset, where=customer == 1).compute().to_pandas()
+    assert rows.iloc[:, 0].tolist() == [1]

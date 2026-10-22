@@ -42,7 +42,6 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
         {name: item.value.type() for name, item in zip(names, inputs, strict=True)},
         name="_numeric_recipe",
     )
-    policies: dict[int, str] = {}
 
     def bind(item: Resolver) -> object:
         if type(item) is Variable:
@@ -61,16 +60,6 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
             if type(item.func) is Attr:
                 receiver = bind(item.func.obj)
                 name = attribute_name(item.func)
-                if name == "divide":
-                    if not isinstance(receiver, ir.Value) or len(args) != 1:
-                        numeric_failure("one numeric divisor", "invalid divide arguments")
-                    denominator = args[0]
-                    value = receiver / denominator
-                    policy = kwargs.pop("zero_denominator", "null")
-                    if policy not in ("null", "error") or kwargs:
-                        numeric_failure("divide(zero_denominator='null'|'error')", repr(policy))
-                    policies[id(value.op())] = str(policy)
-                    return value
                 if not isinstance(receiver, ir.Value):
                     numeric_failure("an Ibis value receiver", type(receiver).__name__)
                 method = getattr(receiver, name)
@@ -87,7 +76,7 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
         )
     if not isinstance(expression, ir.Value):
         expression = ibis.literal(expression)
-    return _lower_operation(expression.op(), dict(zip(names, inputs, strict=True)), policies)
+    return _lower_operation(expression.op(), dict(zip(names, inputs, strict=True)))
 
 
 def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[NumericCheck, ...]:
@@ -99,9 +88,7 @@ def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[Numeric
     )
 
 
-def _lower_operation(
-    node: ops.Value, slots: Mapping[str, NumericValue], policies: Mapping[int, str]
-) -> NumericValue:
+def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> NumericValue:
     from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,
@@ -111,7 +98,7 @@ def _lower_operation(
     )
 
     def visit(value: ops.Value) -> NumericValue:
-        return _lower_operation(value, slots, policies)
+        return _lower_operation(value, slots)
 
     if isinstance(node, ops.Field):
         return slots[node.name]
@@ -130,7 +117,6 @@ def _lower_operation(
             operation,
             visit(node.left),
             visit(node.right),
-            zero_denominator=policies.get(id(node), "null"),
         )
     if isinstance(node, (ops.Negate, ops.Abs)):
         item = visit(node.arg)

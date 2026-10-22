@@ -154,7 +154,6 @@ def expression_value(
             ],
             NumericValue(left),
             NumericValue(right),
-            zero_denominator=expression.zero_denominator,
         ).value
     if expression.operation in ("eq", "ne", "lt", "le", "gt", "ge"):
         left_type, right_type = left.type(), right.type()

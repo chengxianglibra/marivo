@@ -10,13 +10,12 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.query import ReduceValues
 from marivo.analysis.compiler.query_program import FrameProgram
-from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.parametrize("incomplete", (False, True))
 @pytest.mark.parametrize("prune", ("reduce", "select", "where", "top"))
-def test_period_comparison_coverage_finishes_before_inherited_reduction(
+def test_outer_period_comparison_finishes_before_inherited_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     incomplete: bool,
@@ -52,12 +51,6 @@ def test_period_comparison_coverage_finishes_before_inherited_reduction(
         return execute(stage, inputs)
 
     monkeypatch.setattr(frame_values, "evaluate_frame", traced)
-    if incomplete:
-        with pytest.raises(AnalysisError, match="equal actual complete row-key domains"):
-            reduced.compute()
-        assert consumed == []
-        assert case.session._runtime.store.resources(case.session.id) == ()
-        return
     frame = reduced.compute().to_pandas()
     assert len(consumed) == 1
     if prune in ("where", "top"):

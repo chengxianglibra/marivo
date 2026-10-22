@@ -382,9 +382,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         (ratio, {"book": 700 / 850, "game": 2.0}),
         (linear, {"book": -150, "game": 150}),
     ):
-        logical = session.observe(
-            {"value": metric}, by=(_window(session), category), memberships=(buckets,)
-        )
+        logical = session.observe({"value": metric}, by=(_window(session), buckets))
         result = logical.persist()
         exported = result.to_pandas()
         frame = exported.set_index(ordinary_columns(exported)[0])
@@ -398,6 +396,8 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
 def test_timed_classification_cannot_remove_consumed_contributions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
@@ -443,7 +443,6 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         if key == "book":
             assert selected.persist().to_pandas()[("value", "value")].tolist() == [1000]
         else:
-            selected_rows = selected.persist().to_pandas()
-            assert selected_rows[ordinary_columns(selected_rows)[0]].tolist() == ["book"]
-            assert selected_rows[("value", "value")].tolist() == [0]
+            with pytest.raises(MaterializationError, match="missing output coordinates"):
+                selected.persist()
     assert sum(observed) == 1099

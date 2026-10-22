@@ -23,7 +23,6 @@ from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameRe
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from tests.shared_fixtures import DslCaseFactory
 
@@ -172,18 +171,15 @@ def test_empty_partition_does_not_create_rows(local: LocalFrameServices) -> None
     assert len(output.axes) == 1
 
 
-def test_partition_strict_children_are_checked_before_top_zero(local: LocalFrameServices) -> None:
+def test_partition_division_masks_zeros_before_reduction(local: LocalFrameServices) -> None:
     frame = _frame(local, (0, 2))
-    strict = frame["x"].divide(frame["x"], zero_denominator="error")
-    output = frame.select({"total": frame.over(strict.sum())})
-    with pytest.raises(MaterializationError, match="denominator"):
-        output.top(0, by=output["total"]).compute()
+    divided = frame["x"] / frame["x"]
+    output = frame.select({"total": frame.over(divided.sum())})
+    assert output.compute().to_pandas()[("value", "total")].tolist() == [1, 1]
+    assert output.top(0, by=output["total"]).compute().to_pandas().empty
     cancelled = _frame(local, (1, -1))
-    output = cancelled.select(
-        {"share": cancelled["x"].share(along=cancelled.axes, zero_denominator="error")}
-    )
-    with pytest.raises(MaterializationError, match="denominator"):
-        output.compute()
+    output = cancelled.select({"share": cancelled["x"].share(along=cancelled.axes)})
+    assert output.compute().to_pandas()[("value", "share")].isna().all()
 
 
 def test_over_rejects_different_exact_input_and_session(

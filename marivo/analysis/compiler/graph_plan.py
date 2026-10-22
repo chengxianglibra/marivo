@@ -432,6 +432,11 @@ def _plan_source_reads(
                         for read in contribution.coordinates
                         for key in coordinate_read_keys(read)
                     ),
+                    *(
+                        item.field
+                        for item in schema.fields
+                        if item.field.startswith("__sample_assigned_")
+                    ),
                 )
             )
         )
@@ -644,7 +649,12 @@ def _plan_query(
         contribution = replace(contribution, coverage=schema.coverage)
         reduction = replace(
             reduction,
-            preserve_sample_presence=bool(schema.coverage),
+            preserve_sample_presence=bool(schema.coverage)
+            or (
+                observation is not None
+                and observation.coordinates.population is not None
+                and (bool(stage.predicates) or not (reduction.axes or reduction.calendars))
+            ),
             duration=duration_type(
                 contribution.definition, {item.field: item.dtype for item in schema.fields}
             ),
@@ -729,6 +739,11 @@ def _plan_query(
                         )
                         if "__sample_present" in expression.columns
                         else ()
+                    ),
+                    *(
+                        DataColumn(name, name, ScalarDataType("boolean"), False)
+                        for name in expression.columns
+                        if name.startswith("__sample_scope_")
                     ),
                 ),
                 keys=tuple(c.slot_id for c in stage_keys),

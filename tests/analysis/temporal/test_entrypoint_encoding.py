@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from ibis.common.deferred import Just
 
-from marivo._definition.deferred import recipe_fingerprint
+from marivo._definition.deferred import RECIPE_RULE_VERSION, recipe_fingerprint
 from marivo._temporal import _time_scope_from_contract_data, _validate_time_scope_data
 from marivo.refs import ref
 
@@ -30,7 +30,10 @@ def test_scope_payloads_require_complete_authority_and_retain_frozen_identity() 
         scope = _validate_time_scope_data(ordinary)
         assert scope._model_dump(mode="json") == sample["ordinary"]
         assert scope._contract().model_dump(mode="json") == sample["contract"]
-        assert recipe_fingerprint(Just(scope)) == sample["fingerprint"]
+        # Recipe grammar advanced; frozen time payloads retain their own authority.
+        assert RECIPE_RULE_VERSION == 2
+        current_fingerprint = recipe_fingerprint(Just(scope))
+        assert current_fingerprint != sample["fingerprint"]
         recovered = _time_scope_from_contract_data(sample["contract"])
         assert recovered._contract().model_dump(mode="json") == sample["contract"]
-        assert recipe_fingerprint(Just(recovered)) == sample["fingerprint"]
+        assert recipe_fingerprint(Just(recovered)) == current_fingerprint

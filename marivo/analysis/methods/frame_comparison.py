@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
 import pandas as pd
 import pyarrow as pa
@@ -73,7 +73,7 @@ def _fail(
     expected: str,
     received: str,
     *,
-    repair: str = "Use unique complete keys and compatible actual domains, or how='outer' for missing keys.",
+    repair: str = "Use unique complete keys and compatible complete axes.",
 ) -> None:
     raise MaterializationError(
         expected=expected,
@@ -278,16 +278,6 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
     right_columns = tuple(c for i in range(len(a.axes)) for c in b.axes[partners[i]].columns)
     left_keys, left_index = _index(left, left_columns)
     right_keys, right_index = _index(right, right_columns)
-    if program.operation.how == "exact" and left_index.keys() != right_index.keys():
-        _fail(
-            "equal actual complete row-key domains",
-            repr(
-                (
-                    tuple(key for key in left_keys if key not in right_index),
-                    tuple(key for key in right_keys if key not in left_index),
-                )
-            ),
-        )
     keys = left_keys + [key for key in right_keys if key not in left_index]
     left_rows = [left_index.get(key) for key in keys]
     right_rows = [right_index.get(key) for key in keys]
@@ -322,7 +312,7 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
 
 
 def _comparison_values(
-    x: pd.Series, y: pd.Series, absolute_type: DataType, zero_denominator: Literal["null", "error"]
+    x: pd.Series, y: pd.Series, absolute_type: DataType
 ) -> tuple[pd.Series, pd.Series]:
     """Apply the existing nullable numeric policies after coordinate presence."""
     valid = x.notna() & y.notna()
@@ -342,7 +332,6 @@ def _comparison_values(
             left_type=absolute_type,
             right_type=absolute_type,
             output=absolute_type,
-            zero_denominator="null",
         )
         ticks = pd.Series(
             pa.array(delta, type=pa.duration(absolute_type.unit), from_pandas=True)
@@ -356,7 +345,6 @@ def _comparison_values(
             ticks,
             denominator,
             exact_duration=True,
-            zero_denominator=zero_denominator,
         )
     else:
         delta = nullable_arithmetic("subtract", x, y)
@@ -371,7 +359,6 @@ def _comparison_values(
             "divide",
             delta,
             denominator,
-            zero_denominator=zero_denominator,
         )
     return delta, finish_float64(relative, "Frame.compare relative")
 
@@ -616,8 +603,6 @@ def compare_frame_data(
             for column in right.columns:
                 frame[column.slot_id] = encoded[column.slot_id]
         keys, baseline_index = _index(frame, columns)
-        if program.operation.how == "exact" and baseline_index.keys() != current_index.keys():
-            _fail("equal actual complete row-key domains for every named baseline", item.alias)
         for key in keys:
             if key not in known_keys:
                 all_keys.append(key)
@@ -644,9 +629,7 @@ def compare_frame_data(
             result[output.values[start + index].slot_id] = y
             x = result[output.values[index].slot_id]
             absolute = output.values[start + count + index]
-            delta, relative = _comparison_values(
-                x, y, absolute.dtype, program.operation.zero_denominator
-            )
+            delta, relative = _comparison_values(x, y, absolute.dtype)
             result[absolute.slot_id] = delta
             result[output.values[start + 2 * count + index].slot_id] = relative
     for side, take in enumerate(takes):

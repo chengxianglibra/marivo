@@ -79,14 +79,10 @@ link_tags = ms.relationship(name='link_tags', from_entity=links, to_entity=tags,
     return mv.session.create("attribute", timezone="UTC")
 
 
-def _compare(
-    current: AnalysisFrame, baseline: AnalysisFrame, *, how: str = "outer"
-) -> AnalysisFrame:
-    assert how in ("outer", "exact")
+def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
     return current.compare(
         {"reference": baseline},
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        how="outer" if how == "outer" else "exact",
     )
 
 
@@ -259,7 +255,7 @@ def test_explicit_fine_question_keeps_original_ratio_without_parent_formula(
     amount = session.catalog.fields.get("sales.facts.amount")
     denominator = session.catalog.fields.get("sales.facts.denominator")
     channel = session.catalog.fields.get("sales.facts.channel")
-    metric = amount.sum().divide(denominator.sum(), zero_denominator="error")
+    metric = amount.sum() / denominator.sum()
     fine = session.observe({"q": metric}, by=(channel,), where=(channel == "A") | (channel == "C"))
     rows = _flat(_compare(fine, fine).compute().to_pandas())
     assert rows["q"].tolist() == [-2.0, 100.0]
@@ -288,16 +284,15 @@ def test_complete_population_null_keys_and_empty_parent(session: Session) -> Non
     )
 
 
-def test_complete_parent_exact_checks_survive_top_zero(session: Session) -> None:
+def test_complete_parent_outer_alignment_retains_missing_sides(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     left = session.observe({"q": amount}, by=(region,), where=channel == "A")
     right = session.observe({"q": amount}, by=(region,), where=channel == "B")
-    invalid = _compare(left, right, how="exact")
-    with pytest.raises(AnalysisError):
-        invalid.top(0, by=invalid["q"]).compute()
-    assert len(_compare(left, right).compute().to_pandas()) == 2
+    compared = _compare(left, right)
+    assert len(compared.compute().to_pandas()) == 2
+    assert compared.top(0, by=compared["q"]).compute().to_pandas().empty
 
 
 def test_fixed_and_pending_selection_keep_original_execution_boundary(
@@ -354,14 +349,13 @@ def test_original_checks_survive_projection_top_zero_and_empty_investigation(
 ) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     channel = session.catalog.fields.get("sales.facts.channel")
-    invalid = session.observe(
-        {"q": amount.sum().divide(amount.sum() * 0, zero_denominator="error")}
-    ).attribute(by=(channel,))
+    invalid = session.observe({"q": amount.sum(nulls="error")}).attribute(by=(channel,))
     selected = invalid.select({"ignored": 1})
-    with pytest.raises(AnalysisError, match="denominator"):
+    with pytest.raises(AnalysisError, match="non-NA source values"):
         selected.top(0, by=selected["ignored"]).compute()
     empty = mv.coordinates(by=(channel,), keys=())
-    assert session.observe({"q": amount.sum()}, by=empty).compute().to_pandas().empty
+    with pytest.raises(AnalysisError, match="missing output coordinates"):
+        session.observe({"q": amount.sum()}, by=empty).compute()
 
 
 def test_overlapping_membership_has_explicit_investigation_continuation(session: Session) -> None:
@@ -373,7 +367,7 @@ def test_overlapping_membership_has_explicit_investigation_continuation(session:
         session.catalog.relationships.get("sales.link_tags"),
     )
     buckets = mv.membership((label, kind), via=(route,), unmatched="exclude")
-    detail = session.observe({"q": amount}, by=(label, kind), memberships=(buckets,)).compute()
+    detail = session.observe({"q": amount}, by=(buckets,)).compute()
     assert detail.to_pandas()[("value", "q")].tolist() == [102, 100]
     parent = session.observe({"q": amount}, where=session.catalog.fields.get("sales.facts.id") <= 2)
     with pytest.raises(AnalysisError):
@@ -447,7 +441,7 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     july = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
     paired = (
         session.observe({"q": metric}, by=(august,))
-        .align(session.observe({"q": metric}, by=(july,)), match=mv.ordinal(), how="outer")
+        .align(session.observe({"q": metric}, by=(july,)), match=mv.ordinal())
         .compute()
     )
     assert not paired.to_pandas()[("presence", "right_present")].all()
@@ -457,10 +451,7 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     fine_left = session.observe({"q": metric}, by=(august, channel))
     fine_right = session.observe({"q": metric}, by=(july, channel))
     fine = fine_left.align(
-        fine_right,
-        on=tuple(zip(fine_left.axes, fine_right.axes, strict=True)),
-        match=mv.ordinal(),
-        how="outer",
+        fine_right, on=tuple(zip(fine_left.axes, fine_right.axes, strict=True)), match=mv.ordinal()
     ).compute()
     assert not fine.to_pandas()[("presence", "right_present")].all()
 
@@ -567,9 +558,8 @@ def test_correlated_overlapping_parent_membership_is_preserved_for_investigation
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
     observed = session.observe(
         {"q": amount},
-        by=(label, kind, channel),
+        by=(membership, kind, channel),
         where=mv.in_population(parents),
-        memberships=(membership,),
     ).compute()
     assert list(observed.to_pandas().itertuples(index=False, name=None)) == [
         ("x", "online", "A", 2),

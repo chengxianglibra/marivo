@@ -412,7 +412,6 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             {"reference": right},
             on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
             match={"reference": mv.ordinal()},
-            how="outer",
         )
         pending = compared.select(
             {

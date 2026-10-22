@@ -78,7 +78,7 @@ def _axes(
                 reject(
                     "ordinary coordinate groupings",
                     "membership grouping",
-                    "Pass membership rules through the consuming memberships=(rule,) parameter.",
+                    "Put membership rules directly in Session.observe.by or Metric.per samples.",
                     "population",
                 )
             else:

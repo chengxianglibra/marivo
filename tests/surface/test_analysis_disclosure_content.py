@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from inspect import signature
 
 import pytest
 
@@ -33,6 +34,22 @@ from marivo.analysis.core.frame_method_facts import (
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
+
+
+def test_simplified_policies_have_one_public_route() -> None:
+    assert not hasattr(mv.Column, "divide")
+    with pytest.raises((AnalysisError, MarivoHelpTargetError)):
+        render_help_text("analysis.column.divide")
+    for method in (mv.AnalysisFrame.align, mv.AnalysisFrame.compare, mv.Column.share):
+        parameters = signature(method).parameters
+        assert "how" not in parameters and "zero_denominator" not in parameters
+    division = render_help_text(mv.Column.__truediv__)[0]
+    assert "zero denominators give NA before arithmetic" in division
+    observation = render_help_text("analysis.session.observe")[0]
+    assert "Input memberships:" not in observation
+    assert "necessary output keys before sampling" in observation
+    membership = render_help_text("analysis.membership")[0]
+    assert "(rule, customer, channel)" in membership and "(R,S,b,d)" in membership
 
 
 def test_every_advertised_native_member_has_exact_help() -> None:
@@ -86,7 +103,7 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     assert families == {}
     for owner, methods in (
         (mv.AnalysisFrame, ("select", "where", "reduce", "over", "correlate", "align", "compare")),
-        (mv.Column, ("sum", "mean", "corr", "pair_count", "share", "divide", "is_null")),
+        (mv.Column, ("sum", "mean", "corr", "pair_count", "share", "is_null")),
     ):
         for method in methods:
             target = ("analysis_frame" if owner is mv.AnalysisFrame else "column") + "." + method

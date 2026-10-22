@@ -27,6 +27,7 @@ from marivo.refs import ref
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
+from tests.shared_fixtures import DslCaseFactory
 
 
 def test_nonnullable_source_inputs_keep_null_branches_physically_nullable() -> None:
@@ -132,7 +133,7 @@ def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> No
         Decimal("5.00"),
         Decimal("1.00"),
     ]
-    strict = resolver(ibis.coalesce(x, ibis.coalesce(x, 1).divide(0, zero_denominator="error")))
+    strict = resolver(ibis.coalesce(x, (ibis.coalesce(x, 1) - 2).sqrt()))
     expression = lower_recipe(strict, (NumericValue(table.x),))
     violations = [
         evaluate_numeric(check.violation.op(), values, values["x"].index)
@@ -203,7 +204,7 @@ def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys(
             SumAll(),
         )
         x = Deferred(Variable("slot_0"))
-        predicate = RowExpression(resolver(x.divide(x, zero_denominator="error") > 0), (field,))
+        predicate = RowExpression(resolver(x.log() > 0), (field,))
         reduction = SourceAggregate(field, "sum", None)
         lowered, checks = lower_observation(
             ReductionInput(reduction, (("key.0", "category"),), "value"),
@@ -215,7 +216,11 @@ def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys(
         assert frame.loc["kept", "value"] == 2
         assert bool(frame.loc["kept", "__numeric_present"])
         assert pd.isna(frame.loc["filtered", "__numeric_present"])
-        predicate_check = next(name for name, check in checks if "nonzero" in check.expected)
+        predicate_check = next(
+            name
+            for name, check in checks
+            if "valid finite numeric function inputs" in check.expected
+        )
         assert not bool(frame.loc["kept", predicate_check])
         assert bool(frame.loc["filtered", predicate_check])
     finally:
@@ -464,3 +469,31 @@ def test_internal_sum_keeps_large_integer_beside_null_group() -> None:
         output_type=ScalarDataType("int64"),
     )
     assert result.value.tolist() == [2**53 + 1, None]
+
+
+@pytest.mark.parametrize("scale", (1, 2))
+def test_cancelled_sample_weights_do_not_hide_numeric_overflow(
+    analysis_dsl_case_factory: DslCaseFactory, scale: int
+) -> None:
+    import duckdb
+
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    case = analysis_dsl_case_factory("j4")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+        connection.execute(
+            'INSERT INTO "order" VALUES '
+            "('a','A','web','paid',TIMESTAMPTZ '2026-08-01',1e308),"
+            "('b','B','web','paid',TIMESTAMPTZ '2026-08-01',-1e308)"
+        )
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    customer = session.catalog.fields.get("sales.order.customer_id")
+    value = amount.max()
+    # Weights are +/-scale. Products or their sum overflow despite zero total weight.
+    metric = value.per(customer).weighted_mean(weight=value / 1e308 * scale)
+    pending = session.observe({"value": metric})
+    for result in (pending, pending.top(0, by=pending["value"])):
+        with pytest.raises(MaterializationError, match="internal sample reduction overflow"):
+            result.compute()

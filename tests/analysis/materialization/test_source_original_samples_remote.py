@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -135,7 +134,7 @@ def test_remote_window_spatial_rollup_retains_lookback_and_each_endpoint(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_remote_sample_parent_zero_denominator_is_not_hidden_by_valid_rollup(
+def test_remote_sample_parent_masks_zero_denominator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -149,10 +148,10 @@ def test_remote_sample_parent_zero_denominator_is_not_hidden_by_valid_rollup(
         amount = session.catalog.fields.get("sales.facts.amount")
         customer = session.catalog.fields.get("sales.facts.customer")
         channel = session.catalog.fields.get("sales.facts.channel")
-        metric = amount.count().divide(amount.sum(), zero_denominator="error").per(customer).mean()
+        metric = (amount.count() / amount.sum()).per(customer).mean()
         trace = capture_source(monkeypatch)
-        with pytest.raises(AnalysisError, match="zero denominator"):
-            session.observe({"value": metric}, by=(channel,)).compute()
+        result = session.observe({"value": metric}, by=(channel,)).compute().to_pandas()
+        assert result[("value", "value")].isna().any()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -274,11 +273,11 @@ def test_remote_sample_top_zero_finishes_fine_checks_before_target_read(
         amount = session.catalog.fields.get("sales.facts.amount")
         customer = session.catalog.fields.get("sales.facts.customer")
         channel = session.catalog.fields.get("sales.facts.channel")
-        metric = amount.count().divide(amount.sum(), zero_denominator="error").per(customer).mean()
+        metric = (amount.count() / amount.sum()).per(customer).mean()
         fine = session.observe({"value": metric}, by=(channel,))
         trace = capture_source(monkeypatch)
-        with pytest.raises(AnalysisError, match="zero denominator"):
-            fine.top(0, by=fine["value"]).compute()
+        assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        assert fine.compute().to_pandas()[("value", "value")].isna().any()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES[1:]))

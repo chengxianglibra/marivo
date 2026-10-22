@@ -87,15 +87,12 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     _, baseline = period(case.session, 7, lengths[1])
     on = tuple(zip(current.axes, baseline.axes, strict=True))
     comparison = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        how="outer",
-        on={"reference": on},
+        {"reference": baseline}, match={"reference": mv.ordinal()}, on={"reference": on}
     )
     if lengths[1] > lengths[0]:
         with pytest.raises(AnalysisError, match="actual baseline time row"):
             comparison.compute()
-        aligned = current.align(baseline, match=mv.ordinal(), how="outer", on=on).compute()
+        aligned = current.align(baseline, match=mv.ordinal(), on=on).compute()
         frame = aligned.to_pandas()
         mapping, left_directory, right_directory = paired_tables(frame)
         assert len(frame) == 12
@@ -127,18 +124,24 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
 
 
-def test_period_exact_rejects_unequal_calendars_before_execution(
+def test_period_outer_retains_unequal_calendars(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3)
     _, baseline = period(case.session, 7, 2)
-    with pytest.raises(AnalysisError, match="complete"):
+    result = (
         current.compare(
             {"reference": baseline},
             match={"reference": mv.ordinal()},
             on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        ).compute()
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert len(result) == 12
+    assert result[("presence", "current.present")].tolist() == [True] * 12
+    assert result[("presence", "reference.present")].tolist() == [True] * 8 + [False] * 4
     assert terminal_runs(case.session) == ()
 
 
@@ -152,7 +155,6 @@ def test_selected_periods_keep_original_positions_and_nullable_values(
     paired = selected.compare(
         {"reference": baseline},
         match={"reference": mv.ordinal()},
-        how="outer",
         on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
     )
     frame = paired.compute().to_pandas()
@@ -182,7 +184,6 @@ def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
     comparison = current.compare(
         {"reference": baseline},
         match={"reference": mv.ordinal()},
-        how=how,
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     )
     frame = comparison.compute().to_pandas()
@@ -241,7 +242,6 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
         current.compare(
             {"reference": baseline},
             match={"reference": mv.ordinal()},
-            how="outer",
             on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         )
         .compute()
@@ -264,7 +264,6 @@ def test_period_saved_output_checks_endpoint_projections_and_presence(
     saved = current.compare(
         {"reference": baseline},
         match={"reference": mv.ordinal()},
-        how="outer",
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).persist()
     backing = saved._backing
@@ -301,17 +300,13 @@ def test_period_source_values_match_independent_count_oracle(
     comparison = current.compare(
         {"reference": baseline},
         match={"reference": mv.ordinal()},
-        how="outer",
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     )
     if lengths[1] > lengths[0]:
         with pytest.raises(AnalysisError, match="actual baseline time row"):
             comparison.compute()
         aligned = current.align(
-            baseline,
-            match=mv.ordinal(),
-            how="outer",
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
         ).compute()
         frame = aligned.to_pandas()
         mapping, left_directory, right_directory = paired_tables(frame)

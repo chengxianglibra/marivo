@@ -268,18 +268,16 @@ class Session:
         self,
         metrics: Mapping[str, Deferred],
         *,
-        by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
+        by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
         where: Deferred | None = None,
-        memberships: tuple[Grouping, ...] = (),
     ) -> AnalysisFrame:
         """Capture named Metric expressions as a lazy AnalysisFrame.
 
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
-            by: Ordered fields, Grouping rules or finite TimeScopes, or a complete Population
-                output domain. Empty () evaluates one zero-axis cell.
+            by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
+                optionally followed by membership rules in a tuple. Empty () evaluates one cell.
             where: Extra Deferred field and Population membership conditions on fact contributions.
-            memberships: Explicit contribution mappings for existing output coordinates.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -319,7 +317,6 @@ class Session:
             metrics,
             by=by,
             where=where,
-            memberships=memberships,
             timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
         )

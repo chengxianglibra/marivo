@@ -315,7 +315,7 @@ def test_multiple_consumers_keep_independent_filter_domains(optimization_session
     left_input = first.where(first["a"] < 25)
     left = left_input.select({"left": left_input["a"]})
     right = right.select({"right": right["a"]})
-    query = left.align(right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)))
+    query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
     _same(optimization_session, query)
     result = query.compute().to_pandas()
     assert result[("value", "left.left")].iloc[:2].tolist() == [10, 20]
@@ -359,7 +359,7 @@ def test_nullable_integer_filters_preserve_true_only_mask(optimization_session: 
 def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Session) -> None:
     source = _wide(optimization_session)
     first = source.where(source["a"] > 0)
-    query = first.where(first["b"].divide(first["a"], zero_denominator="error") > 1)
+    query = first.where(first["b"] / first["a"] > 1)
     _same(optimization_session, query)
     assert query.compute().to_pandas()[("value", "a")].tolist() == [10, 20, 30]
 
@@ -393,16 +393,12 @@ def test_completed_strict_projection_cannot_be_pruned(
     monkeypatch.setattr(graph_local_execution, "run_local", checked)
     monkeypatch.setattr(SourceSession, "execute", submitted)
     source = _wide(optimization_session)
-    completed = source.select(
-        {"kept": source["a"], "bad": source["b"].divide(0, zero_denominator="error")}
-    )
+    completed = source.select({"kept": source["a"], "bad": source["b"] * 1e308})
     query = completed.select({"kept": completed["kept"]})
     errors: list[tuple[type[BaseException], str]] = []
     for optimized in (False, True):
         events.clear()
-        with pytest.raises(
-            (AnalysisError, SemanticExpressionError), match="nonzero denominator"
-        ) as caught:
+        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite") as caught:
             _execute(optimization_session, query, optimized=optimized)
         errors.append((type(caught.value), str(caught.value)))
         assert events[-1][0] == "failed" and "bad" in events[-1][1]
@@ -418,9 +414,7 @@ def test_completed_strict_projection_cannot_be_pruned(
     errors.clear()
     for optimized in (False, True):
         events.clear()
-        with pytest.raises(
-            (AnalysisError, SemanticExpressionError), match="nonzero denominator"
-        ) as caught:
+        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite") as caught:
             _execute(optimization_session, query, optimized=optimized)
         errors.append((type(caught.value), str(caught.value)))
         assert events[-1][0] == "failed" and "bad" in events[-1][1]
@@ -437,7 +431,7 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     total = amount.sum()
-    guarded = ibis.ifelse(total >= 0, total, total.divide(0, zero_denominator="error"))
+    guarded = ibis.ifelse(total >= 0, total, total / 0)
     query = session.observe({"safe": guarded}, by=(region,))
     _same(session, query)
 
@@ -676,7 +670,7 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
     left = source.where(source["a"] > 10)
     right = source.where(source["a"] < 30)
     query = left.compare(
-        {"base": right}, how="outer", on={"base": tuple(zip(left.axes, right.axes, strict=True))}
+        {"base": right}, on={"base": tuple(zip(left.axes, right.axes, strict=True))}
     )
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
@@ -885,7 +879,7 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
     inspected = session.catalog.fields.get("sales.orders.amount").sum()
     failed = session.catalog.fields.get("sales.orders.exact").sum()
     cells = session.observe(
-        {"inspected": inspected, "failed": failed, "rate": failed.divide(inspected)},
+        {"inspected": inspected, "failed": failed, "rate": failed / inspected},
         by=(region, detail),
     )
     _same(session, cells)

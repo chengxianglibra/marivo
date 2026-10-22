@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.source_trace import capture_source
 
@@ -102,10 +101,10 @@ def test_source_sample_rollup_keeps_fine_formula_failure(
     amount = session.catalog.fields.get("sales.order.amount")
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
-    metric = amount.count().divide(amount.sum(), zero_denominator="error").per(customer).mean()
+    metric = (amount.count() / amount.sum()).per(customer).mean()
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="zero denominator"):
-        session.observe({"mean": metric}, by=(channel,)).compute()
+    result = session.observe({"mean": metric}, by=(channel,)).compute().to_pandas()
+    assert result[("value", "mean")].isna().any()
 
 
 def test_multi_root_read_evidence_keeps_each_contribution_scope(

@@ -21,13 +21,13 @@ Column/FrameAxis 属于精确输入；从接收者重新取得，或显式对齐
 
 ```python
 aligned = current.align(
-    baseline, on=((current.axes[0], baseline.axes[0]),), how="outer",
+    baseline, on=((current.axes[0], baseline.axes[0]),),
 )
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
 difference.show()
 ```
 
-exact 要求唯一完整联合键对应；outer 保留缺侧与独立 presence，不自动补零。
+outer 按唯一完整联合键对应并保留缺侧与独立 presence，不自动补零。
 Field Null 是合法类别。read 要求完整 Entity 身份域、非空字段、合法单值路径与版本锚点，
 后置过滤不能隐藏必要错误。新来源事实要显式提供受治理输入与普通轴 population_from 映射；
 on 必填，零轴允许 on=()。

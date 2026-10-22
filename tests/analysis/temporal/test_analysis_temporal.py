@@ -696,7 +696,7 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     count = session.catalog.metrics.get("sales.order_count")
     calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month"))
     field = session.catalog.fields.get("sales.customer.region")
-    metrics = {"amount": revenue, "count": count, "average": revenue.divide(count)}
+    metrics = {"amount": revenue, "count": count, "average": revenue / count}
     page = render_help_text("analysis.session.observe")[0]
     code = page.split("Example:\n", 1)[1].split("\nSee:", 1)[0]
     namespace: dict[str, object] = {
@@ -767,7 +767,6 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
         {"reference": right},
         on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
         match={"reference": mv.ordinal()},
-        how="outer",
     ).compute()
     top = outer.top(2, by=outer["value"]).compute()
     assert terminal_runs(session) == ()
@@ -976,9 +975,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):
         with pytest.raises(AnalysisError, match=r"complete|prefix"):
-            empty_partial.compare(
-                {"reference": right_memory}, match={"reference": rule}, how=how
-            ).compute()
+            empty_partial.compare({"reference": right_memory}, match={"reference": rule}).compute()
     state = checked(
         {
             "session": session.id,
