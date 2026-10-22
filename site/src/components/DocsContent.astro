@@ -1,0 +1,9 @@
+---
+import MarkdownContent from '@astrojs/starlight/components/MarkdownContent.astro';
+
+const { tutorial } = Astro.locals.starlightRoute.entry.data;
+---
+
+<div class:list={{ 'docs-tutorial': tutorial }}>
+  <MarkdownContent><slot /></MarkdownContent>
+</div>

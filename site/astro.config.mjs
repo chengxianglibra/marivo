@@ -143,6 +143,28 @@ export default defineConfig({
         },
       },
       customCss: ['./src/styles/custom.css'],
+      components: {
+        MarkdownContent: './src/components/DocsContent.astro',
+      },
+      expressiveCode: {
+        themes: ['github-light', 'github-dark'],
+        styleOverrides: {
+          borderRadius: '0.375rem',
+          borderColor: 'var(--sl-color-hairline-light)',
+          codeFontSize: '0.875rem',
+          codeLineHeight: '1.7',
+          codePaddingInline: '1.25rem',
+          codePaddingBlock: '1rem',
+          codeBackground: 'var(--docs-code-bg)',
+          frames: {
+            frameBoxShadowCssValue: 'none',
+            editorTabBarBackground: 'var(--docs-surface)',
+            editorActiveTabBackground: 'var(--docs-surface)',
+            editorActiveTabIndicatorTopColor: 'transparent',
+            editorActiveTabIndicatorBottomColor: 'transparent',
+          },
+        },
+      },
       logo: {
         src: './src/assets/marivo-mark.svg',
       },

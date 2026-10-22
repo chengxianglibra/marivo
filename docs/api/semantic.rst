@@ -9,17 +9,21 @@ marivo.semantic
 Declaration decorators
 ----------------------
 
-These public constructors are documented inline because their lowercase names
-collide with the corresponding catalog-object class filenames on
-case-insensitive filesystems.
+Declaration constructors have dedicated pages in a separate directory to avoid
+case-insensitive filename collisions with catalog-object classes.
 
-.. autofunction:: entity
-.. autofunction:: dimension
-.. autofunction:: measure
-.. autofunction:: metric
-.. autofunction:: relationship
-.. autofunction:: time_dimension
-.. autofunction:: domain
+.. autosummary::
+   :toctree: api/constructors/
+   :nosignatures:
+   :caption: Declaration constructors
+
+   entity
+   dimension
+   measure
+   metric
+   relationship
+   time_dimension
+   domain
 
 An explicit ``name`` declares an Entity directly; omitting it returns a
 decorator whose function receives one Source Table and returns one derived
@@ -142,12 +146,11 @@ have no immediate-error guarantee.
 .. autodata:: ref
    :annotation:
 
-.. autofunction:: bind
-
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
+   bind
    load
 
 Focused help

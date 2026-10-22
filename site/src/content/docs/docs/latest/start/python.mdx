@@ -1,6 +1,7 @@
 ---
 title: Quick start
 description: Create six local orders, define revenue, and calculate a total.
+tutorial: true
 ---
 
 <span id="create-the-demo-data"></span>
@@ -14,7 +15,7 @@ Complete [installation](/docs/latest/start/installation/) in a separate director
 Save as `seed.py` and run `.venv/bin/python seed.py`. This replaces the demo orders table.
 {/* example: demo-seed */}
 
-```python
+```python title="seed.py"
 from datetime import date
 from pathlib import Path
 import duckdb
@@ -49,7 +50,7 @@ Save as `models/datasources/warehouse.py`.
 
 {/* example: demo-datasource */}
 
-```python
+```python title="models/datasources/warehouse.py"
 import marivo.datasource as md
 
 md.duckdb(name="warehouse", path="warehouse.duckdb")
@@ -61,7 +62,7 @@ Save as `models/semantic/sales/_domain.py`. Date and region support the later ex
 
 {/* example: demo-model */}
 
-```python
+```python title="models/semantic/sales/_domain.py"
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -97,7 +98,7 @@ Save as `quick.py` and run `.venv/bin/python quick.py`.
 
 {/* example: quick-analysis */}
 
-```python
+```python title="quick.py"
 import marivo.analysis as mv
 
 session = mv.session.create("first-analysis")

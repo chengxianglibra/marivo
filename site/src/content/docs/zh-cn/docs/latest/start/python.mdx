@@ -1,6 +1,7 @@
 ---
 title: 快速开始
 description: 创建六笔本地订单，定义收入并计算总额。
+tutorial: true
 ---
 
 <span id="创建演示数据"></span>
@@ -14,7 +15,7 @@ description: 创建六笔本地订单，定义收入并计算总额。
 保存为 `seed.py`，运行 `.venv/bin/python seed.py`。脚本会替换演示订单表。
 {/* example: demo-seed */}
 
-```python
+```python title="seed.py"
 from datetime import date
 from pathlib import Path
 import duckdb
@@ -49,7 +50,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
 
 {/* example: demo-datasource */}
 
-```python
+```python title="models/datasources/warehouse.py"
 import marivo.datasource as md
 
 md.duckdb(name="warehouse", path="warehouse.duckdb")
@@ -61,7 +62,7 @@ md.duckdb(name="warehouse", path="warehouse.duckdb")
 
 {/* example: demo-model */}
 
-```python
+```python title="models/semantic/sales/_domain.py"
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -97,7 +98,7 @@ def revenue():
 
 {/* example: quick-analysis */}
 
-```python
+```python title="quick.py"
 import marivo.analysis as mv
 
 session = mv.session.create("first-analysis")

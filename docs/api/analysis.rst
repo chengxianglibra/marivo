@@ -259,90 +259,66 @@ release acceptance are separate contracts.
 Canonical public exports
 -------------------------
 
-.. autoclass:: FrameMethodFacts
-   :members:
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+   :caption: Classes
 
-.. automethod:: FrameMethodFacts.show
+   FrameMethodFacts
+   AnalysisFrame
+   FrameAxis
+   Column
+   Population
+   Grouping
+   CalendarCorrespondence
+   Grain
+   TimeScope
+   InstantAnchor
+   CalendarAxis
+   Artifact
+   ArtifactDigest
+   ArtifactRef
+   Finding
+   FindingPage
+   Session
 
-.. autoclass:: AnalysisFrame
-   :members:
+.. autosummary::
+   :toctree: api/functions/
+   :nosignatures:
+   :caption: Functions
 
-.. autoclass:: FrameAxis
-   :members:
+   coordinates
+   membership
+   product
+   in_population
+   identity
+   row_count
+   ordinal
+   offset
+   grain
+   all_history
+   since
+   to_date
+   trailing_duration
+   trailing_periods
 
-.. autoclass:: Column
-   :members:
-
-.. autoclass:: Population
-   :members:
-
-.. autoclass:: Grouping
-   :members:
-
-.. autoclass:: CalendarCorrespondence
-   :members:
-
-.. autofunction:: coordinates
-
-.. autofunction:: membership
-
-.. autofunction:: product
-
-.. autofunction:: in_population
-
-.. autofunction:: identity
-
-.. autofunction:: row_count
-
-.. autofunction:: ordinal
-
-.. autofunction:: offset
-
-.. autofunction:: grain
-
-.. autoclass:: Grain
-   :members:
-
-.. autoclass:: TimeScope
-   :members:
-   :exclude-members: model_dump
-
-.. autoclass:: InstantAnchor()
-   :members:
-
-.. autoclass:: CalendarAxis
-   :members:
-
-.. autofunction:: all_history
-
-.. autofunction:: since
-
-.. autofunction:: to_date
-
-.. autofunction:: trailing_duration
-
-.. autofunction:: trailing_periods
-
-.. autoclass:: Artifact
-   :members:
-
-.. autoclass:: ArtifactDigest
-   :members:
-
-.. autoclass:: ArtifactRef
-   :members:
-
-.. autoclass:: Finding
-   :members:
-
-.. autoclass:: FindingPage
-   :members:
-
-.. autoclass:: Session
-   :members:
+Session lifecycle
+-----------------
 
 .. automodule:: marivo.analysis.session
-   :members:
+   :no-members:
+
+.. currentmodule:: marivo.analysis.session
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+   :caption: Session lifecycle
+
+   create
+   resume
+   recent
+   inspect
 
 Nested method-fact records
 --------------------------
