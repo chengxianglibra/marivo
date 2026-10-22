@@ -11,9 +11,9 @@ Answer the business question with bounded, governed Evidence. The agent owns
 method choice, interpretation and completion; semantic objects own reusable
 meaning, and the Analysis DSL owns typed computation.
 
-Start unknown capabilities at `marivo.help("analysis")` or CLI
-`marivo help analysis`. Focused Help owns signatures, constraints and examples;
-type Help owns operation discovery. Population/AnalysisFrame `.show()` owns captured
+Start unknown capabilities at `marivo help analysis`. Focused Help owns
+signatures, constraints and examples; type Help owns operation discovery.
+Population/AnalysisFrame `.show()` owns captured
 facts; Artifact `.show()` owns committed audit. Artifact is not a computation operand. Structured errors own the current repair.
 Use the host-selected verified environment, not private source or remembered
 signatures. Construction, execution support and business suitability are
@@ -34,6 +34,9 @@ Before choosing an operation, establish the distinctions that affect the answer:
 - Identify the unit of analysis: members, contributions, or current result rows.
   One member can contribute several facts; do not silently change the
   denominator or generalize a selected segment to the whole population.
+  Interpret rates and growth with their numerators, denominators and absolute
+  changes; distinguish percent change from percentage points, and qualify
+  comparisons with small or near-zero baselines.
 - Keep population selection, Metric observation, and output time coordinates
   distinct. Incomplete or unknown source coverage cannot establish absence.
 - Distinguish statistics over current result rows from aggregation of an
@@ -48,12 +51,29 @@ Before choosing an operation, establish the distinctions that affect the answer:
 - Establish the comparison baseline and comparability before interpreting a
   difference. Algebraic attribution and association do not establish cause;
   forecasts describe model outputs under assumptions, not observed outcomes.
+- For date comparisons, consider business days, weekends, holidays, shifted
+  workdays, seasonality and operating hours. Choose a baseline suited to the
+  question and disclose material calendar differences that remain.
+- Distinguish unfinished periods, delayed data and outcomes that have not had
+  time to mature. Compare compatible effective cutoffs or observation durations;
+  otherwise qualify the comparison or state why it is not yet supported.
+- Distinguish changes within groups from changes in their relative shares.
+  When composition could change the conclusion, examine it before attributing
+  an overall movement to improved or worsened performance within groups.
+- Before explaining a discontinuity as business change, consider known changes
+  in definitions, instrumentation, coverage, backfills or systems. Disclose
+  unresolved measurement changes that could explain the movement.
+- Treat patterns selected after inspecting many groups, windows or relationships
+  as exploratory. Rechecking the same selected data is not independent
+  confirmation; qualify claims for selection and repeated comparisons.
 - Distinguish reopening committed output, postprocessing exported values, and
   constructing explicit new source inputs against current data. Choose according to the
   question's freshness need; an Artifact is not an input to typed computation.
 
-Use these distinctions where they matter. Exact methods and admitted inputs
-come from live Help and captured object facts, not a fixed operator recipe.
+Apply only checks that could change the current conclusion. Do not silently
+exclude holidays or outliers, change weights, or alter the question to make a
+comparison work. Exact methods and admitted inputs come from live Help and
+captured object facts, not a fixed operator recipe.
 
 ## Question-driven decision loop
 
@@ -82,7 +102,7 @@ compatible work into one decision round.
 
 Choose disclosure for the current gap:
 
-- Unknown method: start at `marivo.help("analysis")` and follow its relevant intent.
+- Unknown method: start at `marivo help analysis` and follow its relevant intent.
 - Unknown identity: browse a bounded catalog collection; with exact refs, resolve directly.
 - Missing syntax or precondition: read the exact callable Help.
 - Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`
@@ -109,11 +129,14 @@ Logical construction does not prove business rows were read or a result exists.
 ### Read the result and update the answer
 
 Inspect the returned Frame with `.show()`; read its `.artifact` audit when committed. Follow
-`marivo.help("analysis.evidence")` when additional evidence detail is needed.
+`marivo help analysis.evidence` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
-uncertainty, and material warnings. Do not repeat mechanical checks already
-owned by the DSL or treat its guarantees as proof of business validity.
+uncertainty, and material warnings. Consider whether few observations, extreme
+values or short-term fluctuations dominate the result before generalizing it.
+Distinguish observed differences, statistical evidence and business importance.
+Do not repeat mechanical checks already owned by the DSL or treat its guarantees
+as proof of business validity.
 
 Update what is supported, what remains an interpretation, and what is still
 unknown. Do not turn missing values into zero, partial coverage into complete
@@ -124,7 +147,8 @@ material gap; otherwise complete the answer.
 
 ### Semantic authority and persistence
 
-Use governed definitions and relationships for reusable business meaning.
+Use governed definitions, business calendars and relationships for reusable
+business meaning.
 Analysis may choose question-specific windows, cohorts, policies, and runtime
 expressions over governed inputs. It must not invent a physical-column meaning,
 join, substitute metric, or reusable definition to make an analysis proceed.
@@ -150,7 +174,7 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo.help("analysis.analysis_frame.to_pandas")` and
+Before exporting, read `marivo help analysis.analysis_frame.to_pandas` and
 identify whether requested typed work remains. Supported transformations of
 complete Frame data can continue after compute, persist or exact recovery.
 For original Metric contributions or new attributes, check whether the current
@@ -172,20 +196,22 @@ audit view, not a computation operand.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs
-cannot be established. Read `marivo.help("datasource.raw_sql")`, preserve access
+cannot be established. Read `marivo help datasource.raw_sql`, preserve access
 budgets, and disclose scope, truncation, and semantic gaps. Raw SQL cannot replace
 available governed definitions or settle missing business meaning. Keep its
 provisional results separate from canonical Evidence.
 
 ### Evidence continuity
 
-Use one question-scoped Session and retain its exact ID and `frame.artifact.id`
-across rounds. Process memory, an implicit latest result, scripts, and chat summaries
-are not substitutes for persisted identity. Frame handles stay in their
-originating Session; reopen with `session.persisted_frame(id)` in that Session
-when restoring committed data.
+Use one question-scoped Session and retain its exact ID across rounds. Continue
+from complete memory Frames while their exact values remain available in the
+same process; compute-only Frames have no Artifact. When cross-process recovery
+is needed, persist and retain `frame.artifact.id` from the returned stored Frame.
+An implicit latest result, scripts, and chat summaries do not replace that
+persisted identity. Frame handles stay in their originating Session; reopen with
+`session.persisted_frame(id)` in that Session when restoring committed data.
 
-Use `marivo.help("analysis.runtime")` for recovery mechanics. Never replay source
+Use `marivo help analysis.runtime` for recovery mechanics. Never replay source
 queries or reconstruct displayed rows to conceal missing retained state. Local
 committed results are trusted; recovery does not establish current semantic
 authority, source freshness, causality, or suitability for the question. If a

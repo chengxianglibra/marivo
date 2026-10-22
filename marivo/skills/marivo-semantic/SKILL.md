@@ -12,9 +12,9 @@ analysis can reference safely. Enter when a business question needs new or
 changed governed meaning, or when `marivo-analysis` identifies a reusable gap.
 Keep question-specific calculations and presentation logic in analysis.
 
-`marivo.help("authoring")` or CLI `marivo help authoring` selects the owning surface; focused Help owns
-constructors, effects, constraints, and examples. `.show()` and structured
-errors own result detail and repair. Project Python evaluated by `ms.load()` is
+`marivo help authoring` selects the owning surface; focused Help owns constructors,
+effects, constraints, and examples. `.show()` and structured errors own result
+detail and repair. Project Python evaluated by `ms.load()` is
 the semantic source of truth. The agent interprets evidence and drafts Python;
 current business authority establishes reusable meaning.
 
@@ -30,9 +30,10 @@ reading checklist; reuse business facts already supplied.
 Use the host-selected interpreter and start from current project state. Select
 the task's exit before acquiring evidence or changing definitions:
 
-- Explain an existing definition: load and read the current catalog. Use the
-  entry card for key facts, details for structured expansion, and focused Help
-  for its usage contract. Readiness and preview are unnecessary for explanation.
+- Explain an existing definition: load and read the current catalog. Inspect
+  expression definitions through `catalog.describe(ref).show()`; use entry cards
+  and details for entry-backed objects. Focused Help owns the usage contract.
+  Readiness and preview are unnecessary for explanation.
 - Set up or repair a datasource: reuse a suitable definition or register the
   required one, validate the requested connection, and stop at that outcome.
 - Add or repair reusable semantics: identify the exact roots the parent task
@@ -53,13 +54,14 @@ Model occurrence facts with ordinary entities and descriptive states with
 dimensions when their meaning fits those contracts. Do not invent a transition
 model or assume that a state field establishes a complete behavioral history.
 
-Use `marivo.help("semantic.objects")` to select the object kind, then follow its
+Use `marivo help semantic.objects` to select the object kind, then follow its
 object page for the stable decision checklist, legal construction modes, and
 evidence limitations. Object pages link definition operations and expression
 roles; native Deferred methods are discovered through these exact targets,
-not through the generic Python Deferred type. Use `marivo.help("semantic.builders")` when a constructor
-needs a nested value or typed handle, and `marivo.help("semantic.checks")` when
-the unresolved question is what a particular inspection or check proves.
+not through the generic Python Deferred type. Use `marivo help semantic.builders`
+when a constructor needs a nested value or typed handle, and
+`marivo help semantic.checks` when the unresolved question is what a particular
+inspection or check proves.
 
 Author dependencies before their consumers and build derived objects only from
 governed dependencies. Never hide a guessed join or reusable business choice in
@@ -119,12 +121,10 @@ complete physical scope before consuming immutable values; resolve needed
 fields from that same frozen scope. Keep capture and expression composition in
 order. Missing dependencies are capture repairs, not permission to discard an
 Ibis forward reference or refresh a value already returned.
-Do not require original semantic-definition versions or reject an input solely
-because a same-path definition changed. The agent/user accepts the consequences
-of semantic changes during analysis. Keep kind, root, grain, unit, time-role and
-null checks; fingerprints/cache keys must describe actual consumed definitions,
-and persisted records keep their owning contracts. Resolving consumers use their
-complete scope; this does not refresh immutable values or replay authoring.
+Do not reject an input solely because a same-path definition changed. Assess
+whether the changed meaning still suits the question, and follow structured
+repairs for incompatible inputs. Resolve needed inputs from the complete scope;
+existing immutable values do not refresh when definitions change.
 
 Reuse constructed fields and Metrics for both reusable declarations and local
 analysis expressions. A pure zero-argument declaration adds a local business
