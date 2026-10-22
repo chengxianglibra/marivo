@@ -354,7 +354,7 @@ def test_store_writes_convenience_function_call(
         'user_env="MARIVO_WAREHOUSE_USER"' in text
     )
     assert "auth_env='TRINO_AUTH'" in text or 'auth_env="TRINO_AUTH"' in text
-    assert md.describe("warehouse").env_refs == {
+    assert md.load().describe("warehouse").env_refs == {
         "user": "MARIVO_WAREHOUSE_USER",
         "auth": "TRINO_AUTH",
     }
@@ -379,37 +379,28 @@ def test_store_persists_ai_context(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "ai_context=" in text
     assert "business_definition" in text
     assert "description" not in text
-    assert md.describe("warehouse").literal_fields == {"path": ":memory:", "read_only": False}
+    assert md.load().describe("warehouse").literal_fields == {
+        "path": ":memory:",
+        "read_only": False,
+    }
 
 
-def test_md_list_returns_displayable_datasource_list(
+def test_catalog_list_returns_displayable_datasource_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    md.register(DuckDBSpec(name="warehouse", path=":memory:"))
-
-    result = md.list()
-
-    assert_conforms(result)
-    assert len(result) == 2
-    assert result.ids() == ["default", "warehouse"]
-    assert result.items[1].name == "warehouse"
-    assert result[0].backend_type == "duckdb"
-    assert [item.name for item in result] == ["default", "warehouse"]
-    assert result.show() is None
-    assert "warehouse" in capsys.readouterr().out
-
-
-def test_catalog_list_returns_same_displayable_type(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     md.register(DuckDBSpec(name="warehouse", path=":memory:"))
 
     result = md.load().list()
 
-    assert isinstance(result, type(md.list()))
-    assert result.ids() == ["default", "warehouse"]
+    assert isinstance(result, md.DatasourceList)
+    assert_conforms(result)
+    assert len(result) == 2
+    assert result.items[1].name == "warehouse"
+    assert result[0].backend_type == "duckdb"
+    assert [item.name for item in result] == ["default", "warehouse"]
+    assert result.show() is None
+    assert "warehouse" in capsys.readouterr().out
 
 
 def test_catalog_show_renders_full_datasource_model_without_secrets(

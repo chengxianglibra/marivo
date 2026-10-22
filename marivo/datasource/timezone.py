@@ -94,7 +94,7 @@ def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
             received=f"{profile.name} timezone unavailable",
             repair=repair(
                 kind="configure",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Use a backend connection with a verifiable timezone before time-sensitive analysis.",
             ),
         )
@@ -107,7 +107,7 @@ def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
             received="invalid_engine_timezone",
             repair=repair(
                 kind="configure",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Configure a valid reader timezone.",
             ),
         ) from exc

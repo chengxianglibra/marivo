@@ -76,7 +76,7 @@ def open_backend(
                     location=f"datasource {datasource.name!r}",
                     repair=repair(
                         kind="reconnect",
-                        canonical_id="test",
+                        canonical_id="datasource_catalog.test",
                         action="Check the declared native timeout settings and datasource reachability, then retry.",
                     ),
                 ) from exc
@@ -95,7 +95,7 @@ def open_backend(
                 location=f"datasource {datasource.name!r}",
                 repair=repair(
                     kind="reconnect",
-                    canonical_id="test",
+                    canonical_id="datasource_catalog.test",
                     action="Check the datasource configuration and connection permissions, then retry.",
                 ),
             ) from None
@@ -430,7 +430,7 @@ class DatasourceConnectionService:
                         location="datasource.cleanup",
                         repair=repair(
                             kind="reconnect",
-                            canonical_id="test",
+                            canonical_id="datasource_catalog.test",
                             action="Inspect the original connection owner and release failure before retrying.",
                         ),
                     )

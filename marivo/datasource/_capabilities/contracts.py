@@ -66,7 +66,7 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
     if code == "acquisition_connection_failed":
         return repair(
             kind="reconnect",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Validate the datasource connection before reacquiring bounded evidence.",
             preserves_evidence=True,
         )

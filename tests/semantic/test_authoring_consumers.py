@@ -68,7 +68,7 @@ def test_public_metadata_and_bounded_sample(
         datasource = ms.ref.datasource("authoring")
         source = md.table(case.source.table, database=case.source.database)
         assert len(source_trace.native_sql) == before and not owners
-        connection = md.test(datasource, timeout_seconds=5)
+        connection = md.load().test(datasource, timeout_seconds=5)
         assert connection.ok, connection
         inspection = md.inspect(datasource, source)
         assert {column.name for column in inspection.schema} == set(ROWS[0])

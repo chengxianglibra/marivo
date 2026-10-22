@@ -31,7 +31,7 @@ def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_test_rejects_non_positive_timeout() -> None:
     with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        md.test("warehouse", timeout_seconds=0)
+        md.load().test("warehouse", timeout_seconds=0)
 
 
 def test_test_no_persist_rejects_non_positive_timeout() -> None:
@@ -50,7 +50,7 @@ def test_test_reports_normal_backend_error_as_open_failed(
 
     monkeypatch.setattr(backends, "build_backend_with_secrets", failing_build)
 
-    result = md.test("warehouse", timeout_seconds=1)
+    result = md.load().test("warehouse", timeout_seconds=1)
 
     assert result.ok is False
     assert result.failure is not None

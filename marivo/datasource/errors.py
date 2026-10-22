@@ -136,7 +136,7 @@ def _connection_timeout_repair(
             "verify the backend responds to queries, then retry with a larger "
             "timeout_seconds."
         )
-    return repair(kind="reconnect", canonical_id="test", action=action)
+    return repair(kind="reconnect", canonical_id="datasource_catalog.test", action=action)
 
 
 class DatasourceError(MarivoError):
@@ -430,7 +430,7 @@ class DatasourceConnectionTimeoutError(DatasourceConnectionError):
         phase = (
             "connection handshake" if stage == "connection_timeout" else "Ibis literal round-trip"
         )
-        resolved_location = location or f"md.test({datasource_name!r})"
+        resolved_location = location or f"md.load().test({datasource_name!r})"
         super().__init__(
             message=(
                 f"datasource {datasource_name!r} reported native {stage}; "

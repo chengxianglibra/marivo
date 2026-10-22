@@ -81,9 +81,9 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert as_ref(result.datasource) == ref_factory.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 2
-    assert result.row_count == 2
+    assert not hasattr(result, "row_count")
     assert result.shape == (2, 2)
-    assert result.row_count == result.shape[0]
+    assert result.returned_row_count == result.shape[0]
     assert not hasattr(result, "contract")
     rendered = result.render()
     assert "terminal_only" in rendered

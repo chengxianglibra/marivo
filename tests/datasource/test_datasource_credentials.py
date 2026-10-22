@@ -63,7 +63,7 @@ def test_owned_backend_probes_and_no_default_cache(
     monkeypatch.setattr(secrets.LocalPlaintextCache, "default", forbidden)
     monkeypatch.setenv("FIXTURE_TOKEN", "wrong-default-value")
     with md.credential_scope(resolver=resolver):
-        assert md.test("warehouse").ok
+        assert md.load().test("warehouse").ok
         assert manage.test_no_persist("warehouse", project_root=tmp_path).ok
         connection = open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
     try:
@@ -107,7 +107,7 @@ def test_typed_host_failures_never_fallback(
     with md.credential_scope(resolver=Resolver()):
         with pytest.raises(md.DatasourceCredentialError) as captured:
             open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
-        result = md.test("warehouse")
+        result = md.load().test("warehouse")
     assert captured.value.reason == reason
     assert "provider-cause-canary" not in "".join(traceback.format_exception(captured.value))
     assert result.failure is not None
@@ -127,7 +127,7 @@ def test_invalid_resolver_response_is_safe(
     resolver = HostResolver()
     monkeypatch.setattr(resolver, "resolve", lambda request: response)
     with md.credential_scope(resolver=resolver):
-        result = md.test("warehouse")
+        result = md.load().test("warehouse")
     assert result.failure is not None
     assert result.failure.code == "credential_invalid_response"
     assert "canary" not in repr(result.failure)
@@ -238,7 +238,7 @@ def test_host_owns_credential_service_timeout(
             )
 
     with md.credential_scope(resolver=Resolver()):
-        result = md.test("warehouse", timeout_seconds=1)
+        result = md.load().test("warehouse", timeout_seconds=1)
     assert result.failure is not None and result.failure.code == "credential_timeout"
 
 
@@ -448,7 +448,7 @@ class Resolver:
     def resolve(self, request):
         return md.SecretValue(self.value)
 with md.credential_scope(resolver=Resolver()):
-    result = md.test('warehouse')
+    result = md.load().test('warehouse')
 assert result.ok, result.failure
 print('credential-subprocess-ok')
 """
@@ -692,10 +692,10 @@ def test_no_refs_or_static_reads_do_not_resolve(
     md.register(md.duckdb(name="public", path=":memory:"))
     resolver = HostResolver()
     with md.credential_scope(resolver=resolver):
-        md.describe("warehouse")
+        md.load().describe("warehouse")
         md.load().list()
         show_help("datasource.credential_scope")
-        assert md.test("public").ok
+        assert md.load().test("public").ok
     assert not resolver.requests
 
 

@@ -111,7 +111,7 @@ class LocalPlaintextCache:
                 location=str(self.path),
                 repair=repair(
                     kind="environment",
-                    canonical_id="test",
+                    canonical_id="datasource_catalog.test",
                     action="Restrict the secret store to the current user.",
                     snippet="chmod 600 ~/.marivo/secrets.toml",
                 ),
@@ -132,7 +132,7 @@ class LocalPlaintextCache:
                     location=str(self.path),
                     repair=repair(
                         kind="environment",
-                        canonical_id="test",
+                        canonical_id="datasource_catalog.test",
                         action="Restrict the secret store to the current user.",
                         snippet="chmod 600 ~/.marivo/secrets.toml",
                     ),
@@ -172,7 +172,7 @@ def resolve(
         location=f"datasource {datasource or '<unknown>'!r} field {field or '<unknown>'!r}",
         repair=repair(
             kind="environment",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Export the referenced environment variable and validate the datasource.",
             snippet=f'export {name}="secret_value"',
         ),

@@ -277,7 +277,6 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "wh | duckdb",
             "available:",
             "- .items",
-            "- .ids()",
             "- .show()",
         ]
     )
@@ -305,7 +304,7 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
         ),
         repair=datasource_repair(
             kind="reconnect",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Reconnect the datasource after fixing its connection settings.",
         ),
     )

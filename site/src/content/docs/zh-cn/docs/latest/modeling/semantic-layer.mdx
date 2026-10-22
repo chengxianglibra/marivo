@@ -16,7 +16,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 warehouse = ms.ref.datasource("warehouse")
-md.test(warehouse).show()
+md.load().test(warehouse).show()
 md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 ```
 

@@ -539,13 +539,9 @@ class PeriodCalendarDetails(_DetailsBase):
         return symbol_factory.period_calendar(self._ref.path)
 
     @property
-    def date(self) -> TimeDimensionSymbol:
-        return symbol_factory.time_dimension(self._date.path)
-
-    @property
     def source_date(self) -> TimeDimensionSymbol:
-        """The calendar's civil-date source field (target public spelling)."""
-        return self.date
+        """The calendar's civil-date source field."""
+        return symbol_factory.time_dimension(self._date.path)
 
     def _detail_sections(self) -> list[Section]:
         sections = super()._detail_sections()

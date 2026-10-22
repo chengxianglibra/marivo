@@ -21,9 +21,7 @@ Registration & lifecycle
    PostgresSpec
    ClickHouseSpec
    load
-   list
    remove
-   test
    credential_scope
    CredentialRequest
    CredentialResolver
@@ -100,18 +98,19 @@ field name for use in a projection. Source constructors use ``columns`` only
 to select and name fields; source types are read or inferred when execution
 first needs them.
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   describe
-
 Catalog & refs
 --------------
 
 Datasource identities use ``marivo.semantic.ref.datasource(...)``. The
 datasource module accepts that exact ref at inspection and raw-SQL boundaries,
 but does not define a second ref type.
+
+Use ``catalog = md.load(workspace_dir=...)`` to bind a project, then
+``catalog.list()``, ``catalog.describe(name)`` and ``catalog.test(name_or_ref)``.
+The Catalog retains that workspace when cwd or environment variables change.
+Listing and description read declarations without opening a connection;
+testing performs a live round trip and may cache validated environment credentials.
+Read datasource names with ``[item.name for item in catalog.list()]``.
 
 .. autosummary::
    :toctree: api/
@@ -144,19 +143,18 @@ Metadata & sources
 Results
 -------
 
-``md.raw_sql(...)`` returns a bounded terminal ``RawSqlResult``. Its ``shape``
-and ``row_count`` describe returned bounded rows:
-``row_count == shape[0] == returned_row_count``. Read
-``requested_limit`` and ``is_truncated`` alongside that count; it is not
-full-source cardinality. Ordered ``columns`` and isolated ``to_pandas()`` are
+``md.raw_sql(...)`` returns the complete terminal query result as ``RawSqlResult``.
+Its ``returned_row_count`` equals ``shape[0]`` and ``len(rows)``; this is the
+query's result count, not necessarily full-source cardinality. Put an explicit
+limit in the SQL when appropriate. Ordered ``columns`` and isolated ``to_pandas()`` are
 available, but ``RawSqlResult`` has no ``contract()``, typed affordances, or
 typed-analysis re-entry.
 
 ``RawSqlResult.show(n=None, max_output_bytes=8192)`` displays all returned rows
 that fit the UTF-8 budget, including the printed newline. ``n=0`` shows only
 metadata and columns; ``max_output_bytes=None`` removes the display budget,
-not the query limit. ``render()`` accepts the same controls and returns text
-without a newline. Display omissions and query truncation are reported separately.
+not the query result. ``render()`` accepts the same controls and returns text
+without a newline. Display omissions do not truncate the retained result.
 Business coverage remains unknown: Raw SQL does not establish semantic coverage.
 
 .. autosummary::

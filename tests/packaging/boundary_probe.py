@@ -135,7 +135,7 @@ def dependencies(extra: str) -> dict[str, object]:
                     connection.execute(statement)
             spec = md.duckdb(name="local", path=str(database))
             reference = md.register(spec)
-            assert md.test(reference.name).ok
+            assert md.load().test(reference.name).ok
             result = md.raw_sql(
                 ms.ref.datasource(reference.name),
                 "SELECT value FROM measurements ORDER BY value",
@@ -194,7 +194,7 @@ def missing_driver(backend: str) -> dict[str, object]:
     }
     reference = md.register(specs[backend])
     sys.meta_path.insert(0, MissingBackend(backend))
-    result = md.test(reference.name)
+    result = md.load().test(reference.name)
     assert not result.ok and result.failure is not None and result.repair is not None
     assert result.failure.exception_type == "DatasourceConnectionError", result.failure
     assert f"marivo[{backend}]" in result.repair.action

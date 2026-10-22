@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from ibis.backends import BaseBackend
 
+import marivo.datasource as md
 from marivo.datasource import adapters, backends, manage, runtime
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import (
@@ -80,7 +81,7 @@ def test_probe_releases_the_owned_backend_and_caches_only_success(
     monkeypatch.setattr(manage._secrets, "try_persist_backend_env_sourced", cache)
 
     result = (
-        manage.test("fixture", timeout_seconds=7)
+        md.load().test("fixture", timeout_seconds=7)
         if persist
         else manage.test_no_persist("fixture", timeout_seconds=7, project_root=tmp_path)
     )

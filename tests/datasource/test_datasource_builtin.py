@@ -41,17 +41,23 @@ def test_empty_project_discovery_is_pure(
         raise AssertionError("discovery must not open a backend")
 
     monkeypatch.setattr(ibis.duckdb, "connect", forbidden_connect)
-    assert md.list().ids() == ["default"]
+    assert [item.name for item in md.load().list()] == ["default"]
     catalog = md.load(workspace_dir=project_root)
-    assert catalog.list().ids() == ["default"]
-    assert catalog.get("default").backend_type == "duckdb"
+    assert [item.name for item in catalog.list()] == ["default"]
+    assert catalog.describe("default").backend_type == "duckdb"
     description = catalog.describe("default")
     assert description.literal_fields == {"path": ":memory:", "read_only": False}
     assert description.env_refs == {}
     semantic = ms.load(workspace_dir=project_root)
     entry = semantic.datasources.get("default")
     assert entry.details().fields == description.literal_fields
-    for result in (catalog, md.list(), catalog.get("default"), description, entry.details()):
+    for result in (
+        catalog,
+        md.load().list(),
+        catalog.list()[0],
+        description,
+        entry.details(),
+    ):
         assert "Built-in" in result.render()
         assert "non-persistent" in result.render()
     assert list(project_root.iterdir()) == []
@@ -128,9 +134,8 @@ def test_authored_default_rejected_by_both_loaders(project_root: Path, external:
 
 
 def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
-    for operation in (md.describe, md.load().get):
-        with pytest.raises(DatasourceMissingError):
-            operation("missing")
+    with pytest.raises(DatasourceMissingError):
+        md.load().describe("missing")
 
     from marivo.datasource.runtime import DatasourceConnectionService
 
@@ -142,7 +147,7 @@ def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
 
 
 def test_managed_connections_have_independent_memory(project_root: Path) -> None:
-    assert md.test(ms.ref.datasource("default")).ok
+    assert md.load().test(ms.ref.datasource("default")).ok
     from marivo.datasource.runtime import DatasourceConnectionService
 
     service = DatasourceConnectionService(project_root)
@@ -207,7 +212,7 @@ snapshot = md.inspect(
     ms.ref.datasource('default'), md.csv('orders.csv')
 ).sample(scope=md.unpruned(max_rows=2, timeout_seconds=30), columns=('amount',), persist_values=True)
 assert sum(row['amount'] for row in snapshot.retained_values) == 30
-assert md.list().ids() == ['default']
+assert [item.name for item in md.load().list()] == ['default']
 """
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
@@ -224,7 +229,13 @@ assert md.list().ids() == ['default']
 
 
 def test_builtin_help_is_reachable(capsys: pytest.CaptureFixture[str]) -> None:
-    for target in ("authoring", "register", "remove", "list", "describe"):
+    for target in (
+        "authoring",
+        "register",
+        "remove",
+        "datasource_catalog.list",
+        "datasource_catalog.describe",
+    ):
         marivo.help(f"datasource.{target}")
         output = capsys.readouterr().out
         assert "default" in output

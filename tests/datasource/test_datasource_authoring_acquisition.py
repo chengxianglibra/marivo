@@ -590,7 +590,7 @@ def test_backend_open_failure_is_structured_and_redacted(
     assert "super-secret" not in str(error)
     assert error.repair is not None
     assert error.repair.kind == "reconnect"
-    assert error.repair.help_target.canonical_id == "test"
+    assert error.repair.help_target.canonical_id == "datasource_catalog.test"
     assert error.repair.preserves_evidence is True
 
 

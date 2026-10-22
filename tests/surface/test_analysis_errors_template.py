@@ -73,9 +73,9 @@ def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
         location="datasource 'wh' field 'password'",
         repair=__import__("marivo.datasource.errors", fromlist=["repair"]).repair(
             kind="environment",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Export the variable and validate the datasource.",
-            snippet='md.test("wh")',
+            snippet='md.load().test("wh")',
         ),
     )
 
@@ -83,7 +83,7 @@ def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
 
     assert "TRINO_PASSWORD" in rendered
     assert "Expected: an exported secret environment variable" in rendered
-    assert 'md.test("wh")' in rendered
+    assert 'md.load().test("wh")' in rendered
 
 
 def test_secret_store_permissions_error_has_chmod_fix() -> None:
@@ -94,7 +94,7 @@ def test_secret_store_permissions_error_has_chmod_fix() -> None:
         location="/Users/alice/.marivo/secrets.toml",
         repair=__import__("marivo.datasource.errors", fromlist=["repair"]).repair(
             kind="environment",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Restrict the secret store.",
             snippet="chmod 600 ~/.marivo/secrets.toml",
         ),

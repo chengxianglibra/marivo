@@ -33,12 +33,9 @@ from marivo.datasource.manage import (
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    describe,
-    list,
     raw_sql,
     register,
     remove,
-    test,
 )
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import (
@@ -77,11 +74,9 @@ __all__ = [
     "clickhouse",
     "credential_scope",
     "csv",
-    "describe",
     "duckdb",
     "inspect",
     "json",
-    "list",
     "load",
     "mysql",
     "parquet",
@@ -92,7 +87,6 @@ __all__ = [
     "remove",
     "source_param",
     "table",
-    "test",
     "time_range",
     "trino",
     "unpruned",

@@ -94,7 +94,7 @@ def test_public_sql_owner_audit(
                 }
             )
             reference = ms.ref.datasource("warehouse")
-            connection = md.test(reference, timeout_seconds=5)
+            connection = md.load().test(reference, timeout_seconds=5)
             if not connection.ok:
                 connection.show()
             assert connection.ok

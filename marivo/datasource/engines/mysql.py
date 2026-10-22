@@ -57,7 +57,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
                         received="timezone initialization warning",
                         repair=repair(
                             kind="reconnect",
-                            canonical_id="test",
+                            canonical_id="datasource_catalog.test",
                             action="Restore MySQL UTC timezone support and retry the datasource connection.",
                         ),
                     ) from cause
@@ -554,7 +554,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             location="datasource.native_query_timeout",
             repair=repair(
                 kind="configure",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Retry certification with a supported positive scope timeout.",
             ),
         )
@@ -594,7 +594,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             location="datasource.native_query_timeout",
             repair=repair(
                 kind="configure",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Restore session-variable access for this reader and retry the read.",
             ),
         ) from cause
@@ -606,7 +606,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             location="datasource.native_query_timeout",
             repair=repair(
                 kind="configure",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Restore MySQL session timeout support and retry the read.",
             ),
         )

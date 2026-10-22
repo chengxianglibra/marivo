@@ -83,7 +83,7 @@ def test_project_selection_and_bound_catalog_methods(
         ref_factory.datasource("default"),
         ref_factory.datasource("env_source"),
     )
-    assert md.load().get("env_source").name == "env_source"
+    assert md.load().describe("env_source").name == "env_source"
     assert md.inspect(ms.ref.datasource("env_source"), md.table("orders"))._project_root == env
     catalog = md.load(workspace_dir=explicit)
     inspection = md.inspect(
@@ -94,10 +94,6 @@ def test_project_selection_and_bound_catalog_methods(
         explicit / "warehouse.duckdb"
     )
     assert catalog.test("explicit_source").ok
-    with pytest.raises(DatasourceMissingError) as exc_info:
-        catalog.get("missing")
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.candidates == ("default", "explicit_source")
     with pytest.raises(DatasourceMissingError) as description_error:
         catalog.describe("missing")
     assert description_error.value.repair is not None
@@ -113,6 +109,11 @@ def test_project_selection_and_bound_catalog_methods(
     nested = cwd / "nested"
     nested.mkdir()
     monkeypatch.chdir(nested)
+    assert [item.name for item in catalog.list()] == ["default", "explicit_source"]
+    assert catalog.describe("explicit_source").literal_fields["path"] == str(
+        explicit / "warehouse.duckdb"
+    )
+    assert catalog.test(ms.ref.datasource("explicit_source")).ok
     assert md.inspect(ms.ref.datasource("cwd_source"), md.table("orders"))._project_root == cwd
     (cwd / "marivo.toml").unlink()
     monkeypatch.chdir(cwd)
@@ -141,7 +142,7 @@ def test_external_datasource_is_usable_without_a_local_copy(
         external / "warehouse.duckdb"
     )
     assert datasources.test("warehouse").ok
-    assert md.test(ms.ref.datasource("warehouse")).ok
+    assert md.load().test(ms.ref.datasource("warehouse")).ok
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     assert inspection.schema[0].name == "id"
     monkeypatch.chdir(tmp_path)
@@ -276,7 +277,7 @@ def test_exact_arbitrary_directory_and_empty_projects_remain_valid(tmp_path: Pat
     empty.mkdir()
     assert not loader.load_datasources(empty).errors
     assert not loader.load_datasources(empty / "missing").errors
-    assert md.load(workspace_dir=empty).list().ids() == ["default"]
+    assert [item.name for item in md.load(workspace_dir=empty).list()] == ["default"]
     assert ms.load(workspace_dir=empty).datasources._refs == (ref_factory.datasource("default"),)
 
 

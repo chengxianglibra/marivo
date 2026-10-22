@@ -220,7 +220,7 @@ def test_py_file_datasource_visible_via_list(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Datasources authored as .py files in models/datasources/ are
-    discoverable via md.list() without calling md.register()."""
+    discoverable via md.load().list() without calling md.register()."""
     (tmp_path / "marivo.toml").touch()
     ds_dir = tmp_path / "models" / "datasources"
     ds_dir.mkdir(parents=True)
@@ -231,7 +231,7 @@ def test_py_file_datasource_visible_via_list(
     monkeypatch.setattr("marivo.project.Path.cwd", lambda: tmp_path)
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
 
-    summaries = md.list()
+    summaries = md.load().list()
     assert [s.name for s in summaries] == ["default", "warehouse"]
     assert summaries[1].backend_type == "duckdb"
 

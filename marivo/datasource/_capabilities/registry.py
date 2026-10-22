@@ -277,24 +277,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example="md.load()",
         ),
         _capability(
-            "list",
-            "marivo.datasource.manage.list",
-            "List built-in default and persisted project datasources.",
-            output="DatasourceList",
-            effects=_LOCAL,
-            example="md.list()",
-        ),
-        _capability(
-            "describe",
-            "marivo.datasource.manage.describe",
-            "Describe built-in or declared datasource fields and env references.",
-            output="DatasourceDescription",
-            inputs=_inputs(("subject", "DatasourceName")),
-            effects=_LOCAL,
-            constraints=constraints["configured"],
-            example='md.describe("default")',
-        ),
-        _capability(
             "credential_scope",
             "marivo.datasource.credentials.credential_scope",
             "Select a host resolver for new operations/runtimes; exit restores selection only.",
@@ -308,7 +290,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "            reason='missing', reference=request.reference,\n"
                 "            datasource=request.datasource, fields=request.fields)\n"
                 "with md.credential_scope(resolver=HostResolver()):\n"
-                "    result = md.test('warehouse')"
+                "    result = md.load().test('warehouse')"
             ),
             see_also=(
                 _target("CredentialRequest"),
@@ -349,17 +331,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("receiver", "SecretValue")),
             example="value = md.SecretValue('example-only').reveal()",
             public_entrypoint="secret.reveal",
-        ),
-        _capability(
-            "test",
-            "marivo.datasource.manage.test",
-            "Round-trip an Ibis-compiled literal with requested native 30s settings, skipping unsupported query timeouts and best-effort cache validated env secrets.",
-            output="DatasourceTestResult",
-            inputs=_inputs(("subject", "DatasourceReferenceInput")),
-            effects=_TEST,
-            constraints=constraints["configured"],
-            example=('result = md.test(ms.ref.datasource("warehouse"))\nresult.show()\n'),
-            see_also=(_target("credential_scope"),),
         ),
         _capability(
             "table",
@@ -505,7 +476,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "DatasourceCatalog.list",
             "marivo.datasource.catalog.DatasourceCatalog.list",
-            "List configured datasources from a loaded catalog.",
+            "List built-in default and configured datasources from a loaded catalog.",
             kind="method",
             output="DatasourceList",
             inputs=_inputs(("receiver", "DatasourceCatalog")),
@@ -514,21 +485,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="catalog.list",
         ),
         _capability(
-            "DatasourceCatalog.get",
-            "marivo.datasource.catalog.DatasourceCatalog.get",
-            "Get one configured datasource summary from a loaded catalog.",
-            kind="method",
-            output="DatasourceSummary",
-            inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
-            effects=_LOCAL,
-            constraints=constraints["configured"],
-            example='md.load().get("warehouse")',
-            public_entrypoint="catalog.get",
-        ),
-        _capability(
             "DatasourceCatalog.describe",
             "marivo.datasource.catalog.DatasourceCatalog.describe",
-            "Describe one configured datasource from a loaded catalog.",
+            "Describe built-in default or configured datasource fields and env references from a loaded catalog.",
             kind="method",
             output="DatasourceDescription",
             inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
@@ -540,14 +499,17 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "DatasourceCatalog.test",
             "marivo.datasource.catalog.DatasourceCatalog.test",
-            "Round-trip a configured datasource from a loaded catalog.",
+            "Round-trip an Ibis-compiled literal in the Catalog's bound workspace with native timeout requests and best-effort caching of validated env secrets.",
             kind="method",
             output="DatasourceTestResult",
-            inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
+            inputs=_inputs(
+                ("receiver", "DatasourceCatalog"), ("subject", "DatasourceReferenceInput")
+            ),
             effects=_TEST,
             constraints=constraints["configured"],
             example=('result = md.load().test("warehouse")\nresult.show()'),
             public_entrypoint="catalog.test",
+            see_also=(_target("credential_scope"),),
         ),
         _capability(
             "SourceInspection.partitions",
@@ -634,23 +596,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="inspection.sample",
         ),
         _capability(
-            "DatasourceList.ids",
-            "marivo.datasource.manage.DatasourceList.ids",
-            "Return configured datasource names in the retained display order.",
-            kind="method",
-            output="list[str]",
-            inputs=_inputs(("receiver", "DatasourceList")),
-            example="names = md.list().ids()",
-            public_entrypoint="datasources.ids",
-        ),
-        _capability(
             "authoring",
             None,
             "Use built-in default for credential-free file sources; declare a separate datasource for credentials or persistence.",
             kind="boundary",
             output=None,
             effects=_NONE,
-            example='md.describe("default").show()',
+            example='md.load().describe("default").show()',
             see_also=(_target("inspect"), _target("SourceInspection.sample")),
         ),
         _capability(
@@ -674,9 +626,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "register",
                 "remove",
                 "load",
-                "list",
-                "describe",
-                "test",
+                "DatasourceCatalog.list",
+                "DatasourceCatalog.describe",
+                "DatasourceCatalog.test",
                 "credential_scope",
             ),
             "physical_sources": (
@@ -836,33 +788,33 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceCatalog,
         "DatasourceCatalog",
         ("load",),
-        methods=("list", "get", "describe", "test", *show_render),
+        methods=("list", "describe", "test", *show_render),
     )
     add(
         DatasourceSummary,
         "DatasourceSummary",
-        ("register", "DatasourceCatalog.get"),
-        properties=("name", "backend_type", "semantic_id"),
+        ("register", "DatasourceCatalog.list"),
+        properties=("name", "backend_type"),
         methods=show_render,
     )
     add(
         DatasourceList,
         "DatasourceList",
-        ("list", "DatasourceCatalog.list"),
+        ("DatasourceCatalog.list",),
         properties=("items",),
-        methods=("ids", *show_render),
+        methods=show_render,
     )
     add(
         DatasourceDescription,
         "DatasourceDescription",
-        ("describe", "DatasourceCatalog.describe"),
+        ("DatasourceCatalog.describe",),
         properties=("name", "backend_type", "literal_fields", "env_refs"),
         methods=show_render,
     )
     add(
         DatasourceFailure,
         "DatasourceFailure",
-        ("test", "DatasourceCatalog.test"),
+        ("DatasourceCatalog.test",),
         guidance=("Read result.failure from a failed datasource test result.",),
         properties=(
             "code",
@@ -876,7 +828,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     add(
         DatasourceTestResult,
         "DatasourceTestResult",
-        ("test", "DatasourceCatalog.test"),
+        ("DatasourceCatalog.test",),
         properties=("name", "ok", "latency_ms", "failure", "repair"),
         methods=show_render,
     )

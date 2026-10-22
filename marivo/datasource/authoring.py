@@ -680,7 +680,7 @@ def duckdb(
         >>> import marivo.datasource as md
         >>> spec = md.duckdb(name="warehouse", path=":memory:")
         >>> md.register(spec)
-        >>> md.test(spec.ref).show()
+        >>> md.load().test(spec.ref).show()
         >>> md.inspect(spec.ref, md.table("orders")).show()
         >>> md.inspect(spec.ref, md.parquet("data/orders/*.parquet")).show()
 
@@ -758,7 +758,7 @@ def trino(
         ...     auth_env="WAREHOUSE_AUTH",
         ... )
         >>> md.register(spec)
-        >>> md.test(spec.ref).show()
+        >>> md.load().test(spec.ref).show()
         >>> md.inspect(spec.ref, md.table("orders")).show()
 
     Constraints:
@@ -831,7 +831,7 @@ def mysql(
         ...     password_env="WAREHOUSE_PASSWORD",
         ... )
         >>> md.register(spec)
-        >>> md.test(spec.ref).show()
+        >>> md.load().test(spec.ref).show()
         >>> md.inspect(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
@@ -895,7 +895,7 @@ def postgres(
         ...     password_env="WAREHOUSE_PASSWORD",
         ... )
         >>> md.register(spec)
-        >>> md.test(spec.ref).show()
+        >>> md.load().test(spec.ref).show()
         >>> md.inspect(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
@@ -964,7 +964,7 @@ def clickhouse(
         ...     password_env="WAREHOUSE_PASSWORD",
         ... )
         >>> md.register(spec)
-        >>> md.test(spec.ref).show()
+        >>> md.load().test(spec.ref).show()
         >>> md.inspect(spec.ref, md.table("orders", database="analytics")).show()
 
     Constraints:

@@ -175,7 +175,7 @@ def http_credentials(
             location="DuckDB HTTP auth",
             repair=repair(
                 kind="reconnect",
-                canonical_id="test",
+                canonical_id="datasource_catalog.test",
                 action="Reconnect using the declared DuckDB datasource.",
             ),
         )

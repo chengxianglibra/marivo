@@ -103,7 +103,7 @@ def test_set_rejects_model_qualified_name(project_root: Path) -> None:
 def test_list_returns_sorted_summaries(project_root: Path) -> None:
     md.register(_spec("b", backend_type="duckdb", path=":memory:"))
     md.register(_spec("a", backend_type="duckdb", path=":memory:"))
-    names = [p.name for p in md.list()]
+    names = [p.name for p in md.load().list()]
     assert names == ["a", "b", "default"]
 
 
@@ -119,7 +119,7 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
             auth_env="TRINO_AUTH",
         )
     )
-    desc = md.describe("wh")
+    desc = md.load().describe("wh")
     assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
     assert desc.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
 
@@ -162,7 +162,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
         lambda _datasource, **kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
-    result = md.test("wh")
+    result = md.load().test("wh")
 
     assert result.ok is True, result.failure
     assert result.repair is None
@@ -215,7 +215,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     monkeypatch.setattr(ibis, "trino", _FakeTrino())
 
-    result = md.test("wh")
+    result = md.load().test("wh")
 
     assert result.ok is True, result.failure
     assert result.failure is None
@@ -270,7 +270,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
     monkeypatch.setattr(ibis, "trino", _FakeTrino())
 
-    result = md.test("wh")
+    result = md.load().test("wh")
 
     assert result.ok is False
     assert result.failure is not None
@@ -301,7 +301,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
             )
         ),
     )
-    open_failure = md.test("wh")
+    open_failure = md.load().test("wh")
 
     assert open_failure.failure is not None
     assert open_failure.failure.code == "connection_open_failed"
@@ -338,7 +338,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
         ),
     )
     caplog.set_level("WARNING", logger="marivo.datasource.secrets")
-    cache_failure = md.test("wh")
+    cache_failure = md.load().test("wh")
 
     assert cache_failure.ok is True
     assert cache_failure.failure is None
@@ -359,7 +359,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:
     with pytest.raises(DatasourceMissingError) as exc_info:
-        md.describe("nope")
+        md.load().describe("nope")
     rendered = str(exc_info.value)
     assert "md.register" in rendered
     assert "'nope'" in rendered

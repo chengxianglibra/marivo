@@ -18,7 +18,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "credential_resolver.resolve",
     "secret_value.reveal",
     "credential_request.show",
-    "datasource_list.ids",
     "duckdb",
     "trino",
     "mysql",
@@ -27,9 +26,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "register",
     "remove",
     "load",
-    "list",
-    "describe",
-    "test",
     "table",
     "parquet",
     "csv",
@@ -41,7 +37,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "inspect",
     "raw_sql",
     "datasource_catalog.list",
-    "datasource_catalog.get",
     "datasource_catalog.describe",
     "datasource_catalog.test",
     "source_inspection.partitions",
@@ -62,7 +57,6 @@ EXPECTED_EFFECTS = {
     "credential_resolver.resolve": AuthoringEffects(data_access="none", connection="none"),
     "secret_value.reveal": AuthoringEffects(data_access="none", connection="none"),
     "credential_request.show": AuthoringEffects(data_access="none", connection="none"),
-    "datasource_list.ids": AuthoringEffects(data_access="none", connection="none"),
     "duckdb": AuthoringEffects(data_access="none", connection="none"),
     "trino": AuthoringEffects(data_access="none", connection="none"),
     "mysql": AuthoringEffects(data_access="none", connection="none"),
@@ -79,14 +73,6 @@ EXPECTED_EFFECTS = {
         mutations=("project_state",),
     ),
     "load": AuthoringEffects(data_access="local_metadata_read", connection="none"),
-    "list": AuthoringEffects(data_access="local_metadata_read", connection="none"),
-    "describe": AuthoringEffects(data_access="local_metadata_read", connection="none"),
-    "test": AuthoringEffects(
-        data_access="local_metadata_read",
-        connection="opens_connection",
-        mutations=("user_global_state", "project_state"),
-        flags=("may_cache_resolved_secret",),
-    ),
     "table": AuthoringEffects(data_access="none", connection="none"),
     "parquet": AuthoringEffects(data_access="none", connection="none"),
     "csv": AuthoringEffects(data_access="none", connection="none"),
@@ -107,9 +93,6 @@ EXPECTED_EFFECTS = {
         flags=(),
     ),
     "datasource_catalog.list": AuthoringEffects(
-        data_access="local_metadata_read", connection="none"
-    ),
-    "datasource_catalog.get": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),
     "datasource_catalog.describe": AuthoringEffects(

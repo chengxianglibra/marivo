@@ -102,7 +102,7 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
   references. It does not scan ambient `MARIVO_<DATASOURCE>_<FIELD>` variables;
   when a connection field is omitted, the selected Ibis backend owns its default
   or required-field behavior.
-- **Post-validation caching.** After a *validated* round trip — `md.test(ref)` or
+- **Post-validation caching.** After a *validated* round trip — `md.load().test(ref)` or
   the first successful analysis execution in a session — Marivo attempts to cache
   env-sourced secrets in plaintext at user-global `~/.marivo/secrets.toml` so later
   sessions can connect without the env var re-exported. This is a deliberate,
@@ -164,7 +164,7 @@ scripts executed outside datasource and semantic model loading:
 # setup_datasources.py (run outside model loading)
 spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
 md.register(spec)  # writes models/datasources/warehouse.py
-md.test(spec.ref).show()  # validated live round trip
+md.load().test(spec.ref).show()  # validated live round trip
 ```
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
   `models/datasources/`; authoring that file by hand is equally valid.
@@ -176,7 +176,7 @@ md.test(spec.ref).show()  # validated live round trip
   `DatasourceLoadError` before configuration reads, writes, or nested loading.
   Remove the `md.register(...)` wrapper and keep the datasource constructor.
   Semantic loading preserves this repair and reports `invalid_project`.
-- `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
+- `md.remove(name)`, `md.load().list()`, and `md.load().describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
 - Restart Python after package upgrades or model edits/deletions. Ordinary
   imported dependencies are not guaranteed to hot-reload; Marivo does not purge
@@ -202,7 +202,7 @@ md.test(spec.ref).show()  # validated live round trip
   including an arbitrary directory name. Recognizable workspace, models-parent,
   and semantic-directory arguments fail with the correct datasource path;
   missing or empty datasource directories remain valid empty inputs.
-- `md.test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
+- `md.load().test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
   triggers post-validation secret caching. Its connect handshake and
   Ibis-compiled literal round-trip run synchronously on the caller thread.
   They request independent native connection and query timeouts; unsupported

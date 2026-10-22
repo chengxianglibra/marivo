@@ -96,6 +96,31 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
     assert "datasource.inspect" in exc_info.value.candidates
 
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "datasource.list",
+        "datasource.describe",
+        "datasource.test",
+        "datasource.datasource_catalog.get",
+        "datasource.datasource_list.ids",
+        "datasource.datasource_summary.semantic_id",
+        "datasource.raw_sql_result.row_count",
+        "semantic.period_calendar_details.date",
+    ),
+)
+def test_removed_conveniences_have_no_help_redirect(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(target)
+
+
+@pytest.mark.parametrize("name", ("list", "describe", "test"))
+def test_catalog_operations_keep_canonical_callable_help(name: str) -> None:
+    text = render_help_text(f"datasource.datasource_catalog.{name}")[0]
+    assert text == render_help_text(getattr(DatasourceCatalog, name))[0]
+    assert f"catalog.{name}" in text
+
+
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")

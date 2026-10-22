@@ -101,7 +101,7 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
     """Load declarations from an exact datasource directory.
 
     Internal loader used by ``store.load_all()``.  Not part of the public
-    ``md.*`` surface — use ``md.list()`` or ``md.describe()`` to browse
+    ``md.*`` surface — use ``md.load().list()`` or ``md.load().describe()`` to browse
     configured datasources, and ``md.register()`` to create new ones.
     """
     result = _load_datasource_directory(root)

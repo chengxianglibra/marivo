@@ -33,7 +33,7 @@ Concrete source record types retain type and field Help, but are not root-module
 constructor exports. Inspection metadata records are acquired through
 `inspection.physical_extent`, `inspection.partitioning`,
 `inspection.execution_capabilities` and `inspection.partitions().partitioning`.
-Connectivity failures are read through `md.test(...).failure`. Their fields and
+Connectivity failures are read through `md.load().test(...).failure`. Their fields and
 concrete value types remain part of the returned-data contract; use
 `marivo.help(type(value))` for the owning type and member routes.
 
@@ -273,7 +273,7 @@ through the same relation-ancestry, schema and submission checks.
 inspection. `SourceInspection.sample`, snapshots, Semantic preview, and
 source-health business checks use bounded source-bound session reads. They
 remain distinct evidence: metadata describes observed structure, a sample
-describes only selected bounded rows, `md.test` and source-health connectivity
+describes only selected bounded rows, `catalog.test` and source-health connectivity
 prove one compiled literal round trip, and explicit source-health checks report
 only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
@@ -363,7 +363,7 @@ a supported datasource; the local Store remains independent.
 ### Public connection boundary
 
 Connection creation and backend objects remain private to the datasource adapter. A caller checks
-connectivity with `md.test`, inspects
+connectivity with `catalog.test`, inspects
 physical facts with `md.inspect`, uses bound Ibis reads only through governed
 operations, and submits custom SQL only through terminal `md.raw_sql`.
 CLI doctor uses its bounded datasource test

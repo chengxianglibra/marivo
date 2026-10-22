@@ -5,15 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from marivo._symbolic import DatasourceSymbol
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
-from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     DatasourceDescription,
     DatasourceList,
-    DatasourceSummary,
     DatasourceTestResult,
     _describe_in_project,
     _list_in_project,
@@ -61,23 +60,22 @@ def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
 class DatasourceCatalog(RenderableResult):
     """Read-only catalog over configured project datasources.
 
-    Provides browsing methods that delegate to the existing ``md.*``
-    functions, giving a ``ms.load()``-like entry point for datasource
-    discovery.
+    Binds datasource browsing and connection tests to one project, giving a
+    ``ms.load()``-like entry point for datasource discovery.
 
     Args:
         workspace_dir: Project root directory resolved from the environment,
             nearest ancestor manifest, or current directory when omitted.
 
     Returns:
-        DatasourceCatalog with list(), get(), describe(), and
+        DatasourceCatalog with list(), describe(), and
         test() methods.
 
     Example:
         >>> import marivo.datasource as md
         >>> catalog = md.load()
         >>> catalog.list()
-        >>> catalog.get("wh")
+        >>> catalog.describe("wh")
         >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
 
     Constraints:
@@ -100,43 +98,6 @@ class DatasourceCatalog(RenderableResult):
         """
         return _list_in_project(project_root=self.workspace_dir)
 
-    def get(self, name: str) -> DatasourceSummary:
-        """Retrieve a single datasource summary by name.
-
-        Args:
-            name: The datasource name to look up.
-
-        Returns:
-            A ``DatasourceSummary`` for the named datasource.
-
-        Raises:
-            DatasourceMissingError: When the name is absent from this workspace's
-                local and configured external model roots.
-
-        Example:
-            >>> catalog = md.load()
-            >>> catalog.get("wh")
-            DatasourceSummary(name='wh', ...)
-        """
-        datasource = _store.load_one(name, self.workspace_dir)
-        if datasource is None:
-            raise DatasourceMissingError(
-                message=f"datasource {name!r} is not configured",
-                expected="a registered project datasource",
-                received=name,
-                location="models/datasources/",
-                repair=repair(
-                    kind="register",
-                    canonical_id="register",
-                    action="Register the datasource before retrying.",
-                    candidates=tuple(_store.list_names(self.workspace_dir)),
-                ),
-            )
-        return DatasourceSummary(
-            name=datasource.name,
-            backend_type=datasource.backend_type,
-        )
-
     def describe(self, name: str) -> DatasourceDescription:
         """Show literal fields and env refs for one datasource.
 
@@ -153,14 +114,14 @@ class DatasourceCatalog(RenderableResult):
 
     def test(
         self,
-        name: str,
+        name: str | DatasourceSymbol,
         *,
         timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     ) -> DatasourceTestResult:
         """Test connectivity to a datasource.
 
         Args:
-            name: The datasource name to test.
+            name: The datasource name or native datasource lookup symbol to test.
             timeout_seconds: Positive native connection and query timeout request.
                 Unsupported settings are skipped; this is not a total-call
                 deadline. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
@@ -170,6 +131,16 @@ class DatasourceCatalog(RenderableResult):
 
         Example:
             >>> result = catalog.test("wh")
+
+        Constraints:
+            Uses this Catalog's bound workspace. The caller thread opens the
+            connection and runs an Ibis-compiled literal probe. The backend is
+            always disconnected; native connection and query timeouts are
+            independent requests, not a complete-call deadline. Successful
+            env-sourced credentials may be cached in user-global plaintext
+            state; injected credentials are not cached. Cache write warnings
+            do not change a successful result. Probe SQL and diagnostics are
+            recorded in project-local execution logs independently of telemetry.
         """
         return _test_in_project(
             name,
@@ -191,7 +162,6 @@ class DatasourceCatalog(RenderableResult):
             identity=f"DatasourceCatalog datasources={len(datasources)}",
             available=(
                 ".list()",
-                ".get(name)",
                 ".describe(name)",
                 ".test(name)",
                 ".show()",
@@ -235,7 +205,7 @@ def load(
         >>> import marivo.datasource as md
         >>> catalog = md.load()
         >>> catalog.list()
-        >>> catalog.get("wh")
+        >>> catalog.describe("wh")
         >>> md.inspect(ms.ref.datasource("wh"), md.table("orders"))
 
     Constraints:

@@ -71,7 +71,7 @@ def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDataso
                 location=f"models/datasources/ entry {datasource.name!r} field {stem}_env",
                 repair=repair(
                     kind="environment",
-                    canonical_id="test",
+                    canonical_id="datasource_catalog.test",
                     action="Set a non-empty environment variable reference.",
                 ),
             )
@@ -209,7 +209,7 @@ def _build_backend_from_effective(
                 location=f"datasource {datasource.name!r}",
                 repair=repair(
                     kind="reconnect",
-                    canonical_id="test",
+                    canonical_id="datasource_catalog.test",
                     action="Close the existing connections and retry with consistent read-only settings.",
                 ),
             ) from None

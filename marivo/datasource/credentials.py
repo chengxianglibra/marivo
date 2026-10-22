@@ -156,7 +156,7 @@ def credential_scope(*, resolver: CredentialResolver) -> AbstractContextManager[
 
     Example:
         >>> with md.credential_scope(resolver=host_resolver):
-        ...     result = md.test("warehouse")
+        ...     result = md.load().test("warehouse")
 
     Constraints:
         No fallback or secret-cache writes. Exit restores selection only; use
@@ -267,7 +267,7 @@ def connection_error(exc: Exception, values: tuple[SecretValue, ...]) -> Datasou
         received="backend operation failed",
         repair=repair(
             kind="reconnect",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Check the datasource connection and query permissions, then retry.",
         ),
     )

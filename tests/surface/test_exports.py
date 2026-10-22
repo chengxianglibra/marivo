@@ -104,6 +104,21 @@ def test_semantic_all_is_pinned() -> None:
     assert set(ms.__all__) == SEMANTIC_PUBLIC
 
 
+def test_retired_datasource_conveniences_have_no_public_aliases() -> None:
+    from marivo.datasource.manage import RawSqlResult
+
+    for name in ("list", "describe", "test"):
+        assert not hasattr(md, name)
+    for owner, name in (
+        (md.DatasourceSummary, "semantic_id"),
+        (RawSqlResult, "row_count"),
+        (ms.PeriodCalendarDetails, "date"),
+        (md.DatasourceCatalog, "get"),
+        (md.DatasourceList, "ids"),
+    ):
+        assert not hasattr(owner, name)
+
+
 def test_analysis_all_is_pinned() -> None:
     assert tuple(ma.__all__) == ANALYSIS_PUBLIC
     assert set(dir(ma)) == set(ANALYSIS_PUBLIC)

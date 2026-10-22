@@ -45,7 +45,6 @@ from marivo.datasource.runtime import (
     load_datasource,
     open_backend,
 )
-from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
@@ -64,11 +63,6 @@ class DatasourceSummary(RenderableResult):
 
     name: str
     backend_type: str
-
-    @property
-    def semantic_id(self) -> str:
-        """Stable id used by discovery surfaces; equals ``name``."""
-        return self.name
 
     def _repr_identity(self) -> str:
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
@@ -91,10 +85,6 @@ class DatasourceList(RenderableResult):
         """Return all datasource summary rows."""
         return self._items
 
-    def ids(self) -> builtins.list[str]:
-        """Return datasource names in display order."""
-        return [item.name for item in self._items]
-
     def __len__(self) -> int:
         return len(self._items)
 
@@ -111,7 +101,7 @@ class DatasourceList(RenderableResult):
         rows = [[item.name, item.backend_type] for item in self._items]
         card = Card(
             identity=self._repr_identity(),
-            available=(".items", ".ids()", ".show()"),
+            available=(".items", ".show()"),
         ).table(columns=["name", "backend"], rows=rows, row_count=len(self._items))
         if any(item.name == DEFAULT_DATASOURCE_NAME for item in self._items):
             card = card.field("default", DEFAULT_DATASOURCE_DESCRIPTION)
@@ -252,11 +242,6 @@ class RawSqlResult(_DataResult):
         """Return complete query rows by declared columns."""
         return (self.returned_row_count, len(self.columns))
 
-    @property
-    def row_count(self) -> int:
-        """Return the complete query row count."""
-        return self.returned_row_count
-
     def _repr_identity(self) -> str:
         return (
             f"RawSqlResult datasource={self._datasource.path} "
@@ -349,24 +334,6 @@ def remove(name: str) -> bool:
     return _store.delete_one(name)
 
 
-def list() -> DatasourceList:
-    """List configured project datasources as a displayable DatasourceList.
-
-    Returns:
-        ``DatasourceList`` containing sorted ``DatasourceSummary`` rows.
-
-    Example:
-        >>> import marivo.datasource as md
-        >>> md.list().show()
-        >>> md.list().items
-
-    Constraints:
-        Includes local and configured external model roots. Conflicting names
-        fail instead of overriding another declaration.
-    """
-    return _list_in_project(project_root=None)
-
-
 def _list_in_project(*, project_root: Path | None) -> DatasourceList:
     return DatasourceList(
         tuple(
@@ -377,26 +344,6 @@ def _list_in_project(*, project_root: Path | None) -> DatasourceList:
             )
         )
     )
-
-
-def describe(name: str) -> DatasourceDescription:
-    """Show literal fields and env refs for one datasource.
-
-    Args:
-        name: The datasource name to describe.
-
-    Returns:
-        A ``DatasourceDescription`` with literal_fields and env_refs.
-
-    Example:
-        >>> import marivo.datasource as md
-        >>> md.describe("wh")
-
-    Constraints:
-        Reads local and configured external model roots. Raises
-        ``DatasourceMissingError`` when the name is absent from the project.
-    """
-    return _describe_in_project(name, project_root=resolve_project_root())
 
 
 def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescription:
@@ -459,7 +406,7 @@ def _connection_repair(
     # ``existing`` check above returns before this point.
     return repair(
         kind="reconnect",
-        canonical_id="test",
+        canonical_id="datasource_catalog.test",
         action="Reconnect the datasource after fixing its connection settings.",
     )
 
@@ -560,52 +507,6 @@ def _run_roundtrip(
                 state.backend.disconnect()
 
 
-def test(
-    name: str | DatasourceSymbol,
-    *,
-    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-) -> DatasourceTestResult:
-    """Round-trip the backend and best-effort cache validated env secrets.
-
-    Args:
-        name: The datasource name or native datasource lookup symbol to test.
-        timeout_seconds: Requested native connection and probe-query timeouts.
-            Unsupported query timeouts are skipped. Defaults to
-            ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
-            rejected before any connection is attempted.
-
-    Returns:
-        A ``DatasourceTestResult`` with ok status, latency, structured failure,
-        and typed repair. A timeout is reported as a structured failure whose
-        ``code`` is ``connection_timeout`` (handshake) or
-        ``connection_roundtrip_timeout`` (Ibis literal), with a truthful
-        ``latency_ms`` and a ``repair`` suggesting a larger timeout or a
-        reachability check.
-
-    Example:
-        >>> import marivo.datasource as md
-        >>> md.test(ms.ref.datasource("wh"))
-
-    Constraints:
-        On success, env-sourced secrets that resolved correctly are
-        offered to the user-global plaintext cache. Cache write failures
-        emit a warning without changing the successful result. The backend
-        is always disconnected. Actual probe SQL and execution diagnostics are
-        always written to project-local ``.marivo/logs/`` independently of telemetry.
-
-        The caller thread performs connection and the Ibis literal probe.
-        Native connection, network and query settings have separate backend-defined
-        meanings. Unsupported query timeouts are skipped; there is no total
-        call deadline and cleanup may wait for the driver.
-    """
-    return _test_in_project(
-        _datasource_name(name),
-        timeout_seconds=timeout_seconds,
-        project_root=None,
-        persist_env_secrets=True,
-    )
-
-
 def _test_in_project(
     name: str | DatasourceSymbol,
     *,
@@ -674,7 +575,7 @@ def test_no_persist(
         A ``DatasourceTestResult`` with ok status, latency, structured failure,
         and typed repair. Timeouts are reported with the same structured
         ``connection_timeout`` / ``connection_roundtrip_timeout`` codes as
-        ``md.test``.
+        ``DatasourceCatalog.test``.
 
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.

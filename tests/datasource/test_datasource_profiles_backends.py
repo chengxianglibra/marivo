@@ -63,7 +63,7 @@ def _raw_ir(name: str, *, backend_type: str, fields: dict[str, object]) -> Datas
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
     md.register(_spec("local", backend_type="duckdb", path=":memory:"))
-    assert md.test("local").ok is True
+    assert md.load().test("local").ok is True
 
 
 def test_duckdb_extra_kwargs_pass_through(
@@ -217,7 +217,7 @@ def test_md_test_round_trips_authenticated_duckdb_datasource(
         )
     )
 
-    result = md.test("hawkeye")
+    result = md.load().test("hawkeye")
     assert result.ok
 
     datasource_file = (project_root / "models" / "datasources" / "hawkeye.py").read_text(

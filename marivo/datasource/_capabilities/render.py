@@ -112,9 +112,9 @@ def render_root_help() -> str:
 
 def _render_authoring(descriptor: AuthoringCapability) -> str:
     route_groups = (
-        ("discover", ("load", "describe")),
+        ("discover", ("load", "datasource_catalog.describe")),
         ("declare custom", ("duckdb", "trino", "mysql", "postgres", "clickhouse")),
-        ("register custom and test", ("register", "test")),
+        ("register custom and test", ("register", "datasource_catalog.test")),
         ("physical source", ("table", "parquet", "csv", "json")),
         ("metadata", ("inspect",)),
         ("explicit scope", ("partition", "time_range", "unpruned")),

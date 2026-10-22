@@ -45,7 +45,7 @@ def test_connection_test_result_rejects_inconsistent_success_failure_state(
     typed_repair = (
         repair(
             kind="reconnect",
-            canonical_id="test",
+            canonical_id="datasource_catalog.test",
             action="Reconnect the datasource after fixing its connection settings.",
         )
         if has_repair
@@ -74,7 +74,7 @@ def test_connection_test_result_rejects_inconsistent_success_failure_state(
         ("partition_predicate_unsupported", "rescope", "source_inspection.partitions", True),
         ("transformed_partition_unsupported", "configure", "inspect", False),
         ("native_timeout_configuration_failed", "configure", "inspect", False),
-        ("acquisition_connection_failed", "reconnect", "test", True),
+        ("acquisition_connection_failed", "reconnect", "datasource_catalog.test", True),
         ("acquisition_source_failed", "inspect", "inspect", True),
         ("acquisition_execution_failed", "reacquire", "source_inspection.sample", False),
         ("cache_stale", "reacquire", "source_inspection.sample", False),

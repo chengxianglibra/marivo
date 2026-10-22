@@ -485,6 +485,11 @@ def test_temporal_details_observe_state_changes_after_navigation(
         ms.SemanticKind.TEMPORAL_SET: sales.temporal_sets,
     }[kind]
     entry = collection.get(path)
+    if isinstance(entry, PeriodCalendarEntry):
+        assert as_ref(entry.details().source_date) == ref_factory.time_dimension(
+            "sales.calendar.calendar_date"
+        )
+        assert not hasattr(entry.details(), "date")
     assert entry.details().snapshot_status == "missing"
     catalog.preview(entry.ref, scope=default_scope(max_rows=max_rows), limit=1)
     assert collection.get(entry._ref.path) is entry
