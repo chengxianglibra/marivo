@@ -41,7 +41,10 @@ Choose the exit before acquiring evidence:
 
 The packaged skill groups decisions into task boundaries, reuse and business
 authority, evidence and validation choices, and delivery. Help navigation selects
-objects, builders, or checks; it does not repeat that workflow.
+the missing modeling, expression, time, catalog or validation decision; it does
+not repeat that workflow. Supporting constructor values follow the definition
+they support. `semantic.validation` distinguishes what load, readiness, preview
+and source health can prove.
 
 ```text
 load current datasource and semantic catalogs

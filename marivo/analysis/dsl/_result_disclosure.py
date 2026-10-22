@@ -20,6 +20,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
+    group: str | None
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     for target, value, parameters, output, summary, code, requires, group in (
@@ -31,7 +32,7 @@ def provider() -> DisclosureProvider:
             "Count all current coordinates independently of value NA masks.",
             "result = row_count()",
             ("row_count",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             "offset",
@@ -146,7 +147,7 @@ def provider() -> DisclosureProvider:
                 "result",
                 "AnalysisFrame",
             ),
-            discovery_group="methods.attribute",
+            discovery_group="source",
             related=(
                 "analysis_frame.compute",
                 "analysis_frame.method_facts",
@@ -163,7 +164,7 @@ def provider() -> DisclosureProvider:
             "Locate a named value on this exact AnalysisFrame input.",
             "result = frame['value']",
             ("frame",),
-            "methods.rows",
+            "frame.expressions",
         ),
         (
             AnalysisFrame,
@@ -178,7 +179,7 @@ def provider() -> DisclosureProvider:
             "Locate an existing scalar coordinate without reading a new attribute; complete composite keys remain coordinates and Population predicates.",
             "result = frame.coord(axis)",
             ("frame", "axis"),
-            "methods.rows",
+            "frame.expressions",
         ),
         (
             AnalysisFrame,
@@ -193,7 +194,7 @@ def provider() -> DisclosureProvider:
             "Select named values, preserving complete coordinates and presence without hiding deleted values.",
             "result = frame.select({'value': frame['value']})",
             ("frame",),
-            "methods.rows",
+            "frame.expressions",
         ),
         (
             AnalysisFrame,
@@ -208,7 +209,7 @@ def provider() -> DisclosureProvider:
             "Filter current coordinates, preserving checks and row order.",
             "result = frame.where(frame['value'] > 0)",
             ("frame",),
-            "methods.rows",
+            "frame.rows",
         ),
         (
             AnalysisFrame,
@@ -222,7 +223,7 @@ def provider() -> DisclosureProvider:
             "Rank the whole current input, with NA last and stable input order for ties.",
             "result = frame.top(10, by=frame['value'])",
             ("frame",),
-            "methods.rows",
+            "frame.rows",
         ),
         (
             AnalysisFrame,
@@ -238,7 +239,7 @@ def provider() -> DisclosureProvider:
             "Compute current-value statistics with independent NA masks; remove presence and retain only the selected complete axes.",
             "result = frame.reduce({'mean': frame['value'].mean()})",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             AnalysisFrame,
@@ -257,7 +258,7 @@ def provider() -> DisclosureProvider:
             "Reduce each current-data partition and broadcast its statistic to the original rows as a same-input Column.",
             "result = frame.over(frame['value'].sum())",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             AnalysisFrame,
@@ -272,7 +273,7 @@ def provider() -> DisclosureProvider:
             "Correlate one numeric pair on current rows, returning coefficient and n_pairs together from one input evaluation.",
             "result = frame.correlate(frame['value'], frame['other'], method='pearson').compute()",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             AnalysisFrame,
@@ -292,7 +293,7 @@ def provider() -> DisclosureProvider:
             "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
             "result = frame.align(other)",
             ("frame", "other"),
-            "methods.compare",
+            "frame.compare",
         ),
         (
             AnalysisFrame,
@@ -315,7 +316,7 @@ def provider() -> DisclosureProvider:
             "Retain current values and add <alias>.baseline.<name>, <alias>.absolute.<name> and <alias>.relative.<name>; relative divides the difference by the absolute baseline, with zero baseline yielding NA.",
             "result = frame.compare({'reference': baseline})",
             ("frame", "baseline"),
-            "methods.compare",
+            "frame.compare",
         ),
         (
             Column,
@@ -325,7 +326,7 @@ def provider() -> DisclosureProvider:
             "Print captured input, role, name, unit and kind without source access.",
             "result = column.show()",
             ("column",),
-            "methods.rows",
+            None,
         ),
         (
             Column,
@@ -340,7 +341,7 @@ def provider() -> DisclosureProvider:
             "Normalize current values by their partition sum; return signed ratios with the same rows and input.",
             "result = frame['value'].share(along=frame.axes)",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             Column,
@@ -350,7 +351,7 @@ def provider() -> DisclosureProvider:
             "Test value NA independently of coordinate presence.",
             "result = column.is_null()",
             ("column",),
-            "methods.rows",
+            "frame.expressions",
         ),
         (
             Column,
@@ -360,7 +361,7 @@ def provider() -> DisclosureProvider:
             "Request ignore-NA current-row sum: int64 returns Decimal(38,0), Decimal returns Decimal(38,input_scale); count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.sum()",
             ("column",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             Column,
@@ -376,7 +377,7 @@ def provider() -> DisclosureProvider:
             "Capture one coefficient statistic; finish with AnalysisFrame.reduce or AnalysisFrame.over. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
             "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             Column,
@@ -391,7 +392,7 @@ def provider() -> DisclosureProvider:
             "Capture an independent valid-pair count without ranking or computing a coefficient. AnalysisFrame.correlate already includes n_pairs.",
             "result = frame.reduce({'n_pairs': frame['value'].pair_count(frame['other']), 'n_values': frame['value'].pair_count(frame['value'])}).compute()",
             ("frame",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
         (
             Column,
@@ -401,7 +402,7 @@ def provider() -> DisclosureProvider:
             "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.mean()",
             ("column",),
-            "methods.metric.summary",
+            "frame.statistics",
         ),
     ):
         value = getattr(owner, name)
@@ -492,7 +493,6 @@ def provider() -> DisclosureProvider:
                     "result",
                     "Column",
                 ),
-                discovery_group="methods.rows.expressions",
             )
         )
     return DisclosureProvider("analysis.dsl.results", tuple(descriptors), tuple(exports))

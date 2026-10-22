@@ -5,6 +5,10 @@ description: Query, filter, compare, and investigate metrics with the analysis D
 
 The analysis DSL uses a Session to obtain semantic definitions, then calculates results through observe, read, and Frame methods. Prepare the quick-start data and model, then run this page in order. Append later snippets to `analysis.py` or run them in the same Python process.
 
+For an existing task, `marivo.help("analysis")` selects the information needed next. `analysis.source` forms explicit observations or requests new source facts; `analysis.frame` constructs data or calculates over represented rows. Source construction is lazy, and Frame evaluation can still run dependencies captured by a pending input. Complete or reopened data does not recover its original semantic declaration.
+
+Use existing closed Metrics directly when they answer the question. When established meaning and aggregation authority support a question-scoped equation, condition, internal sample or window, follow `semantic.expressions` from `analysis.inputs` or `analysis.source`. A new local calculation does not require publishing a same-name Metric. Author reusable meaning when it is actually missing. Source predicates and membership conditions use semantic expression roles; result filtering uses a boolean Column from the exact Frame.
+
 ## Complete example and shared inputs
 
 Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. Importing this file rereads sources and creates a new Session.

@@ -102,12 +102,7 @@ def test_public_help_wraps_unexpected_surface_failure(
 
 
 def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
-    code = (
-        "import marivo; "
-        "marivo.help(); "
-        "marivo.help('authoring'); "
-        "marivo.help('datasource.authoring')"
-    )
+    code = "import marivo; marivo.help(); marivo.help('authoring'); marivo.help('datasource')"
     completed = subprocess.run(
         [sys.executable, "-c", code],
         cwd=PROJECT_ROOT,
@@ -185,9 +180,9 @@ def test_global_authoring_composition_topic_wins_over_native_duplicates() -> Non
 
 @pytest.mark.parametrize(
     "target",
-    ("semantic.objects", "semantic.builders", "semantic.checks"),
+    ("semantic.model", "semantic.time", "semantic.validation"),
 )
-def test_semantic_slice3_navigation_targets_are_publicly_active(target: str) -> None:
+def test_semantic_task_navigation_targets_are_publicly_active(target: str) -> None:
     route = route_help_target(target)
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "semantic"
@@ -206,22 +201,22 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
 @pytest.mark.parametrize(
     "target",
     (
-        "analysis.evidence",
-        "analysis.runtime",
-        "analysis.runtime.sessions",
+        "analysis.results.evidence",
+        "analysis.sessions",
+        "analysis.frame",
     ),
 )
-def test_slice3_qualified_navigation_targets_resolve(target: str) -> None:
+def test_analysis_task_navigation_targets_resolve(target: str) -> None:
     route = route_help_target(target)
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "analysis"
 
 
-def test_slice3_bounded_target_projections_resolve_independently() -> None:
+def test_analysis_task_members_resolve_independently() -> None:
     for owner in (
-        "evidence",
-        "runtime",
-        "runtime.sessions",
+        "results.evidence",
+        "sessions",
+        "frame",
     ):
         from marivo.analysis._capabilities.dataset_model import NavigationInput
 

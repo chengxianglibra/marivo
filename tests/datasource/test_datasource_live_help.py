@@ -251,8 +251,53 @@ def test_live_help_performs_no_datasource_effects(
 
     assert marivo.help() is None
     for target in (
+        "datasource",
+        "datasource.connections",
+        "datasource.sources",
+        "datasource.inspection",
+        "datasource.boundary.semantic_authoring",
         "datasource.inspect",
         md.SourceInspection,
         *(type(t) for t in datasource_runtime_targets),
     ):
         assert marivo.help(target) is None
+
+
+def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes() -> None:
+    from marivo._help.render import render_help_text
+    from marivo.datasource._capabilities.registry import REGISTRY
+
+    root_routes = REGISTRY.navigation_routes()
+    assert tuple(route.target.display for route in root_routes) == (
+        "datasource.connections",
+        "datasource.sources",
+        "datasource.inspection",
+        "datasource.raw_sql",
+        "datasource.boundary.semantic_authoring",
+    )
+    root = render_help_text("datasource")[0]
+    assert "default" not in root
+    assert "median" not in root
+    for topic in ("", "connections", "sources", "inspection"):
+        page = render_help_text("datasource" + (f".{topic}" if topic else ""))[0]
+        for route in REGISTRY.navigation_routes(topic):
+            assert route.summary in page
+            assert f'marivo.help("{route.target.display}")' in page
+            assert render_help_text(route.target.display)[0]
+    connections = render_help_text("datasource.connections")[0]
+    assert "host resolver" in connections
+    assert "datasource.credential_scope" in connections
+    assert "datasource.secret_value.reveal" not in connections
+    inspection = render_help_text("datasource.inspection")[0]
+    assert "samples do not determine business meaning" in inspection
+    assert "datasource.raw_sql" in inspection
+    assert 'marivo.help("semantic")' not in inspection
+    handoff = render_help_text("datasource.boundary.semantic_authoring")[0]
+    assert 'marivo.help("semantic")' in handoff
+    assert "business authority supplies reusable meaning" in handoff
+
+
+@pytest.mark.parametrize("target", ("authoring", "sql", "credentials", "inspection.scope"))
+def test_retired_datasource_topics_have_no_alias(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(f"datasource.{target}")

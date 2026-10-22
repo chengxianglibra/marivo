@@ -23,42 +23,39 @@ def test_metric_intent_reaches_observation_without_restarting_discovery() -> Non
     def targets(page: str) -> tuple[str, ...]:
         return tuple(re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", page))
 
-    path = ("analysis", "analysis.methods", "analysis.methods.metric", "analysis.session.observe")
+    path = ("analysis", "analysis.source", "analysis.session.observe")
     for current, following in pairwise(path):
         assert following in targets(rendered_help(current))
-    assert "analysis.session.observe" in targets(rendered_help("analysis.entry"))
+    assert "analysis.session.observe" in targets(rendered_help("analysis.source"))
     descriptor = REGISTRY.by_canonical_id("session.observe")
     assert isinstance(descriptor, CallableInput)
-    assert descriptor.discovery_group == "methods.metric"
+    assert descriptor.discovery_group == "source"
     # Discovery cross-links do not create additional capability owners.
     owners = [
         d.canonical_id
         for d in REGISTRY.descriptors
         if isinstance(d, NavigationInput) and "session.observe" in d.members
     ]
-    assert owners == ["methods.metric"]
+    assert owners == ["source"]
     assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
 
 
 def test_attribute_intent_and_complete_fact_navigation_have_exact_owners() -> None:
     path = (
         "analysis",
-        "analysis.methods",
-        "analysis.methods.attribute",
+        "analysis.source",
         "analysis.analysis_frame.attribute",
     )
     for current, following in pairwise(path):
         assert following in rendered_help(current)
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
-    assert (
-        isinstance(descriptor, CallableInput) and descriptor.discovery_group == "methods.attribute"
-    )
+    assert isinstance(descriptor, CallableInput) and descriptor.discovery_group == "source"
     owners = [
         value.canonical_id
         for value in REGISTRY.descriptors
         if isinstance(value, NavigationInput) and "analysis_frame.attribute" in value.members
     ]
-    assert owners == ["methods.attribute"]
+    assert owners == ["source"]
     assert "analysis.analysis_frame.method_facts" in rendered_help("analysis.analysis_frame")
     assert "analysis.frame_method_facts" in rendered_help("analysis.analysis_frame.method_facts")
     assert "analysis.frame_method_parent" in rendered_help("analysis.frame_method_facts")
@@ -170,7 +167,12 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
             if current in REGISTRY.canonical_ids()
             else rendered_help("analysis." + current)
         )
-        for target in re.findall(r"marivo\.help\(['\"]analysis\.([^'\"]+)['\"]\)", page):
+        for match in re.findall(
+            r"marivo\.help\(['\"]analysis\.([^'\"]+)['\"]\)|^  analysis\.([a-z_][a-z0-9_.]*)",
+            page,
+            re.MULTILINE,
+        ):
+            target = match[0] or match[1]
             text = rendered_help("analysis." + target)
             if target not in REGISTRY.canonical_ids():
                 assert text.startswith(f"Target: analysis.{target}\nKind: attribute")
@@ -289,5 +291,5 @@ def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
     assert "Compatible Customer keys may bind Product" in page
     assert "shipping-city keys may bind billing-city" in page
     assert "Ordinary fields cannot become identities" in page
-    assert "analysis.session.population_from" in rendered_help("analysis.population_tasks")
+    assert "analysis.session.population_from" in rendered_help("analysis.inputs.population")
     assert "analysis.session.population_from" in rendered_help("analysis.population")

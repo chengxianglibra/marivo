@@ -333,7 +333,7 @@ class SemanticExpressionError(SemanticError):
         expected: str,
         received: str,
         action: str,
-        help_target: str = "authoring",
+        help_target: str = "load",
         refs: tuple[str, ...] = (),
         details: dict[str, Any] | None = None,
         location_label: str | None = None,

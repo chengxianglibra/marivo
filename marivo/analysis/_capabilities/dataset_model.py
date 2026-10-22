@@ -223,6 +223,7 @@ class NavigationInput:
     guidance: tuple[str, ...] = ()
     related: tuple[str, ...] = ()
     discovery_group: str | None = None
+    route_summaries: tuple[tuple[str, str], ...] = ()
     kind: Literal["navigation"] = field(default="navigation", init=False)
     public_entrypoint: None = field(default=None, init=False)
     callable_path: None = field(default=None, init=False)

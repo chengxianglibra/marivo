@@ -98,7 +98,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
 
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    show_help("analysis.catalog")
+    show_help("analysis.inputs.catalog")
     guidance = capsys.readouterr().out
     assert "collection.show()" in guidance and "displayed plain path" in guidance
     assert "catalog.describe(ref).show()" in guidance

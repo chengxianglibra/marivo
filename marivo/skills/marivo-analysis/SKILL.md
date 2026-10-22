@@ -23,7 +23,9 @@ separate facts.
 
 Compose question-scoped quantities over governed inputs when their business
 meaning and required aggregation authority are established. Naming a local
-quantity does not require reusable publication. A new business assertion, such
+quantity does not require reusable publication. Use `marivo help semantic.expressions`
+for the shared expression roles; absence of a published Metric with the same
+name is not itself an authoring gap. A new business assertion, such
 as authorizing a row quantity to be summed, belongs to the semantic workflow
 when that authority is unresolved.
 
@@ -31,9 +33,11 @@ when that authority is unresolved.
 
 Before choosing an operation, establish the distinctions that affect the answer:
 
-- Identify the unit of analysis: members, contributions, or current result rows.
-  One member can contribute several facts; do not silently change the
-  denominator or generalize a selected segment to the whole population.
+- Identify the counted domain: complete distinct members or coordinate tuples,
+  source contributions under the selected conditions and time, or current
+  Frame rows. Selected members can have no facts, and one member can contribute
+  several facts; preserve the denominator and qualify claims that generalize a
+  selected segment to the whole population.
   Interpret rates and growth with their numerators, denominators and absolute
   changes; distinguish percent change from percentage points, and qualify
   comparisons with small or near-zero baselines.
@@ -102,7 +106,11 @@ compatible work into one decision round.
 
 Choose disclosure for the current gap:
 
-- Unknown method: start at `marivo help analysis` and follow its relevant intent.
+- Unknown method: start at `marivo help analysis` and follow the current
+  information gap. Source questions use governed inputs or explicit member
+  domains; Frame work calculates over the represented data. Construction
+  captures dependencies, so a source question need not read a source and
+  evaluating a pending Frame can still execute its captured source dependencies.
 - Unknown identity: browse a bounded catalog collection; select closed inputs by
   exact path through the matching collection. Native lookup selectors belong only
   to explicitly supported metadata/readiness operations, not ordinary analysis.
@@ -131,7 +139,7 @@ Logical construction does not prove business rows were read or a result exists.
 ### Read the result and update the answer
 
 Inspect the returned Frame with `.show()`; read its `.artifact` audit when committed. Follow
-`marivo help analysis.evidence` when additional evidence detail is needed.
+`marivo help analysis.results.evidence` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
 uncertainty, and material warnings. Consider whether few observations, extreme
@@ -213,7 +221,7 @@ An implicit latest result, scripts, and chat summaries do not replace that
 persisted identity. Frame handles stay in their originating Session; reopen with
 `session.persisted_frame(id)` in that Session when restoring committed data.
 
-Use `marivo help analysis.runtime` for recovery mechanics. Never replay source
+Use `marivo help analysis.sessions` for recovery mechanics. Never replay source
 queries or reconstruct displayed rows to conceal missing retained state. Local
 committed results are trusted; recovery does not establish current semantic
 authority, source freshness, causality, or suitability for the question. If a

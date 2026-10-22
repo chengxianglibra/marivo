@@ -5,6 +5,8 @@ description: 连接来源，定义字段、指标、关系和业务日历。
 
 语义层用 Python 声明数据源、实体、字段、关系和指标。下面的示例按文件和操作组织；快速开始中的六笔订单可作为本地数据。
 
+查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 source health 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
+
 ## 连接与检查
 
 先通过[本地教程](/zh-cn/docs/latest/start/python/)创建 `warehouse.duckdb` 与数据源声明。将下面保存为 `inspect_data.py`，从项目根运行。

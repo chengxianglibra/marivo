@@ -100,7 +100,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
     trace = traces["source_overall"] = Trace(case.root)
     trace.help("analysis")
-    trace.help("analysis.entry")
+    trace.help("analysis.source")
     trace.help(session.members)
     trace.read("members metadata", members.show)
     trace.help(session.observe)
@@ -112,7 +112,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     assert total.to_pandas()[("value", "value")].tolist() == [4]
 
     trace = traces["current_mean"] = Trace(case.root)
-    trace.help("analysis.methods.metric.summary")
+    trace.help("analysis.frame.statistics")
     trace.help(values.reduce)
     trace.help(mv.Column.mean)
     trace.help(mv.AnalysisFrame.compute)
@@ -244,8 +244,7 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     trace = Trace(case.root)
     for target in (
         "analysis",
-        "analysis.methods",
-        "analysis.methods.attribute",
+        "analysis.source",
         "analysis.analysis_frame.attribute",
     ):
         trace.help(target)

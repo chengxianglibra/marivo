@@ -147,8 +147,12 @@ marivo.help("analysis.session.observe")
 `marivo.help()` introduces Marivo's core concepts and routes to two secondary
 roots. Use `marivo.help("authoring")` to connect data and define governed
 semantics; use `marivo.help("analysis")` to discover typed analysis. Follow the
-qualified routes from those pages rather than depending on short-name
-disambiguation. Focused help also accepts registered public types, errors, and
+current information gap: `analysis.inputs` for definitions and scope,
+`analysis.source` for explicit observations or new source facts, `analysis.frame`
+for calculations over represented data, `analysis.execution` for fixing or
+saving values, `analysis.results` for inspection and audit, and
+`analysis.sessions` for context and recovery. These routes are choices, not
+required steps. Focused help also accepts registered public types, errors, and
 member targets when they are already known or obtained from a live result.
 
 If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.

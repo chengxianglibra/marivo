@@ -32,7 +32,7 @@ def test_expression_error_carries_expected_received_and_reauthor_repair() -> Non
     assert "  expected: operands with one unit" in rendered
     assert "  received: CNY + USD" in rendered
     assert "Repair:\n  Convert one operand explicitly" in rendered
-    assert "Help: marivo.help('semantic.authoring')" in rendered
+    assert "Help: marivo.help('semantic.load')" in rendered
 
 
 def test_definition_failure_translates_with_its_location() -> None:

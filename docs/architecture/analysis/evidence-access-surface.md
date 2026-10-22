@@ -106,7 +106,7 @@ does not certify business capture. Arithmetic change and complete reconciliation
 do not establish cause or universal source completeness. Findings and method
 explanations retain the method's exact scope and assumptions.
 
-Use analysis.evidence and focused type Help for static contracts, captured
+Use analysis.results.evidence and focused type Help for static contracts, captured
 objects for current facts and structured errors for repair. The packaged
 analysis skill owns judgment without adding another evidence store.
 

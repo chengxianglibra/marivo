@@ -332,7 +332,7 @@ def provider() -> DisclosureProvider:
             "Display the exact frozen UTC instant.",
             "result = anchor.show()",
             ("anchor",),
-            "inputs.time",
+            None,
             ("Reads captured metadata only.",),
         ),
         (
@@ -358,7 +358,7 @@ def provider() -> DisclosureProvider:
             "Display bounded frozen source-calendar metadata.",
             "result = axis.show()",
             ("axis",),
-            "inputs.time",
+            None,
             (
                 "Exact selected buckets may be sparse or empty; show reports captured bounds and direct absence counts without evaluating. Source calendar declarations are not FrameAxis handles.",
             ),
@@ -372,7 +372,7 @@ def provider() -> DisclosureProvider:
             "Evaluate an expression or fully load a stored root into an independent memory Frame; a memory root returns itself.",
             "result = frame.compute()",
             ("frame",),
-            "entry",
+            "execution",
             (
                 "No Artifact is created. Stored loading validates current data and all owned method facts; use handles from the returned Frame. Explicit source leaves may read changing sources.",
             ),
@@ -386,7 +386,7 @@ def provider() -> DisclosureProvider:
             "Commit evaluated data and return its stored Frame without recomputing a completed memory input.",
             "result = frame.persist()",
             ("frame",),
-            "entry",
+            "execution",
             (
                 "A stored root checks commit metadata and returns itself. Evaluation finishes before publication admission; failures and unknown publication outcomes require their structured repair, never an automatic recomputation. Retain Session and Artifact IDs; lost return references require explicit resubmission, which may duplicate saved outputs or read changed sources.",
             ),
@@ -400,7 +400,7 @@ def provider() -> DisclosureProvider:
             "Print bounded captured structure and an existing result prefix without evaluating a pending expression.",
             "result = frame.show(n=0)",
             ("frame",),
-            "methods.rows",
+            "results.inspect",
             (
                 "Validate n before reads. Pending cards show captured scopes and operations, with unresolved facts marked. n=0 reads no rows or attachments. Fixed cards show only method-fact counts, bounded origins and a .method_facts pointer; previews never read method payloads. Positive previews resolve displayed frozen coordinates; receipt hashing may read a whole consumed file. Success does not certify unread data.",
             ),
@@ -414,7 +414,7 @@ def provider() -> DisclosureProvider:
             "Read the complete fixed result as isolated values and frozen coordinate metadata.",
             "result = frame.compute().to_pandas()",
             ("frame",),
-            "artifacts.reads",
+            "results.inspect",
             (
                 "Pending expressions must first compute or persist; this method never executes them. Stored export reads current rows/coordinates, not method payloads, and needs no model, Catalog or source. Exported values and attrs are isolated; pandas attrs cannot be imported as computation authority.",
             ),
@@ -433,7 +433,7 @@ def provider() -> DisclosureProvider:
             "Select one complete axis from this Frame's current directory.",
             "result = frame.axis(name)",
             ("frame", "name"),
-            "methods.rows",
+            "frame.expressions",
             (
                 "Missing or duplicate names report actual candidates; names do not match axes between inputs.",
             ),
@@ -447,7 +447,7 @@ def provider() -> DisclosureProvider:
             "Print captured token, name, role and complete key names without reading rows.",
             "result = axis.show()",
             ("axis",),
-            "methods.rows",
+            None,
             (
                 "The handle retains its exact Frame input; acquire a new handle after a carrier conversion creates a new input binding.",
             ),
@@ -461,7 +461,7 @@ def provider() -> DisclosureProvider:
             "Print bounded submission identity, time and saved audit summaries.",
             "result = artifact.show()",
             ("artifact",),
-            "artifacts.reads",
+            "results.evidence",
             (
                 "Metadata only: no preview count or result-row read. For data use session.persisted_frame(artifact.id).show(n=20) or .to_pandas().",
             ),
@@ -478,7 +478,7 @@ def provider() -> DisclosureProvider:
             "Read a bounded page of self-contained committed Findings.",
             "result = artifact.findings(limit=20)",
             ("artifact",),
-            "artifacts.reads",
+            "results.evidence",
             (
                 "Reads audit records without result tables, source access or producer-graph restoration.",
             ),
@@ -492,7 +492,7 @@ def provider() -> DisclosureProvider:
             "Read all saved Evidence facts and collection digests.",
             "result = artifact.evidence_digest()",
             ("artifact",),
-            "artifacts.reads",
+            "results.evidence",
             (
                 "No result-table reads or current-source freshness claim; .items contains all saved facts.",
             ),

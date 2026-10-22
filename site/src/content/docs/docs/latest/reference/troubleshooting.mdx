@@ -49,6 +49,21 @@ marivo.help("analysis.analysis_frame")
 
 CLI uses the same targets: `.venv/bin/python -m marivo help analysis`. With a known returned object, `marivo.help(type(result))` discovers its type; query attributes by their string Help target.
 
+Choose the information missing now; the topics are independent entry points.
+
+| Need | Help target |
+| --- | --- |
+| Governed inputs, member domain or time | `analysis.inputs` |
+| Metric observation, member count or new source facts | `analysis.source` |
+| Frame construction or calculations over represented data | `analysis.frame` |
+| Complete memory values or a saved result | `analysis.execution` |
+| Data inspection, export or saved audit | `analysis.results` |
+| Create or recover exact Session and saved Frame identities | `analysis.sessions` |
+
+Known targets can be queried directly. Source construction captures explicit questions without business reads; evaluating a pending Frame can still execute its captured source dependencies. Complete or reopened Frame data supports calculations without recovering its original source declaration.
+
+For authoring, start at `authoring`, then choose datasource, semantic or ontology. Datasource topics separate connections, sources, inspection and the semantic handoff. Semantic topics separate model definitions, expression roles, time, catalog lookup and validation. Exact APIs keep their own targets even when a shared prefix is not a topic.
+
 Execution imports are `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Create sessions through `mv.session.create`; there is no top-level `marivo.session` alias.
 
 ### Ask for help effectively

@@ -362,11 +362,28 @@ class DatasetDisclosureRegistry:
             elif isinstance(descriptor, NavigationInput):
                 targets = descriptor.members + descriptor.related
                 memberships.update(descriptor.members)
+                summaries = dict(descriptor.route_summaries)
+                if len(summaries) != len(descriptor.route_summaries) or any(
+                    target not in targets or not summary.strip()
+                    for target, summary in descriptor.route_summaries
+                ):
+                    raise invalid(
+                        "unique decision summaries for advertised routes", descriptor.canonical_id
+                    )
             elif isinstance(descriptor, ReadCapability):
                 targets = descriptor.related
             for target in targets:
                 if target not in ids and not self.is_type_attribute(target):
-                    raise invalid("independently resolvable linked target", target)
+                    if target == "authoring" or target.startswith(
+                        ("semantic.", "datasource.", "ontology.")
+                    ):
+                        # Cross-surface links retain their actual owner. Resolve only
+                        # the qualified target, never build a local shadow descriptor.
+                        from marivo._help.route import route_help_target
+
+                        route_help_target(target)
+                    else:
+                        raise invalid("independently resolvable linked target", target)
         for descriptor in self.descriptors:
             if isinstance(descriptor, CallableInput):
                 for binding in descriptor.bindings:
@@ -438,6 +455,10 @@ def _canonical_descriptor(descriptor: Descriptor) -> Descriptor:
             discovery_group=canonical_target(descriptor.discovery_group)
             if descriptor.discovery_group
             else None,
+            route_summaries=tuple(
+                (canonical_target(target), summary)
+                for target, summary in descriptor.route_summaries
+            ),
         )
     return replace(
         descriptor,

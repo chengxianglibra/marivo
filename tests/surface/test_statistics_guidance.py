@@ -12,8 +12,9 @@ ROOT = PROJECT_ROOT
 def test_current_methods_are_reachable_through_existing_groups() -> None:
     registry = prepare()
     groups = {
-        "methods.rows": ("analysis_frame.select", "analysis_frame.where", "analysis_frame.top"),
-        "methods.metric.summary": (
+        "frame.expressions": ("analysis_frame.select",),
+        "frame.rows": ("analysis_frame.where", "analysis_frame.top"),
+        "frame.statistics": (
             "row_count",
             "analysis_frame.reduce",
             "analysis_frame.over",
@@ -21,7 +22,7 @@ def test_current_methods_are_reachable_through_existing_groups() -> None:
             "column.sum",
             "column.mean",
         ),
-        "methods.compare": ("analysis_frame.align", "analysis_frame.compare"),
+        "frame.compare": ("analysis_frame.align", "analysis_frame.compare"),
     }
     for group, targets in groups.items():
         owner = registry.by_canonical_id(group)

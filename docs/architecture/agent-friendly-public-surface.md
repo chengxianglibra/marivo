@@ -31,6 +31,36 @@ facts and task navigation; renderers maintain no shadow capability inventory.
 Unknown-target repairs use real registered candidates and preserve the requested
 receiver. No executable compatibility alias supplies a second canonical entry.
 
+## Task navigation and exact reference
+
+Task topics answer the current information gap; they are not a required call
+sequence. The analysis root offers inputs, source, frame, execution, results and
+sessions. Inputs selects governed meaning, member domains and time; source
+forms an explicit observation or asks for new source facts; frame composes data
+and calculations over represented rows. Execution fixes or saves values;
+results inspects data and audit; sessions establishes or recovers exact context.
+Known APIs and objects can enter their exact reference directly.
+
+Authoring routes datasource work through connections, sources, inspection and
+the semantic handoff. Semantic work selects model definitions, expression roles,
+time meaning, catalog lookup or validation according to the missing decision.
+An existing closed expression can be composed for one question through
+semantic.expressions without publishing a new Metric. Missing reusable meaning
+or aggregation authority requires authoring; a missing published name alone
+does not.
+
+Task names follow their main navigation parent. Exact API and role targets keep
+their owning identities: analysis.catalog.metrics and analysis.runtime.values.show
+remain exact references even though their intermediate prefixes are not task
+pages. Native registries own both the task links and exact reference; retiring a
+topic removes that entry without redirecting it or renaming its precise leaves.
+
+Source and Frame describe the question, rather than whether evaluation performs
+I/O. A literal Population count forms a Metric without a source dependency.
+Frame operations on a pending source expression can execute its captured
+dependencies when evaluated. Operations on complete or reopened data do not
+implicitly recover the original source declarations.
+
 ## Disclosure ownership
 
 | Owner | Facts |

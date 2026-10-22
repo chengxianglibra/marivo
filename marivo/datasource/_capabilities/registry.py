@@ -20,6 +20,7 @@ from marivo._authoring.model import (
 from marivo._data_render import _display_help
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,
+    DatasourceNavigationRoute,
     DatasourceRootGroup,
     DatasourceTypeContract,
 )
@@ -595,59 +596,190 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             repair_kinds=("rescope", "reacquire"),
             public_entrypoint="inspection.sample",
         ),
-        _capability(
-            "authoring",
-            None,
-            "Use built-in default for credential-free file sources; declare a separate datasource for credentials or persistence.",
-            kind="boundary",
-            output=None,
-            effects=_NONE,
-            example='md.load().describe("default").show()',
-            see_also=(_target("inspect"), _target("SourceInspection.sample")),
+        *(
+            _capability(canonical_id, None, summary, kind="boundary")
+            for canonical_id, summary in (
+                (
+                    "connections",
+                    "Choose an existing connection or declare, register, and test a backend.",
+                ),
+                (
+                    "sources",
+                    "Choose a physical table or file source and any required JSON parameters.",
+                ),
+                (
+                    "inspection",
+                    "Choose metadata, partition bounds, or a sample under an explicit scope.",
+                ),
+            )
         ),
         _capability(
             "boundary.semantic_authoring",
             None,
-            "Hand scoped datasource evidence into semantic authoring.",
+            "Hand current scoped physical evidence into semantic authoring. Schema and samples establish physical observations; business authority supplies reusable meaning.",
             kind="boundary",
             output=None,
             effects=_effects(mutations=("semantic_source",)),
-            see_also=(LiveHelpTarget(surface="semantic", canonical_id="authoring"),),
+            see_also=(LiveHelpTarget(surface="semantic", canonical_id=None),),
         ),
     )
+
+    def route(label: str, target: str, summary: str) -> DatasourceNavigationRoute:
+        return DatasourceNavigationRoute(label, _target(canonical_target(target)), summary)
+
+    navigation_routes = {
+        "": (
+            route(
+                "connections",
+                "connections",
+                "Find a connection, select a backend, or change connection declarations.",
+            ),
+            route(
+                "physical sources",
+                "sources",
+                "Describe the table or file that supplies physical rows.",
+            ),
+            route(
+                "inspect or sample",
+                "inspection",
+                "Resolve a physical metadata or scoped-row question.",
+            ),
+            route(
+                "source-specific SQL",
+                "raw_sql",
+                "Use explicit SQL when public inspection cannot answer the physical question.",
+            ),
+            route(
+                "semantic handoff",
+                "boundary.semantic_authoring",
+                "Turn scoped physical evidence into an authored business definition.",
+            ),
+        ),
+        "connections": (
+            route(
+                "load existing declarations",
+                "load",
+                "Browse the project connection set; default supports credential-free file sources.",
+            ),
+            route(
+                "list connections",
+                "DatasourceCatalog.list",
+                "Choose among loaded datasource identities.",
+            ),
+            route(
+                "inspect one connection",
+                "DatasourceCatalog.describe",
+                "Read captured configuration without opening the backend.",
+            ),
+            *(
+                route("choose backend", backend, f"Build a {label} connection declaration.")
+                for backend, label in (
+                    ("duckdb", "DuckDB"),
+                    ("trino", "Trino"),
+                    ("mysql", "MySQL"),
+                    ("postgres", "Postgres"),
+                    ("clickhouse", "ClickHouse"),
+                )
+            ),
+            route(
+                "register declaration",
+                "register",
+                "Save a custom datasource declaration in the local project.",
+            ),
+            route(
+                "test connection",
+                "DatasourceCatalog.test",
+                "Check a connection and literal round-trip before source work.",
+            ),
+            route(
+                "remove declaration", "remove", "Delete an unneeded local connection declaration."
+            ),
+            route(
+                "host credentials",
+                "credential_scope",
+                "Supply a host resolver when connection acquisition needs injected credentials.",
+            ),
+        ),
+        "sources": tuple(
+            route(label, target, summary)
+            for label, target, summary in (
+                ("database table", "table", "Select a physical table."),
+                ("Parquet files", "parquet", "Select a Parquet path or pattern."),
+                ("CSV files", "csv", "Select a CSV path or pattern."),
+                (
+                    "JSON source",
+                    "json",
+                    "Select a JSON resource with declared columns and parameters.",
+                ),
+                ("JSON parameter", "source_param", "Declare a required JSON source parameter."),
+            )
+        ),
+        "inspection": tuple(
+            route(label, target, summary)
+            for label, target, summary in (
+                (
+                    "physical metadata",
+                    "inspect",
+                    "Inspect available schema, columns, and physical types.",
+                ),
+                (
+                    "partition bounds",
+                    "SourceInspection.partitions",
+                    "Inspect available partitions before choosing a bounded scope.",
+                ),
+                (
+                    "exact physical column",
+                    "SourceInspection.source_column",
+                    "Read the observed name of one physical column.",
+                ),
+                (
+                    "partition scope",
+                    "partition",
+                    "Select explicit partition values under row and timeout guards.",
+                ),
+                (
+                    "time range scope",
+                    "time_range",
+                    "Select a physical half-open time range under explicit guards.",
+                ),
+                (
+                    "unpruned scope",
+                    "unpruned",
+                    "Use explicit guards when no pruning boundary is available.",
+                ),
+                (
+                    "sample scoped rows",
+                    "SourceInspection.sample",
+                    "Observe bounded rows; samples do not determine business meaning.",
+                ),
+                (
+                    "source-specific question",
+                    "raw_sql",
+                    "Use SQL if the public physical checks cannot answer the question.",
+                ),
+            )
+        ),
+    }
     groups: Mapping[DatasourceRootGroup, tuple[str, ...]] = MappingProxyType(
         {
-            "declare_manage": (
-                "duckdb",
-                "trino",
-                "mysql",
-                "postgres",
-                "clickhouse",
-                "register",
-                "remove",
-                "load",
-                "DatasourceCatalog.list",
-                "DatasourceCatalog.describe",
-                "DatasourceCatalog.test",
-                "credential_scope",
+            "connections": tuple(
+                route.target.canonical_id or "" for route in navigation_routes["connections"]
             ),
-            "physical_sources": (
-                "table",
-                "parquet",
-                "csv",
-                "source_param",
-                "json",
+            "sources": tuple(
+                route.target.canonical_id or "" for route in navigation_routes["sources"]
             ),
-            "inspect_scope": (
-                "inspect",
-                "SourceInspection.partitions",
-                "SourceInspection.source_column",
-                "partition",
-                "time_range",
-                "unpruned",
+            "inspection": tuple(
+                route.target.canonical_id or ""
+                for route in navigation_routes["inspection"]
+                if route.target.canonical_id != "raw_sql"
             ),
-            "acquire_project": ("SourceInspection.sample",),
-            "diagnostics_boundaries": ("raw_sql", "authoring", "boundary.semantic_authoring"),
+            "root": (
+                "connections",
+                "sources",
+                "inspection",
+                "raw_sql",
+                "boundary.semantic_authoring",
+            ),
         }
     )
     descriptor_rows = tuple(
@@ -671,6 +803,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         surface="datasource",
         _descriptors=descriptor_rows,
         _groups=groups,
+        _navigation_routes=MappingProxyType(navigation_routes),
         _by_id=MappingProxyType({row.canonical_id: row for row in descriptor_rows}),
         _by_callable_path=MappingProxyType(
             {row.callable_path: row for row in descriptor_rows if row.callable_path is not None}

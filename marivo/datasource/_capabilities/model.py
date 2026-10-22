@@ -10,13 +10,16 @@ from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity
 
-DatasourceRootGroup = Literal[
-    "declare_manage",
-    "physical_sources",
-    "inspect_scope",
-    "acquire_project",
-    "diagnostics_boundaries",
-]
+DatasourceRootGroup = Literal["connections", "sources", "inspection", "root"]
+
+
+@dataclass(frozen=True)
+class DatasourceNavigationRoute:
+    """One need-directed route owned by the datasource registry."""
+
+    label: str
+    target: LiveHelpTarget
+    summary: str
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class DatasourceCapabilityRegistry:
     _groups: Mapping[DatasourceRootGroup, tuple[str, ...]]
     _by_id: Mapping[str, AuthoringCapability]
     _by_callable_path: Mapping[str, AuthoringCapability]
+    _navigation_routes: Mapping[str, tuple[DatasourceNavigationRoute, ...]]
 
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(descriptor.canonical_id for descriptor in self._descriptors)
@@ -68,3 +72,7 @@ class DatasourceCapabilityRegistry:
 
     def group(self, group: DatasourceRootGroup) -> tuple[AuthoringCapability, ...]:
         return tuple(self._by_id[canonical_id] for canonical_id in self._groups[group])
+
+    def navigation_routes(self, canonical_id: str = "") -> tuple[DatasourceNavigationRoute, ...]:
+        """Return the root or topic's explicit capability-selection routes."""
+        return self._navigation_routes.get(canonical_id, ())

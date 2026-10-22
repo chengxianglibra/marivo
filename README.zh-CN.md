@@ -107,13 +107,16 @@ import marivo
 marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
-marivo.help("semantic.metric")
+marivo.help("semantic.metric.define")
 marivo.help("analysis.session.observe")
 ```
 
 `marivo.help()` 介绍核心概念，并引导到 `authoring` 或 `analysis`。
-`marivo.help("analysis")` 通过六个有界主题逐步披露当前安装版本的能力。
-请统一使用其中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
+`marivo.help("authoring")` 引导数据连接与可复用语义定义；
+`marivo.help("analysis")` 按当前信息缺口选择：`analysis.inputs` 查定义与范围，
+`analysis.source` 构造显式观察或请求新来源事实，`analysis.frame` 对已有数据计算，
+`analysis.execution` 固定或保存数值，`analysis.results` 查看数据与审计，
+`analysis.sessions` 建立或恢复上下文。这些入口是选择，不是必经步骤。已知或从 live result 获得的
 public type、error 和 member target 仍可直接查询 focused help。
 
 如果项目已经包含 `marivo.toml` 和 `models/`，直接复用现有语义层。空的新项目只需告诉智能体

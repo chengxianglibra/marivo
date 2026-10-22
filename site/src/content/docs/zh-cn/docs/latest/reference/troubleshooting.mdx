@@ -49,6 +49,21 @@ marivo.help("analysis.analysis_frame")
 
 CLI 使用相同目标：`.venv/bin/python -m marivo help analysis`。已知返回对象时，`marivo.help(type(result))` 查询类型；属性通过字符串 Help 目标查询。
 
+按当前缺少的信息选择入口，各主题不要求依次读取。
+
+| 需要的信息 | Help 目标 |
+| --- | --- |
+| 已有语义输入、成员域或时间 | `analysis.inputs` |
+| 指标观察、成员计数或新来源事实 | `analysis.source` |
+| 构造 Frame 或对当前数据计算 | `analysis.frame` |
+| 完整内存数值或保存结果 | `analysis.execution` |
+| 查看数据、导出或读取保存审计 | `analysis.results` |
+| 创建或恢复确切会话与保存 Frame 身份 | `analysis.sessions` |
+
+已知目标可以直接查询。source 构造捕获显式问题，不读取业务数据；pending Frame 求值仍可能执行已捕获的来源依赖。完成或重开的 Frame 可以继续数据计算，但不会恢复原始来源声明。
+
+编写定义时从 `authoring` 选择 datasource、semantic 或 ontology。datasource 区分连接、来源、检查和语义交接；semantic 区分模型定义、表达式角色、时间、目录查询和校验。精确 API 保留其自身目标，共同前缀不一定是主题页。
+
 执行导入使用 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv`。通过 `mv.session.create` 创建会话，没有顶层 `marivo.session` 别名。
 
 ### 有效求助

@@ -91,7 +91,7 @@ def provider() -> DisclosureProvider:
             "Use available history before each observation endpoint, with no lower bound.",
             "result = mv.all_history()",
             (),
-            "windows",
+            "inputs.time.windows",
         ),
         (
             trailing_duration,
@@ -99,7 +99,7 @@ def provider() -> DisclosureProvider:
             "Use a fixed elapsed duration before each observation endpoint.",
             "from datetime import timedelta\nresult = mv.trailing_duration(duration=timedelta(hours=24))",
             (),
-            "windows",
+            "inputs.time.windows",
         ),
         (
             trailing_periods,
@@ -107,7 +107,7 @@ def provider() -> DisclosureProvider:
             "Use the current calendar period and count minus one preceding periods.",
             "result = mv.trailing_periods(count=7)",
             (),
-            "windows",
+            "inputs.time.windows",
         ),
         (
             since,
@@ -115,7 +115,7 @@ def provider() -> DisclosureProvider:
             "Use an exact fixed start before each observation endpoint.",
             "result = mv.since(start=session.instant('2026-01-01'))",
             ("session",),
-            "windows",
+            "inputs.time.windows",
         ),
         (
             to_date,
@@ -123,7 +123,7 @@ def provider() -> DisclosureProvider:
             "Reset at the civil or semantic period boundary owning each endpoint.",
             "result = mv.to_date(grain=mv.grain('month'))",
             (),
-            "windows",
+            "inputs.time.windows",
         ),
     )
     grouping_inputs = {
@@ -311,7 +311,9 @@ def provider() -> DisclosureProvider:
                 effects="Return a new immutable definition or bounded source-free disclosure.",
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
                 example=ExampleInput(code, method_requires, "result", output),
-                discovery_group="windows" if owner is _Window else "population_tasks",
+                discovery_group=(
+                    None if name == "show" else "source" if name == "count" else "inputs.population"
+                ),
             )
         )
     for value, producers, consumers in (

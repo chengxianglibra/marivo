@@ -5,6 +5,10 @@ description: 使用分析 DSL 查询、筛选、比较和拆分指标。
 
 分析 DSL 使用 `Session` 取得语义定义，通过 `observe`、`read` 和 Frame 方法计算结果。先完成快速开始的数据和模型，再按顺序运行本页。后续片段接在 `analysis.py` 后，或在同一 Python 进程中执行。
 
+继续已有任务时，`marivo.help("analysis")` 按下一步缺少的信息选择入口。`analysis.source` 构造显式观察或请求新来源事实；`analysis.frame` 构造数据或对当前行计算。source 构造保持延迟，Frame 求值仍可能执行 pending 输入已捕获的依赖。完成或重开的数据不会恢复原始语义声明。
+
+已有闭合 Metric 能回答问题时直接复用。业务含义与聚合权限已确定、只缺本次算式、条件、内部样本或窗口时，从 `analysis.inputs` 或 `analysis.source` 进入 `semantic.expressions`。本次局部计算不要求发布同名 Metric；确实缺少可复用含义时才编写定义。来源条件和成员条件使用语义表达式角色；结果筛选使用属于确切 Frame 的布尔 Column。
+
 ## 完整示例与后续输入
 
 保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。导入该文件会重新读取来源并创建新会话。

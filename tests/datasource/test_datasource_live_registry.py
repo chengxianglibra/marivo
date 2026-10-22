@@ -144,11 +144,10 @@ def test_register_discloses_its_model_loading_boundary() -> None:
 
 def test_every_discoverable_capability_belongs_to_one_root_group() -> None:
     groups = (
-        REGISTRY.group("declare_manage"),
-        REGISTRY.group("physical_sources"),
-        REGISTRY.group("inspect_scope"),
-        REGISTRY.group("acquire_project"),
-        REGISTRY.group("diagnostics_boundaries"),
+        REGISTRY.group("connections"),
+        REGISTRY.group("sources"),
+        REGISTRY.group("inspection"),
+        REGISTRY.group("root"),
     )
     grouped_ids = {descriptor.canonical_id for group in groups for descriptor in group}
 

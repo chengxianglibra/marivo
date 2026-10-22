@@ -15,14 +15,6 @@ from marivo.datasource.constraints import CONSTRAINTS
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 
-_ROOT_GROUP_LABELS = {
-    "declare_manage": "Declare and manage",
-    "physical_sources": "Physical sources",
-    "inspect_scope": "Inspect and scope",
-    "acquire_project": "Acquire and project evidence",
-    "diagnostics_boundaries": "Diagnostics and boundaries",
-}
-
 
 def _target_text(target: LiveHelpTarget) -> str:
     surface = target.surface
@@ -83,28 +75,18 @@ def validate_datasource_live_surface() -> None:
         assert all(
             requirement.family in INPUT_FAMILIES for requirement in descriptor.input_requirements
         )
-        assert all(target.surface and target.canonical_id for target in descriptor.see_also)
+        assert all(target.surface for target in descriptor.see_also)
         if descriptor.callable_path is not None:
             callable_obj = import_callable(descriptor.callable_path)
             assert REGISTRY.by_callable(callable_obj) is descriptor
             assert descriptor.minimal_example is not None
             assert "..." not in descriptor.minimal_example
 
-    group_names: tuple[
-        Literal[
-            "declare_manage",
-            "physical_sources",
-            "inspect_scope",
-            "acquire_project",
-            "diagnostics_boundaries",
-        ],
-        ...,
-    ] = (
-        "declare_manage",
-        "physical_sources",
-        "inspect_scope",
-        "acquire_project",
-        "diagnostics_boundaries",
+    group_names: tuple[Literal["connections", "sources", "inspection", "root"], ...] = (
+        "connections",
+        "sources",
+        "inspection",
+        "root",
     )
     group_members = tuple(member for group in group_names for member in REGISTRY.group(group))
     group_ids = tuple(member.canonical_id for member in group_members)
@@ -129,28 +111,18 @@ def validate_datasource_live_surface() -> None:
             REGISTRY.by_canonical_id(target.canonical_id or "").surface == target.surface
             for target in (*contract.producers, *contract.consumers)
         )
-    root_text = "\n".join(
-        (
-            *(
-                "\n".join(
-                    (
-                        _ROOT_GROUP_LABELS[group],
-                        *(
-                            f"{descriptor.canonical_id}: {descriptor.summary}"
-                            for descriptor in REGISTRY.group(group)
-                        ),
-                    )
-                )
-                for group in group_names
-            ),
-            "Consumed types and errors: "
-            + ", ".join(
-                (*tuple(contract.name for contract in TYPE_CONTRACTS.values()), *ERROR_TYPES)
-            ),
-        )
-    )
+    from marivo.datasource._capabilities.render import render_root_help
+
+    root_text = render_root_help()
     assert root_text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
     assert len(root_text) <= SURFACE_LIMITS.root_help_max_codepoints
+    for canonical_id in ("", "connections", "sources", "inspection"):
+        routes = REGISTRY.navigation_routes(canonical_id)
+        assert routes and len(routes) <= 18
+        assert len({route.target for route in routes}) == len(routes)
+        for route in routes:
+            assert route.label and route.summary
+            REGISTRY.by_canonical_id(route.target.canonical_id or "")
     for canonical_id in canonical_ids:
         focused_text = _focused_budget_text(canonical_id)
         assert focused_text.count("\n") + 1 <= SURFACE_LIMITS.focused_help_max_lines

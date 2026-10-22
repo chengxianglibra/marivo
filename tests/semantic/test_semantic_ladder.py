@@ -161,7 +161,7 @@ def test_outside_loader_context_has_project_layout_repair() -> None:
     error = exc_info.value
     assert error.kind == "outside_loader_context"
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "authoring"
+    assert error.repair.help_target.canonical_id == "load"
     assert "models/semantic/<domain>/<module>.py" in (error.repair.snippet or "")
     assert error.repair.preserves_evidence is True
 
@@ -195,7 +195,7 @@ def test_outside_loader_context_has_project_layout_repair() -> None:
                 "sales/broken.py": "raise RuntimeError('broken source')\n",
             },
             "organization_error",
-            "authoring",
+            "load",
             None,
         ),
     ],

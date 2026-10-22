@@ -43,7 +43,7 @@ def render_root_help() -> str:
         "  Optional knowledge context over exact semantic refs:",
     ]
     lines.extend(
-        f"    {descriptor.canonical_id}: {descriptor.summary}"
+        f'    {descriptor.canonical_id}: {descriptor.summary} -> marivo.help("ontology.{descriptor.canonical_id}")'
         for descriptor in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
     )
     lines.extend(

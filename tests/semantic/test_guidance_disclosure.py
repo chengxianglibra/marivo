@@ -82,11 +82,18 @@ def test_definition_read_does_not_prescribe_readiness(
     briefing = capsys.readouterr().out
     assert ".show()" in briefing
     assert "readiness(" not in briefing
-    show_help("semantic.authoring")
-    authoring = capsys.readouterr().out
-    assert "catalog = ms.load()" not in authoring
-    for target in ("semantic.objects", "semantic.builders", "semantic.checks"):
-        assert target in authoring
+    show_help("semantic")
+    navigation = capsys.readouterr().out
+    assert "catalog = ms.load()" not in navigation
+    assert "readiness(" not in navigation
+    for target in (
+        "semantic.model",
+        "semantic.expressions",
+        "semantic.time",
+        "semantic.catalog",
+        "semantic.validation",
+    ):
+        assert f'marivo.help("{target}")' in navigation
     show_help("semantic.metric.define")
     assert "readiness(" not in capsys.readouterr().out
     show_help("semantic.dimension.from_column")

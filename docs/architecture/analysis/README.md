@@ -22,6 +22,39 @@ Semantic definitions start at [the semantic overview](../semantic/overview.md).
 frozen matching. [Public surface](../agent-friendly-public-surface.md) owns Help,
 captured state and structured repair disclosure.
 
+## Task discovery
+
+`marivo.help("analysis")` routes by the information needed next:
+
+| Need | Task target |
+| --- | --- |
+| Governed inputs, question-scoped composition, member domain or time | `analysis.inputs` |
+| Metric observation, member count or new source facts | `analysis.source` |
+| Frame construction or calculations over represented data | `analysis.frame` |
+| Complete memory values or a persisted result | `analysis.execution` |
+| Data inspection, export or saved audit | `analysis.results` |
+| New or recovered Session and exact saved Frame | `analysis.sessions` |
+
+Known targets can be read directly. Source captures explicit governed questions
+without business reads; a literal member count need not depend on a source.
+Frame operations retain the dependencies of pending inputs, so their evaluation
+may still read sources. Completed and reopened Frame operations use fixed data.
+
+Choose the counted domain before selecting a statistic:
+
+| Question | Exact contract | Meaning |
+| --- | --- | --- |
+| How many selected members or coordinate tuples? | `analysis.population.count` | Complete distinct tuples, including selected members without facts; returns a Metric for observe |
+| How many source contributions? | `semantic.entity.count` | Contributions under explicit time and conditions; returns a Metric for observe |
+| How many represented rows? | `analysis.row_count` | Current Frame rows, consumed by reduce or over |
+
+`semantic.expressions` owns question-scoped Metric arithmetic, conditions,
+internal samples and windows over established closed inputs. It is directly
+reachable from inputs and source. Use authoring to establish missing reusable
+business meaning or aggregation authority. Question-scoped composition does not
+require publication. Current row statistics do not reconstruct an original
+Metric aggregation.
+
 ## Construction and data flow
 
 ```text

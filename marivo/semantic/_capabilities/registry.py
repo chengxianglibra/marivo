@@ -624,7 +624,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _relationship("owned_by", "objects.domain", "Every Entity belongs to one Domain."),
                 _relationship(
                     "requires",
-                    "authoring",
+                    "boundary.semantic_authoring",
                     "An Entity requires a registered datasource and source descriptor.",
                     surface="datasource",
                 ),
@@ -1063,57 +1063,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
     )
 
 
-def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
-    """Build supporting-builder families in need-directed teaching order."""
-
-    rows = (
-        (
-            "builders.entity_history",
-            "Entity history",
-            "Describe snapshot or validity-versioned Entity history.",
-            ("snapshot", "validity"),
-        ),
-        (
-            "builders.temporal_parsing",
-            "Temporal parsing",
-            "Parse physical date, datetime, timestamp, or hour-prefix values.",
-            ("timestamp", "strptime", "hour_prefix"),
-        ),
-        (
-            "builders.field_metric_support",
-            "Field and Metric support",
-            "Build Field and Metric parameters, context, anchors, and expressions.",
-            (
-                "additive_all",
-                "additive",
-                "non_additive",
-                "bind",
-            ),
-        ),
-        (
-            "builders.relationship",
-            "Relationship support",
-            "Build governed relationship join keys.",
-            ("join_on",),
-        ),
-        (
-            "builders.governed_temporal",
-            "Governed temporal support",
-            "Build governed calendar grains.",
-            ("calendar_grain",),
-        ),
-    )
-    return tuple(
-        SemanticBuilderTopic(
-            canonical_id=canonical_id,
-            label=label,
-            summary=summary,
-            members=tuple(_target(member) for member in members),
-        )
-        for canonical_id, label, summary, members in rows
-    )
-
-
 def _check_topic() -> SemanticCheckTopic:
     """Build proof/non-proof routing for semantic inspection and checks."""
 
@@ -1134,8 +1083,8 @@ def _check_topic() -> SemanticCheckTopic:
         return LiveHelpTarget(surface="datasource", canonical_id=canonical_id)
 
     return SemanticCheckTopic(
-        canonical_id="checks",
-        summary="Choose inspection, readiness, preview, health, or parity by proof need.",
+        canonical_id="validation",
+        summary="Choose load, readiness, preview, health, or source expectations by proof need.",
         routes=(
             route(
                 "What physical source, schema, columns, and types exist?",
@@ -1145,7 +1094,7 @@ def _check_topic() -> SemanticCheckTopic:
             ),
             route(
                 "Do I need bounded sampled rows or source-specific SQL evidence?",
-                (datasource("authoring"),),
+                (datasource("inspection"), datasource("raw_sql")),
                 "Explicitly scoped or governed physical observations.",
                 "Semantic validity or typed-analysis authority.",
             ),
@@ -1187,72 +1136,285 @@ def _check_topic() -> SemanticCheckTopic:
 
 def _navigation_descriptors(
     object_contracts: tuple[SemanticObjectContract, ...],
-    builder_topics: tuple[SemanticBuilderTopic, ...],
 ) -> tuple[SemanticHelpDescriptor, ...]:
-    """Build the active Slice 3 navigation topology."""
+    """Build the need-directed model, time, catalog, and validation tree."""
+    objects = {contract.semantic_kind.value: contract for contract in object_contracts}
 
-    objects = SemanticNavigationTopic(
-        canonical_id="objects",
-        summary="Browse semantic object kinds, relationships, decisions, and construction modes.",
-        members=tuple(SemanticObjectIndexEntry(contract) for contract in object_contracts),
-        member_heading="Object kinds",
-    )
-    builders = SemanticNavigationTopic(
-        canonical_id="builders",
-        summary="Choose a supporting builder by the parameter or typed-handle problem it solves.",
-        members=(
-            _navigation_route("exact typed semantic identity", _target("ref")),
-            _navigation_route("shared authoring rationale", _target("ai_context")),
-            *(
-                _navigation_route(topic.label, _target(topic.canonical_id), summary=topic.summary)
-                for topic in builder_topics
+    def object_entry(kind: str) -> SemanticObjectIndexEntry:
+        return SemanticObjectIndexEntry(
+            objects[kind],
+            {
+                "domain": "Choose the accountable business namespace before declaring its objects.",
+                "entity": "Choose record grain and identity before mapping the physical source.",
+                "dimension": "Choose categorical or scalar field meaning and its declaration mode.",
+                "time_dimension": "Choose business time meaning and its physical representation.",
+                "measure": "Choose a numeric row quantity and its aggregation permissions.",
+                "metric": "Choose existing Metric composition or a reusable Metric definition.",
+                "relationship": "Choose directed endpoints, cardinality, and complete join keys.",
+                "period_calendar": "Choose a reusable definition of business period boundaries.",
+                "temporal_set": "Choose a reusable definition of event occurrence boundaries.",
+            }[kind],
+        )
+
+    def route(
+        label: str, target: str, summary: str, *, owns: bool = True
+    ) -> SemanticNavigationRoute:
+        return _navigation_route(label, _target(target), summary=summary, owns_discovery=owns)
+
+    return (
+        SemanticNavigationTopic(
+            "model",
+            "Choose the missing reusable business definition or its supporting parameter.",
+            (
+                route(
+                    "identity and history",
+                    "model.identity",
+                    "Define a Domain or Entity and its history model.",
+                ),
+                route(
+                    "fields and row quantities",
+                    "model.fields",
+                    "Define a Dimension, TimeDimension, or Measure.",
+                ),
+                route(
+                    "directed relationships",
+                    "model.relationships",
+                    "Declare a relationship and complete join keys.",
+                ),
+                object_entry("metric"),
+                route(
+                    "publish a reusable Metric",
+                    "metric",
+                    "Declare reusable aggregation meaning and permissions.",
+                    owns=False,
+                ),
+                route(
+                    "definition rationale",
+                    "ai_context",
+                    "Supply business meaning and guardrails for a definition.",
+                ),
             ),
         ),
-    )
-    checks = _check_topic()
-    authoring = SemanticNavigationTopic(
-        canonical_id="authoring",
-        summary="Choose semantic objects, supporting builders, checks, or current catalog access.",
-        members=(
-            _navigation_route("object meaning and construction", _target("objects")),
-            _navigation_route("compose row and Metric expressions", _target("expressions")),
-            _navigation_route("supporting parameter or handle", _target("builders")),
-            _navigation_route("inspection or proof need", _target("checks")),
-            _navigation_route("load current project", _target("load"), owns_discovery=False),
-            _navigation_route(
-                "current catalog contract",
-                _target("SemanticCatalog"),
-                owns_discovery=False,
-            ),
-            _navigation_route(
-                "optional non-executable context",
-                LiveHelpTarget(surface="ontology", canonical_id="authoring"),
-                owns_discovery=False,
+        SemanticNavigationTopic(
+            "model.identity",
+            "Choose a business namespace, record identity, and supported history model.",
+            (
+                object_entry("domain"),
+                object_entry("entity"),
+                route(
+                    "define Domain",
+                    "domain",
+                    "Declare an accountable business namespace.",
+                    owns=False,
+                ),
+                route(
+                    "define Entity",
+                    "entity",
+                    "Declare the record grain, primary key, and source.",
+                    owns=False,
+                ),
+                route("snapshot history", "snapshot", "Select snapshot-versioned Entity history."),
+                route("validity history", "validity", "Select validity-interval Entity history."),
             ),
         ),
-        member_heading="Route by current question",
+        SemanticNavigationTopic(
+            "model.fields",
+            "Choose governed field meaning and its declaration mode; only Measures carry aggregation permission. bind is restricted to Ibis Dimension/TimeDimension declarations.",
+            (
+                object_entry("dimension"),
+                object_entry("time_dimension"),
+                object_entry("measure"),
+                *(
+                    route(label, target, summary, owns=False)
+                    for label, target, summary in (
+                        (
+                            "define Dimension",
+                            "dimension",
+                            "Compute a governed categorical or scalar field.",
+                        ),
+                        (
+                            "Dimension column",
+                            "dimension_column",
+                            "Map an existing physical field directly.",
+                        ),
+                        (
+                            "define TimeDimension",
+                            "time_dimension",
+                            "Compute a governed business time field.",
+                        ),
+                        (
+                            "TimeDimension column",
+                            "time_dimension_column",
+                            "Map a physical time field directly.",
+                        ),
+                        ("define Measure", "measure", "Compute a governed numeric row quantity."),
+                        (
+                            "Measure column",
+                            "measure_column",
+                            "Map a physical numeric quantity directly.",
+                        ),
+                    )
+                ),
+                route(
+                    "fully additive Measure",
+                    "additive_all",
+                    "Declare permitted aggregation axes and explicit exceptions.",
+                ),
+                route(
+                    "selected additive axes",
+                    "additive",
+                    "Restrict a Measure's aggregation permission to selected axes.",
+                ),
+                route(
+                    "non-additive Measure",
+                    "non_additive",
+                    "Keep aggregation unavailable without an explicit allowed reduction.",
+                ),
+                route(
+                    "restricted field binding",
+                    "bind",
+                    "Bind a leaf field inside a retained Ibis field declaration.",
+                ),
+            ),
+        ),
+        SemanticNavigationTopic(
+            "model.relationships",
+            "Choose a directed relationship with complete keys; source matches do not decide business cardinality.",
+            (
+                object_entry("relationship"),
+                route(
+                    "define Relationship",
+                    "relationship",
+                    "Declare directed endpoints and governed cardinality.",
+                    owns=False,
+                ),
+                route(
+                    "complete join keys",
+                    "join_on",
+                    "Pair the ordered source and target key fields.",
+                ),
+            ),
+        ),
+        SemanticNavigationTopic(
+            "time",
+            "Distinguish physical time parsing from reusable certified calendar and event definitions.",
+            (
+                route(
+                    "physical time encoding",
+                    "time.parsing",
+                    "Parse timestamps, formatted values, or hour prefixes.",
+                ),
+                route(
+                    "business calendars and events",
+                    "time.calendars",
+                    "Define reusable period calendars and temporal sets.",
+                ),
+            ),
+        ),
+        SemanticNavigationTopic(
+            "time.parsing",
+            "Choose the physical time encoding used by a TimeDimension declaration.",
+            tuple(
+                route(label, target, summary)
+                for label, target, summary in (
+                    (
+                        "timestamp value",
+                        "timestamp",
+                        "Interpret a physical timestamp with explicit temporal meaning.",
+                    ),
+                    (
+                        "formatted value",
+                        "strptime",
+                        "Parse a physical value using an explicit format.",
+                    ),
+                    ("hour prefix", "hour_prefix", "Parse supported hour-prefix source values."),
+                )
+            ),
+        ),
+        SemanticNavigationTopic(
+            "time.calendars",
+            "Define a governed period calendar or event set. Preview can certify these definitions; analysis uses the resulting certified periods or occurrences.",
+            (
+                object_entry("period_calendar"),
+                object_entry("temporal_set"),
+                route(
+                    "define period calendar",
+                    "period_calendar",
+                    "Declare reusable business period boundaries.",
+                    owns=False,
+                ),
+                route(
+                    "define temporal set",
+                    "temporal_set",
+                    "Declare reusable event occurrence boundaries.",
+                    owns=False,
+                ),
+                route(
+                    "calendar level", "calendar_grain", "Build a named level in a period calendar."
+                ),
+                _navigation_route(
+                    "use existing certified periods or events",
+                    LiveHelpTarget(surface="analysis", canonical_id="inputs.time.calendars"),
+                    summary="Choose periods or occurrences for an analysis question.",
+                    owns_discovery=False,
+                ),
+            ),
+        ),
+        SemanticNavigationTopic(
+            "catalog",
+            "Use closed Catalog values for analysis. Declaration lookup symbols capture a recipe and remain distinct from closed analysis inputs.",
+            (
+                route(
+                    "select a closed value",
+                    "CatalogCollection.get",
+                    "Retrieve a value by its exact path or unique collection-local name.",
+                ),
+                route(
+                    "explain a definition",
+                    "SemanticCatalog.describe",
+                    "Inspect captured meaning and dependencies without source reads.",
+                ),
+                route(
+                    "declaration lookup kind",
+                    "ref",
+                    "Choose a typed lookup symbol when authoring a declaration or parameter.",
+                ),
+                route(
+                    "current catalog contract",
+                    "SemanticCatalog",
+                    "Inspect available collections and current Catalog methods.",
+                    owns=False,
+                ),
+            ),
+        ),
+        _check_topic(),
+        *object_contracts,
     )
-    return (authoring, objects, builders, checks, *builder_topics, *object_contracts)
 
 
 def _root_sections() -> tuple[SemanticRootSection, ...]:
-    """Build compact semantic root sections without renderer-owned membership."""
-
+    """Keep the semantic root to five explicit information needs."""
     return (
         SemanticRootSection(
-            section_id="start",
-            label="Start",
-            members=(_target("authoring"), _target("load")),
-        ),
-        SemanticRootSection(
-            section_id="discover_authoring",
-            label="Discover authoring contracts",
-            members=(_target("objects"), _target("builders"), _target("checks")),
-        ),
-        SemanticRootSection(
-            section_id="current_catalog",
-            label="Current catalog",
-            members=(_target("SemanticCatalog"), _target("CatalogEntry")),
+            section_id="tasks",
+            label="Choose by current semantic question",
+            members=tuple(
+                _target(target)
+                for target in (
+                    "model",
+                    "expressions",
+                    "time",
+                    "catalog",
+                    "validation",
+                )
+            ),
+            route_summaries=(
+                "Define reusable identity, fields, Metrics, and relationships.",
+                "Compose closed inputs for this question or expressions for a declaration.",
+                "Parse physical time or define business calendars and events.",
+                "Retrieve closed values, inspect definitions, or capture declaration lookups.",
+                "Choose load, readiness, preview, health, or a declared source expectation.",
+            ),
         ),
     )
 
@@ -1264,7 +1426,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="outside_loader_context",
             kind="reauthor",
-            help_target=_target("authoring"),
+            help_target=_target("load"),
             action=(
                 "Move physical declarations into a semantic model loaded through "
                 "ms.load(); compose native symbols directly and retrieve closed inputs from the Catalog."
@@ -1382,7 +1544,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="invalid_project",
             kind="configure",
-            help_target=_target("authoring"),
+            help_target=_target("load"),
             action=(
                 "Point ms.load(workspace_dir=...) at the intended project root and repair "
                 "any explicit invalid configuration or authored model files. Missing "
@@ -1448,7 +1610,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="organization_error",
             kind="reauthor",
-            help_target=_target("authoring"),
+            help_target=_target("load"),
             action=(
                 "Read the original exception and traceback when present, repair the failing "
                 "declaration or import, then restart Python and reload the catalog."
@@ -1476,8 +1638,6 @@ def _render_class_for_descriptor(
         if descriptor.canonical_id in {"ref", "source_check"}:
             return "navigation"
         return "exact_contract"
-    if isinstance(descriptor, SemanticNavigationTopic) and descriptor.canonical_id == "authoring":
-        return "decision_hub"
     return "navigation"
 
 
@@ -1573,15 +1733,6 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
                 raise ValueError(
                     f"semantic navigation descriptor is incomplete: {descriptor.canonical_id}"
                 )
-            object_entries = tuple(
-                member
-                for member in descriptor.members
-                if isinstance(member, SemanticObjectIndexEntry)
-            )
-            if object_entries and len(object_entries) != len(descriptor.members):
-                raise ValueError(
-                    f"semantic object-index members must not be mixed: {descriptor.canonical_id}"
-                )
             for member in descriptor.members:
                 if not member.label.strip() or (
                     member.summary is not None and not member.summary.strip()
@@ -1591,11 +1742,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
                     )
 
     exact_ids = {descriptor.canonical_id for descriptor in exact_descriptors}
-    expected_root_sections: tuple[SemanticRootGroup, ...] = (
-        "start",
-        "discover_authoring",
-        "current_catalog",
-    )
+    expected_root_sections: tuple[SemanticRootGroup, ...] = ("tasks",)
     if tuple(section.section_id for section in registry.root_sections) != expected_root_sections:
         raise ValueError("semantic root sections must use the reviewed compact topology")
     root_routes = tuple(target for section in registry.root_sections for target in section.members)
@@ -1638,6 +1785,10 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             raise ValueError(f"semantic root section is incomplete: {section.section_id}")
         for target in section.members:
             validate_target(target, owner=f"root.{section.section_id}")
+        if len(section.route_summaries) != len(section.members) or any(
+            not summary.strip() for summary in section.route_summaries
+        ):
+            raise ValueError(f"semantic root decisions are incomplete: {section.section_id}")
 
     for error_kind, repair_contract in registry._repair_contracts.items():
         if error_kind != repair_contract.error_kind or not error_kind.strip():
@@ -1650,10 +1801,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             continue
         validate_target(target, owner=f"repair.{error_kind}")
         descriptor = registry.by_canonical_id(target_id)
-        if not (
-            target_id == "authoring"
-            or isinstance(descriptor, (AuthoringCapability, SemanticObjectContract))
-        ):
+        if not isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
             raise ValueError(f"semantic repair target is over-broad: {error_kind}")
 
     object_contracts = registry.object_contracts
@@ -1664,10 +1812,9 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         for member in descriptor.members
         if isinstance(member, SemanticObjectIndexEntry)
     )
-    if len(object_index_entries) != len(object_contracts) or any(
-        entry.contract is not contract
-        for entry, contract in zip(object_index_entries, object_contracts, strict=True)
-    ):
+    if len(object_index_entries) != len(object_contracts) or {
+        id(entry.contract) for entry in object_index_entries
+    } != {id(contract) for contract in object_contracts}:
         raise ValueError("semantic object index must embed the registered object contracts")
     expected_object_kinds = set(SemanticKind) - {SemanticKind.DATASOURCE}
     object_kinds = tuple(contract.semantic_kind for contract in object_contracts)
@@ -1846,8 +1993,13 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         for descriptor in help_descriptors
         if not isinstance(descriptor, AuthoringCapability)
     }
-    distances = {"authoring": 0}
-    pending = deque(("authoring",))
+    distances = {
+        target.canonical_id: 1
+        for section in registry.root_sections
+        for target in section.members
+        if target.canonical_id is not None
+    }
+    pending = deque(distances)
     while pending:
         current = pending.popleft()
         for target in registry.routes(current):
@@ -1869,7 +2021,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         canonical_id for canonical_id in required_graph_ids if distances[canonical_id] > 3
     )
     if too_deep:
-        raise ValueError("semantic Help graph exceeds four global edges: " + ", ".join(too_deep))
+        raise ValueError("semantic Help graph exceeds four surface reads: " + ", ".join(too_deep))
 
 
 def _canonical_link(target: LiveHelpTarget) -> LiveHelpTarget:
@@ -3271,7 +3423,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
         *_result_method_capabilities(),
     )
     object_contracts = _object_contracts()
-    builder_topics = _builder_topics()
     return _finalize_registry(
         descriptor_rows,
         root_sections=_root_sections(),
@@ -3283,12 +3434,22 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 SemanticBuilderTopic(
                     canonical_id=f"expressions.{prefix}",
                     label=prefix,
-                    summary="Choose the operation on this constructed receiver; focused Help owns its exact signature.",
+                    summary=(
+                        "Use row arithmetic within one contribution root, then reduce before Metric arithmetic. Numeric Dimensions do not gain aggregation permission. "
+                        "Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. "
+                        "Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); "
+                        "untyped Decimal literals bind their own digits/exponent. Convergence uses ties away from zero. "
+                        "SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. "
+                        "Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved values retain committed types."
+                        if prefix == "row"
+                        else "Choose an operation on the constructed receiver. Internal Metric samples must finish with a reducer before observation."
+                    ),
                     members=tuple(
                         _target(row.canonical_id)
                         for row in descriptor_rows
                         if row.canonical_id.startswith(prefix + ".")
-                    ),
+                    )
+                    + ((_target("Entity.count"),) if prefix == "row" else ()),
                 )
                 for prefix in ("row", "Metric", "MetricSamples")
             ),
@@ -3296,7 +3457,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 canonical_id="field",
                 summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Compose native field symbols directly; the loader binds their complete dependency scope before Catalog publication. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
                 members=(
-                    _navigation_route("source boolean conditions", _target("predicate")),
+                    _navigation_route(
+                        "source boolean conditions", _target("predicate"), owns_discovery=False
+                    ),
                     _navigation_route(
                         "Dimension definition", _target("objects.dimension"), owns_discovery=False
                     ),
@@ -3369,22 +3532,72 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="expressions",
-                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Native lookup symbols compose before loading; Analysis requires closed Catalog values. Local declarations do not publish Catalog Metrics or execute queries. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); untyped Decimal literals bind their own digits/exponent. Result convergence uses ties away from zero. SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved results keep committed types and values without new rounding.",
-                members=tuple(
-                    _navigation_route(label, _target(target))
-                    for label, target in (
-                        ("inspect Entity/Relationship metadata", "Entity.show"),
-                        ("inspect published expression definitions", "SemanticCatalog.describe"),
-                        ("numeric source reductions", "expressions.row"),
-                        ("complete row counts", "Entity.count"),
-                        ("sample reductions", "expressions.MetricSamples"),
-                        ("Metric operations", "expressions.Metric"),
-                        ("scalar field operations", "field"),
-                        ("half-open time predicates", "TimeField.within"),
-                    )
+                summary=(
+                    "For analysis, compose closed Catalog fields and Metrics using their governed meaning and aggregation permissions; "
+                    "a question-scoped expression does not require authoring or publishing a Metric. For example, with closed compatible "
+                    "revenue and order_count, session.observe({'average_order_value': revenue / order_count}) captures the question. "
+                    "For reusable declarations, native lookup symbols compose before loading and the loader closes the complete dependency scope; "
+                    "bare lookup symbols are not analysis inputs. Choose the expression role before an operation. "
+                    "Row arithmetic stays within one contribution root; reduce before Metric arithmetic. per creates internal samples that must be reduced. "
+                    "where, per, and window keep their receiver constraints; a compound Metric is not automatically filterable."
+                ),
+                members=(
+                    _navigation_route(
+                        "scalar fields",
+                        _target("field"),
+                        summary="Compare or navigate a governed Dimension, TimeField, or Measure.",
+                    ),
+                    _navigation_route(
+                        "source conditions",
+                        _target("predicate"),
+                        summary="Combine field and Population membership conditions on their receiving domain.",
+                    ),
+                    _navigation_route(
+                        "row quantities",
+                        _target("expressions.row"),
+                        summary="Compute within one contribution root and reduce source contributions.",
+                    ),
+                    _navigation_route(
+                        "Metric values",
+                        _target("expressions.Metric"),
+                        summary="Compose existing reduced values; publishing a new Metric is optional.",
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "internal samples",
+                        _target("expressions.MetricSamples"),
+                        summary="Reduce a Metric's per-sample values to a Metric.",
+                    ),
+                    _navigation_route(
+                        "filter contributions",
+                        _target("Metric.where"),
+                        summary="Filter an eligible source Metric before reduction.",
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "choose internal samples",
+                        _target("Metric.per"),
+                        summary="Choose the internal sample domain before a reducer.",
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "choose a window",
+                        _target("Metric.window"),
+                        summary="Attach an explicit Metric observation window.",
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "inspect Entity/Relationship metadata", _target("Entity.show")
+                    ),
+                    _navigation_route(
+                        "inspect captured expression facts",
+                        _target("Entity.contract"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route("half-open time predicates", _target("TimeField.within")),
                 ),
             ),
-            *_navigation_descriptors(object_contracts, builder_topics),
+            *_navigation_descriptors(object_contracts),
         ),
         object_contracts=object_contracts,
     )

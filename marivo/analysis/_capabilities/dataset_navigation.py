@@ -11,121 +11,303 @@ from marivo.analysis._capabilities.dataset_model import (
     invalid,
 )
 
-# This registry owns group meaning and parentage. Capability membership is
-# declared by each native provider, never inferred from descriptor ordering.
-_GROUPS = (
-    (
-        "artifacts.reads",
-        "artifacts",
-        "Read fixed Frame data and the saved Finding/Evidence audit collection.",
-    ),
-    (
-        "inputs.population",
-        "inputs",
-        "Construct complete coordinate domains and explicit membership allocation.",
-    ),
-    (
-        "population_tasks",
-        "inputs.population",
-        "Project, combine, filter and map captured coordinate domains.",
-    ),
-    ("windows", "inputs.time", "Attach an explicit endpoint window rule to a Metric."),
-    ("inputs.time", "inputs", "Choose observation windows, grains and comparison alignment."),
-    (
-        "methods.metric",
-        "methods",
-        "Observe source Metrics at an explicitly chosen grain and scope.",
-    ),
-    (
-        "methods.metric.summary",
-        "methods",
-        "Compute current-row statistics with independent NA masks.",
-    ),
-    ("methods.compare", "methods", "Align complete endpoints and compare numeric values."),
-    (
-        "methods.attribute",
-        "methods",
-        "Investigate explicit source endpoints by joint groups; optionally request exact contribution.",
-    ),
-    ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
-    ("methods.rows.expressions", "methods.rows", "Compose nullable pointwise result expressions."),
-    ("runtime.sessions", "runtime", "Find, inspect or activate an existing Session."),
-    ("session.namespace", "runtime.sessions", "Create, resume or inspect project-local Sessions."),
-    ("runtime.values", "runtime", "Render a retained Runtime or Evidence value."),
-)
-
-_HUBS = (
-    NavigationInput(
-        "entry",
-        "Start or resume governed analysis.",
-        (),
-        "decision_hub",
-        guidance=(
-            "Construct a Frame with session.observe/read/values/frame. compute() returns fixed memory; persist() returns a committed Frame. Continue from the returned Frame for data; .artifact reads its saved audit.",
-            "Finite domains: session.members(resolved Entity), coordinates; session.frame(population) captures complete keys without requiring attributes.",
-            "Known inputs: retain exact refs and scope. Population/Frame: show() reports captured facts; exact type Help owns method discovery.",
-            "Existing work: resume the Session; recovery does not replay sources.",
-        ),
-        related=("session.create", "session.resume", "catalog", "session.observe"),
-    ),
-    NavigationInput(
-        "methods",
-        "Choose an analytical intent.",
-        (),
-        "decision_hub",
-        guidance=(
-            "Frame: inspect captured facts with show(), then use exact type Help for current-data operations. Source Metric questions require explicit observe/read/attribute construction.",
-        ),
-    ),
+# Each provider owns primary capability membership. These pages own task choices,
+# short decision summaries and secondary links; they do not duplicate API facts.
+_PAGES = (
     NavigationInput(
         "inputs",
-        "Find missing governed inputs or scope.",
+        "Find or compose governed inputs; choose population and time.",
         (),
         "decision_hub",
         guidance=(
-            "Use mv.* for explicit descriptions/composition, session.* to introduce Catalog, Store, execution ownership or frozen default timezone, and receiver methods/properties for existing context. Exported types do not authorize direct construction.",
+            "Known closed inputs can be composed for this question without publishing a new Metric. Retain their business meaning, aggregation permission, grain, time and units.",
+            "Use session context for Catalog access and frozen timezone; exported types do not authorize direct construction.",
+        ),
+        related=("semantic.expressions",),
+        route_summaries=(
+            ("semantic.expressions", "Compose existing closed inputs for this question."),
         ),
     ),
     NavigationInput(
-        "artifacts",
-        "Read result types and retained state.",
+        "inputs.population",
+        "Construct, select or map complete member and coordinate domains.",
         (),
-        "decision_hub",
-        related=("Artifact",),
+        guidance=(
+            "Construction and member conditions: members, identity, coordinates, membership, product and in_population.",
+            "Set projection: project, union, intersection, difference and where preserve explicit domain meaning.",
+            "Mapping and classification: image/preimage follow declared relationships; classify can introduce source attribute dependencies.",
+            "Fixed-key bridge: population_from explicitly binds selected complete ordinary Frame keys for a new source question.",
+            "Population.count counts complete distinct tuples, including members without facts, and returns a Metric for observe. It is not the current Frame row count.",
+        ),
+        related=("population.count", "semantic.predicate"),
+        discovery_group="inputs",
+        route_summaries=(
+            (
+                "session.members",
+                "Select source Entity identities with explicit conditions and anchor.",
+            ),
+            ("identity", "Describe complete Entity identity coordinates."),
+            ("coordinates", "Supply finite complete coordinate tuples."),
+            ("membership", "Choose correlated member fields and directed allocation paths."),
+            ("product", "Combine disjoint complete coordinate domains."),
+            ("in_population", "Build a complete-tuple membership condition."),
+            ("population.project", "Select and reorder existing axes."),
+            ("population.union", "Keep tuples from either matching domain."),
+            ("population.intersection", "Keep tuples shared by matching domains."),
+            ("population.difference", "Remove tuples present in another domain."),
+            ("population.where", "Filter existing tuples by membership conditions."),
+            ("population.image", "Map identities forward along declared relationships."),
+            ("population.preimage", "Select identities reaching chosen target identities."),
+            ("population.classify", "Add same-Entity fields to one identity domain."),
+            (
+                "session.population_from",
+                "Bind selected fixed Frame keys to explicit semantic targets.",
+            ),
+            ("population.count", "Count complete domain tuples, including members without facts."),
+            ("semantic.predicate", "Choose valid source and membership condition syntax."),
+        ),
     ),
     NavigationInput(
-        "evidence",
-        "Read Evidence and its limitations.",
+        "inputs.time",
+        "Choose time anchors, observation intervals, output buckets or endpoint correspondence.",
         (),
-        "decision_hub",
         guidance=(
-            "Start with saved.artifact.show() and saved.artifact.evidence_digest(); .items contains all saved Evidence. Use saved.artifact.findings() for paged outputs.",
-            "Recovery trusts committed local Evidence; it does not establish current semantic authority or source freshness.",
+            "An instant selects an exact anchor; TimeScope selects an observation interval; scope.by(grain) supplies output buckets. Endpoint correspondence is a separate choice.",
+        ),
+        discovery_group="inputs",
+        route_summaries=(
+            ("session.instant", "Freeze an exact time anchor."),
+            ("session.time_scope", "Choose a half-open observation interval."),
+            ("grain.define", "Choose a built-in bucket unit and count."),
+            ("time_scope.by", "Turn an interval into output calendar buckets."),
+            ("calendar_axis.shift", "Construct a frozen shifted endpoint relation."),
+            ("offset", "Match endpoints by civil year or nominal period offset."),
+            ("ordinal", "Match complete compatible endpoint calendars by position."),
+        ),
+    ),
+    NavigationInput(
+        "inputs.time.windows",
+        "Choose the source history seen at each Metric observation endpoint.",
+        (),
+        guidance=(
+            "A Metric window controls source history; it does not replace output time coordinates.",
+        ),
+        discovery_group="inputs.time",
+        route_summaries=(
+            ("all_history", "Use all available history before each endpoint."),
+            ("since", "Use history after one exact start."),
+            ("to_date", "Reset history at the owning period boundary."),
+            ("trailing_duration", "Use a fixed elapsed duration."),
+            ("trailing_periods", "Use the current and preceding calendar periods."),
+        ),
+    ),
+    NavigationInput(
+        "source",
+        "Form Metric observations or request source facts.",
+        (),
+        guidance=(
+            "Existing closed Metric: observe it. Existing business meaning and aggregation permission: compose this question's arithmetic, conditions, samples or windows through semantic.expressions; no new published Metric is required.",
+            "Missing field meaning or aggregation permission: use authoring. A missing same-named published Metric alone does not require authoring.",
+            "Choose what to count: complete Population tuples -> population.count; Entity source contributions -> semantic.entity.count; current Frame rows including value NA -> row_count with reduce/over.",
+            "Population and Entity counts return Metrics for observe. Population domains include members without facts; source conditions/windows do not reselect that domain.",
+            "Construction captures dependencies without business reads; evaluating a pending Frame may execute them. Literal Population counts need no source read.",
+            "attribute needs retained executable source declarations. Independently reopened Frames do not recover declarations from names, saved values or method facts.",
         ),
         related=(
-            "ArtifactDigest",
-            "Artifact.show",
-            "Artifact.evidence_digest",
-            "Artifact.findings",
+            "semantic.expressions",
+            "semantic.predicate",
+            "semantic.entity.count",
+            "row_count",
+            "session.population_from",
+            "inputs",
+            "execution",
+            "authoring",
+        ),
+        route_summaries=(
+            ("session.observe", "Observe named Metrics on an explicit output domain."),
+            ("session.read", "Read scalar source attributes for complete selected identities."),
+            (
+                "analysis_frame.attribute",
+                "Investigate admitted retained source targets by business classifications.",
+            ),
+            ("population.count", "Count complete Population tuples as a Metric."),
+            ("semantic.expressions", "Compose closed semantic inputs for this question."),
+            (
+                "semantic.predicate",
+                "Build source or membership conditions with the owning grammar.",
+            ),
+            ("semantic.entity.count", "Count Entity source contributions as a Metric."),
+            ("row_count", "Count current Frame rows with reduce or over."),
+            (
+                "session.population_from",
+                "Use selected fixed keys in an explicit new source question.",
+            ),
+            ("authoring", "Define missing business meaning or aggregation permission."),
         ),
     ),
     NavigationInput(
-        "runtime",
-        "Recover and audit committed work.",
+        "frame",
+        "Calculate over current data or compose a Frame.",
         (),
         "decision_hub",
         guidance=(
-            "Cold recovery: retain the Session and Artifact IDs, resume the Session, then session.persisted_frame(id) for exact committed data; .artifact is audit. Older Store generations require a compatible environment or prior export; old bytes are not migrated.",
-            "Recovery does not execute origin queries. If the return reference was lost, explicitly resubmit; this may create duplicate saved outputs or read changed source data.",
+            "Known finite literal values: values. Captured complete Population keys: frame. Existing Frame: choose expressions, rows, comparison or statistics.",
+            "Fixed or reopened Frame operations use captured data without restoring source authority. Evaluating operations on pending Frames may execute their existing source dependencies.",
+        ),
+        route_summaries=(
+            ("session.values", "Construct from finite literal values with declared units."),
+            ("session.frame", "Construct from a complete Population key domain."),
+        ),
+    ),
+    NavigationInput(
+        "frame.expressions",
+        "Locate values and coordinates, then compose expressions on the same input.",
+        (),
+        guidance=(
+            "Choose a value Column, scalar coordinate Column or complete axis before writing an expression. Column arithmetic and boolean operators retain the exact Frame input.",
+        ),
+        related=("Column",),
+        discovery_group="frame",
+        route_summaries=(
+            ("analysis_frame.__getitem__", "Select an existing named value Column."),
+            ("analysis_frame.coord", "Select a single-component scalar coordinate Column."),
+            ("analysis_frame.axis", "Locate one complete current axis."),
+            ("analysis_frame.select", "Keep named same-input expressions as result values."),
+            ("column.is_null", "Test value NA in a same-input boolean expression."),
+            ("Column", "Read same-input Column syntax and exact operator contracts."),
+        ),
+    ),
+    NavigationInput(
+        "frame.rows",
+        "Retain rows by a condition or take a ranked prefix.",
+        (),
+        guidance=(
+            "A display limit does not transform data; use where or top to change the represented rows.",
+        ),
+        discovery_group="frame",
+        route_summaries=(
+            ("analysis_frame.where", "Keep rows whose same-input condition is True."),
+            ("analysis_frame.top", "Sort by a score and retain a bounded prefix."),
+        ),
+    ),
+    NavigationInput(
+        "frame.compare",
+        "Align explicit endpoints or calculate their changes.",
+        (),
+        guidance=(
+            "Keep both endpoint values and presence with align; request absolute and relative changes with compare. Matching positions alone do not establish time identity.",
+        ),
+        related=("inputs.time",),
+        discovery_group="frame",
+        route_summaries=(
+            ("analysis_frame.align", "Retain both endpoints and their presence."),
+            ("analysis_frame.compare", "Add baseline values, absolute change and relative change."),
+            ("inputs.time", "Choose explicit time identity and calendar correspondence."),
+        ),
+    ),
+    NavigationInput(
+        "frame.statistics",
+        "Choose statistics over the rows represented by this Frame.",
+        (),
+        guidance=(
+            "reduce collapses rows; over preserves rows and broadcasts group statistics. correlate returns coefficient and valid-pair count together; share normalizes a partition.",
+            "Choose what to count: complete Population tuples -> population.count; Entity source contributions -> semantic.entity.count; current Frame rows including value NA -> row_count.",
+            "Population and Entity counts return Metrics for observe. row_count is a statistic for reduce/over. Current-row statistics do not reconstruct original Metric aggregation or complete membership.",
+        ),
+        related=("population.count", "semantic.entity.count", "source"),
+        discovery_group="frame",
+        route_summaries=(
+            ("analysis_frame.reduce", "Collapse rows by complete selected axes."),
+            ("analysis_frame.over", "Keep rows and broadcast partition statistics."),
+            ("analysis_frame.correlate", "Return correlation and its valid-pair count together."),
+            ("column.share", "Calculate each value's share of its partition total."),
+            ("column.sum", "Build a current-value sum request."),
+            ("column.mean", "Build a current-value mean request."),
+            ("column.corr", "Build an explicit paired correlation request."),
+            ("column.pair_count", "Build an explicit valid-pair count request."),
+            ("row_count", "Count all current Frame rows, including value NA."),
+            ("population.count", "Count complete domain tuples as a Metric."),
+            ("semantic.entity.count", "Count Entity source contributions as a Metric."),
+            ("source", "Ask a new source question when current rows are insufficient."),
+        ),
+    ),
+    NavigationInput(
+        "execution",
+        "Fix values in memory or persist a result.",
+        (),
+        "decision_hub",
+        guidance=(
+            "Continue with the returned Frame. compute fixes complete data in memory; persist saves a committed Frame whose Artifact is audit.",
+        ),
+        route_summaries=(
+            ("analysis_frame.compute", "Obtain complete fixed memory data."),
+            ("analysis_frame.persist", "Save a result for exact cross-process recovery."),
+        ),
+    ),
+    NavigationInput(
+        "results",
+        "Inspect captured facts, export fixed data or read saved evidence.",
+        (),
+        "decision_hub",
+    ),
+    NavigationInput(
+        "results.inspect",
+        "Inspect Frame facts or export complete fixed values.",
+        (),
+        guidance=(
+            "Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; to_pandas exports the complete fixed Frame. Other objects expose show/render through their type Help.",
+        ),
+        discovery_group="results",
+        route_summaries=(
+            ("analysis_frame.show", "Inspect captured facts or a bounded fixed-data prefix."),
+            ("analysis_frame.to_pandas", "Export complete fixed data as an isolated DataFrame."),
+        ),
+    ),
+    NavigationInput(
+        "results.evidence",
+        "Read saved Artifact audit or original Frame method facts.",
+        (),
+        guidance=(
+            "A saved Frame's .artifact provides committed audit; Frame.method_facts exposes original method facts. These facts do not establish a causal conclusion or current source freshness.",
+            "An unsaved result needs persist only when a saved Artifact is required; inspecting current Frame facts does not require saving.",
+        ),
+        related=("analysis_frame.method_facts", "FrameMethodFacts", "analysis_frame.persist"),
+        discovery_group="results",
+        route_summaries=(
+            ("artifact.show", "Inspect saved submission identity and audit summaries."),
+            ("artifact.findings", "Read a bounded page of saved Findings."),
+            ("artifact.evidence_digest", "Read saved Evidence facts and collection digests."),
+            ("analysis_frame.method_facts", "Access captured original method facts on this Frame."),
+            ("FrameMethodFacts", "Understand original method facts and their limits."),
+            ("analysis_frame.persist", "Save current results when a committed Artifact is needed."),
+        ),
+    ),
+    NavigationInput(
+        "sessions",
+        "Create or recover the exact working context.",
+        (),
+        guidance=(
+            "Create a new Session, discover retained IDs, inspect metadata or resume an exact existing ID. Resume does not replay source observations.",
+            "Reopen exact committed data with persisted_frame(id); its Artifact is audit. Continue fixed-data operations through frame, or explicitly ask source for new facts.",
+            "Older Store generations require a compatible environment or prior export; recovery does not migrate them. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
+        ),
+        related=("frame", "source"),
+        route_summaries=(
+            ("session.create", "Create a uniquely named Session with frozen scope and timezone."),
+            ("session.recent", "Discover retained Session IDs."),
+            ("session.inspect", "Inspect an existing Session's metadata."),
+            ("session.resume", "Recover one exact existing Session ID."),
+            ("session.persisted_frame", "Reopen one exact committed Frame in this Session."),
+            ("frame", "Continue calculations on recovered fixed data."),
+            ("source", "Request explicit new source facts after recovery."),
         ),
     ),
 )
 
 
 def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInput, ...]:
-    """Assemble owner-declared discovery groups without paging a type inventory."""
-    buckets: dict[str, list[str]] = {hub.canonical_id: [] for hub in _HUBS}
-    buckets.update((target, []) for target, _, _ in _GROUPS)
+    """Assemble owner-declared task membership, excluding type-only members."""
+    buckets: dict[str, list[str]] = {page.canonical_id: [] for page in _PAGES}
     nested = {
         member
         for provider in providers
@@ -133,45 +315,31 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
         if isinstance(descriptor, NavigationInput)
         for member in descriptor.members
     }
-    group: str | None
     for provider in providers:
         for descriptor in provider.descriptors:
             if descriptor.canonical_id in nested:
                 continue
             if isinstance(descriptor, (CallableInput, NavigationInput)):
                 group = descriptor.discovery_group
-            else:
-                continue
-            if group is not None:
-                if group not in buckets:
-                    raise invalid("an existing native discovery group", group)
-                buckets[group].append(descriptor.canonical_id)
-    for target, parent, _ in _GROUPS:
-        buckets[parent].append(target)
-    result = [
-        NavigationInput(target, summary, tuple(buckets[target])) for target, _, summary in _GROUPS
-    ]
-    for hub in _HUBS:
-        members = buckets[hub.canonical_id]
-        if hub.canonical_id == "entry":
-            members.sort(
-                key=lambda target: (
-                    0 if target == "session.create" else 1 if target == "session.members" else 2
-                )
-            )
-        result.append(replace(hub, members=tuple(members)))
+                if group is not None:
+                    if group not in buckets:
+                        raise invalid("an existing native discovery group", group)
+                    buckets[group].append(descriptor.canonical_id)
+    for page in _PAGES:
+        if page.discovery_group is not None:
+            buckets[page.discovery_group].append(page.canonical_id)
+    result = [replace(page, members=tuple(buckets[page.canonical_id])) for page in _PAGES]
     result.append(
         NavigationInput(
             "",
-            "Construct without business reads; compute fixes data, persist commits it, show inspects captured facts.",
-            tuple(hub.canonical_id for hub in _HUBS),
+            "Use governed definitions to answer an analytical question.",
+            ("inputs", "source", "frame", "execution", "results", "sessions"),
             "root",
             guidance=(
-                "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
-                "Unknown capability: choose a route. Population/Frame: show() -> exact type Help. Artifact: metadata and audit only.",
-                "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
-                "Errors own expected/received facts and the exact repair.",
-                "Choose mv.* for explicit descriptions/composition, session.* for Session context, and receiver methods/properties for existing context. mv.session.create/resume/recent/inspect own lifecycle discovery.",
+                "Imports: import marivo.analysis as mv",
+                "Choose the information you need next; known targets and objects can enter directly.",
+                "Construction captures dependencies. compute fixes data; persist saves it. Continue with the returned Frame; its Artifact is saved audit.",
+                "Known object: inspect its captured facts or type Help. Structured errors own concrete repairs; the agent owns interpretation and conclusions.",
             ),
         )
     )

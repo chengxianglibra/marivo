@@ -19,7 +19,6 @@ from marivo.semantic._capabilities.model import (
     SemanticCheckTopic,
     SemanticNavigationTopic,
     SemanticObjectContract,
-    SemanticObjectIndexEntry,
 )
 from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.constraints import iter_constraints
@@ -141,12 +140,12 @@ def render_root_help() -> str:
     routes: list[LiveHelpTarget] = []
     for section in REGISTRY.root_sections:
         lines.extend(("", f"{section.label}:"))
-        for target in section.members:
+        for target, summary in zip(section.members, section.route_summaries, strict=True):
             target_id = target.canonical_id
             if target_id is None:
                 raise RuntimeError("semantic root route requires a canonical id")
             routes.append(target)
-            lines.append(f'  {target_id:<18} marivo.help("{target.surface}.{target_id}")')
+            lines.append(f'  {target_id}: {summary} -> marivo.help("{target.surface}.{target_id}")')
     lines.extend(
         (
             "",
@@ -188,22 +187,6 @@ def _render_navigation_topic(
             )
         )
 
-    object_entries = tuple(
-        member for member in descriptor.members if isinstance(member, SemanticObjectIndexEntry)
-    )
-    if object_entries:
-        lines.extend(("", "  Relationship overview:"))
-        object_targets = {entry.target for entry in object_entries}
-        for entry in object_entries:
-            contract = entry.contract
-            relationships = tuple(
-                f"{relationship.relation} {relationship.target.display}"
-                for relationship in contract.relationships
-                if relationship.target in object_targets
-            )
-            if relationships:
-                lines.append(f"    {contract.semantic_kind.value}: " + "; ".join(relationships))
-
     lines.extend(("", f"  {descriptor.member_heading}:"))
     for member in descriptor.members:
         summary = f": {member.summary} ->" if member.summary is not None else ":"
@@ -223,7 +206,7 @@ def _render_builder_topic(descriptor: SemanticBuilderTopic) -> str:
         descriptor.canonical_id,
         f"  {descriptor.label}: {descriptor.summary}",
         "",
-        "  Exact builders:",
+        "  Exact operations:",
         *(f"    {_help_invocation(target)}" for target in descriptor.members),
     ]
     return _bounded("\n".join(lines))
@@ -266,6 +249,13 @@ def _render_object_contract(descriptor: SemanticObjectContract) -> str:
         shown.update(fresh)
         return _route_list(fresh)
 
+    if descriptor.semantic_kind.value == "metric":
+        lines[-1:] = [
+            "  Existing closed values: compose Metric arithmetic for the current question without publishing a definition.",
+            "  Use where/per/window only under their exact receiver constraints; reduce internal samples before observation.",
+            "",
+            "  Reusable definition construction modes:",
+        ]
     for mode in descriptor.construction_modes:
         construction = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
         assert isinstance(construction, AuthoringCapability)
@@ -490,7 +480,7 @@ def _render_type(type_name: str, original: object | None) -> str:
 
 def _help_invocation(target: LiveHelpTarget) -> str:
     if target.canonical_id is None:
-        return "marivo.help()"
+        return f'marivo.help("{target.surface}")'
     return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 

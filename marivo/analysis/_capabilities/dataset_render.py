@@ -20,6 +20,13 @@ from marivo.analysis._capabilities.model import (
 )
 
 
+def _help_target(target: str) -> str:
+    """Keep explicitly qualified links with their native owner."""
+    if target == "authoring" or target.startswith(("semantic.", "datasource.", "ontology.")):
+        return target
+    return "analysis." + target
+
+
 def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
     resolved = registry.resolve(target)
     if resolved.kind == "error_contract":
@@ -51,8 +58,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         render_class = descriptor.render_class
         routes = descriptor.members + descriptor.related
         lines.extend(descriptor.guidance)
+        summaries = dict(descriptor.route_summaries)
         rendered_families: set[str] = set()
         for t in routes:
+            if t in summaries:
+                lines.append("  marivo.help('" + _help_target(t) + "') — " + summaries[t])
+                continue
             member = registry.by_canonical_id(t)
             if isinstance(member, CallableInput) and member.discovery_family is not None:
                 family = member.discovery_family
@@ -89,7 +100,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             )
         )
         routes = descriptor.related
-        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+        lines.extend("See: marivo.help('" + _help_target(t) + "')" for t in routes)
         examples = 1
     elif isinstance(descriptor, CallableInput):
         render_class = "exact_callable"
@@ -152,7 +163,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         if descriptor.example.outcome not in (descriptor.output, "The receiver-bound result."):
             lines.append("Expected: " + descriptor.example.outcome)
         routes = registry.callable_routes(descriptor)
-        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+        lines.extend("See: marivo.help('" + _help_target(t) + "')" for t in routes)
         examples = 1
     else:
         render_class = "public_type"
@@ -174,6 +185,19 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             for name in binding.methods:
                 method = registry.by_callable(getattr(binding.implementation, name))
                 lines.append(f"  analysis.{method.canonical_id}: {method.summary}")
+            operators = tuple(
+                member
+                for member in registry.descriptors
+                if isinstance(member, CallableInput)
+                and any(
+                    b.receiver is binding.implementation
+                    and getattr(b.implementation, "__name__", "").startswith("__")
+                    for b in member.bindings
+                )
+            )
+            if operators:
+                lines.append("Operators (exact targets):")
+                lines.extend(f"  analysis.{member.canonical_id}" for member in operators)
         if isinstance(descriptor, TypeInput):
             for index, variant in enumerate(descriptor.variants, 1):
                 lines.append(
@@ -194,7 +218,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     group = leaf.discovery_group if isinstance(leaf, CallableInput) else None
                     grouped_routes.append(group or route)
                 routes = tuple(dict.fromkeys(grouped_routes))
-            lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+            lines.extend("See: marivo.help('" + _help_target(t) + "')" for t in routes)
     text = "\n".join(lines) + "\n"
     # Translate only explicitly registered public type bindings. Reflection
     # remains attached to the real implementation, never to a signature stub.

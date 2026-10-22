@@ -12,11 +12,7 @@ from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import callable_identity
 from marivo.refs import SemanticKind
 
-SemanticRootGroup = Literal[
-    "start",
-    "discover_authoring",
-    "current_catalog",
-]
+SemanticRootGroup = Literal["tasks"]
 AuthoringPlacementKind = Literal["domain_entrypoint", "domain_module"]
 SemanticHelpRenderClass = Literal[
     "root",
@@ -44,6 +40,7 @@ class SemanticRootSection:
     section_id: SemanticRootGroup
     label: str
     members: tuple[LiveHelpTarget, ...]
+    route_summaries: tuple[str, ...] = ()
 
 
 SEMANTIC_HELP_RENDER_BUDGETS: Mapping[
@@ -75,6 +72,7 @@ class SemanticObjectIndexEntry:
     """One object contract embedded directly in the object-kind index."""
 
     contract: SemanticObjectContract
+    decision_summary: str | None = None
 
     @property
     def label(self) -> str:
@@ -82,7 +80,7 @@ class SemanticObjectIndexEntry:
 
     @property
     def summary(self) -> str:
-        return self.contract.summary
+        return self.decision_summary or self.contract.summary
 
     @property
     def target(self) -> LiveHelpTarget:

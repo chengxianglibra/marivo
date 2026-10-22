@@ -5,6 +5,16 @@ description: 计算行汇总、占比与配对相关性。
 
 先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。8 月两个地区行分别为 200、600，求和 800，均值 400，行数 2。这是地区结果统计，并非平均订单金额。
 
+使用行统计前，先明确计数对象。`marivo.help("analysis.frame.statistics")` 与 `analysis.source` 提供以下不同契约：
+
+| 计数对象 | 精确 Help 目标 | 结果 |
+| --- | --- | --- |
+| Population 中完整不同元组，包括选中但没有事实的成员 | `analysis.population.count` | 交给 `session.observe` 的 Metric |
+| 所选时间与条件下的源 Entity 贡献 | `semantic.entity.count` | 交给 `session.observe` 的 Metric |
+| 当前 Frame 表示的行 | `analysis.row_count` | 交给 `reduce` 或 `over` 的统计表达式 |
+
+当前行不足以回答原始 Metric 问题时，从 `analysis.source` 构造新的显式观察。汇总分组比率不能恢复原始总额的比率。
+
 ## 汇总和归一化当前行
 
 ```python

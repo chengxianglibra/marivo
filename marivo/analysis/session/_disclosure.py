@@ -91,7 +91,7 @@ def provider() -> DisclosureProvider:
     exports.extend(
         (
             ExportInput("Session", Session, "Session"),
-            ExportInput("session", session_namespace, "session.namespace"),
+            ExportInput("session", session_namespace, "sessions"),
         )
     )
 
@@ -239,21 +239,19 @@ def provider() -> DisclosureProvider:
                 value,
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="population_tasks"
-                if name == "population_from"
-                else "methods.metric"
-                if name == "observe"
-                else "entry"
-                if name in ("members", "frame", "read", "values")
-                else "inputs.time"
-                if name in ("instant", "time_scope")
-                else "methods.events"
-                if name == "anchors"
-                else "session.namespace"
-                if receiver is session_namespace
-                else "runtime.sessions"
-                if name in ("show", "render")
-                else "runtime",
+                discovery_group=(
+                    "inputs.population"
+                    if name in ("members", "population_from")
+                    else "source"
+                    if name in ("observe", "read")
+                    else "frame"
+                    if name in ("frame", "values")
+                    else "inputs.time"
+                    if name in ("instant", "time_scope")
+                    else None
+                    if name in ("show", "render")
+                    else "sessions"
+                ),
                 related=("session.resume",)
                 if name == "persisted_frame"
                 else ("analysis_frame.compute", "analysis_frame.persist", "TimeScope.by")
@@ -384,7 +382,6 @@ def provider() -> DisclosureProvider:
                 bindings[0].implementation,
                 bindings=bindings,
                 summary="Render one immutable retained Runtime value within its byte budget.",
-                discovery_group="runtime.values",
                 parameters=(
                     P(
                         "max_output_bytes",
@@ -417,23 +414,71 @@ def provider() -> DisclosureProvider:
         d.canonical_id for d in CATALOG_INPUTS if d.receiver_family == "SemanticCatalog"
     )
     descriptors.append(
-        NavigationInput("catalog.temporal", "Resolve certified temporal values.", temporal)
+        NavigationInput(
+            "inputs.time.calendars",
+            "Resolve periods or occurrences from existing certified definitions.",
+            temporal,
+            guidance=(
+                "Use existing certified calendar or event definitions; these reads do not author new definitions.",
+            ),
+            discovery_group="inputs.time",
+            route_summaries=(
+                ("catalog.period_calendars.grain", "Choose a certified calendar level."),
+                ("catalog.period_calendars.period", "Use one known period key."),
+                ("catalog.period_calendars.period_on", "Find the period containing a civil date."),
+                ("catalog.period_calendars.periods", "Browse available periods."),
+                ("catalog.temporal_sets.occurrence", "Use one known event occurrence key."),
+                (
+                    "catalog.temporal_sets.occurrences",
+                    "Browse occurrences overlapping explicit bounds.",
+                ),
+            ),
+        )
     )
     descriptors.append(
         NavigationInput(
-            "catalog",
-            "Resolve exact governed inputs and check readiness for the required closure.",
+            "inputs.catalog",
+            "Find governed inputs, retrieve an exact path or explain a definition.",
             (
                 "catalog.readiness",
                 *(t for t in ordinary if t != "catalog.readiness"),
-                "catalog.temporal",
             ),
             guidance=(
                 "Acquire catalog = session.catalog. Select a value with its collection.get(path); check physical dependencies with readiness.",
-                "Discover bounded choices with collection.show() and copy a displayed plain path. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); marivo.help('semantic.semantic_catalog.describe') owns that contract.",
+                "Discover bounded choices with collection.show() and copy a displayed plain path. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); use the exact definition explanation link below.",
                 "collection.get(full_path) returns expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming AnalysisFrame.show() explains its captured scope and operations.",
             ),
+            related=(
+                "semantic.catalog_collection.get",
+                "semantic.semantic_catalog.describe",
+                "authoring",
+            ),
             discovery_group="inputs",
+            route_summaries=(
+                *(
+                    ("catalog." + name, "Browse " + name.replace("_", " ") + ".")
+                    for name in (
+                        "domains",
+                        "datasources",
+                        "entities",
+                        "fields",
+                        "metrics",
+                        "relationships",
+                        "period_calendars",
+                        "temporal_sets",
+                    )
+                ),
+                (
+                    "catalog.readiness",
+                    "Check dependency readiness without proving method execution.",
+                ),
+                ("semantic.catalog_collection.get", "Known full path: retrieve the closed input."),
+                ("semantic.semantic_catalog.describe", "Explain an existing definition."),
+                (
+                    "authoring",
+                    "Missing business meaning or aggregation permission: author it explicitly.",
+                ),
+            ),
         )
     )
 

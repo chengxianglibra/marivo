@@ -54,13 +54,13 @@ Model occurrence facts with ordinary entities and descriptive states with
 dimensions when their meaning fits those contracts. Do not invent a transition
 model or assume that a state field establishes a complete behavioral history.
 
-Use `marivo help semantic.objects` to select the object kind, then follow its
+Use `marivo help semantic.model` to select the definition problem, then follow its
 object page for the stable decision checklist, legal construction modes, and
 evidence limitations. Object pages link definition operations and expression
 roles; native Deferred methods are discovered through these exact targets,
-not through the generic Python Deferred type. Use `marivo help semantic.builders`
-when a constructor needs a nested value or typed handle, and
-`marivo help semantic.checks` when the unresolved question is what a particular
+not through the generic Python Deferred type. Supporting values follow the
+definition they support; temporal meaning has its own route from semantic Help.
+Use `marivo help semantic.validation` when the unresolved question is what a particular
 inspection or check proves.
 
 Author dependencies before their consumers and build derived objects only from

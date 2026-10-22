@@ -25,6 +25,12 @@ policy. Shared definition, temporal, error and introspection infrastructure live
 below these public modules. Private registries implement each domain's native
 Help; `marivo.help` is the common public coordinator.
 
+`marivo.help("authoring")` selects datasource, semantic or ontology work.
+Datasource navigation separates connections, sources, inspection and the
+semantic handoff. Semantic navigation separates model definitions, expression
+roles, time, catalog and validation. Exact references remain with their API or
+semantic-role owner; navigation does not duplicate their contracts.
+
 | Topic | Owning document |
 | --- | --- |
 | Connections, secret resolution and datasource registration | [Datasource](../datasource/README.md) |
@@ -81,6 +87,11 @@ None of these stages certifies another stage merely by succeeding.
 
 If an analysis needs new reusable meaning, author it in Semantic first. If it
 needs a new observation of existing meaning, construct explicit Analysis inputs.
+Existing closed inputs can also form question-scoped equations, conditions,
+internal samples and windows. Analysis inputs and source navigation link directly
+to `semantic.expressions` for that shared grammar; a missing same-name published
+Metric does not require a new declaration when meaning and aggregation authority
+are already established.
 Fixed Frame values carry types, complete keys and time interpretation, without
 recoverable nominal Entity/Field authority or hidden Metric state.
 

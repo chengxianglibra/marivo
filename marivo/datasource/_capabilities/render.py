@@ -20,14 +20,6 @@ if TYPE_CHECKING:
     from marivo.datasource._capabilities.model import DatasourceTypeContract
 
 
-_GROUPS = (
-    ("declare_manage", "Declare and manage"),
-    ("physical_sources", "Physical sources"),
-    ("inspect_scope", "Inspect and scope"),
-    ("acquire_project", "Acquire and project evidence"),
-    ("diagnostics_boundaries", "Diagnostics and boundaries"),
-)
-
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
@@ -35,7 +27,7 @@ _MARIVO_IMPORT = "import marivo"
 
 
 def _target_text(target: LiveHelpTarget) -> str:
-    return target.display
+    return _help_invocation(target)
 
 
 def _with_python_imports(text: str) -> str:
@@ -68,96 +60,60 @@ def _constraints(descriptor: AuthoringCapability) -> tuple[str, ...]:
     )
 
 
+def _navigation_lines(canonical_id: str = "") -> tuple[str, ...]:
+    return tuple(
+        f'    {route.label}: {route.summary} -> marivo.help("{route.target.display}")'
+        for route in REGISTRY.navigation_routes(canonical_id)
+    )
+
+
 def render_root_help() -> str:
-    """Render the datasource root index with its exact environment fingerprint."""
+    """Render the datasource root's bounded task choices from its native registry."""
     from marivo.introspection.live.model import EnvironmentFingerprint
 
-    lines = [
-        "marivo.datasource",
-        render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
-        "",
-        "Python imports:",
-        f"  {_DATASOURCE_IMPORT}",
-        "",
-        "Capabilities:",
-    ]
-    for group, label in _GROUPS:
-        descriptors = REGISTRY.group(group)  # type: ignore[arg-type]
-        if not descriptors:
-            continue
-        lines.append(f"  {label}:")
-        for descriptor in descriptors:
-            effects = descriptor.effects
-            assert effects is not None
-            effect_values = (
-                *(value for value in (effects.data_access, effects.connection) if value != "none"),
-                *effects.mutations,
-                *effects.flags,
+    return _bounded(
+        "\n".join(
+            (
+                "marivo.datasource",
+                render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
+                "",
+                "Python imports:",
+                f"  {_DATASOURCE_IMPORT}",
+                "",
+                "Choose by current physical question:",
+                *_navigation_lines(),
+                "",
+                "  A source schema or sample does not establish reusable business meaning.",
             )
-            annotations: list[str] = []
-            if descriptor.output_family is not None:
-                annotations.append(f"-> {descriptor.output_family}")
-            if effect_values:
-                annotations.append(f"effects: {', '.join(effect_values)}")
-            suffix = f" [{'; '.join(annotations)}]" if annotations else ""
-            lines.append(f"    {descriptor.canonical_id:<34} {descriptor.summary}{suffix}")
-    lines.extend(
-        (
-            "",
-            'Call marivo.help("datasource.<target>") for a capability, public type, result, or datasource error.',
-        )
+        ),
+        root=True,
     )
-    return _bounded("\n".join(lines), root=True)
 
 
-def _render_authoring(descriptor: AuthoringCapability) -> str:
-    route_groups = (
-        ("discover", ("load", "datasource_catalog.describe")),
-        ("declare custom", ("duckdb", "trino", "mysql", "postgres", "clickhouse")),
-        ("register custom and test", ("register", "datasource_catalog.test")),
-        ("physical source", ("table", "parquet", "csv", "json")),
-        ("metadata", ("inspect",)),
-        ("explicit scope", ("partition", "time_range", "unpruned")),
-        ("optional bounded sampling", ("SourceInspection.sample",)),
-        ("governed SQL exploration", ("raw_sql",)),
-    )
-    lines = [
-        "authoring",
-        f"  {descriptor.summary}",
-        "",
-        "  Minimal focused-help routing:",
-    ]
-    if descriptor.minimal_example is not None:
-        lines[3:3] = [
-            "  Example:",
-            *[f"    {line}" for line in descriptor.minimal_example.splitlines()],
-            "",
-        ]
-    for label, canonical_ids in route_groups:
-        targets = tuple(
-            REGISTRY.by_canonical_id(canonical_target(canonical_id)).canonical_id
-            for canonical_id in canonical_ids
-        )
-        lines.append(
-            f"    {label} -> "
-            + ", ".join(f'marivo.help("datasource.{target}")' for target in targets)
-        )
-    lines.extend(
-        (
-            "",
-            "  Choose inspection, optional scoped sampling, or governed raw SQL according to the unresolved question.",
-            "  RawSqlResult is terminal data: it may inform Python authoring but cannot enter typed analysis.",
-            '  Continue semantic authoring with marivo.help("semantic.authoring").',
+def _render_navigation(descriptor: AuthoringCapability) -> str:
+    return _bounded(
+        "\n".join(
+            (
+                descriptor.canonical_id,
+                f"  {descriptor.summary}",
+                "",
+                "  Choose by need:",
+                *_navigation_lines(descriptor.canonical_id),
+            )
         )
     )
-    return _bounded("\n".join(lines))
 
 
 def _render_descriptor(descriptor: AuthoringCapability) -> str:
-    if descriptor.canonical_id == "authoring":
-        return _render_authoring(descriptor)
+    if REGISTRY.navigation_routes(descriptor.canonical_id):
+        return _render_navigation(descriptor)
 
     lines = [descriptor.canonical_id, f"  {descriptor.summary}", ""]
+    if descriptor.kind == "boundary":
+        lines.append(
+            "  Continue: " + ", ".join(_target_text(target) for target in descriptor.see_also)
+        )
+        return _bounded("\n".join(lines))
     if descriptor.public_entrypoint is not None:
         lines.append(f"  Entrypoint: {descriptor.public_entrypoint}")
     if descriptor.callable_path is not None:
@@ -226,7 +182,7 @@ def _render_type(type_name: str, original: object | None) -> str:
 
 def _help_invocation(target: LiveHelpTarget) -> str:
     if target.canonical_id is None:
-        return "marivo.help()"
+        return f'marivo.help("{target.surface}")'
     return f'marivo.help("{target.surface}.{target.canonical_id}")'
 
 

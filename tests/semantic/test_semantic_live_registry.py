@@ -65,14 +65,27 @@ def _finalize_fixture(
         for descriptor in REGISTRY.help_descriptors:
             if isinstance(descriptor, (AuthoringCapability, SemanticObjectContract)):
                 continue
-            if (
-                isinstance(descriptor, SemanticNavigationTopic)
-                and descriptor.canonical_id == "objects"
+            if isinstance(descriptor, SemanticNavigationTopic) and any(
+                isinstance(member, SemanticObjectIndexEntry) for member in descriptor.members
             ):
                 descriptor = replace(
                     descriptor,
                     members=tuple(
-                        SemanticObjectIndexEntry(contract) for contract in active_objects
+                        SemanticObjectIndexEntry(
+                            next(
+                                contract
+                                for contract in active_objects
+                                if contract.semantic_kind == member.contract.semantic_kind
+                            )
+                        )
+                        if isinstance(member, SemanticObjectIndexEntry)
+                        else member
+                        for member in descriptor.members
+                        if not isinstance(member, SemanticObjectIndexEntry)
+                        or any(
+                            contract.semantic_kind == member.contract.semantic_kind
+                            for contract in active_objects
+                        )
                     ),
                 )
             navigation_rows.append(descriptor)
@@ -170,10 +183,15 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
 def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
     assert REGISTRY.help_descriptors != REGISTRY.descriptors
     assert {
-        "authoring",
-        "objects",
-        "builders",
-        "checks",
+        "model",
+        "model.identity",
+        "model.fields",
+        "model.relationships",
+        "time",
+        "time.parsing",
+        "time.calendars",
+        "catalog",
+        "validation",
         *(contract.canonical_id for contract in REGISTRY.object_contracts),
     } <= set(REGISTRY.canonical_ids())
     assert len(REGISTRY.object_contracts) == 9
@@ -380,7 +398,7 @@ def test_registry_rejects_unknown_root_route_eagerly() -> None:
 
 
 def test_registry_rejects_multiple_discovery_owners_eagerly() -> None:
-    builders = REGISTRY.by_canonical_id("builders")
+    builders = REGISTRY.by_canonical_id("catalog")
     assert isinstance(builders, SemanticNavigationTopic)
     invalid = replace(
         builders,
@@ -480,7 +498,7 @@ def test_output_family_drift_is_detected_adversarially() -> None:
 
 def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
     assert set(REGISTRY._render_classes) == set(REGISTRY.canonical_ids())
-    assert REGISTRY.render_class("authoring") == "decision_hub"
+    assert REGISTRY.render_class("model") == "navigation"
     navigation_ids = {
         descriptor.canonical_id
         for descriptor in REGISTRY.help_descriptors
@@ -493,14 +511,13 @@ def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
                 SemanticObjectContract,
             ),
         )
-        and descriptor.canonical_id != "authoring"
     } | {"ref", "source_check"}
     assert all(
         REGISTRY.render_class(canonical_id) == "navigation" for canonical_id in navigation_ids
     )
     assert all(
         REGISTRY.render_class(canonical_id) == "exact_contract"
-        for canonical_id in set(REGISTRY.canonical_ids()) - navigation_ids - {"authoring"}
+        for canonical_id in set(REGISTRY.canonical_ids()) - navigation_ids
     )
 
 
@@ -521,7 +538,7 @@ def test_registry_rejects_duplicate_callable_paths_eagerly() -> None:
 
 def test_registry_rejects_missing_render_assignment_before_rendering() -> None:
     render_classes = dict(REGISTRY._render_classes)
-    render_classes.pop("authoring")
+    render_classes.pop("model")
     invalid = replace(REGISTRY, _render_classes=MappingProxyType(render_classes))
     with pytest.raises(ValueError, match="assignments must cover every descriptor"):
         _validate_registry(invalid)
@@ -561,7 +578,7 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
     from marivo.semantic.errors import ErrorKind
 
     expected = {
-        "outside_loader_context": "semantic.authoring",
+        "outside_loader_context": "semantic.load",
         "missing_domain": "semantic.domain",
         "invalid_binding_ref": "semantic.bind",
         "binding_target_missing": "semantic.bind",
@@ -570,14 +587,14 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
         "binding_entity_mismatch": "semantic.bind",
         "invalid_filter": "semantic.metric.where",
         "filter_value_runtime_incompatible": "semantic.metric.where",
-        "invalid_project": "semantic.authoring",
+        "invalid_project": "semantic.load",
         "domain_file_missing": "semantic.domain",
         "domain_file_mismatch": "semantic.domain.define",
         "entity_constructor_as_decorator": "semantic.entity.define",
         "duplicate_identity_key": "semantic.entity.define",
         "missing_identity_key_column": "semantic.entity.define",
         "identity_version_overlap": "semantic.entity.define",
-        "organization_error": "semantic.authoring",
+        "organization_error": "semantic.load",
     }
     actual = {
         error_kind: (f"{contract.help_target.surface}.{contract.help_target.canonical_id}")
@@ -595,7 +612,7 @@ def test_registry_rejects_unknown_or_over_broad_repair_targets() -> None:
 
     for target, message in (
         (_semantic_target("synthetic.missing"), "unknown semantic Help route"),
-        (_semantic_target("objects"), "semantic repair target is over-broad"),
+        (_semantic_target("model"), "semantic repair target is over-broad"),
     ):
         repair_contract = replace(missing_domain, help_target=target)
         repairs = dict(REGISTRY._repair_contracts)
@@ -855,7 +872,9 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert ms.PreviewBatchResult in TYPE_CONTRACTS
 
 
-@pytest.mark.parametrize("target", ("semantic.checks", "semantic.preview", "semantic.preview_many"))
+@pytest.mark.parametrize(
+    "target", ("semantic.validation", "semantic.preview", "semantic.preview_many")
+)
 def test_temporal_certification_help_names_only_retained_models(target: str) -> None:
     from marivo._help.render import render_help_text
 

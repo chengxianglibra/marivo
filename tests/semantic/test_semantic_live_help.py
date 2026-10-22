@@ -46,7 +46,9 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
     while queue:
         node = queue.popleft()
         if node == "global.authoring":
-            targets = (LiveHelpTarget(surface="semantic", canonical_id="authoring"),)
+            targets = tuple(
+                target for section in REGISTRY.root_sections for target in section.members
+            )
         elif node.startswith("semantic."):
             canonical_id = node.removeprefix("semantic.")
             if canonical_id not in REGISTRY.canonical_ids():
@@ -326,7 +328,22 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
 
     assert marivo.help() is None
-    for target in ("semantic.load", ms.load, ms.SemanticCatalog):
+    for target in (
+        "semantic",
+        "semantic.model",
+        "semantic.model.identity",
+        "semantic.model.fields",
+        "semantic.model.relationships",
+        "semantic.expressions",
+        "semantic.time",
+        "semantic.time.parsing",
+        "semantic.time.calendars",
+        "semantic.catalog",
+        "semantic.validation",
+        "semantic.load",
+        ms.load,
+        ms.SemanticCatalog,
+    ):
         assert marivo.help(target) is None
 
 
@@ -353,8 +370,10 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
     assert "region.isnull()" in expected
     descriptor = REGISTRY.by_canonical_id("dimension.isnull")
     assert descriptor.callable_path is None
-    distances = {"authoring": 0}
-    queue = deque(("authoring",))
+    distances = {
+        target.canonical_id: 1 for section in REGISTRY.root_sections for target in section.members
+    }
+    queue = deque(distances)
     while queue:
         node = queue.popleft()
         if node not in REGISTRY.canonical_ids():
@@ -538,8 +557,10 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
         assert capsys.readouterr().out == expected
     assert "orders.show()" in expected
     assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
-    distances = {"authoring": 0}
-    queue = deque(("authoring",))
+    distances = {
+        target.canonical_id: 1 for section in REGISTRY.root_sections for target in section.members
+    }
+    queue = deque(distances)
     while queue:
         node = queue.popleft()
         if node not in REGISTRY.canonical_ids():
@@ -775,3 +796,95 @@ def test_scalar_field_role_links_governed_acquisition_and_existing_grammar() -> 
         assert target in page
         assert render_help_text(target)[0]
     assert "semantic.field" in render_help_text("semantic.expressions")[0]
+
+
+def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
+    from marivo._help.render import render_help_text
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    assert tuple(
+        target.canonical_id for section in REGISTRY.root_sections for target in section.members
+    ) == (
+        "model",
+        "expressions",
+        "time",
+        "catalog",
+        "validation",
+    )
+    model = render_help_text("semantic.model")[0]
+    for target in (
+        "semantic.model.identity",
+        "semantic.model.fields",
+        "semantic.model.relationships",
+        "semantic.metric",
+        "semantic.metric.define",
+        "semantic.ai_context",
+    ):
+        assert f'marivo.help("{target}")' in model
+        assert render_help_text(target)[0]
+    validation = render_help_text("semantic.validation")[0]
+    for target in ("load", "readiness", "preview", "preview_many", "source_health", "source_check"):
+        assert f'marivo.help("semantic.{target}")' in validation
+    assert "load success != readiness != preview success != source health" in validation
+    assert "Ordinary previews do not persist certification or change readiness" in validation
+    assert "That the current source satisfies it" in validation
+    assert (
+        'marivo.help("analysis.inputs.time.calendars")'
+        in render_help_text("semantic.time.calendars")[0]
+    )
+
+
+def test_expression_navigation_serves_closed_question_scoped_composition() -> None:
+    from marivo._help.render import render_help_text
+
+    page = render_help_text("semantic.expressions")[0]
+    assert "closed Catalog fields and Metrics" in page
+    assert "does not require authoring or publishing a Metric" in page
+    assert "revenue / order_count" in page
+    assert "bare lookup symbols are not analysis inputs" in page
+    assert "a compound Metric is not automatically filterable" in page
+    assert "Decimal" not in page
+    for role in ("field", "predicate", "row", "metric", "metric_samples"):
+        assert f'marivo.help("semantic.{role}")' in page
+    for operation in ("where", "per", "window"):
+        assert f'marivo.help("semantic.metric.{operation}")' in page
+    metric = render_help_text("semantic.metric")[0]
+    assert metric.index("Existing closed values") < metric.index(
+        "Reusable definition construction modes"
+    )
+    assert "without publishing a definition" in metric
+    assert "Decimal" in render_help_text("semantic.row")[0]
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "authoring",
+        "objects",
+        "builders",
+        "checks",
+        "builders.entity_history",
+        "builders.field_metric_support",
+        "builders.governed_temporal",
+        "builders.relationship",
+        "builders.temporal_parsing",
+        "context",
+        "model.metrics",
+        "validation.health",
+        "validation.preview",
+    ),
+)
+def test_retired_semantic_topics_have_no_alias(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(f"semantic.{target}")
+
+
+def test_ontology_authoring_remains_the_exact_load_callable() -> None:
+    import marivo.ontology as mo
+    from marivo._help.render import render_help_text
+
+    exact = render_help_text("ontology.authoring")[0]
+    assert "Kind: callable" in exact
+    assert render_help_text(mo.load)[0] == exact
+    for target in ("authoring", "influences", "related_to"):
+        assert f'marivo.help("ontology.{target}")' in render_help_text("ontology")[0]

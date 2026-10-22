@@ -230,7 +230,7 @@ assert [item.name for item in md.load().list()] == ['default']
 
 def test_builtin_help_is_reachable(capsys: pytest.CaptureFixture[str]) -> None:
     for target in (
-        "authoring",
+        "connections",
         "register",
         "remove",
         "datasource_catalog.list",
