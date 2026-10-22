@@ -28,7 +28,12 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.core.data_types import (
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
 from marivo.analysis.core.frame_expression import (
     AttributeContributionValues,
     AttributeFrameValues,
@@ -128,12 +133,25 @@ class AttributeNumericWitness:
     values: tuple[FrameMethodValue, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AttributeClosureWitness:
+    target: tuple[str, ...]
+    kind: Literal["level", "absolute", "relative"]
+    total: int | float | Decimal
+    contribution_sum: int | float | Decimal
+    residual: int | float | Decimal
+    tolerance: int | float | Decimal
+    policy: Literal["exact_integer", "duration_ticks", "decimal_rounding", "float64"]
+    total_column: DataColumn
+
+
 AttributeWitness: TypeAlias = (
     AttributeCoverageWitness
     | AttributePartitionWitness
     | AttributeAggregateWitness
     | AttributeCheckWitness
     | AttributeNumericWitness
+    | AttributeClosureWitness
 )
 
 
@@ -198,6 +216,7 @@ AttributeInputReason = Literal[
     "undefined_input",
     "overlapping_groups",
     "root_denominator_zero",
+    "closure_mismatch",
 ]
 
 
@@ -214,14 +233,19 @@ class AttributeInputError(CoreRuleError):
         self.reason = reason
         self.attribute_context = context
         repairs = {
-            "unqualified_contribution_route": "Use qualified native DuckDB physical tables with the captured complete parent parameter dependencies.",
+            "closure_mismatch": "Inspect the independent parent total and fine contributions, then explicitly rerun the request if the source facts changed.",
+            "unqualified_contribution_route": "Use qualified native physical tables with the captured complete parent parameter dependencies.",
             "missing_component_proof": "Retain the exact component, complete parent mapping and qualified sample/window proof before requesting contribution.",
             "undefined_input": "Cover every scoped root identity with a complete joint classification; restrict the endpoint with where or members when needed.",
             "overlapping_groups": "Provide one joint classification tuple per counted identity inside each selected parent, or submit a new explicit finer observation.",
             "root_denominator_zero": "Provide nonzero complete-parent denominators for both endpoints, or build a finer observation to inspect the original nullable Metric.",
         }
         super().__init__(
-            expected=f"{reason}: a qualified complete common Attribute input",
+            expected=(
+                "closure_mismatch: independent parent and fine final target values within the numeric closure policy"
+                if reason == "closure_mismatch"
+                else f"{reason}: a qualified complete Attribute input"
+            ),
             received=received,
             repair=repairs[reason],
             location="frame.attribute",
@@ -250,6 +274,14 @@ class AttributeMatrixColumn:
 
 
 @dataclass(frozen=True, slots=True)
+class AttributeReadBinding:
+    input_index: int
+    side: Literal["left", "right"]
+    scope: Literal["parent", "fine"]
+    uses: tuple[AttributeUseContext, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AttributeInputProgram:
     operation: AttributeInputsValues
     left_schema: DataSchema
@@ -257,6 +289,7 @@ class AttributeInputProgram:
     parent_schema: DataSchema
     matrix: tuple[AttributeMatrixColumn, ...]
     output_schema: DataSchema
+    reads: tuple[AttributeReadBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +298,7 @@ class AttributeContributionProgram:
     input_program: AttributeInputProgram
     originals: tuple[FormulaProgram, FormulaProgram]
     output_schema: DataSchema
+    exact_integer_closure: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,7 +577,62 @@ def contribution_schema(
 ) -> DataSchema:
     if operation.target is not None:
         legacy = contribution_schema(program, replace(operation, target=None))
-        result = report_schema(legacy, program.parent_schema, operation)
+
+        def parent_original(side: Literal["left", "right"], rule: AttributeRule) -> DataColumn:
+            index = (
+                operation.source_indices[0 if side == "left" else 1]
+                if operation.source_indices is not None
+                else 0
+            )
+            column = _rule_column(program, rule, side)
+            native = next(
+                (
+                    item.target
+                    for item in program.matrix
+                    if item.side == side
+                    and item.scope == "parent"
+                    and item.role == "native_value"
+                    and item.occurrence == (index,)
+                ),
+                None,
+            )
+            return column if native is None else replace(column, dtype=native.dtype)
+
+        left_rule, right_rule = operation.rules[0][0][1], operation.rules[1][0][1]
+        fresh = parent_original("left", left_rule)
+        target = operation.target
+        parent_diagnostics: list[tuple[tuple[str, ...], DataColumn]] = [
+            (("detail", "value" if target.mode == "level" else "current", *target.path), fresh)
+        ]
+        if operation.target.mode != "level":
+            baseline = parent_original("right", right_rule)
+            fresh = replace(fresh, dtype=_type("sub", fresh, baseline))
+            parent_diagnostics.extend(
+                (
+                    (("detail", "baseline", *target.path), baseline),
+                    (("detail", "absolute", *target.path), fresh),
+                )
+            )
+        for side, role, rule in (
+            (("left", "value", left_rule),)
+            if target.mode == "level"
+            else (("left", "current", left_rule), ("right", "baseline", right_rule))
+        ):
+            if isinstance(rule, RatioComponentRule):
+                numerator, denominator = _component_columns(program, rule, side)
+                parent_diagnostics.extend(
+                    (
+                        (("component", role, "numerator", *target.path), numerator),
+                        (("component", role, "denominator", *target.path), denominator),
+                    )
+                )
+        result = report_schema(
+            legacy,
+            program.parent_schema,
+            operation,
+            fresh=fresh,
+            parent_diagnostics=tuple(parent_diagnostics),
+        )
         assert isinstance(result, DataSchema)
         return result
     result = pending_contribution_schema(
@@ -566,7 +655,7 @@ def contribution_schema(
             if operation.single_endpoint
             else (("left", left_rule), ("right", right_rule))
         ):
-            n, d = _component_columns(program, rule, side)
+            n, d = _component_columns(program, rule, side, scope="fine")
             for prefix, column in (("numerator_" + side, n), ("denominator_" + side, d)):
                 position = result.value_paths.index((prefix, name))
                 values[position] = replace(
@@ -630,13 +719,17 @@ def _logical(source: AttributeSourceRequest) -> tuple[int, ...]:
 
 
 def _component_columns(
-    program: AttributeInputProgram, rule: RatioComponentRule, side: str
+    program: AttributeInputProgram,
+    rule: RatioComponentRule,
+    side: str,
+    *,
+    scope: Literal["parent", "fine"] = "parent",
 ) -> tuple[DataColumn, DataColumn]:
     operation = rule.operation
     if isinstance(operation, DirectRatio):
         return (
-            _rule_column(program, operation.numerator, side),
-            _rule_column(program, operation.denominator, side),
+            _rule_column(program, operation.numerator, side, scope=scope),
+            _rule_column(program, operation.denominator, side, scope=scope),
         )
     source = operation.source
     names = (
@@ -649,7 +742,7 @@ def _component_columns(
             m.target
             for m in program.matrix
             if m.side == side
-            and m.scope == "parent"
+            and m.scope == scope
             and m.occurrence == _logical(source)
             and m.role == role
         )
@@ -658,16 +751,40 @@ def _component_columns(
     return columns[0], columns[1]
 
 
-def _rule_column(program: AttributeInputProgram, rule: AttributeRule, side: str) -> DataColumn:
+def _rule_column(
+    program: AttributeInputProgram,
+    rule: AttributeRule,
+    side: str,
+    *,
+    scope: Literal["parent", "fine"] = "parent",
+) -> DataColumn:
     operation = rule.operation
     if isinstance(operation, AdditiveSource):
-        return next(
+        column = next(
             m.target
             for m in program.matrix
             if m.side == side
-            and m.scope == "parent"
+            and m.scope == scope
             and m.occurrence == _logical(operation.source)
             and m.role == "additive_value"
+        )
+        original = next(
+            item.target
+            for item in program.matrix
+            if item.side == side
+            and item.scope == scope
+            and item.role == "value"
+            and any(
+                source.use.logical_occurrence == _logical(operation.source)
+                for source in item.sources
+            )
+        )
+        # Retained additive mass uses integer ticks; the final rule quantity
+        # keeps Duration through fixed linear arithmetic and report inference.
+        return (
+            replace(column, dtype=original.dtype)
+            if isinstance(original.dtype, DurationDataType)
+            else column
         )
     if isinstance(rule, RatioComponentRule):
         if isinstance(operation, (NativeMean, NativeWeightedMean)):
@@ -675,32 +792,58 @@ def _rule_column(program: AttributeInputProgram, rule: AttributeRule, side: str)
                 item.target
                 for item in program.matrix
                 if item.side == side
-                and item.scope == "parent"
+                and item.scope == scope
                 and item.role == "value"
                 and any(
                     source.use.logical_occurrence == _logical(operation.source)
                     for source in item.sources
                 )
             )
-        n, d = _component_columns(program, rule, side)
+        n, d = _component_columns(program, rule, side, scope=scope)
         return replace(n, dtype=_type("div", n, d))
     if isinstance(operation, (RuleAdd, RuleSubtract)):
         a, b = (
-            _rule_column(program, operation.left, side),
-            _rule_column(program, operation.right, side),
+            _rule_column(program, operation.left, side, scope=scope),
+            _rule_column(program, operation.right, side, scope=scope),
         )
         return replace(a, dtype=_type("add" if isinstance(operation, RuleAdd) else "sub", a, b))
     if isinstance(operation, RuleNegate):
-        return _rule_column(program, operation.operand, side)
+        return _rule_column(program, operation.operand, side, scope=scope)
     assert isinstance(operation, RuleScale)
-    a = _rule_column(program, operation.operand, side)
+    a = _rule_column(program, operation.operand, side, scope=scope)
     return replace(a, dtype=_type("mul", a, _coefficient_column(operation.scalar.value)))
+
+
+def _common_report_type(columns: tuple[DataColumn, ...]) -> DataType:
+    """Choose a common carrier without reducing scale or converting exact values to float."""
+    dtypes = tuple(column.dtype for column in columns)
+    if all(dtype == dtypes[0] for dtype in dtypes):
+        return dtypes[0]
+    if all(
+        isinstance(dtype, DecimalDataType) or dtype == ScalarDataType("int64") for dtype in dtypes
+    ):
+        decimals = tuple(
+            dtype if isinstance(dtype, DecimalDataType) else DecimalDataType(19, 0)
+            for dtype in dtypes
+        )
+        scale = max(dtype.scale for dtype in decimals)
+        precision = min(38, max(dtype.precision - dtype.scale for dtype in decimals) + scale)
+        return DecimalDataType(precision, scale)
+    reject(
+        "losslessly compatible Attribute report carriers",
+        repr(dtypes),
+        "Use source methods whose historical, parent and fine values retain a compatible exact numeric or Duration carrier.",
+        "frame.attribute",
+    )
 
 
 def report_schema(
     legacy: DataSchema | PendingDataSchema,
     parent: DataSchema | PendingDataSchema,
     operation: AttributeContributionValues,
+    *,
+    fresh: DataColumn | None = None,
+    parent_diagnostics: tuple[tuple[tuple[str, ...], DataColumn], ...] = (),
 ) -> DataSchema | PendingDataSchema:
     """Map one closed target to its report directory without parsing display names."""
     target = operation.target
@@ -736,6 +879,20 @@ def report_schema(
             column = directory.get((component + "_" + side, "target"))
             if column is not None:
                 entries.append((("component", role, component, *path), column))
+    common: DataType | None = None
+    observed = parent.values[target.observed]
+    if (
+        isinstance(legacy, DataSchema)
+        and isinstance(source, DataColumn)
+        and isinstance(observed, DataColumn)
+    ):
+        actual = source
+        if target.mode == "relative":
+            actual = replace(actual, dtype=_type("div", actual, actual))
+            if fresh is not None:
+                fresh = replace(fresh, dtype=_type("div", fresh, fresh))
+        common = _common_report_type((actual, observed, *((fresh,) if fresh is not None else ())))
+    parent_directory = dict(parent_diagnostics)
     for output_path, column in entries:
         if isinstance(legacy, PendingDataSchema) and isinstance(column, DataColumn):
             column = _pending_column(column)
@@ -744,6 +901,15 @@ def report_schema(
             column = replace(column, unit=parent.values[target.observed].unit)
             if isinstance(column, DataColumn) and isinstance(original, DataColumn):
                 column = replace(column, dtype=_type("div", original, original))
+        if (
+            common is not None
+            and isinstance(column, DataColumn)
+            and output_path[0] in ("contribution", "total", "observed_total")
+        ):
+            column = replace(column, dtype=common)
+        parent_column = parent_directory.get(output_path)
+        if isinstance(column, DataColumn) and parent_column is not None:
+            column = replace(column, dtype=_common_report_type((column, parent_column)))
         if target.mode == "relative" and output_path[0] == "contribution_share":
             column = replace(
                 column, unit=None if parent.values[target.observed].unit is None else "1"

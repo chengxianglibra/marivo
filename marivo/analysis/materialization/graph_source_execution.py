@@ -244,6 +244,7 @@ def qualify_original_source(
     raw: ir.Table,
     *,
     sampled: bool = False,
+    attribute: bool = False,
 ) -> str | None:
     """Qualify typed numeric recipes independently of complete identity carriers."""
     from marivo._definition.expressions import (
@@ -333,10 +334,11 @@ def qualify_original_source(
         if (
             reduction is None
             or read_components(read) is None
-            or not read.binding_id
-            or reduction.duration is not None
+            or (not read.binding_id and not attribute)
+            or (reduction.duration is not None and not attribute)
             or (
                 not sampled
+                and not attribute
                 and (
                     reduction.calendar is not None
                     or reduction.calendars
@@ -349,7 +351,9 @@ def qualify_original_source(
         ):
             return "Remote original fiber lacks an exact prepared physical binding"
         fields = dict(read.field_columns)
-        if any(not raw[fields[path]].type().is_string() for _, path in reduction.axes):
+        if not attribute and any(
+            not raw[fields[path]].type().is_string() for _, path in reduction.axes
+        ):
             return "Remote original numeric coordinates retain their pandas key boundary"
         if any(
             not physical_value(raw[name], role="identity")
@@ -1215,15 +1219,20 @@ def _native_query_expression(
     if source.provider.name == "mysql":
         # MySQL has no IS_NAN / IS_INF functions. Native finite comparisons
         # retain the check without requiring routines or source-side casts.
-        replacements = {
-            node: (
-                node.arg.to_expr() != node.arg.to_expr()
-                if isinstance(node, ops.IsNan)
-                else node.arg.to_expr().abs() > float.fromhex("0x1.fffffffffffffp+1023")
-            ).op()
-            for node in expression.op().find((ops.IsNan, ops.IsInf))
-        }
-        rewritten = expression.op().replace(replacements).to_expr()
+        def mysql_rewrite(
+            node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
+        ) -> ops.Node:
+            value = node.copy(**kwargs)
+            if isinstance(value, (ops.IsNan, ops.IsInf)):
+                argument = value.arg.to_expr()
+                return (
+                    argument != argument
+                    if isinstance(value, ops.IsNan)
+                    else argument.abs() > float.fromhex("0x1.fffffffffffffp+1023")
+                ).op()
+            return value
+
+        rewritten = expression.op().map(mysql_rewrite)[expression.op()].to_expr()
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
     if source.provider.name == "clickhouse":
@@ -1268,7 +1277,11 @@ def _actual_attribute_layout(
     """Capture returned native physical columns before Attribute normalization."""
     return replace(
         layout,
-        columns=source_columns(frame.loc[frame[layout.kind] == 0], layout.columns, layout.keys),
+        columns=source_columns(
+            frame.loc[frame[layout.kind] == (1 if layout.scope == "parent" else 0)],
+            layout.columns,
+            layout.keys,
+        ),
     )
 
 
@@ -1371,7 +1384,9 @@ def read_stage(
 
         layout = require_attribute(stage)
         originals: dict[tuple[int, str], pd.DataFrame] = {}
-        for kind, keys in ((0, layout.keys), (1, layout.parent_keys)):
+        for kind, keys in (
+            ((1, layout.parent_keys),) if layout.scope == "parent" else ((0, layout.keys),)
+        ):
             selected = frame.loc[frame[layout.kind] == kind].reset_index(drop=True)
             for leaf in layout.leaves:
                 selected = frame.loc[
@@ -2111,7 +2126,9 @@ def prepare_attribute_endpoint(
     from marivo.analysis.compiler.graph_plan import plan_query
 
     positions = mapping.left_parents if side == 0 else mapping.right_parents
-    prepared, scope_columns = prepare_attribute_sources(prepared, graph, state, len(positions))
+    prepared, scope_columns, parent_checks = prepare_attribute_sources(
+        prepared, graph, state, len(positions)
+    )
     original = plan_query(graph, prepared.schemas, memo=memo, require_original=True)
     reads = tuple(
         stage
@@ -2120,8 +2137,14 @@ def prepare_attribute_endpoint(
     )
     for root in dict.fromkeys(stage.source_id for stage in reads):
         group = tuple(stage for stage in reads if stage.source_id == root)
-        for bound in prepared.bound.values():
-            issue = qualify_original_source(prepared, group, bound.relation)
+        owner = prepared.sources.get(root, prepared.source)
+        relations = (
+            tuple(bound.relation for bound in prepared.bound.values())
+            if owner.provider.name == "duckdb"
+            else (prepared.relations[group[0].stage_id],)
+        )
+        for relation in relations:
+            issue = qualify_original_source(prepared, group, relation, attribute=True)
             if issue is not None:
                 input_failure("unqualified_contribution_route", issue)
     plan = bundle_attribute_plan(
@@ -2131,6 +2154,7 @@ def prepare_attribute_endpoint(
         scope_columns,
         mapping.left_projection if side == 0 else mapping.right_projection,
         "left" if side == 0 else "right",
+        parent_checks,
     )
     return prepared, plan
 
@@ -2140,17 +2164,21 @@ def prepare_attribute_sources(
     graph: BoundGraph,
     state: CompiledSemanticState,
     parent_count: int,
-) -> tuple[PreparedSources, dict[str, tuple[tuple[str, str], ...]]]:
-    """Prepare one snapshot-qualified root stream and its scoped parent columns.
-
-    This Attribute route currently qualifies native DuckDB physical tables.
-    Ordinary original-input or Query admission does not qualify this bundle.
-    """
+) -> tuple[
+    PreparedSources,
+    dict[str, tuple[tuple[str, str], ...]],
+    dict[str, tuple[tuple[str, str, str], ...]],
+]:
+    """Prepare independent unclassified parent and classified fine root streams."""
     import ibis
 
-    from marivo._definition.types import AxisBinding, coordinate_read_keys, field_read_key
+    from marivo._definition.types import AxisBinding, coordinate_read_keys
     from marivo.analysis.binding.membership import membership_reads
-    from marivo.analysis.compiler.attribute_inputs import attribute_preparation_key, input_failure
+    from marivo.analysis.compiler.attribute_inputs import (
+        attribute_parent_key,
+        attribute_preparation_key,
+        input_failure,
+    )
     from marivo.analysis.materialization.query_preparation import prepare_fields
     from marivo.datasource.ir import TableSourceIR
     from marivo.datasource.timezone import probe_engine_timezone
@@ -2160,7 +2188,7 @@ def prepare_attribute_sources(
     if any(not isinstance(bound.source, TableSourceIR) for bound in prepared.bound.values()):
         input_failure(
             "unqualified_contribution_route",
-            "Attribute requires snapshot-qualified physical tables",
+            "Attribute requires native physical tables",
         )
     # ContributionBinding remains the only source scope authority.
     from marivo._definition.observations import ContributionBinding
@@ -2171,13 +2199,9 @@ def prepare_attribute_sources(
     relations = dict(prepared.relations)
     schemas = list(prepared.schemas)
     scoped_columns: dict[str, tuple[tuple[str, str], ...]] = {}
+    parent_checks: dict[str, tuple[tuple[str, str, str], ...]] = {}
     for root, leaves in contributions.items():
         owner = prepared.sources.get(root, prepared.source)
-        if owner.provider.name != "duckdb" or owner._backend.name != "duckdb":
-            input_failure(
-                "unqualified_contribution_route",
-                f"{root}: no qualified Attribute statement snapshot",
-            )
         scope_groups: dict[
             tuple[ObservationPeriod | None, int | None], list[ContributionBinding]
         ] = {}
@@ -2211,7 +2235,9 @@ def prepare_attribute_sources(
                 "unqualified_contribution_route", f"{root}: incompatible non-temporal source scopes"
             )
         raw_fibers: list[ir.Table] = []
+        parent_fibers: list[ir.Table] = []
         check_fibers: list[ir.Table] = []
+        parent_check_fibers: list[ir.Table] = []
         all_leaves = leaves
         for fiber, leaves in enumerate(scope_groups.values()):
             first = leaves[0]
@@ -2253,7 +2279,7 @@ def prepare_attribute_sources(
             baseline = replace(
                 merged,
                 reads=tuple(read for read in merged.reads if read not in member_reads),
-                coordinates=tuple(read for read in merged.coordinates if read not in member_reads),
+                coordinates=parent_reads,
                 memberships=parent_memberships,
             )
             reader = probe_engine_timezone(owner._backend)
@@ -2388,15 +2414,29 @@ def prepare_attribute_sources(
             joined = base.left_join(fine, predicates)
             mapping = dict(scoped_map)
             projections = {name: base[name] for name in base.columns}
-            for read in member_reads:
-                path = field_read_key(read)
+            classification_columns = tuple(
+                (path, name) for path, name in assigned_map.items() if path not in mapping
+            )
+            for path, source_name in classification_columns:
                 name = f"__attribute_member_{len(mapping)}"
-                projections[name] = fine[renamed[assigned_map[path]]]
+                projections[name] = fine[renamed[source_name]]
                 mapping[path] = name
             projections["__attribute_assigned"] = fine[renamed["__attribute_assigned"]].fill_null(
                 False
             )
             raw = joined.select(**projections).mutate(__attribute_fiber=ibis.literal(fiber))
+            # Parent values and identity evidence use the preclassification
+            # input directly; placeholder fields retain the shared lowering map.
+            parent = base.mutate(
+                **{
+                    mapping[path]: ibis.null().cast(
+                        classified.table[name].type().copy(nullable=True)
+                    )
+                    for path, name in classification_columns
+                },
+                __attribute_fiber=ibis.literal(fiber),
+            )
+            parent_fibers.append(parent)
             from marivo._definition.graph import computation_fingerprint
             from marivo.analysis.compiler.query_program import FrameParameter
 
@@ -2437,7 +2477,18 @@ def prepare_attribute_sources(
                 for path, name in mapping.items()
             )
             raw_fibers.append(raw)
-            check_fibers.append(scoped.table.mutate(__attribute_fiber=ibis.literal(fiber)))
+            fine_preparation = classified.table.select(
+                **{name: classified.table[assigned_map[path]] for path, name in mapping.items()},
+                **{
+                    name: classified.table[name]
+                    for _, name in parent_slots
+                    if name not in mapping.values()
+                },
+                **{name: classified.table[name] for name, _, _ in classified.checks},
+            )
+            check_fibers.append(fine_preparation.mutate(__attribute_fiber=ibis.literal(fiber)))
+            parent_check_fibers.append(scoped.table.mutate(__attribute_fiber=ibis.literal(fiber)))
+            parent_checks[root] = scoped.checks
             for leaf in leaves:
                 stage_id = "read:" + ".".join(map(str, leaf.occurrence))
                 relations[stage_id] = raw
@@ -2447,7 +2498,7 @@ def prepare_attribute_sources(
                         schemas[index] = replace(
                             item,
                             fields=fields,
-                            preparation_checks=scoped.checks,
+                            preparation_checks=classified.checks,
                             parameters=tuple(
                                 dict.fromkeys(
                                     (
@@ -2474,8 +2525,26 @@ def prepare_attribute_sources(
             if len(check_fibers) > 1
             else check_fibers[0]
         )
+        parent = (
+            parent_fibers[0].union(*parent_fibers[1:], distinct=False)
+            if len(parent_fibers) > 1
+            else parent_fibers[0]
+        )
+        parent_preparation = (
+            parent_check_fibers[0].union(*parent_check_fibers[1:], distinct=False)
+            if len(parent_check_fibers) > 1
+            else parent_check_fibers[0]
+        )
         for leaf in all_leaves:
             stage_id = "read:" + ".".join(map(str, leaf.occurrence))
             relations[stage_id] = raw
+            relations[attribute_parent_key(stage_id)] = parent
             relations[attribute_preparation_key(stage_id)] = checks
-    return replace(prepared, schemas=tuple(schemas), relations=relations), scoped_columns
+            relations[attribute_preparation_key(attribute_parent_key(stage_id))] = (
+                parent_preparation
+            )
+    return (
+        replace(prepared, schemas=tuple(schemas), relations=relations),
+        scoped_columns,
+        parent_checks,
+    )

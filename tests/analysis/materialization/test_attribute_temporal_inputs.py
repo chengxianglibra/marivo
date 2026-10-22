@@ -81,7 +81,7 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
     return compared.select({"q": compared["base.absolute.q"]}).compute()
 
 
-def test_plain_calendar_complete_parent_order_one_statement(
+def test_plain_calendar_complete_parent_order_independent_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
@@ -107,7 +107,7 @@ def test_plain_calendar_complete_parent_order_one_statement(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(reads) == 2
+    assert len(reads) == 4
     assert result[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
     assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
     assert result[("presence", "detail.current.present.q")].all()
@@ -145,14 +145,14 @@ def test_cross_period_paired_calendar_parent(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert rows[("value", "detail.current.q")].tolist() == [160, 80, 160, 80]
     assert rows[("value", "detail.baseline.q")].tolist() == [100, 100, 100, 100]
     assert rows[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
     assert rows[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
 
 
-def test_fixed_window_lookback_and_repeated_identity_one_statement(
+def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     session: Session,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -213,9 +213,11 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
     pending.show(n=0)
     assert calls == []
     rows = pending.compute().to_pandas()
-    assert len(calls) == 2
-    assert len(captured) == 2
+    assert len(calls) == 4
+    assert len(captured) == 4
     for root in captured:
+        if root.layout.scope != "parent":
+            continue
         assert [leaf.request.binding.window_key for leaf in root.layout.leaves] == [0, 1]
         assert len({leaf.use.logical_occurrence for leaf in root.layout.leaves}) == 1
         assert len({leaf.use.occurrence for leaf in root.layout.leaves}) == 2
@@ -228,8 +230,7 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
         ]
         assert {
             "attribute.scoped_identity_coverage",
-            "attribute.disjoint_joint_partition",
-            "attribute.parent_fine_component_coverage",
+            "attribute.parent_component_coverage",
         } <= {receipt.check_id for receipt in root.receipts}
         for leaf in root.layout.leaves:
             reduction = require_reduction(leaf.read)
@@ -527,7 +528,8 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
     assert context is not None and isinstance(context.fiber, AttributeParentFiber)
     assert context.fiber.parent[0][1] == 0
     assert isinstance(context.witness, AttributeCheckWitness)
-    assert context.witness.coordinates[0][1][1] is None
+    assert context.witness.coordinates == (context.fiber.parent,)
+    assert tuple(column.slot_id for column in context.witness.columns) == ("key.0",)
     assert context.uses[0].root == "sales.otherfacts"
 
 
@@ -570,6 +572,8 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
         source_inputs(parent, parent._derivation.outputs[0], (channel,))
     )
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert root.parent_state.count("known_empty") == 1
         empty = root.parent.iloc[root.parent_state.index("known_empty")]
@@ -749,7 +753,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
 
     monkeypatch.setattr(execution, "read_stage", read)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(calls) == len(captured) == 2
+    assert len(calls) == len(captured) == 4
     assert rows.iloc[:, 0].tolist() == ["A", "B"]
     for name, raw in (
         ("detail.current.q", "q"),
@@ -765,6 +769,8 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
         value / native_change for value in expected_contributions
     ]
     for root in captured:
+        if root.layout.scope != "parent":
+            continue
         (leaf,) = root.layout.leaves
         numerator, denominator = expected_sums[leaf.use.endpoint]
         roles = dict(leaf.roles)

@@ -230,6 +230,7 @@ def complete_declaration(
     from marivo.analysis.dsl.frame import AnalysisFrame
 
     cache: dict[int, SourceMetric] = {}
+    frozen_inputs: dict[str, FrameKeyInput] = {}
 
     def complete(metric: SourceMetric) -> SourceMetric:
         previous = cache.get(id(metric))
@@ -237,6 +238,10 @@ def complete_declaration(
             return previous
         frozen = []
         for dependency in metric.binding.frame_key_inputs:
+            prior = frozen_inputs.get(dependency.input_id)
+            if prior is not None:
+                frozen.append(prior)
+                continue
             original = dependency.frame
             data = keys.get(dependency.input_id)
             if data is None:
@@ -252,7 +257,9 @@ def complete_declaration(
             carrier = AnalysisFrame._bind(
                 carrier._local, carrier._schema, carrier._backing, dependency.input_id
             )
-            frozen.append(FrameKeyInput(dependency.input_id, carrier))
+            captured = FrameKeyInput(dependency.input_id, carrier)
+            frozen_inputs[dependency.input_id] = captured
+            frozen.append(captured)
         result = replace(metric, binding=replace(metric.binding, frame_key_inputs=tuple(frozen)))
         cache[id(metric)] = result
         return result

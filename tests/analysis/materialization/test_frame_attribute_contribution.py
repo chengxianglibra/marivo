@@ -91,7 +91,7 @@ bare = ms.measure_column(name='bare', entity=facts, column='amount', unit=None, 
     return mv.session.create("contribution", timezone="UTC")
 
 
-def test_additive_exact_values_and_one_read_per_endpoint(
+def test_additive_exact_values_and_independent_role_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
@@ -115,7 +115,7 @@ def test_additive_exact_values_and_one_read_per_endpoint(
     pending.show(n=0)
     assert reads == []
     result = pending.compute().to_pandas()
-    assert len(reads) == 4
+    assert len(reads) == 6
     assert result[("value", "contribution.q")].tolist() == [60, -20]
     assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
     assert result[("value", "detail.absolute.q")].tolist() == [60, -20]
@@ -675,7 +675,7 @@ def test_new_attribute_uses_only_its_own_live_components(
         AttributeProjectProgram,
     )
     from marivo.analysis.materialization import frame_evaluation, graph_local_execution
-    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_exchange import CheckReceipt, StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
     from marivo.datasource.adapters import SourceSession
 
@@ -773,10 +773,16 @@ def test_new_attribute_uses_only_its_own_live_components(
         output = local_original(stage, inputs, kernel)
         if isinstance(stage, FrameCompute):
             if isinstance(stage.program, AttributeInputProgram):
+                assert output.receipts == (
+                    CheckReceipt("attribute.complete_key_mapping", stage.stage_id),
+                )
                 assert {root.stage_id for root in output.attribute_inputs} == {
-                    root.stage_id for endpoint in inputs[1:3] for root in endpoint.attribute_inputs
+                    root.stage_id
+                    for binding in stage.program.reads
+                    for root in inputs[binding.input_index].attribute_inputs
                 }
-                assert all(not source.attribute_inputs for source in (inputs[0], *inputs[3:]))
+                assert all(not source.attribute_inputs for source in (inputs[0], *inputs[3:5]))
+                assert {binding.scope for binding in stage.program.reads} == {"parent", "fine"}
             else:
                 assert not output.attribute_inputs
             if isinstance(stage.program, AttributeContributionProgram):
@@ -798,7 +804,7 @@ def test_new_attribute_uses_only_its_own_live_components(
     assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
         [20 / 15, -5 / 15] if shape == "scalar" else [1.0]
     )
-    assert len(attribute_sources) == (2 if shape == "fixed" else 4)
+    assert len(attribute_sources) == (4 if shape == "fixed" else 8)
     assert len(consumed) == (1 if shape == "fixed" else 4 if shape == "pending" else 2)
     assert bridges
     assert [production.input_id for production in captured] == expected_order
@@ -894,7 +900,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
 
     monkeypatch.setattr(SourceSession, "execute", counted)
     fixed = pending.compute()
-    assert len(reads) == 4
+    assert len(reads) == 6
     data = fixed.to_pandas()
     default = ordinary_attribute.to_pandas()
     left = current.to_pandas()[("value", "q")].tolist()
@@ -944,7 +950,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert method.change.value == (20.0 if mean else Decimal("41"))
     saved = fixed.persist()
     assert saved.method_facts == facts and saved.compute().method_facts == facts
-    assert len(reads) == 4
+    assert len(reads) == 6
     if not mean and lexical == "0.500":
         checkout = Path(marivo.__file__).resolve().parents[1]
         code = """
@@ -968,6 +974,11 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert method.left.value==Decimal('240.500000000')
     assert method.change.value==Decimal('41')
     assert saved.compute().method_facts==saved.method_facts
+    checks=[dict(item.values) for item in saved.artifact.evidence_digest().items if item.kind=='check']
+    ids={item.get('check') for item in checks}
+    assert {'attribute.scoped_identity_coverage','attribute.parent_component_coverage','attribute.disjoint_joint_partition','attribute.fine_component_coverage','attribute.complete_key_mapping','attribute_closure'} <= ids
+    roles={item.get('attribute_read_role') for item in checks if item.get('check')=='attribute.scoped_identity_coverage'}
+    assert roles=={'parent','fine'}
 """
         cold = subprocess.run(
             [sys.executable, "-c", code, session.id, saved.artifact.id, str(checkout)],
@@ -1013,7 +1024,7 @@ def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.Mo
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = attribute(selected, by=(channel,)).compute().to_pandas()
-    assert len(reads) == 1
+    assert len(reads) == 2
     assert result[("value", "contribution.q")].tolist() == [160, 80]
     assert result[("value", "total.q")].tolist() == [240, 240]
     assert result[("value", "observed_total.q")].tolist() == [240, 240]
@@ -1172,3 +1183,268 @@ def test_unsupported_output_records_exact_node_after_compute_and_rename(session:
         .output_names[0]
         == "contribution.good"
     )
+
+
+@pytest.mark.parametrize("mode", ("absolute", "level"))
+def test_independent_endpoint_drift_checks_only_requested_final_target(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    from marivo.analysis.core.attribute import AttributeClosureWitness, AttributeInputError
+    from marivo.datasource.adapters import SourceSession
+
+    database = tmp_path / "contribution.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CASE id WHEN 1 THEN 50 WHEN 2 THEN 40 WHEN 3 THEN 60 ELSE 40 END"
+        )
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    current = session.observe({"q": amount.sum()}, where=phase == "current")
+    baseline = session.observe({"q": amount.sum()}, where=phase == "base")
+    comparison = current.compare({"base": baseline})
+    selected = (
+        comparison.select({"q": comparison["base.absolute.q"]}) if mode == "absolute" else current
+    ).compute()
+    execute = SourceSession.execute
+    roles: list[str] = []
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "__attribute_kind" not in rows:
+            return rows
+        parent = "attribute-parent:" in issued.purpose
+        roles.append("parent" if parent else "fine")
+        if not parent:
+            endpoint = "current" if roles.count("parent") == 1 else "base"
+            fine = rows["__attribute_kind"] == 0
+            selected = fine & (rows["key.0"] == ("B" if endpoint == "current" else "A"))
+            for name in rows:
+                if name.endswith("/value") or name.endswith(".additive_value"):
+                    rows.loc[selected, name] += 10
+            for name in rows:
+                if name.startswith("__original_id."):
+                    rows[name] += 100
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    if mode == "level":
+        with pytest.raises(AttributeInputError) as error:
+            selected.attribute(by=(channel,)).compute()
+        assert error.value.reason == "closure_mismatch"
+        context = error.value.attribute_context
+        assert context is not None and isinstance(context.witness, AttributeClosureWitness)
+        assert context.witness.total == 100
+        assert context.witness.contribution_sum == 110
+        assert context.witness.policy == "exact_integer"
+        assert roles == ["parent", "fine"]
+    else:
+        report = selected.attribute(by=(channel,)).compute()
+        rows = report.to_pandas()
+        assert roles == ["parent", "fine", "parent", "fine"]
+        assert rows[("value", "contribution.q")].tolist() == [0, 10]
+        assert rows[("value", "total.q")].tolist() == [10, 10]
+        assert rows[("value", "observed_total.q")].tolist() == [10, 10]
+        audit = _memory(report).metadata.audit
+        read_facts = [dict(fact.values) for fact in audit.source_facts if fact.kind == "read"]
+        assert {
+            fact["attribute_read_role"] for fact in read_facts if "attribute_read_role" in fact
+        } == {"parent", "fine"}
+        closures = [
+            dict(check.values)
+            for check in audit.evaluation.checks
+            if dict(check.values).get("check") == "attribute_closure"
+        ]
+        assert len(closures) == 1
+        assert {
+            key: closures[0][key] for key in ("policy", "target", "mode", "parent_count", "result")
+        } == {
+            "policy": "attribute_closure/v1",
+            "target": "q",
+            "mode": "absolute",
+            "parent_count": 1,
+            "result": "passed",
+        }
+        semantic = [
+            dict(fact.values)
+            for fact in audit.source_facts
+            if fact.kind == "check"
+            and str(dict(fact.values).get("check", "")).startswith("attribute.")
+        ]
+        assert {(fact["attribute_read_role"], fact["check"]) for fact in semantic} == {
+            ("parent", "attribute.scoped_identity_coverage"),
+            ("parent", "attribute.parent_component_coverage"),
+            ("fine", "attribute.scoped_identity_coverage"),
+            ("fine", "attribute.disjoint_joint_partition"),
+            ("fine", "attribute.fine_component_coverage"),
+        }
+        role_stages = {
+            fact["physical_stage"]: fact["attribute_read_role"]
+            for fact in read_facts
+            if "attribute_read_role" in fact
+        }
+        assert all(
+            fact["attribute_read_role"] == role_stages[fact["stage"]] and fact["result"] == "passed"
+            for fact in semantic
+        )
+        mappings = [
+            dict(check.values)
+            for check in audit.evaluation.checks
+            if dict(check.values).get("check") == "attribute.complete_key_mapping"
+        ]
+        assert len(mappings) == 1 and mappings[0]["result"] == "passed"
+        saved = report.persist()
+        reopened = session.persisted_frame(saved.artifact.id)
+        assert reopened._backing.metadata.audit == audit
+        before = roles.copy()
+        assert reopened.compute().to_pandas().equals(rows)
+        assert roles == before
+
+
+def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.attribute import AttributeClosureWitness, AttributeInputError
+    from marivo.datasource.adapters import SourceSession
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 60 ELSE 40 END WHERE phase='current'"
+        )
+    selected = session.observe({"q": amount.sum()}, where=phase == "current").compute()
+    execute = SourceSession.execute
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "__attribute_kind" in rows and "attribute-parent:" not in issued.purpose:
+            selected = (rows["__attribute_kind"] == 0) & (rows["key.0"] == "B")
+            for name in rows:
+                if name.endswith("/value") or name.endswith(".additive_value"):
+                    rows.loc[selected, name] += 1
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    with pytest.raises(AttributeInputError) as error:
+        selected.attribute(by=(channel,)).compute()
+    context = error.value.attribute_context
+    assert context is not None and isinstance(context.witness, AttributeClosureWitness)
+    assert (context.witness.total, context.witness.contribution_sum) == (100, 101)
+    assert context.witness.tolerance == 0
+    assert context.witness.policy == "exact_integer"
+
+
+def test_parent_duplicate_identity_rejected_before_fine_role_can_mask_it(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.datasource.adapters import SourceSession
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe({"q": amount.sum()}, where=phase == "current").compute()
+    database = tmp_path / "contribution.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("DELETE FROM facts WHERE phase='current'")
+        connection.execute("INSERT INTO facts VALUES (103,'current','east','A',100,1)")
+    execute = SourceSession.execute
+    reads: list[str] = []
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "__attribute_kind" in rows:
+            reads.append(issued.purpose)
+        if "attribute-parent:" in issued.purpose:
+            # Return the parent's independently read duplicate50+50 batch.
+            # The underlying fine source is already the repaired single100 row;
+            # skipping this role's check would otherwise allow final closure.
+            scope = rows["__attribute_kind"] == 2
+            rows.loc[scope, "__attribute_root_duplicate"] = True
+            for name in rows:
+                if name.endswith((".input_count", ".effective_count")):
+                    rows.loc[rows["__attribute_kind"] == 1, name] = 2
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    with pytest.raises(MaterializationError, match="duplicate complete contribution identity"):
+        selected.attribute(by=(channel,)).compute()
+    assert len(reads) == 1 and "attribute-parent:" in reads[0]
+
+
+def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.datasource.adapters import SourceSession
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe(
+        {"q": amount.sum(where=channel == "A") + amount.sum(where=channel == "B")}
+    ).compute()
+    execute = SourceSession.execute
+    attribute_reads: list[str] = []
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        if "__attribute_kind" in issued.schema.names:
+            attribute_reads.append(issued.purpose)
+        return execute(self, issued)
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    with pytest.raises(AttributeInputError, match="incompatible non-temporal source scopes"):
+        selected.attribute(by=(channel,)).compute()
+    assert attribute_reads == []
+
+
+def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    parents = session.observe({"q": amount.sum()}, by=(region,)).compute()
+    keys = session.population_from(parents, on=((parents.axes[0], region),))
+    current = session.observe(
+        {"q": amount.sum()}, by=(region,), where=mv.in_population(keys) & (phase == "current")
+    )
+    baseline = session.observe(
+        {"q": amount.sum()}, by=(region,), where=mv.in_population(keys) & (phase == "base")
+    )
+    compared = current.compare(
+        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+    )
+    target = compared.select({"q": compared["base.absolute.q"]}).compute()
+    rows = target.attribute(by=(channel,)).compute().to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == [60, -20]
+    assert rows[("value", "total.q")].tolist() == [40, 40]
+
+
+def test_fixed_top_parent_and_observed_value_survive_new_source_ranking(
+    session: Session, tmp_path: Path
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    database = tmp_path / "contribution.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("INSERT INTO facts VALUES (5,'current','west','A',10,1)")
+    observed = session.observe({"q": amount.sum()}, by=(region,), where=phase == "current")
+    filtered = observed.where(observed["q"] > 100)
+    selected = filtered.top(1, by=filtered["q"]).compute()
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 60 ELSE 40 END WHERE phase='current' AND region='east'"
+        )
+        connection.execute("UPDATE facts SET amount=10000 WHERE region='west'")
+        connection.execute("INSERT INTO facts VALUES (6,'current','north','A',20000,1)")
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
+    assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == [
+        ("east", "A"),
+        ("east", "B"),
+    ]
+    assert rows[("value", "contribution.q")].tolist() == [60, 40]
+    assert rows[("value", "total.q")].tolist() == [100, 100]
+    assert rows[("value", "observed_total.q")].tolist() == [240, 240]

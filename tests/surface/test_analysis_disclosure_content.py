@@ -339,7 +339,10 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
     text = render_help_text("analysis.analysis_frame.attribute")[0]
     assert text == render_help_text(mv.AnalysisFrame.attribute)[0]
     for expected in (
-        "native DuckDB physical tables",
+        "qualified physical tables",
+        "reads are independent",
+        "requested final targets",
+        "numeric precision policy",
         "independent reopen",
         "complete",
         "observed_total",

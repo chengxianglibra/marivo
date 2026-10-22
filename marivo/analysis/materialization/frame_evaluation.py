@@ -25,6 +25,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     LocalCompute,
     SourceRead,
+    read_attribute,
 )
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.query_program import ResultProgram
@@ -312,6 +313,7 @@ def _evaluate_frame(
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
             input_id = source_stage_ids[stage.stage_id]
+            attribute_layout = read_attribute(stage)
             binding = source_frames[input_id]._backing
             assert isinstance(binding, ExpressionFrameBacking)
             dynamic = (
@@ -349,6 +351,14 @@ def _evaluate_frame(
                             if output.source_rows is not None
                             else len(output.table),
                         ),
+                        *(
+                            (
+                                ("attribute_read_role", attribute_layout.scope),
+                                ("attribute_read_policy", "independent_reads/v1"),
+                            )
+                            if attribute_layout is not None
+                            else ()
+                        ),
                     ),
                 )
                 source_facts.append(facts)
@@ -362,6 +372,25 @@ def _evaluate_frame(
                             ("check", name),
                             ("scope", stage.stage_id),
                             ("expected", check.expected),
+                            ("result", "passed"),
+                        ),
+                    )
+                    source_facts.append(fact)
+                    checks.append(fact)
+            if attribute_layout is not None:
+                numeric_checks = {name for name, _ in request.numeric_checks}
+                for receipt in output.receipts:
+                    if receipt.check_id in numeric_checks:
+                        continue
+                    fact = OutputEvidence(
+                        "check",
+                        "Actual Attribute role semantic check passed for this independent source read.",
+                        (
+                            ("input_id", input_id),
+                            ("check", receipt.check_id),
+                            ("stage", receipt.stage_id),
+                            ("attribute_read_role", attribute_layout.scope),
+                            ("policy", "independent_reads/v1"),
                             ("result", "passed"),
                         ),
                     )
@@ -382,7 +411,50 @@ def _evaluate_frame(
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
             )
-            from marivo.analysis.core.attribute import AttributeProjectProgram
+            from marivo.analysis.core.attribute import (
+                AttributeContributionProgram,
+                AttributeInputProgram,
+                AttributeProjectProgram,
+            )
+
+            if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
+                for receipt in output.receipts:
+                    checks.append(
+                        OutputEvidence(
+                            "check",
+                            "Independent Attribute role inputs passed complete-key and source-use mapping into the fixed parent domain.",
+                            (
+                                ("check", receipt.check_id),
+                                ("stage", receipt.stage_id),
+                                ("policy", "independent_reads/v1"),
+                                ("result", "passed"),
+                            ),
+                        )
+                    )
+
+            if isinstance(stage, FrameCompute) and isinstance(
+                stage.program, AttributeContributionProgram
+            ):
+                target = stage.program.operation.target
+                assert target is not None
+                checks.append(
+                    OutputEvidence(
+                        "check",
+                        "Requested final Attribute target passed precision closure against independently read parent totals; source consistency was not audited.",
+                        (
+                            ("stage", stage.stage_id),
+                            ("check", "attribute_closure"),
+                            ("policy", "attribute_closure/v1"),
+                            ("target", ".".join(target.path)),
+                            ("mode", target.mode),
+                            (
+                                "parent_count",
+                                sum(len(payload.parents) for payload in output.attribute_methods),
+                            ),
+                            ("result", "passed"),
+                        ),
+                    )
+                )
 
             if isinstance(stage, FrameCompute) and isinstance(
                 stage.program, AttributeProjectProgram

@@ -133,8 +133,8 @@ def provider() -> DisclosureProvider:
             output="AnalysisFrame",
             constraints=(
                 "Every receiver output must be a direct source Metric or admitted compare/align target. Direct projection and rename retain declarations; arbitrary Column arithmetic does not. Each target keeps its own endpoint and baseline.",
-                "compute and same-process persist retain the source declaration; independent reopen does not. Complete parent keys and observed values stay fixed; fresh source inputs independently evaluate parent/fine formulas and contributions.",
-                "Qualified native DuckDB physical tables only. Preserve original numeric checks, coverage, disjointness and complete frozen time correspondence. One unsupported target rejects the whole request; select admitted targets first.",
+                "compute and same-process persist retain the source declaration; independent reopen does not. Complete parent keys and observed values stay fixed. Parent and fine reads are independent, with no shared-snapshot or source-version guarantee.",
+                "Qualified physical tables use native DuckDB, PostgreSQL, MySQL, Trino or ClickHouse execution, subject to method, type and source restrictions. Preserve original formulas, identity, coverage, disjointness and complete frozen time correspondence. Only requested final targets must close within their numeric precision policy. One unsupported or nonclosing target rejects the whole request.",
                 "Per target: contribution, total, observed_total, contribution_share plus original fine diagnostics/components and independent presence. Defined zero totals retain contributions and give NA shares. Report filtering preserves its original facts and denominators.",
             ),
             effects="Capture only. compute reads fresh source facts after evaluating and fixing the parent selection; persist publishes the completed report without serializing declarations.",

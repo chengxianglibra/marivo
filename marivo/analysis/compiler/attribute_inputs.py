@@ -57,7 +57,10 @@ if TYPE_CHECKING:
         AttributeParentContext,
     )
     from marivo.analysis.core.data_schema import DataSchema
-    from marivo.analysis.core.frame_expression import AttributeInputsValues
+    from marivo.analysis.core.frame_expression import (
+        AttributeContributionValues,
+        AttributeInputsValues,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +73,7 @@ class AttributeLeafInput:
     use: AttributeUseContext
     distinct: DataColumn | None = None
     fiber: int = 0
+    exact_integer: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +142,7 @@ def _native_nodes(
 
 @dataclass(frozen=True, slots=True)
 class AttributeRootLayout:
-    """One endpoint/root statement's original values and sufficient components."""
+    """One independent endpoint/root role's original values and components."""
 
     leaves: tuple[AttributeLeafInput, ...]
     columns: tuple[DataColumn, ...]
@@ -147,6 +151,7 @@ class AttributeRootLayout:
     scoped_columns: tuple[tuple[str, str], ...]
     parent_parameter: SourceParameter
     side: Literal["left", "right"]
+    scope: Literal["parent", "fine"] = "fine"
     assigned: str = "__attribute_assigned"
     kind: str = "__attribute_kind"
     fiber: str = "__attribute_fiber"
@@ -156,7 +161,7 @@ class AttributeRootLayout:
 
     @property
     def keys(self) -> tuple[str, ...]:
-        return self.leaves[0].read.keys
+        return self.parent_keys if self.scope == "parent" else self.leaves[0].read.keys
 
 
 def input_failure(
@@ -253,6 +258,7 @@ def bundle_attribute_plan(
     scoped_columns: dict[str, tuple[tuple[str, str], ...]],
     parent_projection: str,
     side: Literal["left", "right"],
+    parent_checks: dict[str, tuple[tuple[str, str, str], ...]],
 ) -> QueryPlan:
     """Replace each root's ordered occurrences by one governed physical read."""
     from marivo.analysis.binding.attribute_rules import component_requests
@@ -360,6 +366,19 @@ def bundle_attribute_plan(
             )
             logical = request.binding.logical_occurrence or member.occurrence
             use = AttributeUseContext(side, metrics[logical[0]], member.occurrence, logical, root)
+            from marivo.analysis.compiler.original import AggregatePayload
+
+            exact_integer = isinstance(reduction.node, EntityCount) or (
+                isinstance(reduction.node, SourceAggregate)
+                and (
+                    reduction.node.reducer in ("count", "count_distinct")
+                    or (
+                        reduction.node.reducer == "sum"
+                        and isinstance(component.payload, AggregatePayload)
+                        and component.payload.value.dtype == ScalarDataType("int64")
+                    )
+                )
+            )
             leaves.append(
                 AttributeLeafInput(
                     request,
@@ -380,6 +399,7 @@ def bundle_attribute_plan(
                             for item in members
                         )
                     ).index((member.period, reduction.window_key)),
+                    exact_integer,
                 )
             )
             columns[reduction.value_slot] = replace(
@@ -460,10 +480,26 @@ def bundle_attribute_plan(
             ),
             program=AttributeRead(layout, require_reduction(first), read_members(first)),
         )
+        parent_layout = replace(
+            layout,
+            scope="parent",
+            columns=tuple(
+                c for c in layout.columns if c.slot_id not in first.keys or c.slot_id in parent_keys
+            ),
+        )
+        bundles[attribute_parent_key(first.stage_id)] = replace(
+            bundles[first.stage_id],
+            stage_id=attribute_parent_key(first.stage_id),
+            keys=parent_keys,
+            columns=parent_layout.columns,
+            preparation_checks=parent_checks[root],
+            program=AttributeRead(parent_layout, require_reduction(first), read_members(first)),
+        )
     stages: list[QueryStage] = []
     for stage in plan.stages:
         if isinstance(stage, SourceRead) and stage.stage_id in aliases:
             if stage.stage_id in bundles:
+                stages.append(bundles[attribute_parent_key(stage.stage_id)])
                 stages.append(bundles[stage.stage_id])
             continue
         if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram):
@@ -511,6 +547,10 @@ def bundle_attribute_plan(
 
 def original_input_slot(kind: int, occurrence: tuple[int, ...], name: str) -> str:
     return f"attribute.original.{kind}.{'.'.join(map(str, occurrence))}.{name}"
+
+
+def attribute_parent_key(stage_id: str) -> str:
+    return "attribute-parent:" + stage_id
 
 
 def attribute_preparation_key(stage_id: str) -> str:
@@ -571,9 +611,13 @@ def _union_attribute_relations(relations: tuple[ir.Table, ...]) -> ir.Table:
     aligned = tuple(
         relation.select(
             **{
-                name: relation[name]
+                name: relation[name].cast(dtypes[name].copy(nullable=True))
                 if name in relation.columns
-                else ibis.null().cast(dtypes[name].copy(nullable=True))
+                else (
+                    ibis.literal(0).cast(dtypes[name].copy(nullable=True))
+                    if name.startswith("__original_id.")
+                    else ibis.null().cast(dtypes[name].copy(nullable=True))
+                )
                 for name in names
             }
         )
@@ -585,11 +629,15 @@ def _union_attribute_relations(relations: tuple[ir.Table, ...]) -> ir.Table:
 def _lower_attribute_fiber(
     layout: AttributeRootLayout, table: ir.Table, field_columns: dict[str, str]
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
-    """Transport parent/fine aggregates and pre-classification coverage together."""
+    """Transport one role's aggregates and its own identity/classification evidence."""
     fields = {path: table[column] for path, column in field_columns.items()}
     representative = layout.leaves[0].read
     assert read_reduction(representative) is not None
-    axes = {slot: fields[path] for slot, path in require_reduction(representative).axes}
+    axes = {
+        slot: fields[path]
+        for slot, path in require_reduction(representative).axes
+        if layout.scope == "fine" or slot in layout.parent_keys
+    }
     axes.update(
         (slot, table[column])
         for slot, column in layout.scoped_columns
@@ -613,6 +661,8 @@ def _lower_attribute_fiber(
         table.filter(table[layout.assigned])
         .select(**axes, **identities, **distinct_values)
         .distinct()
+        if layout.scope == "fine"
+        else scoped
     )
     parent_active: ir.BooleanValue = ibis.literal(True)
     if not layout.parent_keys:
@@ -804,52 +854,20 @@ def _lower_attribute_fiber(
             result = result.filter(parent_active)
         return result.mutate(**{layout.kind: ibis.literal(kind)})
 
-    # Parent totals deduplicate only complete parent/root identity plus payload;
-    # a root can legally occur in more than one selected parent fiber.
-    parent_group = tuple(
-        dict.fromkeys(
-            (
-                *(column for _, column in layout.scoped_columns),
-                *(name for _, name in layout.identity),
-            )
-        )
-    )
-    parent_source = table.group_by(*parent_group).aggregate(
-        **{
-            name: table[name].first()
-            for name in dict.fromkeys(field_columns.values())
-            if name not in parent_group
-        }
-    )
-    parent = aggregate(
-        parent_source, {slot: parent_source[column] for slot, column in layout.scoped_columns}, 1
-    )
-    fine_source = table.filter(table[layout.assigned])
-    fine = aggregate(
-        fine_source,
-        {slot: fine_source[value.get_name()] for slot, value in axes.items()},
-        0,
-    )
     scope_rows = scoped.mutate(**{layout.kind: ibis.literal(2)})
-    assignment_rows = assigned.mutate(**{layout.kind: ibis.literal(3)})
-    relations = (fine, parent, scope_rows, assignment_rows)
-    names = tuple(dict.fromkeys(name for relation in relations for name in relation.columns))
-    dtypes = {
-        name: next(relation[name].type() for relation in relations if name in relation.columns)
-        for name in names
-    }
-    result = tuple(
-        relation.select(
-            **{
-                name: relation[name]
-                if name in relation.columns
-                else ibis.null().cast(dtypes[name].copy(nullable=True))
-                for name in names
-            }
+    if layout.scope == "parent":
+        parent = aggregate(table, parent_axes, 1)
+        relations: tuple[ir.Table, ...] = (parent, scope_rows)
+    else:
+        fine_source = table.filter(table[layout.assigned])
+        fine = aggregate(
+            fine_source,
+            {slot: fine_source[value.get_name()] for slot, value in axes.items()},
+            0,
         )
-        for relation in relations
-    )
-    return result[0].union(*result[1:], distinct=False), tuple(checks), tuple(check_scopes)
+        assignment_rows = assigned.mutate(**{layout.kind: ibis.literal(3)})
+        relations = (fine, scope_rows, assignment_rows)
+    return _union_attribute_relations(relations), tuple(checks), tuple(check_scopes)
 
 
 def attribute_input_program(
@@ -877,7 +895,6 @@ def attribute_input_program(
         ("left", left_layouts),
         ("right", right_layouts),
     )
-    scopes: tuple[Literal["fine", "parent"], ...] = ("fine", "parent")
     for side, layouts in sides:
         for layout in layouts:
             grouped: dict[
@@ -940,7 +957,7 @@ def attribute_input_program(
                     )
                 ]
             for (occurrence, role), entries in grouped.items():
-                for scope in scopes:
+                for scope in (layout.scope,):
                     column = entries[0][1]
                     if any(
                         (other.dtype, other.unit) != (column.dtype, column.unit)
@@ -975,3 +992,51 @@ def attribute_input_program(
         presence_paths=base.presence_paths,
     )
     return AttributeInputProgram(operation, left, right, parent, tuple(matrix), schema)
+
+
+def exact_integer_closure(
+    operation: AttributeContributionValues,
+    layouts: tuple[AttributeRootLayout, ...],
+) -> bool:
+    """Prove the complete requested target uses only lossless integer rules."""
+    from marivo.analysis.binding.attribute_rules import (
+        AdditiveSource,
+        RuleAdd,
+        RuleNegate,
+        RuleScale,
+        RuleSubtract,
+    )
+
+    if operation.target is None or operation.target.mode == "relative":
+        return False
+
+    def exact(rule: AttributeRule, side: str) -> bool:
+        node = rule.operation
+        if isinstance(node, AdditiveSource):
+            if operation.source_sides is not None:
+                side = (
+                    "left" if operation.source_sides[0 if side == "left" else 1] == 0 else "right"
+                )
+            logical = node.source.binding.logical_occurrence or node.source.binding.occurrence
+            leaves = tuple(
+                leaf
+                for layout in layouts
+                if layout.side == side
+                for leaf in layout.leaves
+                if leaf.use.logical_occurrence == logical
+            )
+            return bool(leaves) and all(leaf.exact_integer for leaf in leaves)
+        if isinstance(node, (RuleAdd, RuleSubtract)):
+            return exact(node.left, side) and exact(node.right, side)
+        if isinstance(node, RuleNegate):
+            return exact(node.operand, side)
+        if isinstance(node, RuleScale):
+            return type(node.scalar.value) is int and exact(node.operand, side)
+        return False
+
+    selected = operation.rules[:1] if operation.target.mode == "level" else operation.rules
+    return all(
+        exact(rule, "left" if index == 0 else "right")
+        for index, rules in enumerate(selected)
+        for _, rule in rules
+    )

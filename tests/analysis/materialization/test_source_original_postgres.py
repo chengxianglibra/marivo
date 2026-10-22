@@ -319,8 +319,6 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
 ) -> None:
     from psycopg import sql
 
-    from marivo.analysis.core.attribute import AttributeInputError
-    from marivo.analysis.errors import AnalysisError
     from marivo.datasource.ir import TableSourceIR
     from tests.datasource.environment import postgres_analysis as pg
 
@@ -415,9 +413,9 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         )
         pending = compared.select(
             {
-                "left.q": compared["q"],
-                "right.q": compared["reference.baseline.q"],
-                "absolute.q": compared["reference.absolute.q"],
+                "left_q": compared["q"],
+                "right_q": compared["reference.baseline.q"],
+                "absolute_q": compared["reference.absolute.q"],
             }
         )
         assert not trace.native_sql and not trace.returned_rows and not trace.uploaded_key_rows
@@ -425,7 +423,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         pending.show(n=0)
         assert not trace.native_sql and not trace.returned_rows and not trace.uploaded_key_rows
         assert terminal_runs(session) == ()
-        assert pending.output_names == ("left.q", "right.q", "absolute.q")
+        assert pending.output_names == ("left_q", "right_q", "absolute_q")
         assert pending.presence_names == ("current.present", "reference.present")
 
         fixed = pending.compute()
@@ -436,18 +434,16 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
         assert terminal_runs(session) == ()
         assert fixed.method_facts == ()
+        ordered = rows.sort_values(rows.columns[2], na_position="first", kind="stable")
         actual = [
             tuple(None if pd.isna(value) else value for value in row)
-            for row in rows.iloc[:, 1:].itertuples(index=False, name=None)
+            for row in ordered.iloc[:, 1:].itertuples(index=False, name=None)
         ]
         assert actual == native == expected
         for name in fixed.output_names:
             values = rows[("value", name)]
-            assert values.dtype == pd.ArrowDtype(pa.int64())
-            assert all(
-                isinstance(value, Integral) and not isinstance(value, bool)
-                for value in values.dropna()
-            )
+            assert values.dtype == pd.ArrowDtype(pa.decimal128(38, 0))
+            assert all(isinstance(value, Decimal) for value in values.dropna())
         for name in fixed.presence_names:
             presence = rows[("presence", name)]
             assert pd.api.types.is_bool_dtype(presence.dtype)
@@ -462,7 +458,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         for column in value_columns:
             assert isinstance(column, dict)
             assert (column["dtype"], column["nullable"], column["unit"]) == (
-                {"name": "int64"},
+                {"precision": 38, "scale": 0},
                 True,
                 None,
             )
@@ -470,12 +466,50 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             assert isinstance(column, dict)
             assert (column["dtype"], column["nullable"]) == ({"name": "boolean"}, False)
 
-        with pytest.raises(AnalysisError) as caught:
-            target = compared.select({"q": compared["reference.absolute.q"]})
-            target.attribute(by=(category,)).compute()
-        assert isinstance(caught.value, AttributeInputError)
-        assert caught.value.reason == "unqualified_contribution_route"
-        assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
+        current_parent = session.observe(
+            {"q": metric},
+            by=(current, tenant),
+            where=mv.in_population(keys) & ~amount.isnull(),
+        )
+        baseline_parent = session.observe(
+            {"q": metric},
+            by=(baseline, tenant),
+            where=mv.in_population(keys) & ~amount.isnull(),
+        )
+        parent_comparison = current_parent.compare(
+            {"reference": baseline_parent},
+            on={"reference": tuple(zip(current_parent.axes, baseline_parent.axes, strict=True))},
+            match={"reference": mv.ordinal()},
+        )
+        target = parent_comparison.select(
+            {"change": parent_comparison["reference.absolute.q"]}
+        ).compute()
+        observed = target.to_pandas()
+        assert observed[("value", "change")].tolist() == [40]
+        with pg.connection(admin=True) as admin:
+            admin.execute(
+                sql.SQL("UPDATE {} SET amount = amount + 20 WHERE tenant = %s AND id = %s").format(
+                    table
+                ),
+                ("EAST", 1),
+            )
+        report = target.attribute(by=(category,)).compute()
+        attributed = report.to_pandas()
+        assert list(attributed.iloc[:, 1:3].itertuples(index=False, name=None)) == [
+            ("EAST", "A"),
+            ("EAST", "B"),
+        ]
+        assert attributed[("value", "detail.current.change")].tolist() == [
+            9007199254741013,
+            80,
+        ]
+        assert attributed[("value", "contribution.change")].tolist() == [80, -20]
+        assert attributed[("value", "total.change")].tolist() == [60, 60]
+        assert attributed[("value", "observed_total.change")].tolist() == [40, 40]
+        assert attributed[("value", "contribution_share.change")].tolist() == pytest.approx(
+            [4 / 3, -1 / 3]
+        )
+        pd.testing.assert_frame_equal(target.to_pandas(), observed)
         assert terminal_runs(session) == ()
 
 

@@ -581,7 +581,46 @@ class SourceSession:
         try:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
-                if self.provider.name in {"duckdb", "trino"} or (
+                if self.provider.name == "mysql":
+                    from ibis.backends.mysql.converter import MySQLPandasData
+
+                    from marivo.datasource.engines.base import decode_cursor_frame
+
+                    # Ibis' MySQL pandas fetcher coerces Decimal and nullable
+                    # integer rows through float64. Decode this already-issued
+                    # SQL on the same owned connection before that conversion.
+                    with self._backend.raw_sql(proof.sql) as cursor:
+                        decoded = decode_cursor_frame(cursor, include_types=False, max_rows=None)
+                    raw = pd.DataFrame(
+                        {
+                            name: pd.Series([row[name] for row in decoded.rows], dtype=object)
+                            for name in decoded.columns
+                        }
+                    )
+                    # Preserve normal pandas temporal inference for Ibis' native
+                    # TIME decoder, while exact reconstruction uses untouched raw.
+                    result = MySQLPandasData.convert_table(
+                        raw.copy().infer_objects(), table.schema()
+                    )
+                    for field in proof.schema:
+                        values = raw[field.name]
+                        native_decimal = any(isinstance(value, Decimal) for value in values)
+                        if pa.types.is_boolean(field.type):
+                            array = pa.array(values, from_pandas=True).cast(pa.bool_())
+                            result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+                        elif (
+                            pa.types.is_integer(field.type)
+                            or pa.types.is_decimal(field.type)
+                            or native_decimal
+                        ):
+                            arrow_type = (
+                                None
+                                if native_decimal and not pa.types.is_decimal(field.type)
+                                else field.type
+                            )
+                            array = pa.array(values, type=arrow_type, from_pandas=True)
+                            result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+                elif self.provider.name in {"duckdb", "trino"} or (
                     self.provider.name == "postgres"
                     and all(
                         requirement.method_id == "query.source_read" and requirement.version == 1

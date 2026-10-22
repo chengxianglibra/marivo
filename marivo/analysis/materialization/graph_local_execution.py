@@ -23,6 +23,7 @@ from marivo.analysis.compiler.query_program import (
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
+    CheckReceipt,
     StageOutput,
 )
 
@@ -90,28 +91,36 @@ def run_local(
                 complete_attribute_parent_domain,
             )
 
-            parent, left, right, left_projection, right_projection = inputs
-            left = replace(
-                left,
-                attribute_inputs=tuple(
-                    complete_attribute_parent_domain(root, left_projection)
-                    for root in left.attribute_inputs
-                ),
-            )
-            right = replace(
-                right,
-                attribute_inputs=tuple(
-                    complete_attribute_parent_domain(root, right_projection)
-                    for root in right.attribute_inputs
-                ),
-            )
+            parent, left, right, left_projection, right_projection = inputs[:5]
+            roles: dict[str, list[AttributeRootInputs]] = {"left": [], "right": []}
+            for read_binding in stage.program.reads:
+                actual = inputs[read_binding.input_index].attribute_inputs
+                for root in actual:
+                    if (
+                        root.layout.scope != read_binding.scope
+                        or tuple(leaf.use for leaf in root.layout.leaves) != read_binding.uses
+                    ):
+                        raise MaterializationError(
+                            expected="the exact typed Attribute role dependency",
+                            received=root.stage_id,
+                            repair="Retain each planned role and complete source use until input assembly.",
+                            stage="attribute_inputs",
+                            help_target="analysis_frame.compute",
+                        )
+                    projection = (
+                        left_projection if read_binding.side == "left" else right_projection
+                    )
+                    roles[read_binding.side].append(
+                        complete_attribute_parent_domain(root, projection)
+                    )
+            left = replace(left, attribute_inputs=tuple(roles["left"]))
+            right = replace(right, attribute_inputs=tuple(roles["right"]))
             inputs = (parent, left, right, left_projection, right_projection)
             frame, attachments = attribute_input_frame_data(stage.program, inputs)
             attribute_inputs = tuple(
                 {
                     root.stage_id: root
-                    for endpoint in (left, right)
-                    for root in endpoint.attribute_inputs
+                    for root in (*left.attribute_inputs, *right.attribute_inputs)
                 }.values()
             )
         elif isinstance(stage.program, FrameCompareProgram):
@@ -165,6 +174,13 @@ def run_local(
             output.table,
             tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
         )
+        if isinstance(stage.program, AttributeInputProgram):
+            from dataclasses import replace
+
+            return replace(
+                output,
+                receipts=(CheckReceipt("attribute.complete_key_mapping", stage.stage_id),),
+            )
         return output
     if local_steps(stage):
         from marivo.analysis.materialization.query_runtime_types import effective_local

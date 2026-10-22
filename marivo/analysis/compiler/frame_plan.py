@@ -411,15 +411,27 @@ def plan_frame(
                     if isinstance(s, LocalCompute) and isinstance(s.program, FormulaProgram)
                 )
                 formulas.append(formula)
+            from marivo.analysis.compiler.attribute_inputs import exact_integer_closure
+
             contribution_program = AttributeContributionProgram(
                 node.operation,
                 input_stage.program,
                 (formulas[0], formulas[-1]),
                 contribution_schema(input_stage.program, node.operation),
+                exact_integer_closure(
+                    node.operation,
+                    tuple(
+                        require_attribute(s)
+                        for s in stages
+                        if isinstance(s, SourceRead)
+                        and read_attribute(s) is not None
+                        and s.stage_id in input_stage.inputs[5:]
+                    ),
+                ),
             )
             compute = FrameCompute(
                 f"frame:{len(stages)}",
-                (prepared, input_stage.inputs[0], *input_stage.inputs[3:]),
+                (prepared, input_stage.inputs[0], *input_stage.inputs[3:5]),
                 contribution_program,
             )
             stages.append(compute)
@@ -475,11 +487,16 @@ def plan_frame(
                     node.operation.mapping.right_projection,
                 )
             )
-            from marivo.analysis.core.attribute import AttributeSourceParentBinding
+            from marivo.analysis.core.attribute import (
+                AttributeReadBinding,
+                AttributeSourceParentBinding,
+            )
 
+            read_bindings: list[AttributeReadBinding] = []
+            direct_reads: list[str] = []
             source_owners = dict(owners)
-            for endpoint_node, projection_id in zip(
-                node.inputs[1:], bridges[: len(node.inputs) - 1], strict=True
+            for side_index, (endpoint_node, projection_id) in enumerate(
+                zip(node.inputs[1:], bridges[: len(node.inputs) - 1], strict=True)
             ):
                 assert isinstance(endpoint_node, SourceFrameInput)
                 for stage_index, source_stage in enumerate(stages):
@@ -499,8 +516,21 @@ def plan_frame(
                             ),
                         )
                         stages[stage_index] = updated_source
+                        layout = require_attribute(updated_source)
+                        read_bindings.append(
+                            AttributeReadBinding(
+                                5 + len(direct_reads),
+                                "left" if side_index == 0 else "right",
+                                layout.scope,
+                                tuple(leaf.use for leaf in layout.leaves),
+                            )
+                        )
+                        direct_reads.append(updated_source.stage_id)
+            input_program = replace(input_program, reads=tuple(read_bindings))
             compute = FrameCompute(
-                f"frame:{len(stages)}", (parent, left, right, *bridges), input_program
+                f"frame:{len(stages)}",
+                (parent, left, right, *bridges, *direct_reads),
+                input_program,
             )
             stages.append(compute)
             operations[id(node)] = (compute.stage_id, input_program.output_schema)

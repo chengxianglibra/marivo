@@ -1,4 +1,4 @@
-"""Single-read transport of checked fine results and ephemeral original inputs."""
+"""Checked role-specific source results and ephemeral original inputs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
-from marivo.analysis.compiler.attribute_inputs import AttributeLeafInput, AttributeRootLayout
+from marivo.analysis.compiler.attribute_inputs import (
+    AttributeLeafInput,
+    AttributeNativeFormula,
+    AttributeRootLayout,
+)
 from marivo.analysis.compiler.graph_plan import read_reduction, require_reduction
 from marivo.analysis.compiler.original import (
     ComponentLayout,
@@ -19,7 +23,11 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import source_columns
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.attribute import AttributeFailureContext, AttributeWitness
+    from marivo.analysis.core.attribute import (
+        AttributeFailureContext,
+        AttributeMatrixSource,
+        AttributeWitness,
+    )
     from marivo.analysis.materialization.graph_exchange import CheckReceipt, StageOutput
 
 
@@ -142,7 +150,7 @@ def complete_components(
 
 @dataclass(frozen=True, slots=True, eq=False)
 class AttributeRootInputs:
-    """Checked same-statement parent/fine components, with their source receipt."""
+    """One independently checked parent or fine role and its own source receipt."""
 
     layout: AttributeRootLayout
     stage_id: str
@@ -255,13 +263,18 @@ def complete_attribute_inputs(
         *identity,
         *(leaf.distinct for leaf in layout.leaves if leaf.distinct is not None),
     )
-    assigned = normalize_stage_frame(
-        assigned.loc[:, [column.slot_id for column in assigned_columns]], assigned_columns, ()
+    assigned = (
+        normalize_stage_frame(
+            assigned.loc[:, [column.slot_id for column in assigned_columns]], assigned_columns, ()
+        )
+        if layout.scope == "fine"
+        else normalize_stage_frame(
+            pd.DataFrame(columns=[c.slot_id for c in assigned_columns]), assigned_columns, ()
+        )
     )
     identity_names = [column.slot_id for column in identity]
-    if (
-        scope.loc[:, identity_names].isna().any().any()
-        or assigned.loc[:, identity_names].isna().any().any()
+    if scope.loc[:, identity_names].isna().any().any() or (
+        layout.scope == "fine" and assigned.loc[:, identity_names].isna().any().any()
     ):
         input_failure("missing_component_proof", f"{stage_id}: incomplete scoped root identity")
     from marivo.analysis.core.attribute import AttributeCoverageWitness, AttributePartitionWitness
@@ -297,7 +310,7 @@ def complete_attribute_inputs(
                 layout, local_scope.iloc[[position]], leaves, (*parent_columns, *identity), witness
             )
             raise error
-        for index, key in enumerate(roots):
+        for index, key in enumerate(roots if layout.scope == "fine" else ()):
             groups = classified.get(key, set())
             if len(groups) != 1:
                 actual = local_scope.iloc[[index]]
@@ -317,7 +330,7 @@ def complete_attribute_inputs(
                     ),
                 )
         for leaf in leaves:
-            if leaf.distinct is None:
+            if layout.scope == "parent" or leaf.distinct is None:
                 continue
             counted = local_assigned.loc[local_assigned[leaf.distinct.slot_id].notna()].reset_index(
                 drop=True
@@ -349,7 +362,11 @@ def complete_attribute_inputs(
                     )
     receipts = (
         CheckReceipt("attribute.scoped_identity_coverage", stage_id),
-        CheckReceipt("attribute.disjoint_joint_partition", stage_id),
+        *(
+            (CheckReceipt("attribute.disjoint_joint_partition", stage_id),)
+            if layout.scope == "fine"
+            else ()
+        ),
     )
     values = tuple(
         column
@@ -367,7 +384,11 @@ def complete_attribute_inputs(
     for leaf in layout.leaves:
         assert read_reduction(leaf.read) is not None
         slot = require_reduction(leaf.read).value_slot
-        for kind, target, keys in ((1, parent, parent_columns), (0, fine, full_columns)):
+        for kind, target, keys in (
+            ((1, parent, parent_columns),)
+            if layout.scope == "parent"
+            else ((0, fine, full_columns),)
+        ):
             completed = originals[(kind, slot)]
             completed_keys = frozen_key_rows(completed, keys)
             key_frame = normalize_stage_frame(
@@ -391,7 +412,10 @@ def complete_attribute_inputs(
                 restored.iloc[index] = completed[slot].iloc[by_key[key]]
             target[slot] = restored
     actual_columns = {
-        column.slot_id: column for column in source_columns(fine, layout.columns, layout.keys)
+        column.slot_id: column
+        for column in source_columns(
+            parent if layout.scope == "parent" else fine, layout.columns, layout.keys
+        )
     }
     # Native formula values cross this boundary before a conservative planned
     # Decimal scale can truncate their actual_columns source carrier.
@@ -404,17 +428,21 @@ def complete_attribute_inputs(
         ),
     )
     columns.update(actual_columns)
-    parent = normalize_stage_frame(
-        parent, tuple(columns[name] for name in parent.columns), layout.parent_keys
-    )
-    fine = normalize_stage_frame(fine, layout.columns, layout.keys)
+    if layout.scope == "parent":
+        parent = normalize_stage_frame(
+            parent, tuple(columns[name] for name in parent.columns), layout.parent_keys
+        )
+        fine = parent.iloc[:0].copy()
+    else:
+        fine = normalize_stage_frame(fine, layout.columns, layout.keys)
+        parent = fine.iloc[:0].loc[:, parent_names].copy()
     if layout.parent_keys and parent.duplicated(list(layout.parent_keys)).any():
         input_failure("missing_component_proof", f"{stage_id}: duplicate complete parent totals")
     if layout.keys and fine.duplicated(list(layout.keys)).any():
         input_failure("missing_component_proof", f"{stage_id}: duplicate complete fine inputs")
     observed_parents = set(frozen_key_rows(scope, parent_columns))
     actual_parents = set(frozen_key_rows(parent, parent_columns))
-    if not observed_parents <= actual_parents:
+    if layout.scope == "parent" and not observed_parents <= actual_parents:
         input_failure(
             "missing_component_proof", f"{stage_id}: missing a parent aggregate for a scoped root"
         )
@@ -424,10 +452,10 @@ def complete_attribute_inputs(
         )
     receipts = (
         *receipts,
-        CheckReceipt("attribute.parent_fine_component_coverage", stage_id),
+        CheckReceipt("attribute." + layout.scope + "_component_coverage", stage_id),
         *(
             (CheckReceipt("attribute.distinct_value_partition", stage_id),)
-            if any(leaf.distinct is not None for leaf in layout.leaves)
+            if layout.scope == "fine" and any(leaf.distinct is not None for leaf in layout.leaves)
             else ()
         ),
     )
@@ -440,7 +468,9 @@ def complete_attribute_inputs(
         else "known_empty"
         for _, row in parent.iterrows()
     )
-    return fine, AttributeRootInputs(layout, stage_id, parent, fine, receipts, states)
+    return (parent if layout.scope == "parent" else fine), AttributeRootInputs(
+        layout, stage_id, parent, fine, receipts, states
+    )
 
 
 def complete_attribute_parent_domain(
@@ -450,6 +480,8 @@ def complete_attribute_parent_domain(
     from marivo._definition.expressions import EntityCount, SourceAggregate
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
 
+    if root.layout.scope != "parent":
+        return root
     columns = {column.slot_id: column for column in root.layout.columns}
     parent_columns = tuple(columns[name] for name in root.layout.parent_keys)
     calendar_slots = {
@@ -495,6 +527,8 @@ def complete_attribute_parent_domain(
             record[leaf.support.slot_id] = 0
             record[leaf.effective.slot_id] = 0
             record.update({column.slot_id: 0 for _, column in leaf.roles})
+        for native in root.layout.native_formulas:
+            record[native.column.slot_id] = _empty_native_value(root.layout, native, record)
         records.append(record)
         states.append("known_empty")
     result = pd.DataFrame(
@@ -507,3 +541,68 @@ def complete_attribute_parent_domain(
         result, tuple(columns[name] for name in result.columns), root.layout.parent_keys
     )
     return replace(root, parent=parent, parent_state=tuple(states))
+
+
+def _empty_native_value(
+    layout: AttributeRootLayout,
+    native: AttributeNativeFormula,
+    record: dict[str, object],
+) -> object:
+    """Run the existing original numeric recipe over this role's known-empty reductions."""
+    import ibis
+
+    from marivo.analysis.core.value_types import ibis_type
+    from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+    from marivo.semantic._numeric_lowering import (
+        NumericValue,
+        lower_metric_formula,
+        numeric_failure,
+    )
+
+    columns = {column.slot_id: column for column in layout.columns}
+    bindings = {
+        value.occurrence: NumericValue(
+            ibis.literal(
+                record[value.column.slot_id], type=ibis_type(columns[value.column.slot_id].dtype)
+            )
+        )
+        for value in native.program.values
+        if value.column.slot_id in record
+    }
+    lowered = lower_metric_formula(
+        native.node, native.occurrence, bindings, dict(native.program.declared)
+    )
+    index = pd.RangeIndex(1)
+    for check in lowered.checks:
+        if evaluate_numeric(check.violation.op(), {}, index).astype("boolean").fillna(False).any():
+            numeric_failure(check.expected, check.received)
+    return evaluate_numeric(lowered.value.op(), {}, index).iloc[0]
+
+
+def select_attribute_root(
+    roots: tuple[AttributeRootInputs, ...],
+    scope: Literal["parent", "fine"],
+    source: AttributeMatrixSource,
+) -> AttributeRootInputs:
+    """Resolve one role, full use, slot and captured window without first-match lookup."""
+    matched = tuple(
+        root
+        for root in {root.stage_id: root for root in roots}.values()
+        if root.layout.scope == scope
+        and any(
+            leaf.use == source.use
+            and (
+                source.window is None or leaf.request.binding.window_key == source.window.window_key
+            )
+            for leaf in root.layout.leaves
+        )
+        and any(column.slot_id == source.source for column in root.layout.columns)
+    )
+    if len(matched) != 1:
+        from marivo.analysis.compiler.attribute_inputs import input_failure
+
+        input_failure(
+            "missing_component_proof",
+            f"{scope}: expected one exact use/slot/window role, received {len(matched)}",
+        )
+    return matched[0]

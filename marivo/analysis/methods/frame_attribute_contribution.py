@@ -1,4 +1,4 @@
-"""Exact Attribute rule composition over checked same-statement stage inputs."""
+"""Exact Attribute rule composition over independently checked role inputs."""
 
 from __future__ import annotations
 
@@ -174,12 +174,9 @@ def _mapped_source(
     projection = left_projection if item.side == "left" else right_projection
     frames: list[pd.DataFrame] = []
     for source in item.sources:
-        root = next(
-            root
-            for root in prepared.attribute_inputs
-            if root.layout.side == source.use.endpoint
-            and any(leaf.use == source.use for leaf in root.layout.leaves)
-        )
+        from marivo.analysis.materialization.query_components import select_attribute_root
+
+        root = select_attribute_root(prepared.attribute_inputs, item.scope, source)
         frames.append(
             attribute_source_values(program.input_program, root, projection, source, item.scope)
         )
@@ -788,7 +785,13 @@ def attribute_contribution_data(
                         received=f"{name}: undefined required original parent total",
                         context=context(name, rule, side, scope, index, "original"),
                     )
-                destination.append(_Value(series, column))
+                from marivo.analysis.materialization.graph_exchange import source_columns
+
+                actual = source_columns(
+                    frame,
+                    (replace(column, slot_id=f"value.{source_index}"),),
+                )[0]
+                destination.append(_Value(series, replace(column, dtype=actual.dtype)))
         if level:
             endpoint_values.append(endpoint_values[0])
             total_values.append(total_values[0])
@@ -807,7 +810,6 @@ def attribute_contribution_data(
                 left_rule,
                 "both",
                 "parent",
-                output=directory[("absolute", name)].dtype,
             )
         )
         contribution = (
@@ -899,24 +901,49 @@ def attribute_contribution_data(
             root_method = method(left_rule, right_rule, index, (total_values[0], total_values[1]))
             root_method = replace(
                 root_method,
-                left=FrameMethodValue(directory[("left", name)], root_method.left.value),
-                right=FrameMethodValue(directory[("right", name)], root_method.right.value),
-                change=FrameMethodValue(directory[("absolute", name)], root_method.change.value),
+                left=FrameMethodValue(
+                    replace(directory[("left", name)], dtype=root_method.left.column.dtype),
+                    root_method.left.value,
+                ),
+                right=FrameMethodValue(
+                    replace(directory[("right", name)], dtype=root_method.right.column.dtype),
+                    root_method.right.value,
+                ),
+                change=FrameMethodValue(
+                    replace(directory[("absolute", name)], dtype=root_method.change.column.dtype),
+                    root_method.change.value,
+                ),
             )
             if isinstance(root_method, FrameRatioMethod):
                 root_method = replace(
                     root_method,
                     numerator_left=FrameMethodValue(
-                        directory[("numerator_left", name)], root_method.numerator_left.value
+                        replace(
+                            directory[("numerator_left", name)],
+                            dtype=root_method.numerator_left.column.dtype,
+                        ),
+                        root_method.numerator_left.value,
                     ),
                     numerator_right=FrameMethodValue(
-                        directory[("numerator_right", name)], root_method.numerator_right.value
+                        replace(
+                            directory[("numerator_right", name)],
+                            dtype=root_method.numerator_right.column.dtype,
+                        ),
+                        root_method.numerator_right.value,
                     ),
                     denominator_left=FrameMethodValue(
-                        directory[("denominator_left", name)], root_method.denominator_left.value
+                        replace(
+                            directory[("denominator_left", name)],
+                            dtype=root_method.denominator_left.column.dtype,
+                        ),
+                        root_method.denominator_left.value,
                     ),
                     denominator_right=FrameMethodValue(
-                        directory[("denominator_right", name)], root_method.denominator_right.value
+                        replace(
+                            directory[("denominator_right", name)],
+                            dtype=root_method.denominator_right.column.dtype,
+                        ),
+                        root_method.denominator_right.value,
                     ),
                 )
             paired_parent_methods.append(root_method)

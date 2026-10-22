@@ -123,7 +123,7 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
 
     def block(source: str, marker: str) -> str:
         match = re.search(
-            r"\{/\* example: " + re.escape(marker) + r" \*/\}\s*```python\n(.*?)```",
+            r"\{/\* example: " + re.escape(marker) + r" \*/\}\s*```python[^\n]*\n(.*?)```",
             source,
             re.DOTALL,
         )
@@ -213,7 +213,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
 
     def named(marker: str) -> str:
         match = re.search(
-            r"\{/\* example: " + re.escape(marker) + r" \*/\}\s*```python\n(.*?)```",
+            r"\{/\* example: " + re.escape(marker) + r" \*/\}\s*```python[^\n]*\n(.*?)```",
             tutorial,
             re.DOTALL,
         )

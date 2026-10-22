@@ -544,7 +544,12 @@ def attribute_input_frame_data(
         names = list(domain_schema.key_fields)
         actual = (
             pd.concat(
-                [root.parent.loc[:, names] for root in source.attribute_inputs], ignore_index=True
+                [
+                    root.parent.loc[:, names]
+                    for root in source.attribute_inputs
+                    if root.layout.scope == "parent"
+                ],
+                ignore_index=True,
             ).drop_duplicates()
             if source.attribute_inputs
             else pd.DataFrame(columns=names)
@@ -610,11 +615,9 @@ def attribute_input_frame_data(
         projection = left_projection if item.side == "left" else right_projection
         mapped: list[pd.DataFrame] = []
         for entry in item.sources:
-            root = next(
-                root
-                for root in sources[item.side].attribute_inputs
-                if root.layout.leaves[0].read.source_id == entry.use.root
-            )
+            from marivo.analysis.materialization.query_components import select_attribute_root
+
+            root = select_attribute_root(sources[item.side].attribute_inputs, item.scope, entry)
             active = attribute_source_values(program, root, projection, entry, item.scope)
             mapped.append(active.rename(columns={entry.source: item.target.slot_id}))
         table = pd.concat(mapped, ignore_index=True)

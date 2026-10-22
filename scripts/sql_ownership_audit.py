@@ -165,6 +165,15 @@ def _manifest() -> Manifest:
         governed,
     )
     add("datasource/adapters", ("SourceSession.execute",), ("self._backend.execute",), governed)
+    add(
+        "datasource/adapters",
+        ("SourceSession.execute",),
+        ("self._backend.raw_sql",),
+        Owner(
+            "ibis_governed_read_check_probe",
+            "The selected SourceSession submits only its unchanged issued proof.sql on its owned MySQL connection, preserving exact cursor values before pandas conversion.",
+        ),
+    )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.execute",), governed)
     add(
         "analysis/materialization/graph_source_execution",

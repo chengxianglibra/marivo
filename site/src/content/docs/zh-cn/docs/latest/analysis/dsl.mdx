@@ -141,7 +141,7 @@ assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, 
 
 输出包含 `contribution.<name>`、`contribution_share.<name>`、`total.<name>`、`observed_total.<name>` 及细分诊断。`method_facts` 在筛选与持久化后保留方法说明。
 
-完成计算后，选中的父键与原观察值固定。Attribute 重新读取父级和细分来源输入，不重新排名这些键；来源变化时应检查原观察总量与新总量。目前仅准入合格的原生 DuckDB 物理表。普通 Column 运算不会自动成为可归因的来源公式；受支持的线性或比率 Metric 应在观察之前定义。独立重新打开保留值和方法事实，但没有再次请求 attribute 所需的声明。Help：`analysis.analysis_frame.attribute`。
+完成计算后，选中的父键与原观察值固定。Attribute 独立读取新的父级和细分输入，不重新排名这些键，也不保证共享快照。`total` 来自新读的父级原公式，`observed_total` 保留接收方的历史值。合格物理表使用原生 backend 执行，仍受方法、类型和来源能力限制。身份、公式和完整分类检查仍然必需。只对请求的最终目标按其数值精度政策验收闭合；不闭合会使整个请求失败，不修补残差。相对变化使用新读父级基准值的绝对值作分母。普通 Column 运算不会自动成为可归因的来源公式；受支持的线性或比率 Metric 应在观察之前定义。独立重新打开保留值和方法事实，但没有再次请求 attribute 所需的声明。Help：`analysis.analysis_frame.attribute`。
 
 从总额下降出发，再判断各地区解释多少。
 

@@ -5,13 +5,27 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal, localcontext
 from math import fsum, isfinite, ulp
+from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.attribute import AttributeContributionProgram, AttributeMethodPayload
+from marivo.analysis.core.attribute import (
+    AttributeClosureWitness,
+    AttributeContributionProgram,
+    AttributeFailureContext,
+    AttributeInputError,
+    AttributeMethodPayload,
+    AttributeParentFiber,
+    AttributeUseContext,
+)
 from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DecimalDataType, DurationDataType
+from marivo.analysis.core.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
@@ -31,8 +45,9 @@ from marivo.analysis.core.frame_method_facts import (
 )
 from marivo.analysis.core.frozen_calendar import frozen_key_rows
 from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def _scalar(value: _Value, index: int) -> FrameMethodValue:
@@ -52,10 +67,101 @@ def _series(value: FrameMethodValue) -> _Value:
     return _Value(pd.Series(pd.arrays.ArrowExtensionArray(array)), value.column)
 
 
+def _report_value(value: _Value, column: DataColumn) -> _Value:
+    """Align report values through a safe cast, without rounding their inputs."""
+    if isinstance(column.dtype, DurationDataType) and value.column.dtype == column.dtype:
+        array = pa.array(value.values)
+        if array.type != stage_arrow_type(column.dtype):
+            # Additive rules can retain integral mass in a Decimal carrier.
+            # Publish that already typed Duration quantity in its exact ticks.
+            if not (
+                pa.types.is_integer(array.type)
+                or pa.types.is_null(array.type)
+                or pa.types.is_decimal(array.type)
+            ):
+                numeric_failure("exact integral Attribute Duration ticks", str(array.type))
+            try:
+                exact = array.cast(pa.int64(), safe=True).cast(stage_arrow_type(column.dtype))
+            except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
+                numeric_failure("exact signed int64 Attribute Duration ticks", str(error))
+            return _Value(pd.Series(pd.arrays.ArrowExtensionArray(exact)), column)
+    if value.column.dtype == column.dtype:
+        return _Value(value.values, column)
+    source = value.column.dtype
+    if (
+        not isinstance(column.dtype, DecimalDataType)
+        or not (isinstance(source, DecimalDataType) or source == ScalarDataType("int64"))
+        or (isinstance(source, DecimalDataType) and column.dtype.scale < source.scale)
+    ):
+        numeric_failure(
+            "a lossless common Attribute report carrier",
+            f"{column.name}: incompatible {source!r} to {column.dtype!r}",
+        )
+    try:
+        original = pa.array(value.values, type=stage_arrow_type(value.column.dtype))
+        exact = original.cast(stage_arrow_type(column.dtype), safe=True)
+    except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
+        numeric_failure(
+            "a lossless common Attribute report carrier",
+            f"{column.name}: {value.column.dtype!r} to {column.dtype!r}: {error}",
+        )
+    return _Value(pd.Series(pd.arrays.ArrowExtensionArray(exact)), column)
+
+
+def _report_method(
+    method: _Method | _LevelMethod,
+    output: dict[tuple[str, ...], DataColumn],
+    target: tuple[str, ...],
+) -> _Method | _LevelMethod:
+    """Retain parent scalar values in their matching lossless diagnostic carriers."""
+
+    def value(captured: FrameMethodValue, *path: str) -> FrameMethodValue:
+        column = output[(*path, *target)]
+        aligned = replace(captured.column, dtype=column.dtype, nullable=column.nullable)
+        return _scalar(_report_value(_series(captured), aligned), 0)
+
+    if isinstance(method, (FrameLevelAdditiveMethod, FrameLevelLinearMethod)):
+        return replace(method, value=value(method.value, "detail", "value"))
+    if isinstance(method, FrameLevelRatioMethod):
+        return replace(
+            method,
+            value=value(method.value, "detail", "value"),
+            numerator=value(method.numerator, "component", "value", "numerator"),
+            denominator=value(method.denominator, "component", "value", "denominator"),
+        )
+    if isinstance(method, FrameRatioMethod):
+        return replace(
+            method,
+            left=value(method.left, "detail", "current"),
+            right=value(method.right, "detail", "baseline"),
+            change=value(method.change, "detail", "absolute"),
+            numerator_left=value(method.numerator_left, "component", "current", "numerator"),
+            numerator_right=value(method.numerator_right, "component", "baseline", "numerator"),
+            denominator_left=value(method.denominator_left, "component", "current", "denominator"),
+            denominator_right=value(
+                method.denominator_right, "component", "baseline", "denominator"
+            ),
+        )
+    return replace(
+        method,
+        left=value(method.left, "detail", "current"),
+        right=value(method.right, "detail", "baseline"),
+        change=value(method.change, "detail", "absolute"),
+    )
+
+
 def _closure(
-    values: _Value, total: FrameMethodValue, method: _Method | _LevelMethod, *, relative: bool
+    values: _Value,
+    total: FrameMethodValue,
+    method: _Method | _LevelMethod,
+    *,
+    relative: bool,
+    exact_integer: bool = False,
+    parent: AttributeParentFiber,
+    target: FrameMethodTarget,
+    uses: tuple[AttributeUseContext, ...] = (),
 ) -> None:
-    """Compare independently evaluated totals within the captured carrier's rounding."""
+    """Check only the requested final target, retaining exact typed failure values."""
     array = pa.array(values.values, type=stage_arrow_type(values.column.dtype))
     if isinstance(values.column.dtype, DurationDataType):
         array = array.cast(pa.int64())
@@ -70,15 +176,32 @@ def _closure(
     expected = total.value
     assert isinstance(expected, (int, float, Decimal))
     dtype = values.column.dtype
+    actual: int | float | Decimal
+    residual: int | float | Decimal
+    tolerance: int | float | Decimal
+    policy: Literal["exact_integer", "duration_ticks", "decimal_rounding", "float64"]
     if isinstance(dtype, DecimalDataType):
+        assert isinstance(expected, (int, Decimal))
+        assert all(isinstance(cell, (int, Decimal)) for cell in cells)
+        total_scale = (
+            total.column.dtype.scale if isinstance(total.column.dtype, DecimalDataType) else 0
+        )
+        scale = max(dtype.scale, total_scale)
         with localcontext() as context:
-            context.prec = 100
+            # Physical values have at most 38 digits. The count adds only its
+            # decimal width; preserve every input digit before comparing.
+            context.prec = max(120, 38 + len(str(len(cells) + 1)) + scale)
             actual = sum(cells, Decimal(0))
-            bound = Decimal(len(cells) + 1) * Decimal(1).scaleb(-dtype.scale) / 2
-            assert isinstance(expected, Decimal)
-            valid = abs(actual - expected) <= bound
+            residual = actual - expected
+            tolerance = (
+                Decimal(0)
+                if exact_integer
+                else Decimal(len(cells) + 1) * Decimal(1).scaleb(-scale) / 2
+            )
+            valid = abs(residual) <= tolerance
+        policy = "exact_integer" if exact_integer else "decimal_rounding"
     elif isinstance(expected, float):
-        floating = fsum(cells)
+        assert not exact_integer
 
         def precision_error(rule: _Method | _LevelMethod) -> float:
             captured = (
@@ -96,27 +219,62 @@ def _closure(
                 )
             return error
 
-        # Native Float64 endpoint rounding survives cancellation. Its error is
-        # expressed in report units, including relative baseline normalization.
-        source_error = precision_error(method)
-        if relative:
-            assert isinstance(method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod))
-            assert isinstance(method.right.value, (int, float, Decimal))
-            baseline = abs(float(method.right.value))
-            source_error /= baseline
-            if type(method.right.value) is float:
-                source_error += abs(expected) * ulp(abs(method.right.value)) / (2 * baseline)
-        magnitude = max(abs(expected), fsum(abs(value) for value in cells))
-        tolerance = 16 * (len(cells) + 1) * (source_error + ulp(magnitude))
-        valid = isfinite(floating) and abs(floating - expected) <= tolerance
+        try:
+            if not all(isfinite(cell) for cell in cells):
+                raise ValueError("nonfinite contribution")
+            actual = fsum(cells)
+            # Native endpoint rounding survives cancellation; relative targets
+            # express that same budget in units of the fresh absolute baseline.
+            source_error = precision_error(method)
+            if relative:
+                assert isinstance(
+                    method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)
+                )
+                assert isinstance(method.right.value, (int, float, Decimal))
+                baseline = abs(float(method.right.value))
+                source_error /= baseline
+                if type(method.right.value) is float:
+                    source_error += abs(expected) * ((ulp(abs(method.right.value)) / baseline) / 2)
+            magnitude = max(abs(expected), fsum(abs(value) for value in cells))
+            tolerance = 16 * (len(cells) + 1) * (source_error + ulp(magnitude))
+            residual = actual - expected
+            if not all(
+                isfinite(value)
+                for value in (actual, expected, source_error, magnitude, tolerance, residual)
+            ):
+                raise ValueError("nonfinite total, sum, residual or rounding budget")
+        except (ArithmeticError, ValueError) as error:
+            numeric_failure(
+                "finite Attribute closure total, sum, residual and rounding budget", str(error)
+            )
+        valid = abs(residual) <= tolerance
+        policy = "float64"
     else:
-        valid = sum(cells) == expected
+        assert isinstance(expected, int)
+        assert all(isinstance(cell, int) for cell in cells)
+        actual = sum(cells)
+        residual = actual - expected
+        tolerance = 0
+        valid = residual == 0
+        policy = "duration_ticks" if isinstance(dtype, DurationDataType) else "exact_integer"
     if not valid:
-        reject(
-            "fine contributions closing to the independently evaluated parent total",
-            total.column.name,
-            "Inspect complete source coverage and the original parent/fine formula; residual repair is unsupported.",
-            "frame.attribute",
+        raise AttributeInputError(
+            reason="closure_mismatch",
+            received="independent parent and fine results do not close within numeric tolerance",
+            context=AttributeFailureContext(
+                uses,
+                parent,
+                AttributeClosureWitness(
+                    target.target,
+                    target.kind,
+                    expected,
+                    actual,
+                    residual,
+                    tolerance,
+                    policy,
+                    total.column,
+                ),
+            ),
         )
 
 
@@ -154,7 +312,8 @@ def report_attribute(
     fine_keys = tuple(frozen_key_rows(rows, parent_columns))
     fine_indices = tuple(parent_indices[key] for key in fine_keys)
     original = parent_schema.values[target.observed]
-    observed = _Value(parent.table[original.slot_id], original)
+    observed_column = output[("observed_total", *target.path)]
+    observed = _report_value(_Value(parent.table[original.slot_id], original), observed_column)
     result = rows.loc[:, list(report_schema.key_fields)].copy()
     mappings = [
         FrameMethodOutput("contribution", ("contribution", *target.path)),
@@ -232,9 +391,9 @@ def report_attribute(
                 fresh = _numeric_binary(
                     "div", fresh, baseline, output=output[("total", *target.path)].dtype
                 )
-        methods.append(method)
-        totals.append(_scalar(_Value(fresh.values, output[("total", *target.path)]), 0))
-    contribution_column = old[("contribution", "target")]
+        methods.append(_report_method(method, output, target.path))
+        totals.append(_scalar(_report_value(fresh, output[("total", *target.path)]), 0))
+    contribution_column = source_columns(rows, (old[("contribution", "target")],))[0]
     contributions = _Value(rows[contribution_column.slot_id], contribution_column)
     if target.mode == "relative":
         baselines = [paired_methods[index].right.value for index in fine_indices]
@@ -244,11 +403,11 @@ def report_attribute(
         contributions = _numeric_binary(
             "div", contributions, denominator, output=output[("contribution", *target.path)].dtype
         )
+    contributions = _report_value(contributions, output[("contribution", *target.path)])
     result[output[("contribution", *target.path)].slot_id] = contributions.values
     result[output[("total", *target.path)].slot_id] = pd.Series(
         [totals[index].value for index in fine_indices], dtype=contributions.values.dtype
     )
-    observed_column = output[("observed_total", *target.path)]
     observed_values = observed.values.take(list(fine_indices)).reset_index(drop=True)
     result[observed_column.slot_id] = observed_values
     share_column = output[("contribution_share", *target.path)]
@@ -276,10 +435,18 @@ def report_attribute(
             source_role = (
                 component + "_" + ("left" if endpoint in ("value", "current") else "right")
             )
-        result[output[path].slot_id] = rows[old[(source_role, "target")].slot_id]
+        source_column = source_columns(rows, (old[(source_role, "target")],))[0]
+        result[output[path].slot_id] = _report_value(
+            _Value(rows[source_column.slot_id], source_column), output[path]
+        ).values
     for column, source in zip(report_schema.presence, program.output_schema.presence, strict=False):
         result[column.slot_id] = rows[source.slot_id]
     parents = []
+    uses = tuple(
+        dict.fromkeys(
+            source.use for item in program.input_program.matrix for source in item.sources
+        )
+    )
     for index, _key in enumerate(parent_keys):
         indices = [row for row, parent_index in enumerate(fine_indices) if parent_index == index]
         _closure(
@@ -287,6 +454,10 @@ def report_attribute(
             totals[index],
             methods[index],
             relative=target.mode == "relative",
+            exact_integer=program.exact_integer_closure,
+            parent=AttributeParentFiber(_key, parent_columns),
+            target=descriptor,
+            uses=uses,
         )
         observed_value = _scalar(observed, index)
         metric = FrameAttributeMetric(

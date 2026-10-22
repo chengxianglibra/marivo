@@ -1,4 +1,4 @@
-"""Private Attribute preparation uses one checked input per endpoint/root."""
+"""Private Attribute preparation retains independently checked source roles."""
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -80,7 +80,7 @@ def session(
     return mv.session.create("inputs", timezone="UTC")
 
 
-def test_same_root_ratio_one_actual_read_per_endpoint(
+def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
@@ -104,19 +104,20 @@ def test_same_root_ratio_one_actual_read_per_endpoint(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     prepared = evaluate_attribute_inputs(request)
-    assert len(reads) == 2
-    assert len(prepared.attribute_inputs) == 2
+    assert len(reads) == 4
+    assert len(prepared.attribute_inputs) == 4
     assert all(len(root.layout.leaves) == 2 for root in prepared.attribute_inputs)
     assert all(
         {
             "attribute.scoped_identity_coverage",
-            "attribute.disjoint_joint_partition",
-            "attribute.parent_fine_component_coverage",
+            "attribute." + root.layout.scope + "_component_coverage",
         }
         <= {receipt.check_id for receipt in root.receipts}
         for root in prepared.attribute_inputs
     )
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         assert len(root.parent) == 1
         columns = []
         for column in root.parent:
@@ -142,6 +143,8 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         values = {role: root.parent.loc[0, column.slot_id] for role, column in leaf.roles}
         assert root.parent.loc[0, leaf.support.slot_id] == 2
@@ -167,6 +170,8 @@ def test_full_compound_and_null_parent_keys(session: Session) -> None:
     )
     assert len(output.table) == 3
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         assert len(root.parent) == 2
         assert len(root.layout.identity) == 2
 
@@ -224,6 +229,8 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
     )
     assert prepared.table.empty
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         assert len(root.parent) == (0 if empty else 1)
         assert root.parent_state == (() if empty else ("known_empty",))
         if not empty:
@@ -253,6 +260,8 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
     )
     assert len(prepared.table) == 3
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         assert set(root.parent.iloc[:, :2].itertuples(index=False, name=None)) == {
             ("x", "online"),
             ("y", "store"),
@@ -315,6 +324,8 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
     )
     assert len(prepared.table) == 1
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert root.parent.loc[0, leaf.support.slot_id] == 1
         assert root.parent.loc[0, leaf.roles[0][1].slot_id] == 10
@@ -439,6 +450,8 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
         )
     )
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         original = next(
             column
@@ -477,6 +490,8 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
         )
     )
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         original = next(
             column
@@ -511,13 +526,15 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
         )
     )
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         component = dict(leaf.roles)["valid_value_sum"]
         assert isinstance(component.dtype, DecimalDataType)
         assert root.parent.loc[0, component.slot_id] == Decimal(3 * (2**63 - 1))
 
 
-def test_one_additional_root_adds_one_read_per_endpoint_without_fact_fanout(
+def test_additional_root_has_two_independent_roles_without_fact_fanout(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
@@ -542,13 +559,15 @@ def test_one_additional_root_adds_one_read_per_endpoint_without_fact_fanout(
             by=(channel,),
         )
     )
-    assert len(calls) == 4
-    assert len(prepared.attribute_inputs) == 4
+    assert len(calls) == 8
+    assert len(prepared.attribute_inputs) == 8
     assert {root.layout.leaves[0].read.source_id for root in prepared.attribute_inputs} == {
         "sales.facts",
         "sales.otherfacts",
     }
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert root.parent[leaf.roles[0][1].slot_id].tolist() == [40]
         assert root.parent[leaf.support.slot_id].tolist() == [3]
@@ -600,7 +619,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
             by=(channel,),
         )
     )
-    assert len(calls) == 2
+    assert len(calls) == 4
     stages = captured[0].lowered.plan.stages
     roots = [
         stage
@@ -608,7 +627,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
         if isinstance(stage, SourceRead) and read_attribute(stage) is not None
     ]
     bridges = [stage for stage in stages if stage.stage_id.startswith("attribute-bridge:")]
-    assert len(roots) == len(bridges) == 2
+    assert len(roots) == 4 and len(bridges) == 2
     assert max(stages.index(stage) for stage in bridges) < min(
         stages.index(stage) for stage in roots
     )
@@ -616,12 +635,23 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     assert isinstance(final, FrameCompute) and isinstance(final.program, AttributeInputProgram)
     parents = []
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         mass = leaf.roles[0][1].slot_id
-        assert root.parent[mass].iloc[0] == root.fine[mass].dropna().sum()
+        fine_root = next(
+            item
+            for item in prepared.attribute_inputs
+            if item.layout.scope == "fine" and item.layout.leaves[0].use == leaf.use
+        )
+        assert root.parent[mass].iloc[0] != fine_root.fine[mass].dropna().sum()
         assert all(receipt.stage_id == root.stage_id for receipt in root.receipts)
         parents.append(root.parent[mass].iloc[0])
-    assert parents == [40, 80]
+    assert parents == [40, 120]
+    assert {binding.input_index for binding in final.program.reads} == set(range(5, 9))
+    assert {final.inputs[binding.input_index] for binding in final.program.reads} == {
+        stage.stage_id for stage in roots
+    }
 
 
 def test_complete_compound_identity_parent_mapping(session: Session) -> None:
@@ -642,6 +672,8 @@ def test_complete_compound_identity_parent_mapping(session: Session) -> None:
         ("t", 3),
     ]
     for root in prepared.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         assert len(root.layout.parent_keys) == 2
         assert root.parent.iloc[:, :2].values.tolist() == [["t", 1], ["t", 3]]
 
@@ -795,7 +827,11 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
             for kind in (0, 1, 2, 3):
                 part = frame.loc[frame["__attribute_kind"] == kind]
                 parts.append(
-                    part.sort_values(["key.0", "key.1"], ascending=False, na_position="first")
+                    part.sort_values(
+                        [name for name in ("key.0", "key.1") if name in part],
+                        ascending=False,
+                        na_position="first",
+                    )
                 )
             return pd.concat(parts, ignore_index=True)
         return frame
@@ -812,8 +848,10 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
             by=(channel,),
         )
     )
-    assert len(reads) == 2
+    assert len(reads) == 4
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         value_slot = require_reduction(leaf.read).value_slot
         component = leaf.roles[0][1].slot_id
@@ -822,7 +860,12 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
                 ("east",): 10,
                 (None,): 30,
             }
-            fine = _keyed_values(root.fine, root.layout.keys, slot)
+            fine_root = next(
+                item
+                for item in output.attribute_inputs
+                if item.layout.scope == "fine" and item.layout.leaves[0].use == leaf.use
+            )
+            fine = _keyed_values(fine_root.fine, fine_root.layout.keys, slot)
             assert fine[None, "A"] == 30
             assert fine["east", "A"] == 10
             assert pd.isna([fine["east", "B"]])[0]
@@ -864,6 +907,8 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert _keyed_values(
             root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
@@ -900,6 +945,8 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         original = _keyed_values(
             root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
@@ -964,6 +1011,8 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert _keyed_values(
             root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
@@ -1005,6 +1054,8 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
             )
         )
         for root in output.attribute_inputs:
+            if root.layout.scope != "parent":
+                continue
             leaf = root.layout.leaves[0]
             assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
         return
@@ -1051,6 +1102,8 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
 
@@ -1076,6 +1129,8 @@ def test_known_empty_weighted_parent_retains_na_original_total(session: Session)
         )
     )
     for root in output.attribute_inputs:
+        if root.layout.scope != "parent":
+            continue
         leaf = root.layout.leaves[0]
         assert root.parent_state == ("known_empty",)
         assert root.parent[require_reduction(leaf.read).value_slot].isna().all()
@@ -1152,7 +1207,10 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
                 by=(channel,),
             )
         )
-    assert len(reads) == 1
+    assert len(reads) == (1 if failing_scope == "parent" else 2)
+    assert "attribute-parent:" in reads[0].purpose
+    if failing_scope == "fine":
+        assert "attribute-parent:" not in reads[1].purpose
     assert coordinates == [expected_coordinates, expected_coordinates]
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
@@ -1206,3 +1264,107 @@ def test_source_capture_copies_metrics_without_business_reads(
     metrics.clear()
     assert captured.output_names == ("sum", "mean")
     assert terminal_runs(session) == before
+
+
+def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from decimal import Decimal
+
+    import pyarrow as pa
+
+    from marivo.analysis.compiler.graph_plan import FrameCompute
+    from marivo.analysis.core.attribute import AttributeInputProgram
+    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.materialization import graph_local_execution
+    from marivo.datasource.adapters import SourceSession
+
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER value TYPE DECIMAL(18,2)")
+        connection.execute(
+            "UPDATE facts SET value=CASE id WHEN 1 THEN 10.02 WHEN 2 THEN 20.04 ELSE 30.06 END"
+        )
+    value = session.catalog.fields.get("sales.facts.value")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe({"q": value.sum() * Decimal("0.5")}, by=(region,)).compute()
+    execute = SourceSession.execute
+    captured = []
+    local = graph_local_execution.run_local
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "__attribute_kind" not in rows:
+            return rows
+        scale = 2 if "attribute-parent:" in issued.purpose else 4
+        for name in rows:
+            if (
+                name.endswith("/value")
+                or name.endswith(".additive_value")
+                or name.startswith("attribute.native.")
+            ):
+                rows[name] = pd.Series(
+                    pd.arrays.ArrowExtensionArray(
+                        pa.array(rows[name], type=pa.decimal128(38, scale))
+                    )
+                )
+        return rows.iloc[::-1].reset_index(drop=True)
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    from marivo.analysis.compiler.graph_plan import LocalCompute
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_local_execution import LocalKernel
+
+    def run_local(
+        stage: LocalCompute | FrameCompute,
+        inputs: tuple[StageOutput, ...],
+        kernel: LocalKernel | None = None,
+    ) -> StageOutput:
+        result = local(stage, inputs, kernel)
+        if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
+            captured.extend(result.attribute_inputs)
+            assert {binding.scope for binding in stage.program.reads} == {"parent", "fine"}
+            assert all(
+                inputs[binding.input_index].attribute_inputs for binding in stage.program.reads
+            )
+        return result
+
+    monkeypatch.setattr(graph_local_execution, "run_local", run_local)
+    rows = selected.attribute(by=(channel,)).compute().to_pandas()
+    assert {
+        (None if pd.isna(row[0]) else row[0], row[1]): row[2]
+        for row in rows.iloc[:, :3].itertuples(index=False, name=None)
+    } == {
+        (None, "A"): Decimal("15.03"),
+        ("east", "A"): Decimal("5.01"),
+        ("east", "B"): Decimal("10.02"),
+    }
+    for name in ("total.q", "observed_total.q"):
+        assert rows[("value", name)].tolist() == [Decimal("15.03")] * 3
+        assert pa.array(rows[("value", name)]).type == pa.decimal128(38, 4)
+    assert len(captured) == 2
+    for root in captured:
+        scale = 2 if root.layout.scope == "parent" else 4
+        columns = {column.slot_id: column for column in root.layout.columns}
+        native = root.layout.native_formulas[0]
+        assert columns[native.column.slot_id].dtype == DecimalDataType(38, scale)
+        assert all(receipt.stage_id == root.stage_id for receipt in root.receipts)
+
+
+def test_known_empty_parent_native_formula_has_defined_original_zero(session: Session) -> None:
+    value = session.catalog.fields.get("sales.facts.value")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe(
+        {"q": value.sum() * 2},
+        by=mv.coordinates(by=(region,), keys=(("east",), ("absent",))),
+        where=region == "east",
+    ).compute()
+    output = evaluate_attribute_inputs(_comparison_inputs(selected, selected, by=(channel,)))
+    for root in output.attribute_inputs:
+        if root.layout.scope == "parent":
+            original = root.layout.native_formulas[0].column.slot_id
+            assert _keyed_values(root.parent, root.layout.parent_keys, original) == {
+                ("east",): 20,
+                ("absent",): 0,
+            }

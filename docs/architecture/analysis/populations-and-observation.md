@@ -178,8 +178,10 @@ become a source Metric; combine ratios or fixed linear formulas before observe.
 The restricted align endpoint difference is an explicit admitted exception.
 
 The current complete receiver rows fix the parent key domain and observed totals.
-Attribute first completes any pending selection, then independently rereads parent
-and fine formulas from shared actual inputs per endpoint/root. Original predicates,
+Attribute first completes any pending selection, then independently reads parent
+and fine inputs. These reads need not share a snapshot, source version or raw identity
+set. The parent formula uses its original scope before the new classification;
+fine inputs add that classification. Original predicates,
 Population allocation, window dependencies, strict formulas and numeric checks stay
 attached. A fixed parent selection is never reranked against the new source values.
 Interval, calendar and paired coordinates preserve each endpoint's exact scope and
@@ -192,13 +194,40 @@ fine keys, allocation and valid no-fact candidates; tuple axes request actual gr
 Neither variant introduces arbitrary new time refinement. All targets must have
 admitted rules and coverage; one unsupported target rejects the whole request.
 
-The qualified contribution route remains native DuckDB physical tables with retained
-components, original parent/fine formula checks and proven disjoint coverage.
+The qualified contribution route uses physical tables through the existing native
+DuckDB, PostgreSQL, MySQL, Trino and ClickHouse source execution paths, subject to
+the backend's actual method, type, key and source restrictions. Both read roles keep
+their own identity, fanout, original formula and numeric checks; fine classification
+still requires complete, disjoint coverage. A successful final closure does not
+replace these semantic checks or prove consistency between the reads.
+The existing rejection of incompatible non-temporal scopes within one root remains;
+such scopes are never merged merely because their root matches.
+Remote original-input admission still requires direct physically nonnull integer
+or string identities and qualified string collations. Connector and engine
+restrictions, including ClickHouse Distributed join topology, also remain.
 Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
 rules retain their owning numeric semantics. Output carries contribution, total,
 observed_total and contribution_share per target plus original fine diagnostics,
 components and presence. Zero defined totals retain signed contributions and give
 NA shares. Filtering the report preserves original totals and method facts.
+
+For every complete parent key, only the requested final target is checked against
+the independently evaluated fresh parent total. Absolute targets compare final
+differences; relative targets divide by the absolute fresh parent baseline. Neither
+imposes extra endpoint or component numerical equality. Historical observed values
+remain separate. A failed target fails the whole request without residual repair,
+rebalancing, or automatic rereads.
+
+The report closure owner uses zero tolerance for proved integer/count paths,
+including integer SUM widened to Decimal through lossless add/subtract/integer
+scaling, and for final Duration ticks, including rounded Duration means. Other
+Decimal results use the common final scale's `(n + 1) / 2` quantum window. Float64
+uses stable summation and the existing endpoint-rounding and magnitude ULP budget;
+the total, sum, residual and budget must all be finite. These bounded acceptance
+policies do not prove a backend's general numerical accuracy. Native precision
+and overflow contracts still apply. Source evidence records independent actual
+reads; successful closure is recorded on its local consuming stage. Reopened
+results retain inert facts and do not reread sources or rerun closure.
 
 compute and same-process persist retain the instance declaration. Independent
 reopen retains fixed data and explanatory method facts but no executable declaration.

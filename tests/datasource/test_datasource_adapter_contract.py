@@ -7,7 +7,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import NoReturn
@@ -614,3 +614,45 @@ for backend, blocked_driver in (
         raise AssertionError('Missing selected dependency must fail before connection')
 """
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("ibis.backends.mysql.converter")
+    session._backend.raw_sql("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN clock TIME")
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan", "project"}))
+    )
+    read = session.compile(
+        qualified,
+        bound.relation,
+        purpose="basic.rows",
+        expected_schema=bound.relation.schema().to_pyarrow(),
+    )
+    exact = 2**53 + 1
+    cursor = Mock()
+    cursor.description = (("id", 8), ("amount", 246), ("clock", 11))
+    cursor.fetchall.return_value = (
+        (
+            exact,
+            Decimal("9007199254740993.01"),
+            timedelta(hours=12, minutes=34, seconds=56, microseconds=123456),
+        ),
+        (None, None, None),
+    )
+    raw_sql = Mock(return_value=nullcontext(cursor))
+    monkeypatch.setattr(session, "provider", provider_for("mysql"))
+    monkeypatch.setattr(session._backend, "raw_sql", raw_sql)
+    rows = session.execute(read)
+    assert rows.id.tolist() == [exact, pd.NA]
+    assert rows.amount.tolist() == [Decimal("9007199254740993.01"), pd.NA]
+    assert pa.array(rows.id).type == pa.int64()
+    assert pa.array(rows.amount).type == pa.decimal128(18, 2)
+    assert rows.clock.iloc[0] == time(12, 34, 56, 123456)
+    assert pd.isna(rows.clock.iloc[1])
+    raw_sql.assert_called_once_with(read.sql)
+    cursor.fetchall.assert_called_once_with()
+    assert session.submissions[-1].state == "succeeded"

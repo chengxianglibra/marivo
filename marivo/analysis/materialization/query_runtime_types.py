@@ -142,26 +142,42 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
         updated = attribute_program(
             program.input_program, {column.slot_id: column for column in inputs[0].columns}
         )
+        output = contribution_schema(updated, program.operation)
+        exact_carriers = all(
+            column.dtype == ScalarDataType("int64")
+            or (isinstance(column.dtype, DecimalDataType) and column.dtype.scale == 0)
+            for path, column in zip(output.value_paths, output.values, strict=True)
+            if path[0] in ("total", "contribution")
+        ) and all(
+            item.target.dtype == ScalarDataType("int64")
+            or (isinstance(item.target.dtype, DecimalDataType) and item.target.dtype.scale == 0)
+            for item in updated.matrix
+            if item.role in ("value", "native_value", "additive_value")
+        )
         return replace(
             stage,
             program=replace(
                 program,
                 input_program=updated,
-                output_schema=contribution_schema(updated, program.operation),
+                output_schema=output,
+                exact_integer_closure=program.exact_integer_closure and exact_carriers,
             ),
         )
     if isinstance(program, AttributeInputProgram):
-        actual = {
-            (side, column.slot_id): column
-            for side, source in zip(("left", "right"), inputs[1:3], strict=True)
-            for root in source.attribute_inputs
-            for column in root.layout.columns
-        }
-        columns = {
-            item.target.slot_id: actual[(item.side, item.sources[0].source)]
-            for item in program.matrix
-            if (item.side, item.sources[0].source) in actual
-        }
+        from marivo.analysis.materialization.query_components import select_attribute_root
+
+        roots = tuple(
+            root
+            for binding in program.reads
+            for root in inputs[binding.input_index].attribute_inputs
+        )
+        columns = {}
+        for item in program.matrix:
+            source = item.sources[0]
+            root = select_attribute_root(roots, item.scope, source)
+            columns[item.target.slot_id] = next(
+                column for column in root.layout.columns if column.slot_id == source.source
+            )
         return replace(stage, program=attribute_program(program, columns))
     if isinstance(program, AttributeProjectProgram):
         return stage

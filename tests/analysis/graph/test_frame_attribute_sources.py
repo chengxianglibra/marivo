@@ -6,6 +6,37 @@ from marivo.analysis.binding.frame_attribute_sources import collect_source_group
 from tests.shared_fixtures import DslCaseFactory
 
 
+def _capture_role_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    from marivo.analysis.compiler.graph_lowering import LoweredRead
+    from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute
+    from marivo.analysis.materialization import graph_source_execution
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_source_execution import PreparedSources
+
+    roles: list[tuple[str, str, tuple[str, ...]]] = []
+    original = graph_source_execution.read_stage
+
+    def read(
+        prepared: PreparedSources,
+        stage: SourceRead,
+        lowered: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        output = original(prepared, stage, lowered, value_keys=value_keys)
+        layout = read_attribute(stage)
+        if layout is not None:
+            roles.append(
+                (layout.side, layout.scope, tuple(leaf.use.metric for leaf in layout.leaves))
+            )
+        return output
+
+    monkeypatch.setattr(graph_source_execution, "read_stage", read)
+    return roles
+
+
 def test_grouped_source_metrics_keep_original_order_and_exclude_unrequested_recipes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -46,7 +77,7 @@ def test_comparison_and_level_references_share_each_endpoint_requested_inventory
     }
 
 
-def test_distinct_metric_formulas_share_one_actual_read_and_exclude_unused_rules(
+def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -66,6 +97,7 @@ def test_distinct_metric_formulas_share_one_actual_read_and_exclude_unused_rules
         oracle = connection.execute(
             f'SELECT channel,SUM(amount),COUNT(amount) FROM "{case.names.order}" GROUP BY channel ORDER BY channel'
         ).fetchall()
+    roles = _capture_role_inventory(monkeypatch)
     reads: list[CompiledRead] = []
     execute = SourceSession.execute
 
@@ -78,7 +110,11 @@ def test_distinct_metric_formulas_share_one_actual_read_and_exclude_unused_rules
     monkeypatch.setattr(SourceSession, "execute", read)
     report = selected.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert len(reads) == 1
+    assert len(reads) == 2
+    assert roles == [
+        ("left", "parent", ("sum", "count")),
+        ("left", "fine", ("sum", "count")),
+    ]
     assert rows.iloc[:, 0].tolist() == [row[0] for row in oracle]
     assert rows[("value", "contribution.s")].tolist() == [row[1] for row in oracle]
     assert rows[("value", "contribution.n")].tolist() == [row[2] for row in oracle]
@@ -111,6 +147,7 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
         oracle = connection.execute(
             f'SELECT channel,SUM(amount),COUNT(amount) FROM "{case.names.order}" GROUP BY channel ORDER BY channel'
         ).fetchall()
+    roles = _capture_role_inventory(monkeypatch)
     reads: list[CompiledRead] = []
     execute = SourceSession.execute
 
@@ -122,7 +159,13 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
 
     monkeypatch.setattr(SourceSession, "execute", read)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(reads) == 2
+    assert len(reads) == 4
+    assert roles == [
+        ("left", "parent", ("sum", "count")),
+        ("left", "fine", ("sum", "count")),
+        ("right", "parent", ("count", "sum")),
+        ("right", "fine", ("count", "sum")),
+    ]
     assert rows[("value", "contribution.level")].tolist() == [row[1] for row in oracle]
     assert rows[("value", "contribution.baseline_level")].tolist() == [row[1] for row in oracle]
     for name, index in (("sumchange", 1), ("countchange", 2)):

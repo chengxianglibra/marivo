@@ -84,6 +84,33 @@ def test_approved_module_does_not_whitelist_another_submitter(tmp_path: Path) ->
     assert audit(tmp_path).failures[0].symbol == "another_reader"
 
 
+def test_mysql_issued_cursor_allowance_is_exact_to_source_session_execute(tmp_path: Path) -> None:
+    _module(
+        tmp_path,
+        "datasource/adapters.py",
+        "class SourceSession:\n"
+        "    def execute(self, proof):\n"
+        "        return self._backend.raw_sql(proof.sql)\n"
+        "    def another_reader(self, sql):\n"
+        "        return self._backend.raw_sql(sql)\n"
+        "class AnotherSession:\n"
+        "    def execute(self, sql):\n"
+        "        return self._backend.raw_sql(sql)\n",
+    )
+    report = audit(tmp_path)
+    assert [(row.symbol, row.call) for row in report.failures] == [
+        ("SourceSession.another_reader", "self._backend.raw_sql"),
+        ("AnotherSession.execute", "self._backend.raw_sql"),
+    ]
+    assert any(
+        row.symbol == "SourceSession.execute"
+        and row.call == "self._backend.raw_sql"
+        and row.category == "ibis_governed_read_check_probe"
+        and not row.failed
+        for row in report.records
+    )
+
+
 def test_text_statement_constructor_is_rejected(tmp_path: Path) -> None:
     _module(
         tmp_path,

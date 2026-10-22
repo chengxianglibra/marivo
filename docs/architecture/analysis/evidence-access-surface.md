@@ -76,6 +76,12 @@ path, level/absolute/relative kind and role-to-output mapping even for an empty
 parent domain. Parent metrics preserve observed_total separately from the freshly
 read total, defined/zero_total share state and ordered typed rule/support trees.
 Level rules contain a genuine single endpoint; absolute/relative retain both.
+Parent support describes the independent parent read; fine support and presence
+describe the fine read. They do not certify matching source versions or identities.
+Audit records retain each actual source read and a separate local final-target
+closure check with its policy version and checked parent count. This check records
+numerical acceptance, not source consistency. Cold reads preserve the original
+audit without rereading sources or applying a newer closure policy.
 Output diagnostics retain original fine values, presence and applicable components
 and valid counts. Physical columns retain numeric carriers, units and precision. where/top/select/reduce retain the original explanation without
 changing its denominator or certifying derived arithmetic. Process-local source

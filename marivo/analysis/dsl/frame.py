@@ -534,9 +534,11 @@ class AnalysisFrame:
         Constraints: Requires retained process-local source declarations for every
         direct Metric or admitted comparison target. Select and rename direct outputs;
         define ratio/linear Metrics before observation. Completion freezes parent keys
-        and old values; evaluation reads fresh parent/fine inputs without reranking.
-        Original formulas, coverage and numeric checks remain required. Contribution
-        admission is limited to qualified native DuckDB physical tables. Independent
+        and old values; parent and fine inputs are read independently without reranking
+        or a shared-snapshot guarantee. Original formulas, identity, coverage and
+        numeric checks remain required; only requested final targets must close within
+        their numeric precision policy. Qualified physical tables use the native backend
+        subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.
         """
         from marivo.analysis.binding.frame_attribute import attribute

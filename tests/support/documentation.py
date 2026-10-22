@@ -7,7 +7,7 @@ from tests.support.paths import PROJECT_ROOT
 
 ROOT = PROJECT_ROOT / "site/src/content/docs"
 _PATTERN = re.compile(
-    r"\{/\* example: ([a-z0-9-]+) \*/\}\s*\n(```|~~~)python\n(.*?)^\2\s*$",
+    r"\{/\* example: ([a-z0-9-]+) \*/\}\s*\n(```|~~~)python[^\n]*\n(.*?)^\2\s*$",
     re.MULTILINE | re.DOTALL,
 )
 
