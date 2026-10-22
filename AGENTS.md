@@ -41,6 +41,28 @@ For datasource or semantic work, start with the overview and focused live Help.
 | Python analysis | `docs/architecture/analysis/README.md` |
 | Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
 
+## Documentation Placement
+
+Choose the destination by the document's purpose:
+
+| Content | Target directory |
+| --- | --- |
+| Current architecture, module responsibilities, data flow, and long-term contracts | `docs/architecture/`, under the owning domain where applicable |
+| Public Python API reference sources and Sphinx configuration/templates | `docs/api/` |
+| Design proposals, alternatives, design reviews, and historical proposals | `docs/design/` |
+| Implementation plans, task/progress ledgers, and implementation records | `docs/implementation/` |
+| Test strategies, scenario validation, acceptance records, and test evidence | `docs/testing/`; raw logs and evidence files belong in `docs/testing/evidence/` |
+
+- `docs/design/`, `docs/implementation/`, and `docs/testing/` are local-only,
+  Git-ignored directories. Keep temporary task documents and evidence there,
+  rather than under `docs/architecture/`.
+- Update the owning architecture document when an implemented change alters
+  a current contract. Architecture documents must not depend on local-only
+  plans, progress records, or evidence as normative references.
+- User-facing guides and examples belong in `site/src/content/docs/*/latest/`;
+  keep English and Chinese editions aligned. Generated API pages belong in
+  `site/public/api/` and are produced from `docs/api/`.
+
 ## Python and Validation
 
 Use repository entrypoints or explicit `.venv/bin/...` paths. Never invoke

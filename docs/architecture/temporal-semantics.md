@@ -235,8 +235,7 @@ Predicate shape alone does not establish physical pruning or index usage.
 Runtime evidence identifies the actual provider, connector and table; local SQL
 compilation does not qualify an unrun remote backend. Frozen output coordinates
 and source-free cold reads retain their owning contracts without optimizer-state
-persistence. Implementation and validation evidence is recorded in the
-[progress ledger](temporal-timezone-filtering-progress.md).
+persistence.
 
 ## Implementation map
 
