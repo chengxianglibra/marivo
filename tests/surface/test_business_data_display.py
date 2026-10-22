@@ -11,6 +11,7 @@ import marivo.semantic as ms
 from marivo._data_render import _DataCard
 from marivo.datasource.manage import RawSqlResult
 from marivo.preview import PreviewCoverage, PreviewResult
+from tests.support.refs import as_ref
 
 
 @pytest.fixture(params=("preview", "raw_sql"))
@@ -30,7 +31,7 @@ def result(request: pytest.FixtureRequest) -> PreviewResult | RawSqlResult:
             coverage=PreviewCoverage((), 13, "truncated", "sample_only"),
         )
     return RawSqlResult(
-        datasource=ms.ref.datasource("warehouse"),
+        _datasource=as_ref(ms.ref.datasource("warehouse")),
         backend_type="duckdb",
         sql="SELECT amount",
         reason="inspect amounts",

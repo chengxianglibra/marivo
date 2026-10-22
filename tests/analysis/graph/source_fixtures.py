@@ -67,9 +67,9 @@ def author_source_project(
                 if certified_calendar
                 else ""
             )
-            + "frozen = ms.finalize()\n"
-            + "amount_value = frozen.resolve(amount)\n"
-            + "happened_value = frozen.resolve(happened)\n"
+            + ""
+            + "amount_value = amount\n"
+            + "happened_value = happened\n"
             + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n"
             + "@ms.metric()\ndef average():\n    return amount_value.mean(time=happened_value)\n"
             + (

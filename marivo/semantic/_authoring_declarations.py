@@ -7,7 +7,12 @@ from typing import NoReturn
 
 from ibis.common.deferred import Deferred
 
-from marivo.refs import DomainKind, Ref, SemanticKind
+from marivo._symbolic import (
+    DomainSymbol,
+    native_symbol_ref,
+    symbol_factory,
+)
+from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_context import (
     _caller_location,
@@ -29,7 +34,7 @@ def domain(
     owner: str,
     default: bool = True,
     ai_context: AiContextValue | None = None,
-) -> Ref[DomainKind]:
+) -> DomainSymbol:
     """Declare a semantic domain namespace inside a project file.
 
     A domain groups entities, dimensions, metrics, and relationships under a single
@@ -46,7 +51,7 @@ def domain(
             agent-facing hints.
 
     Returns:
-        A ``Ref[domain]`` that can be passed as the ``domain=`` kwarg to other
+        A native ``DomainSymbol`` that can be passed as the ``domain=`` kwarg to other
         decorators to override the default domain context.
 
     Raises:
@@ -81,7 +86,7 @@ def domain(
     if default:
         ctx.default_domain = name
 
-    return ref
+    return symbol_factory.domain(ref.path)
 
 
 @reject_parameters(
@@ -102,7 +107,7 @@ def domain(
 )
 def metric(
     *,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[[], Deferred]], Deferred]:
     """Name a completed Metric without changing its computation or policies.
@@ -127,13 +132,14 @@ def metric(
     from marivo.semantic._expression_binding import construct_metric_expression
     from marivo.semantic.errors import SemanticExpressionError
 
-    if domain is not None and (type(domain) is not Ref or domain.kind is not SemanticKind.DOMAIN):
+    domain_key = native_symbol_ref(domain)
+    if domain is not None and (domain_key is None or domain_key.kind is not SemanticKind.DOMAIN):
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            message="Metric domain must be a domain ref.",
-            expected="Ref[domain] from ms.ref.domain(...), or None",
+            message="Metric domain must be a native Domain symbol.",
+            expected="a native Domain symbol from ms.ref.domain(...), or None",
             received=repr(domain),
-            action="Pass the explicit domain ref, or omit domain until model collection.",
+            action="Pass the native Domain symbol, or omit domain until model collection.",
         )
     _build_ai_context(ai_context)
 
@@ -157,7 +163,7 @@ def metric(
                 DeclarationRecord(
                     kind="metric",
                     name=fn.__name__,
-                    domain=domain,
+                    domain=ref_factory.domain(domain_key.path) if domain_key is not None else None,
                     ai_context=ai_context,
                     location=SourceLocation(location.file, location.line),
                 ),

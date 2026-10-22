@@ -416,9 +416,9 @@ def _author(
         parser = "ms.timestamp()" if aware else "ms.timestamp(timezone='UTC')"
         code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', parse={parser}, is_default=True)\n"
         code += f"{name}_subject=ms.relationship(name={name + '_subject'!r}, from_entity={name}, to_entity=subjects, keys=[ms.join_on({name}_tenant, subject_tenant),ms.join_on({name}_owner,subject_id)])\n"
-    code += "frozen=ms.finalize()\n"
+    code += ""
     for name in ("facts", "other"):
-        code += f"{name}_value=frozen.resolve({name}_amount)\n{name}_yvalue=frozen.resolve({name}_y)\n{name}_clock=frozen.resolve({name}_time)\n"
+        code += f"{name}_value={name}_amount\n{name}_yvalue={name}_y\n{name}_clock={name}_time\n"
         code += (
             f"@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
         )

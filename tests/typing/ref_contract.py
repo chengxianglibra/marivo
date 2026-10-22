@@ -6,6 +6,13 @@ from typing_extensions import Never, assert_type
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._symbolic import (
+    EntitySymbol,
+    LookupSymbol,
+    MeasureSymbol,
+    PeriodCalendarSymbol,
+    TemporalSetSymbol,
+)
 from marivo.refs import (
     DatasourceKind,
     DimensionKind,
@@ -24,7 +31,7 @@ from marivo.semantic.catalog import (
     DomainEntry,
     SemanticCatalog,
 )
-from marivo.semantic.expressions import Entity, FinalizedDeclarations
+from marivo.semantic.expressions import Entity
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
 assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])
@@ -32,8 +39,8 @@ assert_type(ref_factory.dimension("sales.orders.region"), Ref[DimensionKind])
 assert_type(ref_factory.time_dimension("sales.orders.ordered_at"), Ref[TimeDimensionKind])
 assert_type(ref_factory.measure("sales.orders.revenue"), Ref[MeasureKind])
 assert_type(ref_factory.metric("sales.revenue"), Ref[MetricKind])
-assert_type(ms.ref.period_calendar("sales.calendar"), ms.Ref[ms.PeriodCalendarKind])
-assert_type(ms.ref.temporal_set("sales.holidays"), ms.Ref[ms.TemporalSetKind])
+assert_type(ms.ref.period_calendar("sales.calendar"), PeriodCalendarSymbol)
+assert_type(ms.ref.temporal_set("sales.holidays"), TemporalSetSymbol)
 assert_type(ms.ai_context(business_definition="Sales context"), ms.typing.AiContextValue)
 
 
@@ -46,26 +53,23 @@ Ref[Never]()  # type: ignore[call-arg]
 
 
 def _field_call_contract(table: Table) -> None:
-    assert_type(bind(ref_factory.dimension("sales.orders.region"), table), Value)
-    assert_type(bind(ref_factory.time_dimension("sales.orders.ordered_at"), table), Value)
-    assert_type(bind(ref_factory.measure("sales.orders.amount"), table), Value)
+    assert_type(bind(ms.ref.dimension("sales.orders.region"), table), Value)
+    assert_type(bind(ms.ref.time_dimension("sales.orders.ordered_at"), table), Value)
+    assert_type(bind(ms.ref.measure("sales.orders.amount"), table), Value)
 
 
 def _captured_field_call_contract(table: Table) -> None:
     orders = ms.entity(
-        name="orders", datasource=ref_factory.datasource("warehouse"), source=md.table("orders")
+        name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders")
     )
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount", additivity=ms.additive_all()
     )
-    assert_type(orders, Ref[EntityKind])
-    assert_type(amount, Ref[MeasureKind])
-    finalized = ms.finalize()
-    assert_type(finalized, FinalizedDeclarations)
-    assert_type(finalized.resolve(orders), Entity)
-    resolved = finalized.resolve(amount)
-    assert_type(resolved, Deferred)
-    assert_type(bind(resolved, table), Value)
+    assert_type(orders, EntitySymbol)
+    assert_type(amount, MeasureSymbol)
+    assert_type(bind(amount, table), Value)
+    ms.dimension_column(name="wrong", entity=ms.ref.datasource("warehouse"), column="x")  # type: ignore[arg-type]
+    ms.dimension_column(name="wrong", entity=amount + 1, column="x")  # type: ignore[arg-type]
 
 
 def _metric_is_not_a_row_field_contract(table: Table) -> None:
@@ -79,3 +83,23 @@ def _catalog_collection_contract(catalog: SemanticCatalog) -> None:
     assert_type(catalog.entities.get("sales.orders"), Entity)
     assert_type(catalog.fields.get("sales.orders.region"), Deferred)
     assert_type(catalog.metrics.get("sales.revenue"), Deferred)
+
+
+def _native_selector_roundtrip(catalog: SemanticCatalog, ordinary: Deferred) -> None:
+    catalog.describe(ms.ref.entity("sales.orders"))
+    catalog.describe(catalog.entities.get("sales.orders").ref)
+    catalog.describe(catalog.domains.get("sales").ref)
+    for selector in catalog.fields.refs:
+        assert_type(selector, LookupSymbol)
+        catalog.describe(selector)
+    description = catalog.describe(ms.ref.measure("sales.orders.amount"))
+    assert_type(description.ref, LookupSymbol | None)
+    if description.ref is not None:
+        catalog.describe(description.ref)
+    for selector in description.reads:
+        catalog.describe(selector)
+    report = catalog.readiness(refs=[ms.ref.entity("sales.orders")])
+    for selector in report.analysis_ready_inputs:
+        catalog.describe(selector)
+    catalog.describe(ordinary)  # type: ignore[arg-type]  # A closed or composite expression is not a native lookup leaf.
+    catalog.describe(ms.ref.measure("sales.orders.amount") + 1)  # type: ignore[arg-type]

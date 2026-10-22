@@ -282,7 +282,9 @@ def test_object_contracts_cover_closed_kinds_and_pinned_decisions() -> None:
 
 def test_object_construction_modes_return_the_owning_ref_kind() -> None:
     for contract in REGISTRY.object_contracts:
-        expected = f"Ref[{contract.semantic_kind.value}]"
+        expected = (
+            "".join(part.title() for part in contract.semantic_kind.value.split("_")) + "Symbol"
+        )
         assert (
             REGISTRY.by_canonical_id(contract.ref_target.canonical_id or "").output_family
             == expected
@@ -290,7 +292,7 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
         for mode in contract.construction_modes:
             descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
             expected_values = {
-                SemanticKind.MEASURE: ("Ref[measure]", "Deferred"),
+                SemanticKind.MEASURE: ("MeasureSymbol", "Deferred"),
                 SemanticKind.METRIC: ("Deferred",),
             }.get(contract.semantic_kind, (expected,))
             assert contract.construction_families == expected_values
@@ -637,7 +639,10 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
         assert (
             resolve_live_target(f"ref.{kind.value}", SEMANTIC_LIVE_SURFACE).descriptor is descriptor
         )
-        assert descriptor.output_family == f"Ref[{kind.value}]"
+        assert (
+            descriptor.output_family
+            == "".join(part.title() for part in kind.value.split("_")) + "Symbol"
+        )
 
 
 def test_source_check_namespace_and_every_exact_method_share_registry_contracts() -> None:
@@ -789,7 +794,7 @@ def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
         for descriptor in REGISTRY._descriptors
         if descriptor.output_family is not None
         and (
-            descriptor.output_family.startswith("Ref[")
+            descriptor.output_family.endswith("Symbol")
             or descriptor.output_family
             in {"Entity", "Dimension", "TimeField", "Measure", "Relationship"}
         )
@@ -839,7 +844,7 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert preview.output_family == "PreviewResult"
     assert subject.min_count == 1
     assert subject.max_count == 1
-    assert subject.family == "CatalogEntry | Ref"
+    assert subject.family == "CatalogEntry | LookupSymbol"
     assert preview.effects is not None
     assert preview.effects.mutations == ("project_state",)
     assert "may_publish_certified_artifact" in preview.effects.flags
@@ -858,3 +863,20 @@ def test_temporal_certification_help_names_only_retained_models(target: str) -> 
     assert "period calendars" in text.lower()
     assert "temporal sets" in text.lower()
     assert "work schedule" not in text.lower()
+
+
+@pytest.mark.parametrize(
+    ("kind", "role", "owner"),
+    (
+        ("domain", "Parameter-only Domain identity for domain=", "domain"),
+        ("entity", "Entity identity supports count()", "entity.count"),
+        ("relationship", "explicit via paths", "field.via"),
+    ),
+)
+def test_ref_help_discloses_identity_and_expression_roles(kind: str, role: str, owner: str) -> None:
+    from tests.shared_fixtures import rendered_help
+
+    text = rendered_help(f"semantic.ref.{kind}")
+    assert role in text
+    assert f"semantic.{owner}" in text
+    assert "when a declaration or parameter captures the recipe" in text

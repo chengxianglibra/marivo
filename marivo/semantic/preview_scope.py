@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
+from marivo._symbolic import EntitySymbol, native_symbol_ref
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
@@ -16,10 +17,9 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 if TYPE_CHECKING:
     from marivo.semantic.validator import Registry
 
-PreviewScope: TypeAlias = AuthoringScope | Mapping[Ref[EntityKind], AuthoringScope]
-PreviewSourceBindings: TypeAlias = Mapping[
-    Ref[EntityKind],
-    Mapping[str, QueryParamScalar | QueryParamScalarList],
+PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]
+PreviewSourceBindings: TypeAlias = Sequence[
+    tuple[EntitySymbol, Mapping[str, QueryParamScalar | QueryParamScalarList]]
 ]
 
 
@@ -131,11 +131,12 @@ def dependency_entities_for_ref(ref: str, *, registry: Registry) -> tuple[str, .
 
 
 def _normalize_entity_key(key: object, *, preview_ref: str, parameter: str) -> str:
-    if type(key) is Ref and key.kind is SemanticKind.ENTITY:
-        return key.path
+    reference = native_symbol_ref(key)
+    if reference is not None and reference.kind is SemanticKind.ENTITY:
+        return reference.path
     _blocked(
         preview_ref,
-        f"{parameter} requires exact Ref[entity] keys.",
+        f"{parameter} requires native Entity lookup symbols.",
         details={"received_type": type(key).__name__},
     )
 
@@ -205,10 +206,10 @@ def _normalize_scopes(
 ) -> tuple[tuple[str, AuthoringScope], ...]:
     operation_label = "preview" if operation == "catalog.preview" else "source-health"
     if len(entity_ids) == 1:
-        if isinstance(scope, Mapping):
+        if isinstance(scope, Sequence | Mapping):
             _blocked(
                 preview_ref,
-                f"A single-entity {operation_label} requires one AuthoringScope, not a Mapping.",
+                f"A single-entity {operation_label} requires one AuthoringScope, not an Entity pair sequence.",
                 details={"received_type": type(scope).__name__},
             )
         return (
@@ -217,18 +218,25 @@ def _normalize_scopes(
                 _validate_scope(scope, preview_ref=preview_ref, operation=operation),
             ),
         )
-    if not isinstance(scope, Mapping):
+    if not isinstance(scope, Sequence) or isinstance(scope, str | bytes):
         _blocked(
             preview_ref,
-            f"A multi-entity {operation_label} requires a Mapping keyed by exact Ref[entity].",
+            f"A multi-entity {operation_label} requires an Entity symbol/scope pair sequence.",
             details={"received_type": type(scope).__name__},
         )
     by_entity: dict[str, AuthoringScope] = {}
-    for key, value in scope.items():
+    for pair in scope:
+        if not isinstance(pair, tuple) or len(pair) != 2:
+            _blocked(
+                preview_ref,
+                "Scope entries must be (Entity symbol, AuthoringScope) pairs.",
+                details={},
+            )
+        key, value = pair
         entity_id = _normalize_entity_key(
             key,
             preview_ref=preview_ref,
-            parameter=f"{operation}(..., scope=...) Mapping",
+            parameter=f"{operation}(..., scope=...) pairs",
         )
         if entity_id in by_entity:
             _blocked(
@@ -243,9 +251,9 @@ def _normalize_scopes(
         )
     if set(by_entity) != set(entity_ids):
         mapping_label = (
-            "Preview scope Mapping"
+            "Preview scope pairs"
             if operation == "catalog.preview"
-            else "catalog.source_health scope Mapping"
+            else "catalog.source_health scope pairs"
         )
         _blocked(
             preview_ref,
@@ -269,18 +277,27 @@ def _normalize_source_bindings(
     preview_ref: str,
     registry: Registry,
 ) -> Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]:
-    if source_bindings is not None and not isinstance(source_bindings, Mapping):
+    if source_bindings is not None and (
+        not isinstance(source_bindings, Sequence) or isinstance(source_bindings, str | bytes)
+    ):
         _blocked(
             preview_ref,
-            "catalog.preview(..., source_bindings=...) requires a Mapping.",
+            "catalog.preview(..., source_bindings=...) requires an Entity symbol/parameter mapping pair sequence.",
             details={"received_type": type(source_bindings).__name__},
         )
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
-    for key, value in (source_bindings or {}).items():
+    for pair in source_bindings or ():
+        if not isinstance(pair, tuple) or len(pair) != 2:
+            _blocked(
+                preview_ref,
+                "Source binding entries must be (Entity symbol, parameter mapping) pairs.",
+                details={},
+            )
+        key, value = pair
         entity_id = _normalize_entity_key(
             key,
             preview_ref=preview_ref,
-            parameter="catalog.preview(..., source_bindings=...) Mapping",
+            parameter="catalog.preview(..., source_bindings=...) pairs",
         )
         if entity_id in supplied:
             _blocked(preview_ref, f"Source bindings repeat entity {entity_id!r}.", details={})
@@ -346,6 +363,25 @@ def normalize_preview_scope(
         preview_ref=ref,
         registry=registry,
     )
+    return _normalized_preview_scope(
+        ref=ref,
+        kind=kind,
+        entity_ids=entity_ids,
+        scopes=scopes,
+        source_bindings=normalized_source_bindings,
+        registry=registry,
+    )
+
+
+def _normalized_preview_scope(
+    *,
+    ref: str,
+    kind: SemanticKind,
+    entity_ids: tuple[str, ...],
+    scopes: tuple[tuple[str, AuthoringScope], ...],
+    source_bindings: Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]],
+    registry: Registry,
+) -> NormalizedPreviewScope:
     datasource_ids = tuple(registry.entities[entity_id].datasource for entity_id in entity_ids)
     if len(set(datasource_ids)) != 1:
         _blocked(
@@ -358,7 +394,7 @@ def normalize_preview_scope(
         checked_ref=_exact_semantic_ref(ref, kind),
         entity_refs=tuple(ref_factory.entity(entity_id) for entity_id in entity_ids),
         scopes=scopes,
-        source_bindings=normalized_source_bindings,
+        source_bindings=source_bindings,
         backend=datasource.backend_type,
         datasource_id=datasource_ids[0],
         timeout_seconds=min(value.timeout_seconds for _entity_id, value in scopes),
@@ -399,25 +435,19 @@ def normalize_preview_batch_scopes(
     normalized: list[NormalizedPreviewScope] = []
     for ref, kind in refs:
         dependencies = dependency_entities(ref, kind, registry)
-        ref_scope: PreviewScope
-        if len(dependencies) == 1:
-            ref_scope = normalized_scopes[dependencies[0]]
-        else:
-            ref_scope = {
-                ref_factory.entity(entity_id): normalized_scopes[entity_id]
-                for entity_id in dependencies
-            }
-        ref_bindings = {
-            ref_factory.entity(entity_id): normalized_bindings[entity_id]
-            for entity_id in dependencies
-            if entity_id in normalized_bindings
-        }
         normalized.append(
-            normalize_preview_scope(
+            _normalized_preview_scope(
                 ref=ref,
                 kind=kind,
-                scope=ref_scope,
-                source_bindings=ref_bindings,
+                entity_ids=dependencies,
+                scopes=tuple(
+                    (entity_id, normalized_scopes[entity_id]) for entity_id in dependencies
+                ),
+                source_bindings={
+                    entity_id: normalized_bindings[entity_id]
+                    for entity_id in dependencies
+                    if entity_id in normalized_bindings
+                },
                 registry=registry,
             )
         )

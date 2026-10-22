@@ -95,7 +95,7 @@ def test_native_distributions_independent_fixed_and_cold(
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
         models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
         models += "facts_subject=ms.relationship(name='facts_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(facts_owner,subjects_owner)])\n"
-        models += "frozen = ms.finalize()\n"
+        models += ""
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"

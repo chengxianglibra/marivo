@@ -15,9 +15,12 @@ from marivo._definition.types import SumAllExcept, SumAxes
 from marivo.refs import DimensionKind, EntityKind, Ref, SemanticKindTag, TimeDimensionKind
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
-from marivo.semantic.expressions import Dimension, Entity, FinalizedDeclarations, Measure, TimeField
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.expressions import Dimension, Entity, Measure, TimeField
 from marivo.semantic.loader import LoaderContext, loader_context
-from tests.shared_fixtures import in_memory_datasource_ir
+from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
+from tests.shared_fixtures import resolve_test_symbol as resolve
+from tests.support.refs import as_ref
 
 _T = TypeVar("_T")
 
@@ -131,22 +134,22 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
 def _consume(
     family: str,
     selected: str,
-    old: FinalizedDeclarations,
+    old: SemanticCatalog,
     *,
     lookup: bool,
     helper_copy: str | None = None,
 ) -> Ref[SemanticKindTag]:
     def entity(path: str) -> Entity | Ref[EntityKind]:
         ref = ms.ref.entity(path)
-        return old.resolve(ref) if path == selected and not lookup else ref
+        return resolve(old, ref) if path == selected and not lookup else ref
 
     def dimension(path: str) -> Dimension | Ref[DimensionKind]:
         ref = ms.ref.dimension(path)
-        return old.resolve(ref) if path == selected and not lookup else ref
+        return resolve(old, ref) if path == selected and not lookup else ref
 
     def time(path: str) -> TimeField | Ref[TimeDimensionKind]:
         ref = ms.ref.time_dimension(path)
-        return old.resolve(ref) if path == selected and not lookup else ref
+        return resolve(old, ref) if path == selected and not lookup else ref
 
     orders = entity("sales.orders")
     if family == "dimension_column":
@@ -247,9 +250,9 @@ def _consume(
     raise AssertionError(f"unknown input family: {family}")
 
 
-def _version(state: FinalizedDeclarations, ref: Ref[SemanticKindTag]) -> str:
+def _version(state: SemanticCatalog, ref: Ref[SemanticKindTag]) -> str:
     return scoped_definition_fingerprint(
-        root=ref,
+        root=as_ref(ref),
         definitions=state._state.definitions,
         dependencies=state._state.dependencies,
         sidecar=state._state.sidecar,
@@ -263,7 +266,7 @@ def test_constructed_inputs_validate_at_the_complete_consumer(
 ) -> None:
     with loader_context(_context()):
         _dependencies()
-        old = ms.finalize()
+        old = captured_catalog()
     ctx = _context()
     with loader_context(ctx):
         target = _consume(
@@ -278,13 +281,13 @@ def test_constructed_inputs_validate_at_the_complete_consumer(
             else None
         )
         _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
-        state = ms.finalize()
-    assert target in state._state.definitions
+        state = captured_catalog()
+    assert as_ref(target) in state._state.definitions
     # A matching constructed input and explicit lookup produce the same definition identity.
     with loader_context(_context()):
         lookup_target = _consume(family, selected, old, lookup=True)
         _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
-        lookup_state = ms.finalize()
+        lookup_state = captured_catalog()
     assert _version(state, target) == _version(lookup_state, lookup_target)
     selected_ref = next(ref for ref in state._state.definitions if ref.path == selected)
     assert (_version(state, selected_ref) == _version(old, selected_ref)) is (mode == "same")
@@ -296,8 +299,8 @@ def test_capture_helpers_are_frozen_computational_records() -> None:
 
     with loader_context(_context()):
         _dependencies()
-        state = ms.finalize()
-    region = state.resolve(ms.ref.dimension("sales.orders.region"))
+        state = captured_catalog()
+    region = resolve(state, ms.ref.dimension("sales.orders.region"))
     policy = ms.additive(over=(region,))
     assert asdict(policy) == {"coordinates": ("sales.orders.region",), "version": 1}
     with pytest.raises((AttributeError, TypeError)):
@@ -312,7 +315,7 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(
 ) -> None:
     with loader_context(_context()):
         _dependencies()
-        old = ms.finalize().resolve(ms.ref.dimension("sales.orders.region"))
+        old = resolve(captured_catalog(), ms.ref.dimension("sales.orders.region"))
     with loader_context(_context()):
         _dependencies(changed="sales.orders.region" if mode != "same" else None)
         amount_ref = ms.measure_column(
@@ -322,9 +325,9 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(
             additivity=ms.non_additive(),
             unit="CNY",
         )
-        state = ms.finalize()
-        amount = state.resolve(amount_ref)
-        region = state.resolve(ms.ref.dimension("sales.orders.region"))
+        state = captured_catalog()
+        amount = resolve(state, amount_ref)
+        region = resolve(state, ms.ref.dimension("sales.orders.region"))
     axis = ms.ref.dimension("sales.orders.region") if mode == "lookup" else old
     policy = (
         ms.additive(over=(axis,)) if policy_kind == "over" else ms.additive_all(except_=(axis,))
@@ -357,7 +360,7 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(
 def test_exact_versions_include_physical_helper_dependencies(family: str, selected: str) -> None:
     with loader_context(_context()):
         _dependencies()
-        old = ms.finalize()
+        old = captured_catalog()
     versions: list[str] = []
     for changed in (None, selected):
         with loader_context(_context()):
@@ -370,5 +373,5 @@ def test_exact_versions_include_physical_helper_dependencies(family: str, select
                 else None
             )
             _dependencies(changed=changed, skip_entity=skip)
-            versions.append(_version(ms.finalize(), target))
+            versions.append(_version(captured_catalog(), target))
     assert versions[0] != versions[1]

@@ -15,6 +15,7 @@ from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRAC
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.expressions import Entity
 from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
+from tests.support.refs import as_ref
 
 
 @pytest.mark.parametrize(
@@ -114,14 +115,14 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
         (catalog.entities, entity_ref),
     ):
         collection.show()
-        assert ref.path in capsys.readouterr().out
-        assert ref in collection.refs
+        assert as_ref(ref).path in capsys.readouterr().out
+        assert as_ref(ref) in collection._refs
         catalog.describe(ref).show()
-        assert ref.path in capsys.readouterr().out
+        assert as_ref(ref).path in capsys.readouterr().out
 
-    metric = catalog.metrics.get(metric_ref.path)
-    field = catalog.fields.get(field_ref.path)
-    entity = catalog.entities.get(entity_ref.path)
+    metric = catalog.metrics.get(as_ref(metric_ref).path)
+    field = catalog.fields.get(as_ref(field_ref).path)
+    entity = catalog.entities.get(as_ref(entity_ref).path)
     assert isinstance(metric, Deferred)
     assert isinstance(field, Deferred)
     assert isinstance(entity, Entity)

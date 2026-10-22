@@ -287,7 +287,11 @@ def test_load_tracks_project_root_without_internal_ref_events(
     def load(*, workspace_dir: Path) -> object:
         return ms.ref.entity("sales.orders")
 
-    assert load(workspace_dir=telemetry_project) == ms.ref.entity("sales.orders")
+    from marivo._symbolic import native_symbol_ref
+
+    loaded = load(workspace_dir=telemetry_project)
+    expected = ms.ref.entity("sales.orders")
+    assert native_symbol_ref(loaded) == native_symbol_ref(expected)
     path = _event_path(telemetry_project)
     assert len(_capability_records(path, "load")) == 2
     assert len(_capability_records(path, "ref.entity")) == 2
@@ -825,7 +829,7 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
     report = ReadinessReport(
-        analysis_ready_inputs=(),
+        _analysis_ready_inputs=(),
         status="ready",
         blockers=(),
         warnings=(),

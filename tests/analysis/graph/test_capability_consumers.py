@@ -744,7 +744,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
                 and item["purpose"] == "semantic.certified_preview.deadline"
                 for item in deadline_controls
             )
-        entry = catalog.period_calendars.get(calendar.path)
+        entry = catalog.period_calendars.get("sales.fiscal")
         assert entry.details().snapshot_status == "current"
         grain = entry.grain("period")
         session = mv.session.create("r93-certified-calendar", timezone="UTC")

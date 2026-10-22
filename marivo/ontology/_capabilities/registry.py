@@ -52,7 +52,7 @@ _DESCRIPTORS = (
         body=(
             "Source: models/ontology.py",
             "Construct edges only with mo.influences(...) or mo.related_to(...).",
-            "All endpoints are exact EntityRef, MeasureRef, or MetricRef values.",
+            "All endpoints are native Entity, Measure, or Metric lookup symbols.",
             "Ontology supplies discovery context only; it cannot execute semantic meaning.",
             "Ontology and semantic catalog fingerprints jointly identify this association.",
         ),
@@ -76,8 +76,8 @@ _DESCRIPTORS = (
         callable_path="marivo.ontology.influences",
         summary="Author a directional driver hypothesis without asserting causality.",
         body=(
-            "driver: EntityRef | MeasureRef | MetricRef",
-            "outcome: EntityRef | MetricRef",
+            "driver: EntitySymbol | MeasureSymbol | MetricSymbol",
+            "outcome: EntitySymbol | MetricSymbol",
             "ai_context: ms.ai_context(...) with a non-empty business_definition",
             "Discovery matches the outcome and proposes the driver.",
             "The relation is a hypothesis and does not assert causality.",
@@ -86,7 +86,7 @@ _DESCRIPTORS = (
         output_family="SemanticEdgeRef",
         constraints=(
             "name is a unique lowercase dotted snake_case identity.",
-            "driver is an EntityRef, MeasureRef, or MetricRef; outcome is an EntityRef or MetricRef.",
+            "driver is an Entity, Measure, or Metric lookup symbol; outcome is an Entity or Metric lookup symbol.",
             "ai_context requires a non-empty business_definition.",
             "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
         ),
@@ -110,7 +110,7 @@ _DESCRIPTORS = (
         callable_path="marivo.ontology.related_to",
         summary="Author a symmetric contextual relation between two semantic refs.",
         body=(
-            "left/right: EntityRef | MeasureRef | MetricRef",
+            "left/right: EntitySymbol | MeasureSymbol | MetricSymbol",
             "ai_context: ms.ai_context(...) with a non-empty business_definition",
             "Discovery proposes the endpoint opposite exactly one matching source anchor.",
             "Swapped endpoints are the same canonical pair; identical endpoints are rejected.",
@@ -119,7 +119,7 @@ _DESCRIPTORS = (
         output_family="SemanticEdgeRef",
         constraints=(
             "name is a unique lowercase dotted snake_case identity.",
-            "left and right are distinct EntityRef, MeasureRef, or MetricRef values.",
+            "left and right are distinct Entity, Measure, or Metric lookup symbols.",
             "ai_context requires a non-empty business_definition.",
             "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
         ),

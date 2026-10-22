@@ -23,6 +23,7 @@ from tests.shared_fixtures import (
     publish_fiscal_calendar_artifact,
     terminal_runs,
 )
+from tests.support.refs import as_ref
 
 
 def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
@@ -75,8 +76,8 @@ def test_calendar_dependency_closure_keeps_explicit_certification(
     calendar = ms.ref.period_calendar("sales.fiscal")
     total = ms.ref.metric("sales.fiscal_total")
     alias = ms.ref.metric("sales.fiscal_alias")
-    assert calendar in catalog._state.dependencies[total]
-    assert calendar in catalog._state.dependencies[alias]
+    assert as_ref(calendar) in catalog._state.dependencies[as_ref(total)]
+    assert as_ref(total) in catalog._state.dependencies[as_ref(alias)]
     before = catalog.readiness(refs=[calendar])
     assert before.status == "blocked"
     assert "period_calendar_artifact_missing" in before.render(max_output_bytes=None)
@@ -162,7 +163,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
     session_a = mv.session.create("calendar-a", timezone="UTC")
-    calendar_a = session_a.catalog.period_calendars.get(calendar_ref.path)
+    calendar_a = session_a.catalog.period_calendars.get(as_ref(calendar_ref).path)
     grain_a = calendar_a.grain("fiscal_month")
     scope_a = session_a.time_scope(start="2026-01-20", end="2026-02-01")
     query_a = session_a.observe(
@@ -183,7 +184,9 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
         )
     catalog.preview(calendar_ref, scope=acquisition)
     session_b = mv.session.create("calendar-b", timezone="UTC")
-    grain_b = session_b.catalog.period_calendars.get(calendar_ref.path).grain("fiscal_month")
+    grain_b = session_b.catalog.period_calendars.get(as_ref(calendar_ref).path).grain(
+        "fiscal_month"
+    )
     assert grain_a._snapshot is not None and grain_b._snapshot is not None
     assert grain_a._snapshot.snapshot_digest != grain_b._snapshot.snapshot_digest
     scope_b = session_b.time_scope(start="2026-01-20", end="2026-02-01")

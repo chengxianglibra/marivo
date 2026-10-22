@@ -478,9 +478,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
         "display_day = ms.time_dimension_column(name='day', entity=display, column='day')\n"
     )
     model.write_text(
-        model.read_text().replace(
-            "finalized = ms.finalize()", additions + "\nfinalized = ms.finalize()"
-        )
+        model.read_text().replace("# Named expressions", additions + "\n# Named expressions")
     )
     ms.load(workspace_dir=case.root)
     session = case.session

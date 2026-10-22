@@ -31,8 +31,9 @@ if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.expressions import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
-    from marivo.semantic.loader import LoadResult
+    from marivo.semantic.loader import LoaderContext, LoadResult
     from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
@@ -90,6 +91,63 @@ def in_memory_datasource_ir(name: str) -> DatasourceIR:
     from marivo.datasource._builtin import default_datasource
 
     return replace(default_datasource(), semantic_id=name, name=name)
+
+
+def captured_catalog(
+    contexts: tuple[LoaderContext, ...] | list[LoaderContext] | None = None,
+    *,
+    datasource_irs: tuple[DatasourceIR, ...] | None = None,
+) -> SemanticCatalog:
+    """Assemble manually captured test definitions through the loader's owners.
+
+    Public authoring tests load model files. This helper keeps focused closed
+    consumer tests source-free without a second public finalization workflow.
+    """
+    from marivo.semantic._compiled_state import build_compiled_state
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.loader import (
+        _LOADER_CTX,
+        _build_registry,
+        _publish_declarations,
+        _semantic_duplicate_errors,
+    )
+    from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.validator import assembly_validate
+
+    if contexts is None:
+        context = _LOADER_CTX.get()
+        assert context is not None
+        contexts = (context,)
+    if datasource_irs is None:
+        datasource_irs = tuple(ir for context in contexts for ir in context.datasource_irs)
+    registry, sidecar, build_errors = _build_registry(list(contexts), datasource_irs=datasource_irs)
+    errors = [*build_errors, *_semantic_duplicate_errors(contexts)]
+    if not errors:
+        errors.extend(_publish_declarations(contexts, registry, sidecar))
+    validation_errors, warnings = assembly_validate(registry, sidecar)
+    errors.extend(validation_errors)
+    if errors:
+        raise errors[0]
+    project = SemanticProject()
+    project._compiled_state = build_compiled_state(
+        registry=registry, sidecar=sidecar, selected_root_roles=(), filtered_domains=()
+    )
+    project._registry = registry
+    project._expression_sidecar = sidecar
+    project._warnings = tuple(warnings)
+    project._status = "ready"
+    return SemanticCatalog(project)
+
+
+def resolve_test_symbol(catalog: SemanticCatalog, value: object) -> ResolvedValue:
+    """Resolve a native selector or private test key in an explicit compiled scope."""
+    from marivo._symbolic import native_symbol_ref
+    from marivo.refs import Ref
+    from marivo.semantic.expressions import resolve
+
+    reference = value if type(value) is Ref else native_symbol_ref(value)
+    assert reference is not None
+    return resolve(catalog, reference)
 
 
 def observation_temporal(
@@ -240,12 +298,12 @@ buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer
                         keys=[ms.join_on(order_customer_id, customer_id)])
 line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,
                              keys=[ms.join_on(line_order_id, order_id)])
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-line_amount_value = finalized.resolve(line_amount)
-orders_value = finalized.resolve(orders)
-time_value = finalized.resolve(ordered_at)
-line_order_value = finalized.resolve(line_order)
+# Named expressions
+amount_value = amount
+line_amount_value = line_amount
+orders_value = orders
+time_value = ordered_at
+line_order_value = line_order
 
 @ms.metric()
 def {n.revenue}():
@@ -490,8 +548,8 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date')\n"
             "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
             "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
-            "finalized = ms.finalize()\n"
-            "amount_value = finalized.resolve(amount)\n"
+            ""
+            "amount_value = amount\n"
             "@ms.metric()\n"
             "def gmv():\n"
             "    return amount_value.sum()\n"
@@ -502,12 +560,12 @@ def fiscal_analysis_project_files() -> dict[str, str]:
 def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
     """Publish the certified fiscal calendar used by analysis-only tests."""
 
-    import marivo.semantic as ms
     from marivo._temporal import (
         TemporalSnapshotStore,
         certify_period_calendar_rows,
         period_calendar_definition_digest,
     )
+    from marivo.refs import ref as ref_factory
     from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
     rows: list[dict[str, str]] = []
@@ -523,7 +581,7 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
             }
         )
         cursor += timedelta(days=1)
-    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    calendar_ref = ref_factory.period_calendar("sales.fiscal")
     calendar = catalog._require_ready().period_calendars[calendar_ref.path]
     snapshot = certify_period_calendar_rows(
         calendar_ref=calendar_ref,
@@ -680,7 +738,7 @@ def sales_backends(
 # Project directory templates (versioned, cached in /tmp)
 # ---------------------------------------------------------------------------
 
-_SALES_PROJECT_V = "v3"
+_SALES_PROJECT_V = "v4"
 
 
 def sales_project_template(*, with_time: bool = True) -> Path:
@@ -728,8 +786,8 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "    return orders.region.upper()\n"
         "\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "finalized = ms.finalize()\n"
-        "amount_value = finalized.resolve(amount)\n"
+        ""
+        "amount_value = amount\n"
         "@ms.metric()\n"
         "def revenue():\n"
         "    return amount_value.sum()\n"

@@ -50,6 +50,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
@@ -853,7 +854,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
 
     def snapshot(prefix: str) -> PeriodCalendarSnapshotV2:
         return certify_period_calendar(
-            calendar_ref=calendar,
+            calendar_ref=ref_factory.period_calendar("sales.fiscal"),
             boundary_timezone="UTC",
             coverage=(start, end),
             rows=(
@@ -875,7 +876,11 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
             calendar_snapshots=(captured,),
             by=(
                 session.time_scope(start=start, end=end).by(
-                    semantic_grain(calendar=calendar, level=level, snapshot=captured)
+                    semantic_grain(
+                        calendar=ref_factory.period_calendar("sales.fiscal"),
+                        level=level,
+                        snapshot=captured,
+                    )
                 ),
             ),
         )

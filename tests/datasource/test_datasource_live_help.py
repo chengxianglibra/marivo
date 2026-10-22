@@ -9,7 +9,6 @@ import pytest
 
 import marivo
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
@@ -23,6 +22,7 @@ from marivo.datasource.inspection import (
 )
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.refs import ref as ref_factory
 
 
 def test_trino_help_matches_source_native_quantile_capability() -> None:
@@ -99,10 +99,10 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")
-    ref = ms.ref.datasource("warehouse")
+    ref = ref_factory.datasource("warehouse")
     scope = md.unpruned(max_rows=10, timeout_seconds=5)
     inspection = SourceInspection(
-        datasource=ref,
+        _datasource=ref,
         source=source,
         physical_extent=PhysicalExtent(None, "unknown", None, "unknown", "metadata", ()),
         partitioning=Partitioning("none", (), None, (), True, False),
@@ -113,7 +113,7 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     )
     snapshot = DiscoverySnapshot(
         id="snapshot-1",
-        datasource=ref,
+        _datasource=ref,
         source=source,
         scope=scope,
         columns=(),

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo.semantic.errors import SemanticRuntimeError
 
 
 def test_metric_ref_requires_two_segment_path() -> None:
-    assert ms.ref.metric("sales.revenue").path == "sales.revenue"
+    assert isinstance(ms.ref.metric("sales.revenue"), Deferred)
     with pytest.raises(ValueError, match="exactly 2 segments"):
         ms.ref.metric("revenue")
 

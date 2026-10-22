@@ -128,9 +128,9 @@ def test_native_independent_multiroot_fixed_and_cold(
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner),ms.join_on({name}_tenant,subjects_tenant)])\n"
-        models += "frozen=ms.finalize()\n"
+        models += ""
         for name in ("left", "right"):
-            models += f"{name}_value=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
+            models += f"{name}_value={name}_amount\n{name}_clock={name}_time\n@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"

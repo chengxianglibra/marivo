@@ -199,7 +199,7 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
     assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
     ) == (
-        "Ref[datasource]",
+        "DatasourceSymbol",
         "SqlText",
         "RawSqlReason",
         "PositiveTimeoutGuard",

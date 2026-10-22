@@ -186,14 +186,15 @@ def test_members_consumes_resolved_entity_without_original_version_gate(
 
     from marivo._definition.relations import PopulationProgram, SourceIdentities
     from marivo._definition.types import ExactRef
+    from marivo.semantic.expressions import entity_exact
 
     case = analysis_dsl_case_factory("j1")
     entity = case.session.catalog.entities.get("sales.customer")
-    older = replace(entity, ref=ExactRef(entity.ref.ref, "previous-definition"))
+    older = replace(entity, _exact_ref=ExactRef(entity_exact(entity).ref, "previous-definition"))
     population = case.session.members(older)
     assert isinstance(population._definition, PopulationProgram)
     assert isinstance(population._definition.root, SourceIdentities)
-    assert population._definition.root.entity == older.ref
+    assert population._definition.root.entity == entity_exact(older)
     assert case.session.frame(population).compute().to_pandas()[
         ("coordinate", "axis.0")
     ].tolist() == ["A", "B", "C", "D"]

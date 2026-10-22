@@ -90,7 +90,7 @@ def prepare_profiles(
                 f"profile_{index} = ms.measure_column(name='profile_{index}', entity=orders, column='profile_{index}', additivity=ms.additive_all(), unit='CNY')\n"
             )
             metrics.append(
-                f"profile_{index}_value = finalized.resolve(profile_{index})\n"
+                f"profile_{index}_value = profile_{index}\n"
                 f"@ms.metric()\ndef maximum_{index}():\n"
                 f"    return profile_{index}_value.max(time=time_value)\n"
             )
@@ -100,7 +100,7 @@ def prepare_profiles(
                     f"    return profile_{index}_value.sum(time=time_value)\n"
                 )
     models = case.root / "models/semantic/sales/models.py"
-    body, composition = models.read_text().split("finalized = ms.finalize()", 1)
+    body, composition = models.read_text().split("# Named expressions", 1)
     if key_profile == "KC":
         body = body.replace("primary_key=['order_id']", "primary_key=['order_id', 'member_seq']")
         body = body.replace(
@@ -139,7 +139,7 @@ def prepare_profiles(
         body
         + "\n"
         + "".join(additions)
-        + "\nfinalized = ms.finalize()"
+        + "\n# Named expressions"
         + composition
         + "\n"
         + "".join(metrics)

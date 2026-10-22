@@ -21,7 +21,7 @@ def test_public_grain_value_and_factory() -> None:
 def test_public_grain_constructors_share_one_value_type():
     calendar = ref.period_calendar("sales.fiscal")
     builtin = mv.grain("minute", count=5)
-    semantic = ms.calendar_grain(calendar=calendar, level="week")
+    semantic = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="week")
 
     assert isinstance(builtin, mv.Grain)
     assert isinstance(semantic, mv.Grain)
@@ -29,7 +29,7 @@ def test_public_grain_constructors_share_one_value_type():
     assert builtin.kind == "builtin"
     assert semantic.kind == "semantic"
     assert builtin._to_token() == "5minute"
-    assert semantic.calendar == calendar
+    assert semantic._calendar == calendar
     assert semantic.level == "week"
     assert semantic._to_token() == "sales.fiscal::week"
 
@@ -55,11 +55,13 @@ def test_semantic_grain_identity_and_by_require_exact_snapshot():
         )
 
     first, second = snapshot("P1"), snapshot("P2")
-    lookup = ms.calendar_grain(calendar=calendar, level="period")
+    lookup = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="period")
     captured = semantic_grain(calendar=calendar, level="period", snapshot=first)
     equivalent = semantic_grain(calendar=calendar, level="period", snapshot=first)
     changed = semantic_grain(calendar=calendar, level="period", snapshot=second)
-    assert lookup == ms.calendar_grain(calendar=calendar, level="period")
+    assert lookup == ms.calendar_grain(
+        calendar=ms.ref.period_calendar("sales.fiscal"), level="period"
+    )
     assert captured == equivalent and hash(captured) == hash(equivalent)
     assert len({lookup, captured, changed}) == 3
     assert "unbound" in repr(lookup)

@@ -157,7 +157,7 @@ def test_long_path_sum_and_count(
             extra = f",ms.join_on({left}_segment,{right}_segment)" if compound else ""
             models += f"hop{index}=ms.relationship(name='hop{index}',from_entity={left},to_entity={right},keys=[ms.join_on({left}_owner,{right}_owner){extra}])\n"
         models += (
-            "closed=ms.finalize()\namount_value=closed.resolve(amount)\n"
+            "amount_value=amount\n"
             "time_value=closed.resolve(instant)\nfacts_value=closed.resolve(facts)\n"
             "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
             "@ms.metric()\ndef number():\n    return facts_value.count(time=time_value)\n"

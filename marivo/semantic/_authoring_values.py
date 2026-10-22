@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
 
-from marivo.refs import DimensionKind, FieldKind, Ref, SemanticKind, TimeDimensionKind
+from marivo.refs import SemanticKind
 from marivo.semantic._authoring_context import (
     _caller_location,
     _register_authoring_file,
@@ -38,9 +38,7 @@ from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
 
 
-def additive(
-    *, over: tuple[Deferred | Ref[DimensionKind | TimeDimensionKind], ...]
-) -> AdditiveOverV1:
+def additive(*, over: tuple[Deferred, ...]) -> AdditiveOverV1:
     """Declare the existing field coordinates on which a Measure may be summed.
 
     Args: over: Non-empty tuple of constructed fields or explicit field lookup refs.
@@ -53,9 +51,7 @@ def additive(
     return build(over=over)
 
 
-def additive_all(
-    *, except_: tuple[Deferred | Ref[DimensionKind | TimeDimensionKind], ...] = ()
-) -> AdditiveAllV1:
+def additive_all(*, except_: tuple[Deferred, ...] = ()) -> AdditiveAllV1:
     """Grant summing across native coordinates except explicitly fixed axes.
 
     Args: ``except_``: Existing fields or lookup refs that must remain fixed.
@@ -68,15 +64,15 @@ def additive_all(
     return build(except_=except_)
 
 
-def bind(field: Deferred | Ref[FieldKind], entity_alias: ibis_ir.Table) -> ibis_ir.Value:
+def bind(field: Deferred, entity_alias: ibis_ir.Table) -> ibis_ir.Value:
     """Apply a physical semantic field in a restricted Ibis field body.
 
     Args:
-        field: Constructed physical field or explicit lookup Ref, supplied as a bare name.
+        field: Constructed physical field or native lookup symbol, supplied as a bare name.
         entity_alias: Direct Entity table parameter of the Dimension/TimeDimension body.
     Returns: The owning field's Ibis value on that Entity alias.
     Example: ``return ms.bind(region, rows).upper()`` inside @ms.dimension(entity=orders).
-    Constraints: Finalization checks field kind and ownership in the completed consumer scope; lookup Refs allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.
+    Constraints: Loader binding checks field kind and ownership in the completed consumer scope; lookup symbols allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.
     """
     from marivo.semantic._expression_binding import bind as apply
 
@@ -171,17 +167,17 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
 
 def snapshot(
     *,
-    partition_field: Deferred | Ref[TimeDimensionKind],
+    partition_field: Deferred,
     timezone: str,
 ) -> SnapshotVersioningIR:
     """Declare daily snapshot partition versioning for an entity.
 
     Args:
-        partition_field: Native TimeField or explicit TimeDimension lookup Ref.
+        partition_field: Native TimeField or explicit TimeDimension lookup symbol.
         timezone: Required IANA zone defining the business snapshot day.
     Returns: A frozen SnapshotVersioningIR with the partition lookup key.
     Example: ``ms.snapshot(partition_field=day_ref, timezone="UTC")``.
-    Constraints: The completed Entity scope resolves the partition field; lookup Refs may name forward dependencies.
+    Constraints: The completed Entity scope resolves the partition field; lookup symbols may name forward dependencies.
     """
     partition_ref = _require_ref_id(
         partition_field,
@@ -206,8 +202,8 @@ def snapshot(
 
 def validity(
     *,
-    valid_from: Deferred | Ref[TimeDimensionKind],
-    valid_to: Deferred | Ref[TimeDimensionKind],
+    valid_from: Deferred,
+    valid_to: Deferred,
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -215,8 +211,8 @@ def validity(
     """Declare SCD2 validity interval versioning for an entity.
 
     Args:
-        valid_from: Native TimeField or lookup Ref for the interval start.
-        valid_to: Native TimeField or lookup Ref for the interval end.
+        valid_from: Native TimeField or lookup symbol for the interval start.
+        valid_to: Native TimeField or lookup symbol for the interval end.
         interval: ``"closed_open"`` (``[valid_from, valid_to)``) or
             ``"closed_closed"`` (``[valid_from, valid_to]``).
         open_end: Non-empty tuple of sentinel values that mean "still current"
@@ -226,7 +222,7 @@ def validity(
 
     Returns:
         A frozen ``ValidityVersioningIR`` with interval field lookup keys.
-        Its Entity consumer resolves these fields at finalization.
+        Its Entity consumer resolves these fields during complete-scope loader binding.
 
     Example:
         ``ms.validity(valid_from=start_ref, valid_to=end_ref,
@@ -234,7 +230,7 @@ def validity(
 
     Constraints:
         Use native fields. The completed Entity closure resolves the interval fields;
-        only explicit lookup Refs can name forward dependencies.
+        only native lookup symbols can name forward dependencies.
 
     Raises:
         SemanticDecoratorError: ``interval`` is not one of the two allowed values,
@@ -286,8 +282,8 @@ def validity(
 
 
 def join_on(
-    from_key: Deferred | Ref[DimensionKind | TimeDimensionKind],
-    to_key: Deferred | Ref[DimensionKind | TimeDimensionKind],
+    from_key: Deferred,
+    to_key: Deferred,
     /,
 ) -> JoinKey:
     """Build one relationship key pair for ``ms.relationship(keys=[...])``.
@@ -296,10 +292,10 @@ def join_on(
     ``ms.join_on(...)`` calls to ``keys=``.
 
     Args:
-        from_key: Native Dimension/TimeField or lookup Ref on the source Entity.
-        to_key: Native Dimension/TimeField or lookup Ref on the target Entity.
+        from_key: Native Dimension/TimeField lookup symbol or a closed field on the source Entity.
+        to_key: Native Dimension/TimeField lookup symbol or a closed field on the target Entity.
     Returns: A frozen JoinKey with the endpoint field lookup keys.
-    Constraints: The completed Relationship scope checks field kind and endpoint ownership; Refs retain forward-reference semantics.
+    Constraints: The completed Relationship scope checks field kind and endpoint ownership; Symbols retain forward-reference semantics.
 
     Example::
 
@@ -417,7 +413,7 @@ def strptime(
 
 
 def hour_prefix(
-    prefix: Deferred | Ref[TimeDimensionKind],
+    prefix: Deferred,
     /,
 ) -> HourPrefixParse:
     """Declare an hour-only partition parse using a day prefix column.
@@ -429,7 +425,7 @@ def hour_prefix(
     analysis time.
 
     Args:
-        prefix: A native TimeField or ``Ref[time_dimension]`` for a day-level field that
+        prefix: A native TimeField or native TimeDimension symbol for a day-level field that
             supplies the date context for this hour column.
 
 

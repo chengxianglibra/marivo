@@ -259,9 +259,9 @@ def test_independent_roots_and_temporal_fold(
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
-        models += "frozen=ms.finalize()\n"
+        models += ""
         for name in ("left", "right"):
-            models += f"{name}_row=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n"
+            models += f"{name}_row={name}_amount\n{name}_clock={name}_time\n"
             models += (
                 f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock)\n"
             )

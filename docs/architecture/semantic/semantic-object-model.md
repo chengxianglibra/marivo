@@ -20,12 +20,12 @@ owns certified calendars and occurrences.
 | Metric | Completed reductions and their composition | catalog.metrics |
 | Relationship | Directed endpoint/key mapping | catalog.relationships |
 
-Physical constructors return typed lookup Refs; finalized resolution and Catalog
-lookup supply immutable values. Named Measure/Metric decorators return native
-Deferred recipes. A named expression is described with catalog.describe(ref),
+Physical constructors return native typed Deferred symbols. The loader binds
+the complete dependency scope; Catalog lookup supplies immutable closed values.
+Named Measure/Metric decorators return native Deferred recipes. A named expression is described with catalog.describe(ref),
 not by calling show on Deferred. Collection lookup takes a plain local name or
 full path string; local names must be unique within the current scoped collection.
-Kind-prefixed strings and Refs are not collection.get inputs.
+Kind-prefixed strings and lookup symbols are not collection.get inputs.
 
 ## Project and domain
 
@@ -63,7 +63,7 @@ it is not a copy of the source table's physical uniqueness constraint. Version
 coordinates belong to `versioning` and are not added to `K` merely to distinguish
 historical rows. The same `K` may appear in multiple historical versions.
 `ms.entity(name=..., ...)` is an assignment-style constructor returning a
-typed Entity capture Ref. Omitting `name` selects the restricted Ibis Table
+typed Entity symbol. Omitting `name` selects the restricted Ibis Table
 decorator form. Identity and version columns must be exposed by
 the source projection, but their physical types are read from the source when
 execution first needs them. Loading remains source-I/O free and checks
@@ -199,7 +199,7 @@ user_history = ms.entity(
 )
 ```
 
-Both bounds reference TimeField values or TimeDimension Refs on the same Entity;
+Both bounds reference TimeField values or TimeDimension symbols on the same Entity;
 `open_end` lists the values meaning no declared end. The source row key is
 `(K, valid_from)`. Validity bounds do not join `primary_key` solely because they
 identify a version. Intervals for one `K` must be well-formed and non-overlapping

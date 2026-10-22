@@ -66,7 +66,7 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
         )
     model = case.root / "models/semantic/sales/models.py"
     original = model.read_text()
-    capture_end = original.index("finalized = ms.finalize()")
+    capture_end = original.index("# Named expressions")
     declarations = """
 usage_sessions = ms.entity(name='usage_sessions', datasource=warehouse, source=md.table('usage_sessions'), primary_key=['id'])
 usage_user = ms.dimension_column(name='customer_id', entity=usage_sessions, column='customer_id')
@@ -84,10 +84,10 @@ purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchase
         + declarations
         + original[capture_end:]
         + """
-usage_value = finalized.resolve(usage_hours)
-usage_time_value = finalized.resolve(usage_time)
-purchase_value = finalized.resolve(purchase_amount)
-purchase_time_value = finalized.resolve(purchase_time)
+usage_value = usage_hours
+usage_time_value = usage_time
+purchase_value = purchase_amount
+purchase_time_value = purchase_time
 @ms.metric()
 def avg_usage_hours():
     return usage_value.mean(time=usage_time_value)

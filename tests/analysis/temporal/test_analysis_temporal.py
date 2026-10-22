@@ -16,6 +16,7 @@ from marivo.analysis.core.time_grid import instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
+from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import (
     DSL_NAMES,
     DslCase,
@@ -67,7 +68,7 @@ def test_named_occurrence_scopes_keep_distinct_grid_identity() -> None:
     from marivo._temporal import certify_temporal_set
 
     snapshot = certify_temporal_set(
-        temporal_set_ref=ms.ref.temporal_set("sales.promotions"),
+        temporal_set_ref=ref_factory.temporal_set("sales.promotions"),
         boundary_timezone="UTC",
         coverage=(date(2026, 8, 1), date(2026, 8, 4)),
         rows=(
@@ -110,7 +111,7 @@ def test_aware_endpoint_remains_instant() -> None:
 def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
     from marivo._temporal import certify_period_calendar_rows, semantic_grain
 
-    calendar = ms.ref.period_calendar("sales.fiscal")
+    calendar = ref_factory.period_calendar("sales.fiscal")
     snapshot = certify_period_calendar_rows(
         calendar_ref=calendar,
         boundary_timezone="Asia/Shanghai",

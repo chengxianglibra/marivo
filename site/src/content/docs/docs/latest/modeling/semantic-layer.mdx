@@ -69,7 +69,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
     connection.execute("UPDATE orders SET cost = amount * 0.6")
 ```
 
-Replace `models/semantic/sales/_domain.py` with the model below; do not keep another copy of these declarations. Capture physical dependencies, resolve them with `finalize()`, then compose metrics.
+Replace `models/semantic/sales/_domain.py` with the model below; do not keep another copy of these declarations. Compose native typed field symbols directly. The loader binds the complete dependency scope before returning the Catalog.
 
 {/* example: semantic-model */}
 
@@ -105,13 +105,6 @@ def normalized_region(rows):
     return ms.bind(region, rows).upper()
 
 
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-region = finalized.resolve(region)
-normalized_region = finalized.resolve(normalized_region)
-order_date = finalized.resolve(order_date)
-amount = finalized.resolve(amount)
-cost = finalized.resolve(cost)
 
 
 @ms.measure()
@@ -166,7 +159,7 @@ Use relationship match/cardinality checks in [model validation](/docs/latest/mod
 If c1 has labels A and B, joining orders to both labels repeats its 300. Counting that as 600 would be wrong for total revenue. Decide whether you want an existence filter, overlapping group totals, or a justified allocation. `mv.membership(...)` describes explicit grouping/allocation rules; it does not make an arbitrary join additive.
 
 Keep identity when counting customers by a new attribute. Projecting only the attribute first counts categories instead. Continue with [population selection](/docs/latest/analysis/dsl/#select-and-filter).
-Declaration fragment for this relationship, before finalizing the model:
+Declaration fragment for this relationship, in the same model load scope:
 
 ```python
 # Declaration fragment: orders, customers, order_customer_id, and customer_id
@@ -250,7 +243,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
 
 ### Declare dates and periods
 
-Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for the separate project; do not append physical declarations after a finalized tutorial model. This demonstration week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
+Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for the separate project; replace the earlier tutorial declarations when using this separate project. This demonstration week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
 
 {/* example: calendar-model */}
 

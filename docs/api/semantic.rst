@@ -30,17 +30,15 @@ Snapshot and validity coordinates stay outside ``primary_key``.
 Typed expression authoring
 --------------------------
 
-Physical Entity/Field/Relationship constructors capture typed Ref lookup keys.
-Capture every physical dependency, then call ``finalized = ms.finalize()`` and
-``amount = finalized.resolve(amount_ref)``. Finalization validates and closes
-capture before immutable values are created, preserving defaults,
-coordinates and supported Ibis forward references without replaying imports. Measure and Metric
-functions are pure zero-argument declarations over constructed dependencies.
-``ms.load()`` publishes every Measure/Metric declaration bound at module level in
-a model's own files under its function name; aliases are collected once and
-unbound declarations stay private dependencies. Distinct declarations cannot
-share a full name, and a closure bound to an execution Session is not admitted.
-Executing published declarations is separate R2 work.
+Physical Entity/Field/Relationship constructors and ``ms.ref.*`` capture native
+Ibis Deferred symbols with typed identity roles. Compose them directly; the
+loader binds the complete dependency scope before publishing closed Catalog
+values. Default time, coordinates and supported Ibis forward references use
+that complete scope without replaying imports or calling authored functions.
+Measure and Metric functions remain pure zero-argument declarations.
+``ms.load()`` publishes declarations bound at module level in their owning
+model files; aliases are collected once. Distinct declarations cannot share a
+full identity, and Session-owned closures are not admitted for publication.
 
 Semantic objects need not remain bound to their original definition versions;
 a same-path definition change alone does not reject an input. The agent/user
@@ -51,13 +49,9 @@ presence, kind, native time role and permission. Definition fingerprints and
 cache keys describe actual consumed definitions; persisted provenance and records
 retain their owning contracts.
 
-Use ``marivo.help("semantic.expressions")`` for receiver operations.
-``amount.contract()`` returns the bounded definition contract (stage, identity,
-roots, unit, sum permission, default time, computation, refs read, declared
-metadata and valid operations); ``amount.show()`` prints it.
-``marivo.help("semantic.Measure.contract")`` and ``marivo.help("semantic.Measure.show")``
-resolve the shared contracts.
-``finalized.show()`` has its own ``semantic.FinalizedDeclarations.show`` contract. Numeric
+Use ``marivo.help("semantic.expressions")`` for receiver operations and
+``catalog.describe(ms.ref.measure("sales.orders.amount")).show()`` for captured
+definition facts. Deferred itself has no Marivo contract or show method. Numeric
 rows reduce through ``sum/mean/min/max/median/quantile/weighted_mean``; completed
 Metrics combine through arithmetic and accept scope-checked ``where`` and
 ``per(...).reducer()``. Place membership rules directly in ``per`` samples or
@@ -72,7 +66,6 @@ rejected with a concrete reauthoring action.
    :toctree: api/
    :nosignatures:
 
-   finalize
    additive
    additive_all
    non_additive
@@ -130,16 +123,21 @@ data checks require an explicit bounded scope and never change readiness.
 .. autodata:: source_check
    :annotation:
 
-Refs, binding & loading
------------------------
+Symbols, binding & loading
+--------------------------
 
-``ref`` is the immutable exact-kind lookup factory namespace. Ref values themselves
-are immutable identities and are never callable; use ``bind`` to apply a field
-ref to a direct entity alias inside a decorated expression body.
-Constructed Field inputs identify kind/path in the completed consumer scope;
-their original definition versions are not mandatory constraints. Explicit Refs
-remain lookup keys, including forward dependencies. Kind, owner/root and temporal
-role checks still apply; finalization supplies complete defaults and dependencies.
+``ref`` is the exact-kind native lookup-symbol namespace. Use ``bind`` to
+apply a native physical field to a direct Entity alias inside a restricted Ibis
+Dimension/TimeDimension body. Loader binding checks kind, owner and time role.
+
+Metadata identity fields return unbound lookup selectors. Use them for supported
+Catalog lookup/check operations; select closed analysis inputs through the
+matching collection's ``get(path)``. Ordinary Analysis does not bind a symbol.
+Equality builds a recipe rather than testing identity. Symbols are not supported
+as boolean identities, hash keys, dictionary keys or container membership keys.
+Invalid attributes and methods fail when a declaration or parameter captures the
+recipe; ordinary Python attribute access, unused recipes and formatted strings
+have no immediate-error guarantee.
 
 .. autodata:: ref
    :annotation:
@@ -150,7 +148,6 @@ role checks still apply; finalization supplies complete defaults and dependencie
    :toctree: api/
    :nosignatures:
 
-   Ref
    load
 
 Focused help
@@ -204,10 +201,10 @@ values, so ``revenue = catalog.metrics.get("sales.revenue")`` and
 Domains, datasources, period calendars and temporal sets remain
 navigation entries. ``collection.get(key)`` accepts only a plain string
 containing a local name or full semantic path within the collection's scope.
-Ambiguous names require a full path. Refs and kind-prefixed strings are rejected;
+Ambiguous names require a full path. Lookup symbols and kind-prefixed strings are rejected;
 scoped collections do not widen to out-of-scope objects. The consuming operation
 checks its required kind, root, grain, unit, time role, and null semantics.
-Typed Ref identities remain available for definitions, dependencies and records.
+Private identity keys remain internal to definitions, dependencies and records.
 
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
 ``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
@@ -223,8 +220,8 @@ dependency-coherent authored slice; there is no separate per-object verify step.
 For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the
 focused ``analysis.catalog.<family>`` pages for the bounded collection,
 exact lookup, entry-detail, and handoff contracts. ``CatalogCollection`` owns
-lookup grammar, expression values own ``contract()``, ``CatalogEntry`` owns
-navigation-entry detail, and ``Ref`` owns exact identity. The packaged ``marivo-analysis`` skill provides
+lookup grammar, ``catalog.describe(...)`` owns captured definition facts,
+``CatalogEntry`` owns navigation-entry detail, and ``ms.ref.*`` owns exact lookup construction. The packaged ``marivo-analysis`` skill provides
 routing and boundaries only; it does not duplicate these API recipes.
 
 .. autosummary::
@@ -299,5 +296,5 @@ Construct context with ``ms.ai_context(...)``. Use ``ms.typing.AiContextValue`` 
 context annotations. Read readiness issue/input records through the report
 fields and health checks through ``SourceHealthReport.checks``. These returned
 records retain their exact types and field Help without root constructor exports;
-use ``marivo.help(type(value))`` for each owning type. Temporal kind markers
-remain exported for concrete ``Ref[K]`` annotations.
+use ``marivo.help(type(value))`` for each owning type. Factory signatures document
+the ten nominal symbol roles; runtime leaves remain native Deferred objects.

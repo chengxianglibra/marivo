@@ -8,6 +8,7 @@ from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
 from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 
+from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
@@ -215,9 +216,9 @@ class _SpecBase(RenderableResult):
     env_refs: dict[str, str] = field(init=False)
 
     @property
-    def ref(self) -> Ref[DatasourceKind]:
+    def ref(self) -> DatasourceSymbol:
         """Typed reference to this datasource for semantic authoring."""
-        return ref_factory.datasource(self.name)
+        return symbol_factory.datasource(self.name)
 
     def __post_init__(self) -> None:
         validate_datasource_name(self.name)
@@ -257,7 +258,7 @@ class _SpecBase(RenderableResult):
                 available=(".fields", ".env_refs", ".show()"),
             )
             .status("valid declaration")
-            .field("ref", self.ref.key)
+            .field("ref", ref_factory.datasource(self.name).key)
             .field("target", rendered_target)
         )
         if credential_fields:
@@ -552,8 +553,11 @@ class ClickHouseSpec(_SpecBase):
 DatasourceSpec: TypeAlias = DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec
 
 
-def _storage_name(value: str | Ref[DatasourceKind]) -> str:
+def _storage_name(value: str | Ref[DatasourceKind] | DatasourceSymbol) -> str:
     """Return the private project storage key for a validated datasource identity."""
+    symbolic = native_symbol_ref(value)
+    if symbolic is not None and symbolic.kind is SemanticKind.DATASOURCE:
+        return symbolic.path
     if type(value) is Ref and value.kind is SemanticKind.DATASOURCE:
         return value.path
     if type(value) is str:

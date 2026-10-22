@@ -25,6 +25,8 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 from tests.support.result_protocol import assert_conforms
 
 
@@ -284,9 +286,9 @@ def test_datasource_helper_returns_public_spec_and_ref() -> None:
     spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
 
     assert isinstance(spec, md.DuckDBSpec)
-    assert spec.ref == ms.ref.datasource("warehouse")
-    assert spec.ref.path == "warehouse"
-    assert spec.ref.name == "warehouse"
+    assert as_ref(spec.ref) == ref_factory.datasource("warehouse")
+    assert as_ref(spec.ref).path == "warehouse"
+    assert as_ref(spec.ref).name == "warehouse"
 
 
 def test_spec_ai_context_maps_to_ir() -> None:

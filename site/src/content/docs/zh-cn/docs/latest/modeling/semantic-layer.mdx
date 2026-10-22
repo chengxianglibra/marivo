@@ -69,7 +69,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
     connection.execute("UPDATE orders SET cost = amount * 0.6")
 ```
 
-然后用下面的模型替换 `models/semantic/sales/_domain.py`，不要另加一份同名定义。先捕获物理依赖，再通过 `finalize()` 解析后组合指标。
+然后用下面的模型替换 `models/semantic/sales/_domain.py`，不要另加一份同名定义。直接组合原生 typed field 符号；loader 在返回 Catalog 前绑定完整依赖范围。
 
 {/* example: semantic-model */}
 
@@ -105,13 +105,6 @@ def normalized_region(rows):
     return ms.bind(region, rows).upper()
 
 
-finalized = ms.finalize()
-orders = finalized.resolve(orders)
-region = finalized.resolve(region)
-normalized_region = finalized.resolve(normalized_region)
-order_date = finalized.resolve(order_date)
-amount = finalized.resolve(amount)
-cost = finalized.resolve(cost)
 
 
 @ms.measure()
@@ -166,7 +159,7 @@ c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收�
 若 c1 同时有 A、B 两个标签，将订单连接到两种标签会重复它的 300。把它计为总收入 600 就错了。先确定是存在性筛选、允许重叠的分组总额，还是有业务依据的分配。`mv.membership(...)` 描述明确的分组与分配规则，不能让任意连接自动可加。
 
 按新属性统计客户时保留身份；先只投影属性再计数，得到的是分类数。接下来[选择分析对象](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)。
-以上关系的声明片段，放在模型的 finalize 之前：
+以上关系的声明片段，放在同一模型加载范围内：
 
 ```python
 # Declaration fragment: orders, customers, order_customer_id, and customer_id
@@ -250,7 +243,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
 
 ### 声明日期与期间
 
-保存为 `models/semantic/sales/_domain.py`。这是独立项目的完整日历模型，不要向已完成解析的教程模型追加物理声明。演示周为 1 月 1 日至 8 日，不是 ISO 周，含起点不含终点。
+保存为 `models/semantic/sales/_domain.py`。这是独立项目的完整日历模型，在此独立项目中使用时替换原教程声明。演示周为 1 月 1 日至 8 日，不是 ISO 周，含起点不含终点。
 
 {/* example: calendar-model */}
 

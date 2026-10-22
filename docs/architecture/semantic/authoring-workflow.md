@@ -206,10 +206,10 @@ business semantics.
 
 ## Expression authoring
 
-Follow [Expressions](expressions.md) for complete physical capture, finalization,
+Follow [Expressions](expressions.md) for direct symbol composition, complete loader binding,
 immutable resolution and local/named Deferred composition. Loading publishes
 collected model roots; Analysis compute/persist qualifies their actual execution.
-Neither finalization nor a successful load substitutes for the latter.
+A successful load does not substitute for the latter.
 
 ## Closeout
 

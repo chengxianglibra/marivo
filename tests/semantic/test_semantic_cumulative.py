@@ -16,6 +16,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.windows import AllHistory
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic.expressions import catalog_metric_definition
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -29,14 +30,13 @@ quantity_ref = ms.measure_column(name="quantity", entity=orders, column="quantit
 user_ref = ms.dimension_column(name="user_id", entity=orders, column="user_id")
 shipments = ms.entity(name="shipments", datasource=warehouse, source=md.table("shipments"), primary_key=["id"])
 ship_time_ref = ms.time_dimension_column(name="ship_time", entity=shipments, column="shipped_at")
-frozen = ms.finalize()
-amount = frozen.resolve(amount_ref)
-quantity = frozen.resolve(quantity_ref)
-users = frozen.resolve(user_ref)
-event_time = frozen.resolve(event_time_ref)
-paid_time = frozen.resolve(paid_time_ref)
-ship_time = frozen.resolve(ship_time_ref)
-orders_value = frozen.resolve(orders)
+amount = amount_ref
+quantity = quantity_ref
+users = user_ref
+event_time = event_time_ref
+paid_time = paid_time_ref
+ship_time = ship_time_ref
+orders_value = orders
 rule = mv.all_history()
 """
 
@@ -74,6 +74,14 @@ def _window(catalog: ms.SemanticCatalog, name: str) -> MetricWindow:
     return node
 
 
+def _window_operand(catalog: ms.SemanticCatalog, window: MetricWindow) -> MetricNode:
+    if isinstance(window.operand, DeclaredMetricRef):
+        definition = catalog_metric_definition(catalog, window.operand.ref)
+        assert definition is not None
+        return definition
+    return window.operand
+
+
 def test_cumulative_load_retains_explicit_time_and_distinct_formula(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
@@ -90,7 +98,7 @@ def cum_active_users():
     catalog = ms.load(workspace_dir=root)
     window = _window(catalog, "cum_active_users")
     base = _metric_node(catalog, "active_users")
-    assert base == window.operand
+    assert base == _window_operand(catalog, window)
     assert isinstance(base, SourceAggregate)
     assert base.reducer == "count_distinct"
     assert base.time is not None
@@ -112,8 +120,8 @@ def cumulative_aov():
     )
     catalog = ms.load(workspace_dir=root)
     window = _window(catalog, "cumulative_aov")
-    assert window.operand == _metric_node(catalog, "aov")
-    assert isinstance(window.operand, MetricExpression)
+    assert _window_operand(catalog, window) == _metric_node(catalog, "aov")
+    assert isinstance(_window_operand(catalog, window), MetricExpression)
 
 
 def test_cumulative_accepts_original_mean_formula(tmp_path: Path) -> None:
@@ -132,7 +140,7 @@ def cumulative_average():
     catalog = ms.load(workspace_dir=root)
     window = _window(catalog, "cumulative_average")
     base = _metric_node(catalog, "average")
-    assert window.operand == base
+    assert _window_operand(catalog, window) == base
     assert isinstance(base, SourceAggregate)
     assert base.reducer == "mean"
 
@@ -172,7 +180,7 @@ def cumulative_revenue():
     )
     catalog = ms.load(workspace_dir=root)
     window = _window(catalog, "cumulative_revenue")
-    assert window.operand == _metric_node(catalog, "custom_revenue")
+    assert _window_operand(catalog, window) == _metric_node(catalog, "custom_revenue")
     assert isinstance(_metric_node(catalog, "custom_revenue"), SourceAggregate)
 
 
@@ -181,7 +189,7 @@ def test_cumulative_rejects_unknown_time_ref(tmp_path: Path) -> None:
         tmp_path,
         _MODEL
         + """
-missing = frozen.resolve(ms.ref.time_dimension("sales.orders.nonexistent"))
+missing = ms.ref.time_dimension("sales.orders.nonexistent")
 @ms.metric()
 def bad():
     return amount.sum(time=missing).window(rule)

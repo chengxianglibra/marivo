@@ -216,7 +216,7 @@ def bind_windows(
             if isinstance(rule, ToDate) and rule.grain.kind == "semantic":
                 grain = rule.grain
                 snapshot = next(
-                    (item for item in calendar_snapshots if item.calendar_ref == grain.calendar),
+                    (item for item in calendar_snapshots if item.calendar_ref == grain._calendar),
                     None,
                 )
                 if snapshot is None:
@@ -253,9 +253,9 @@ def bind_windows(
                         "Build the output axis and Metric in the same completed Session scope.",
                         "Metric.window",
                     )
-                assert grain.calendar is not None and grain.level is not None
+                assert grain._calendar is not None and grain.level is not None
                 rule = ToDate(
-                    semantic_grain(calendar=grain.calendar, level=grain.level, snapshot=snapshot)
+                    semantic_grain(calendar=grain._calendar, level=grain.level, snapshot=snapshot)
                 )
         if rule is not None:
             rules[path] = rule
@@ -329,9 +329,9 @@ def bind_windows(
                 grid = calendar
                 if grid.snapshot is not None:
                     captured = grid.grain_spec
-                    assert captured.calendar is not None and captured.level is not None
+                    assert captured._calendar is not None and captured.level is not None
                     grain = semantic_grain(
-                        calendar=captured.calendar,
+                        calendar=captured._calendar,
                         level=captured.level,
                         snapshot=grid.snapshot,
                     )

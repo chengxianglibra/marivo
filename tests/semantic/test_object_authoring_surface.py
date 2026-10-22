@@ -22,7 +22,9 @@ from marivo.semantic.ir import (
     TimestampParse,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
-from tests.shared_fixtures import in_memory_datasource_ir
+from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
+from tests.shared_fixtures import resolve_test_symbol as resolve
+from tests.support.refs import as_ref
 
 # ---------------------------------------------------------------------------
 # Semantic IR value objects
@@ -31,8 +33,8 @@ from tests.shared_fixtures import in_memory_datasource_ir
 
 def test_measure_ref_and_kind_are_first_class() -> None:
     ref = ms.ref.measure("sales.orders.amount")
-    assert ref.path == "sales.orders.amount"
-    assert ref.kind == SemanticKind.MEASURE
+    assert as_ref(ref).path == "sales.orders.amount"
+    assert as_ref(ref).kind == SemanticKind.MEASURE
     assert SemanticKind.MEASURE.value == "measure"
     assert {item.value for item in DimensionKind} == {"categorical", "time"}
 
@@ -106,9 +108,9 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
             name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD"
         )
 
-        finalized = ms.finalize()
-        amount_value = finalized.resolve(amount)
-        orders_value = finalized.resolve(orders)
+        finalized = captured_catalog()
+        amount_value = resolve(finalized, amount)
+        orders_value = resolve(finalized, orders)
 
         @ms.measure()
         def named_amount() -> Deferred:
@@ -131,7 +133,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert "sales.revenue" not in kinds
     assert root_declaration(named_amount).name == "named_amount"
     assert root_declaration(revenue).name == "revenue"
-    assert consume_metric(average_amount).roots == (orders_value.ref,)
+    assert consume_metric(average_amount).roots == (orders_value._exact_ref,)
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
@@ -222,7 +224,7 @@ def test_relationship_uses_join_key_pairs() -> None:
         for pending in ctx.pending_definitions
         if pending.ref.path == "sales.orders_to_customers"
     )
-    assert ref.path == "sales.orders_to_customers"
+    assert as_ref(ref).path == "sales.orders_to_customers"
     assert relationship_ir.keys[0].from_key == "sales.orders.customer_id"
     assert relationship_ir.keys[0].to_key == "sales.customers.id"
 

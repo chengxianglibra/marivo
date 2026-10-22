@@ -49,8 +49,8 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text().replace(
-            "finalized = ms.finalize()",
-            "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n# Named expressions",
         )
     )
     if parquet:

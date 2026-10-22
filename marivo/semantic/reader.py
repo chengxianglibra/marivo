@@ -10,6 +10,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from marivo._symbolic import LookupSymbol, native_symbol_ref
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource import credentials as cr
 from marivo.datasource.ir import DatasourceIR
@@ -215,7 +216,7 @@ class SemanticProject:
     def readiness(
         self,
         *,
-        refs: Iterable[Ref[SemanticKindTag] | str] | None = None,
+        refs: Iterable[LookupSymbol | str] | None = None,
     ) -> ReadinessReport:
         """Return a query-free semantic readiness report.
 
@@ -229,10 +230,26 @@ class SemanticProject:
         report; readiness never executes datasource calls itself.
 
         Args:
-            refs: Exact refs supplied by the catalog boundary. String paths are
-                retained only for private readiness diagnostics.
+            refs: Native lookup selectors. String paths are retained for reader diagnostics.
         """
+        normalized: list[Ref[SemanticKindTag] | str] | None = None
+        if refs is not None:
+            normalized = []
+            for value in refs:
+                reference = native_symbol_ref(value)
+                if reference is not None:
+                    normalized.append(reference)
+                elif isinstance(value, str):
+                    normalized.append(value)
+                else:
+                    raise TypeError(
+                        "readiness refs require native lookup symbols or diagnostic paths."
+                    )
+        return self._readiness(refs=normalized)
+
+    def _readiness(
+        self, *, refs: Iterable[Ref[SemanticKindTag] | str] | None = None
+    ) -> ReadinessReport:
         from marivo.semantic.readiness import build_readiness_report
 
-        scoped_refs = list(refs) if refs is not None else None
-        return build_readiness_report(self, refs=scoped_refs)
+        return build_readiness_report(self, refs=refs)

@@ -156,7 +156,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "decorator",
         ("entity",),
         "ms.entity(name=...) declares directly; omit name for the restricted Table decorator.",
-        "An explicit name returns a non-callable Ref[entity]; omitting name returns a decorator.",
+        "An explicit name returns a native EntitySymbol; omitting name returns a decorator.",
         "Assign the explicitly named constructor result, or omit name and return one Table expression.",
     ),
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
@@ -216,9 +216,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "event",
             "ref",
         ),
-        "Typed Refs are lookup keys. Constructed inputs resolve by kind/path in the completed consumer scope; original definition versions are not mandatory constraints.",
+        "Native typed symbols capture exact lookup paths. The loader binds complete recipes before Catalog publication; closed inputs retain their consumed facts.",
         "The loader persists semantic ids, not arbitrary Python objects.",
-        'Use ms.ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
+        'Use ms.ref.datasource("warehouse") for datasource parameters and matching native symbols returned by constructors or ms.ref.<kind>(path).',
     ),
     ConstraintId.FILTER_CONDITION_VALID: _constraint(
         ConstraintId.FILTER_CONDITION_VALID,

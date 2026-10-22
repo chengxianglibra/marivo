@@ -26,7 +26,7 @@ mv.instant  # invalid: Session-only instant constructor
 session = mv.session.create('static', timezone='UTC')
 population = session.members(session.catalog.entities.get('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
-mv.coordinates(by=(mv.identity(ms.ref.entity('sales.customer')),), keys=((('C1',),),))  # invalid: unresolved EntityRef
+mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
 
 def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
@@ -35,7 +35,7 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     session.observe({'value': metric}, where=query['value'] > 0)  # invalid: result predicate at source
     session.frame(artifact)  # invalid: terminal domain input
     session.read(artifact, {'category': field})  # invalid: terminal attribute input
-    session.read(population, {'category': ms.ref.dimension('sales.customer.region')})  # invalid: bare field ref
+    session.read(population, {'category': relationship})  # invalid: relationship is not a field
     session.values(by=(), columns={'budget': {'unit': 'CNY'}}, rows=(((), {'budget': 1}),))  # invalid: nested column declaration
     query.where(True)  # invalid: ordinary boolean predicate
     query.select({'value': field})  # invalid: source field in result selection
@@ -136,7 +136,9 @@ population = session.members(session.catalog.entities.get('sales.customer'))
 assert_type(population, mv.Population)
 resolved_entity = session.catalog.entities.get('sales.customer')
 assert_type(resolved_entity, Entity)
-assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population)
+assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population | Deferred)
+assert_type(mv.identity(ms.ref.entity('sales.customer')), mv.Grouping | Deferred)
+assert_type(mv.coordinates(by=(ms.ref.dimension('sales.customer.region'),), keys=(('east',),)), mv.Population | Deferred)
 amount: Deferred
 region: Deferred
 query = session.observe({'revenue': amount.sum()}, by=(region,))
@@ -144,8 +146,8 @@ assert_type(query, mv.AnalysisFrame)
 assert_type(session.frame(population), mv.AnalysisFrame)
 assert_type(query.compute(), mv.AnalysisFrame)
 assert_type(query.persist(), mv.AnalysisFrame)
-assert_type(population.project(by=()), mv.Population)
-assert_type(population.where(mv.in_population(population)), mv.Population)
+assert_type(population.project(by=()), mv.Population | Deferred)
+assert_type(population.where(mv.in_population(population)), mv.Population | Deferred)
 assert_type(session.observe({'revenue': amount.sum()}, by=()), mv.AnalysisFrame)
 
 def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: Deferred) -> None:

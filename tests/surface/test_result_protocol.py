@@ -31,6 +31,7 @@ from marivo.semantic.dtos import (
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.refs import as_ref
 
 datasource_ref = ref_factory.datasource
 
@@ -129,7 +130,7 @@ def _datasource_test_result() -> DatasourceTestResult:
 
 def _raw_sql_result() -> RawSqlResult:
     return RawSqlResult(
-        datasource=datasource_ref("wh"),
+        _datasource=as_ref(datasource_ref("wh")),
         backend_type="duckdb",
         sql="SELECT 1 AS ok",
         reason="check query path",
@@ -185,7 +186,9 @@ def _authoring_assessment() -> AuthoringAssessment:
 def _readiness_report() -> ReadinessReport:
     return ReadinessReport(
         status="ready",
-        analysis_ready_inputs=(ref_factory.metric("sales.revenue"),),
+        _analysis_ready_inputs=tuple(
+            as_ref(item) for item in (ref_factory.metric("sales.revenue"),)
+        ),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(

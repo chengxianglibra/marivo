@@ -24,6 +24,8 @@ from marivo.datasource.errors import (
 from marivo.datasource.inspection import ExecutionCapabilities, Partitioning, PhysicalExtent
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.datasource.source import PartitionScope
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 
 
 @dataclass
@@ -80,6 +82,7 @@ def test_inspect_exposes_cost_partition_and_capabilities_without_data_query(
     assert inspection.physical_extent.row_count_kind in {"exact", "estimated", "unknown"}
     assert isinstance(inspection.execution_capabilities.timeout_enforced, bool)
     assert inspection.schema
+    assert as_ref(inspection.datasource) == ref_factory.datasource("warehouse")
     assert query_spy.user_data_queries == 0
 
     rendered = inspection.render()
@@ -128,7 +131,7 @@ def test_inspect_rejects_untyped_backend_with_direct_ref_guidance() -> None:
     with pytest.raises(TypeError) as exc_info:
         md.inspect(object(), md.table("orders"))  # type: ignore[arg-type]
     message = str(exc_info.value)
-    assert "Ref[datasource]" in message
+    assert "native datasource lookup symbol" in message
     assert "ms.ref.datasource('warehouse')" in message
 
 
@@ -784,7 +787,7 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
     received: str,
 ) -> None:
     inspection = md.SourceInspection(
-        datasource=ms.ref.datasource("warehouse"),
+        _datasource=ref_factory.datasource("warehouse"),
         source=md.table("orders"),
         physical_extent=PhysicalExtent(
             row_count=None,

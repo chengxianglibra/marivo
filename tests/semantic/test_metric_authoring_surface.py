@@ -13,11 +13,14 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._definition.types import SumAll
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import resolve
+from marivo.semantic.expressions import entity_exact
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import resolve_test_symbol as resolve
+from tests.support.refs import as_ref
 
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
@@ -27,8 +30,7 @@ import marivo.semantic as ms
 ms.domain(name="sales", owner='Mina Zhang', default=True)
 """
 
-_MODEL_PY = """\
-import marivo.datasource as md
+_MODEL_PY = """import marivo.datasource as md
 import marivo.semantic as ms
 
 orders_ref = ms.entity(
@@ -49,11 +51,10 @@ order_date_ref = ms.time_dimension_column(
     is_default=True,
 )
 
-finalized = ms.finalize()
-orders = finalized.resolve(orders_ref)
-region = finalized.resolve(region_ref)
-amount = finalized.resolve(amount_ref)
-order_date = finalized.resolve(order_date_ref)
+orders = orders_ref
+region = region_ref
+amount = amount_ref
+order_date = order_date_ref
 
 
 @ms.measure()
@@ -99,9 +100,9 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
 
     assert type(amount) is Deferred
     amount = consume_field(amount)
-    assert amount.reference.ref == ms.ref.measure("sales.orders.amount")
+    assert amount.reference.ref == ref_factory.measure("sales.orders.amount")
     assert amount.reference.version.startswith("sha256:")
-    assert amount.root == orders.ref
+    assert amount.root == entity_exact(orders)
     assert amount.unit == "USD"
     assert amount.permission == SumAll()
     assert "\n" not in repr(catalog.describe(ms.ref.measure("sales.orders.amount")))
@@ -112,7 +113,7 @@ def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert [ref.key for ref in catalog.fields.refs] == [
+    assert [as_ref(ref).key for ref in catalog.fields.refs] == [
         "dimension:sales.orders.region",
         "measure:sales.orders.amount",
         "measure:sales.orders.margin",
@@ -135,8 +136,8 @@ def test_domain_and_catalog_collections_agree_on_metric_membership(
     catalog = _catalog(semantic_project_factory)
     domain = catalog.domains.get("sales")
 
-    assert [ref.key for ref in catalog.metrics.refs] == ["metric:sales.revenue"]
-    assert [ref.key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
+    assert [as_ref(ref).key for ref in catalog.metrics.refs] == ["metric:sales.revenue"]
+    assert [as_ref(ref).key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
     scoped = domain.fields.get("sales.orders.amount")
     global_amount = catalog.fields.get("sales.orders.amount")
     assert type(scoped) is Deferred and type(global_amount) is Deferred
@@ -155,11 +156,11 @@ def test_metric_value_carries_roots_unit_and_business_context(
     assert type(revenue) is Deferred
     revenue = consume_metric(revenue)
     assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.roots == (orders.ref,)
+    assert revenue.roots == (entity_exact(orders),)
     assert revenue.unit == "USD"
     assert contract.stage == "published_metric"
     assert contract.business_definition == "Historical SQL: select sum(amount) from orders"
-    assert contract.roots == (orders.ref,)
+    assert tuple(as_ref(ref) for ref in contract.roots) == (entity_exact(orders).ref,)
 
 
 def test_measure_preview_uses_measure_expression_without_context_columns(

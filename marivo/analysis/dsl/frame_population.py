@@ -19,7 +19,7 @@ from marivo.analysis.observation.relationship_binding import RelationshipResolve
 from marivo.refs import SemanticKind
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import consume_field
-from marivo.semantic.expressions import Entity, _Resolver
+from marivo.semantic.expressions import Entity, _Resolver, entity_exact
 
 
 def _field_axis(value: Deferred, state: CompiledSemanticState, resolver: _Resolver) -> AxisBinding:
@@ -87,16 +87,16 @@ def population_from(
         role = axis_role(captured)
         if role == "identity" and isinstance(target, Entity):
             if (
-                target.ref.ref.kind is not SemanticKind.ENTITY
-                or target.ref.ref.path not in state.registry.entities
+                entity_exact(target).ref.kind is not SemanticKind.ENTITY
+                or entity_exact(target).ref.path not in state.registry.entities
             ):
                 reject(
                     "an Entity declared in the receiving Catalog",
-                    target.ref.ref.key,
+                    entity_exact(target).ref.key,
                     "Resolve an Entity from this Session's Catalog.",
                     "frame.population",
                 )
-            entity = resolver.entity(target.ref.ref.path)
+            entity = resolver.entity(entity_exact(target).ref.path)
             if len(captured.columns) != len(entity.primary_key):
                 reject(
                     "all components of the target Entity primary key",
@@ -105,14 +105,17 @@ def population_from(
                     "frame.population",
                 )
             at = anchor_from_datetime(captured.at) if captured.at is not None else None
-            if at is not None and state.registry.entities[entity.ref.ref.path].versioning is None:
+            if (
+                at is not None
+                and state.registry.entities[entity_exact(entity).ref.path].versioning is None
+            ):
                 reject(
                     "a versioned target Entity for the captured identity anchor",
-                    entity.ref.ref.key,
+                    entity_exact(entity).ref.key,
                     "Select a compatible versioned Entity or an unanchored identity axis.",
                     "frame.population",
                 )
-            binding = AxisBinding(entity.ref, None, (), "identity", at)
+            binding = AxisBinding(entity_exact(entity), None, (), "identity", at)
         elif role == "field" and isinstance(target, Deferred):
             binding = _field_axis(target, state, resolver)
             assert binding.field is not None

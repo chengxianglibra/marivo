@@ -4,7 +4,7 @@ import ast
 
 import pytest
 
-from marivo import semantic as ms
+from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_display import describe_display
 from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import _ExpressionDisplay, _Literal
@@ -14,7 +14,7 @@ def display(expression: str) -> _ExpressionDisplay:
     function = ast.parse("def value(rows):\n    return " + expression).body[0]
     assert isinstance(function, ast.FunctionDef)
     node = describe_expression(
-        function, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+        function, entities={"rows": ref_factory.entity("sales.rows")}, bindings={}
     )
     assert node.display is not None
     return node.display
@@ -23,7 +23,7 @@ def display(expression: str) -> _ExpressionDisplay:
 def test_cast_display_and_alias_identity() -> None:
     result = display('rows.spend_cny.cast("float64")')
     assert result.text == "t1['spend_cny'].cast('float64')"
-    assert result.bindings == (("t1", ms.ref.entity("sales.rows")),)
+    assert result.bindings == (("t1", ref_factory.entity("sales.rows")),)
 
 
 def test_describe_display_matches_expression_display_without_mutation() -> None:
@@ -33,7 +33,7 @@ def test_describe_display_matches_expression_display_without_mutation() -> None:
     assert isinstance(returned, ast.Return) and returned.value is not None
     original = ast.dump(function, include_attributes=True)
     direct = describe_display(
-        returned.value, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+        returned.value, entities={"rows": ref_factory.entity("sales.rows")}, bindings={}
     )
     assert direct == display("rows.amount * 2")
     assert direct.text == "t1['amount'] * 2"
@@ -63,7 +63,7 @@ def test_precedence_and_valid_python_syntax(expression: str, expected: str) -> N
     actual_tree = ast.parse(result.text, mode="eval")
     expected_tree = ast.parse(expected, mode="eval")
     assert ast.dump(actual_tree) == ast.dump(expected_tree)
-    assert result.bindings == (("t1", ms.ref.entity("sales.rows")),)
+    assert result.bindings == (("t1", ref_factory.entity("sales.rows")),)
 
 
 def test_escaped_column_name_stays_a_string() -> None:
@@ -89,7 +89,7 @@ def test_display_does_not_require_structural_support(expression: str, expected: 
     assert isinstance(function, ast.FunctionDef)
     original = ast.dump(function, include_attributes=True)
     node = describe_expression(
-        function, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+        function, entities={"rows": ref_factory.entity("sales.rows")}, bindings={}
     )
     assert node.status == "unsupported"
     assert node.display is not None and node.display.text == expected
@@ -104,7 +104,7 @@ def test_display_text_limit_preserves_supported_structure() -> None:
     assert isinstance(function, ast.FunctionDef)
     original = ast.dump(function, include_attributes=True)
     node = describe_expression(
-        function, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+        function, entities={"rows": ref_factory.entity("sales.rows")}, bindings={}
     )
     # The balanced tree fits the structural budget, but its display exceeds 16 KiB.
     assert node.status == "supported"
@@ -117,7 +117,7 @@ def test_structural_depth_limit_preserves_available_display() -> None:
     function = ast.parse("def value(rows):\n    return " + "+" * 40 + "rows.amount").body[0]
     assert isinstance(function, ast.FunctionDef)
     node = describe_expression(
-        function, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+        function, entities={"rows": ref_factory.entity("sales.rows")}, bindings={}
     )
     assert node.status == "unsupported"
     assert node.reason == "limit_exceeded"

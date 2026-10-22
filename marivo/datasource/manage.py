@@ -17,6 +17,7 @@ from pandas.api.types import is_object_dtype
 from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
 from marivo._data_render import _DataCard, _DataResult
+from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -46,6 +47,7 @@ from marivo.datasource.runtime import (
 )
 from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref
+from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
@@ -221,7 +223,7 @@ class DatasourceTestResult(RenderableResult):
 class RawSqlResult(_DataResult):
     """Complete terminal query result from the datasource raw-SQL execution path."""
 
-    datasource: Ref[DatasourceKind]
+    _datasource: Ref[DatasourceKind]
     backend_type: str
     sql: str
     reason: str
@@ -232,6 +234,11 @@ class RawSqlResult(_DataResult):
     timeout_seconds: int
     duration_ms: int
     warnings: tuple[str, ...]
+
+    @property
+    def datasource(self) -> DatasourceSymbol:
+        """Native lookup selector for the datasource used by this result."""
+        return symbol_factory.datasource(self._datasource.path)
 
     def __post_init__(self) -> None:
         if self.returned_row_count != len(self.rows):
@@ -252,13 +259,13 @@ class RawSqlResult(_DataResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"RawSqlResult datasource={self.datasource.path} "
+            f"RawSqlResult datasource={self._datasource.path} "
             f"rows={self.returned_row_count} terminal_only"
         )
 
     def _data_card(self) -> _DataCard:
         return _DataCard(
-            identity=f"RawSqlResult datasource={self.datasource.path} terminal_only",
+            identity=f"RawSqlResult datasource={self._datasource.path} terminal_only",
             columns=self.columns,
             rows=lambda: (tuple(row.get(column) for column in self.columns) for row in self.rows),
             row_count=self.returned_row_count,
@@ -416,8 +423,13 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
     )
 
 
-def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
-    return _storage_name(value)
+def _datasource_name(value: str | DatasourceSymbol) -> str:
+    if isinstance(value, str):
+        return _storage_name(value)
+    reference = native_symbol_ref(value)
+    if reference is None or reference.kind.value != "datasource":
+        raise TypeError("datasource must be a name or native datasource lookup symbol.")
+    return reference.path
 
 
 DatasourceFailureCode: TypeAlias = Literal[
@@ -549,14 +561,14 @@ def _run_roundtrip(
 
 
 def test(
-    name: str | Ref[DatasourceKind],
+    name: str | DatasourceSymbol,
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
 ) -> DatasourceTestResult:
     """Round-trip the backend and best-effort cache validated env secrets.
 
     Args:
-        name: The datasource name or ``Ref[DatasourceKind]`` to test.
+        name: The datasource name or native datasource lookup symbol to test.
         timeout_seconds: Requested native connection and probe-query timeouts.
             Unsupported query timeouts are skipped. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
@@ -587,7 +599,7 @@ def test(
         call deadline and cleanup may wait for the driver.
     """
     return _test_in_project(
-        name,
+        _datasource_name(name),
         timeout_seconds=timeout_seconds,
         project_root=None,
         persist_env_secrets=True,
@@ -595,7 +607,7 @@ def test(
 
 
 def _test_in_project(
-    name: str | Ref[DatasourceKind],
+    name: str | DatasourceSymbol,
     *,
     timeout_seconds: int,
     project_root: Path | None,
@@ -643,7 +655,7 @@ def _test_in_project(
 
 
 def test_no_persist(
-    name: str | Ref[DatasourceKind],
+    name: str | DatasourceSymbol,
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
@@ -651,7 +663,7 @@ def test_no_persist(
     """Round-trip the backend without persisting resolved secrets.
 
     Args:
-        name: The datasource name or ``Ref[DatasourceKind]`` to test.
+        name: The datasource name or native datasource lookup symbol to test.
         timeout_seconds: Requested native connection and probe-query timeouts.
             Unsupported query timeouts are skipped. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
@@ -674,7 +686,7 @@ def test_no_persist(
         complete call or cleanup.
     """
     return _test_in_project(
-        name,
+        _datasource_name(name),
         timeout_seconds=timeout_seconds,
         project_root=project_root,
         persist_env_secrets=False,
@@ -711,7 +723,7 @@ def _extract_raw_sql_frame(
 
 
 def raw_sql(
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     sql: str,
     *,
     reason: str,
@@ -771,7 +783,10 @@ def raw_sql(
         raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
     statement = _require_nonempty_sql(sql)
-    datasource_id = _storage_name(datasource)
+    reference = native_symbol_ref(datasource)
+    if reference is None or reference.kind.value != "datasource":
+        raise TypeError("datasource must be a native datasource lookup symbol.")
+    datasource_id = reference.path
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)
     if datasource_ir is None:
         raise DatasourceMissingError(
@@ -858,7 +873,7 @@ def raw_sql(
             "read-only behavior depends on connection and backend permissions; writes may be possible",
         ]
         return RawSqlResult(
-            datasource=datasource,
+            _datasource=ref_factory.datasource(datasource_id),
             backend_type=backend_type,
             sql=statement,
             reason=reason_text,

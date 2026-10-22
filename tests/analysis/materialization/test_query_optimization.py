@@ -13,6 +13,7 @@ import duckdb
 import ibis
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo._definition.query import LiteralValues
@@ -1149,14 +1150,14 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
             by=(mv.identity(entity),), keys=(((1, "x"),), ((999, "unconfirmed"),))
         )
         axis = domain._definition.axes[0]
-        assert isinstance(axis, AxisBinding) and axis.entity == entity.ref
+        assert isinstance(axis, AxisBinding) and axis.entity == entity._exact_ref
+        symbolic = mv.coordinates(
+            by=(mv.identity(ms.ref.entity("sales.composite_orders")),), keys=()
+        )
+        assert isinstance(symbolic, Deferred)
         with pytest.raises(AnalysisError) as error:
-            mv.coordinates(by=(mv.identity(ms.ref.entity("sales.composite_orders")),), keys=())  # type: ignore[arg-type]  # Exercise the runtime unresolved-Ref refusal.
-        assert error.value.location == "identity"
-        assert error.value.expected == "a resolved Entity or nonempty relationship path"
-        assert error.value.received == "Ref"
-        assert error.value.repair is not None
-        assert "mv.identity(entity)" in error.value.repair.action
+            session.frame(symbolic)  # type: ignore[arg-type]  # Unbound authoring parameters cannot enter execution.
+        assert error.value.expected and error.value.received and error.value.repair is not None
         assert terminal_runs(session) == before
     assert session.frame(domain).compute().to_pandas().iloc[:, 0].tolist() == [
         (1, "x"),

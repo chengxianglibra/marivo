@@ -51,72 +51,9 @@ def _warehouse_connection() -> ibis.backends.duckdb.Backend:
     return connection
 
 
-_DEDUP_MODEL = """\
-import ibis
-from ibis import _
+_DEDUP_MODEL = 'import ibis\nfrom ibis import _\n\nimport marivo.datasource as md\nimport marivo.semantic as ms\n\nwh = ms.ref.datasource("warehouse")\n\n\n@ms.entity(datasource=wh, source=md.table("orders"))\ndef latest_orders(raw):\n    """One latest, non-deleted order per order ID."""\n    return raw.filter(\n        ibis.row_number().over(\n            ibis.window(\n                group_by=[raw["order_id"]],\n                order_by=[raw["updated_at"].desc(), raw["revision_id"].desc()],\n            )\n        )\n        == 0\n    ).filter(_["is_deleted"] == False)\n\n\namount = ms.measure_column(\n    name="amount", entity=latest_orders, column="amount", additivity=ms.additive_all(), unit="USD"\n)\norder_id = ms.dimension_column(name="order_id", entity=latest_orders, column="order_id")\namount_value = amount\n@ms.metric()\ndef revenue():\n    return amount_value.sum()\n'
 
-import marivo.datasource as md
-import marivo.semantic as ms
-
-wh = ms.ref.datasource("warehouse")
-
-
-@ms.entity(datasource=wh, source=md.table("orders"))
-def latest_orders(raw):
-    \"\"\"One latest, non-deleted order per order ID.\"\"\"
-    return raw.filter(
-        ibis.row_number().over(
-            ibis.window(
-                group_by=[raw["order_id"]],
-                order_by=[raw["updated_at"].desc(), raw["revision_id"].desc()],
-            )
-        )
-        == 0
-    ).filter(_["is_deleted"] == False)
-
-
-amount = ms.measure_column(
-    name="amount", entity=latest_orders, column="amount", additivity=ms.additive_all(), unit="USD"
-)
-order_id = ms.dimension_column(name="order_id", entity=latest_orders, column="order_id")
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-@ms.metric()
-def revenue():
-    return amount_value.sum()
-"""
-
-_GROUPED_MODEL = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-
-wh = ms.ref.datasource("warehouse")
-
-
-@ms.entity(datasource=wh, source=md.table("orders"))
-def regional_sales(raw):
-    \"\"\"Order amounts and row counts per region.\"\"\"
-    return raw.group_by("region").aggregate(
-        sales_amount=raw["amount"].sum(),
-        order_count=raw.count(),
-    )
-
-
-region = ms.dimension_column(name="region", entity=regional_sales, column="region")
-sales_amount = ms.measure_column(
-    name="sales_amount", entity=regional_sales, column="sales_amount",
-    additivity=ms.additive_all(), unit="USD",
-)
-order_count = ms.measure_column(
-    name="order_count", entity=regional_sales, column="order_count",
-    additivity=ms.additive_all(), unit="USD",
-)
-finalized = ms.finalize()
-sales_amount_value = finalized.resolve(sales_amount)
-@ms.metric()
-def regional_revenue():
-    return sales_amount_value.sum()
-"""
+_GROUPED_MODEL = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\nwh = ms.ref.datasource("warehouse")\n\n\n@ms.entity(datasource=wh, source=md.table("orders"))\ndef regional_sales(raw):\n    """Order amounts and row counts per region."""\n    return raw.group_by("region").aggregate(\n        sales_amount=raw["amount"].sum(),\n        order_count=raw.count(),\n    )\n\n\nregion = ms.dimension_column(name="region", entity=regional_sales, column="region")\nsales_amount = ms.measure_column(\n    name="sales_amount", entity=regional_sales, column="sales_amount",\n    additivity=ms.additive_all(), unit="USD",\n)\norder_count = ms.measure_column(\n    name="order_count", entity=regional_sales, column="order_count",\n    additivity=ms.additive_all(), unit="USD",\n)\nsales_amount_value = sales_amount\n@ms.metric()\ndef regional_revenue():\n    return sales_amount_value.sum()\n'
 
 _DIRECT_MODEL = """\
 import marivo.datasource as md

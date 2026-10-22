@@ -92,11 +92,11 @@ The public entry points are `marivo.help`, `marivo.datasource`,
   typed row/Metric expressions over constructed dependencies; they do not
   execute arbitrary Python, accept Ibis tables, or use `ms.bind`.
   Decorator bodies remain restricted by `marivo/semantic/validator.py`.
-- Physical constructors capture typed Ref lookup keys; bare Refs are not
-  expressions. Capture all dependencies, call `ms.finalize()`, and resolve
-  through its frozen result before composition. Finalization closes capture;
-  never mutate resolved values, refresh from live context, or replay imports
-  or module effects. Reference-resolving consumers use their completed scope.
+- Physical constructors and `ms.ref.*` capture native typed Deferred symbols.
+  Compose them directly; the loader binds the complete dependency scope and
+  publishes closed Catalog values. Bare lookup symbols are not closed analysis
+  inputs. Never mutate resolved values, refresh from live context, or replay
+  imports or module effects. Reference-resolving consumers use their completed scope.
 - Do not require original definition versions or reject inputs solely because
   same-path definitions changed. Users accept the semantic consequences;
   preserve kind, root, grain, unit, time-role, and null correctness checks.

@@ -14,17 +14,19 @@ from marivo._definition.deferred import DeclarationRecord, declare
 from marivo._definition.expressions import ContributionFilter, DeclaredMetricRef, MetricExpression
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.types import DefinitionGraphError, ExactRef
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-from marivo.semantic.expressions import catalog_metric_definition, resolve
+from marivo.semantic.expressions import catalog_metric_definition, entity_exact
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import resolve_test_symbol as resolve
 
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 _DOMAIN_PY = (
     'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
 )
-_PHYSICAL_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders_ref = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\nstatus_ref = ms.dimension_column(name="status", entity=orders_ref, column="status")\npaid_at_ref = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders_ref,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\namount_ref = ms.measure_column(\n    name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\ncost_ref = ms.measure_column(\n    name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\n\nfinalized = ms.finalize()\norders = finalized.resolve(orders_ref)\nstatus = finalized.resolve(status_ref)\npaid_at = finalized.resolve(paid_at_ref)\namount = finalized.resolve(amount_ref)\ncost = finalized.resolve(cost_ref)\n'
+_PHYSICAL_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders_ref = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\nstatus_ref = ms.dimension_column(name="status", entity=orders_ref, column="status")\npaid_at_ref = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders_ref,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\namount_ref = ms.measure_column(\n    name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\ncost_ref = ms.measure_column(\n    name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\n\norders = orders_ref\nstatus = status_ref\npaid_at = paid_at_ref\namount = amount_ref\ncost = cost_ref\n'
 _DECLARATIONS_PY = (
     _PHYSICAL_PY
     + '\n\n@ms.measure()\ndef margin():\n    return amount - cost\n\n\n@ms.metric()\ndef revenue():\n    return amount.sum(time=paid_at).where(status == "paid")\n\n\n@ms.metric()\ndef order_count():\n    return orders.count(time=paid_at)\n\n\nrevenue_alias = revenue\n_base = amount.sum(time=paid_at)\n\n\ndef _hidden():\n    @ms.metric()\n    def hidden_base():\n        return amount.sum(time=paid_at)\n\n    return hidden_base\n\n\n_private_declaration = [_hidden()]\n\n\n@ms.metric()\ndef average_order_value():\n    return revenue / order_count\n\n\n@ms.metric()\ndef doubled():\n    return _base * 2\n'
@@ -59,7 +61,7 @@ def test_module_level_declarations_publish_once_under_their_function_name(
     assert sorted(registry.declared_measures) == ["sales.orders.margin"]
     assert "sales.revenue_alias" not in registry.declared_metrics
     assert "sales.hidden_base" not in registry.declared_metrics
-    assert ms.ref.metric("sales.revenue") in catalog._state.definitions
+    assert ref_factory.metric("sales.revenue") in catalog._state.definitions
 
 
 def test_catalog_metric_resolves_through_declared_metric_ref(
@@ -70,9 +72,9 @@ def test_catalog_metric_resolves_through_declared_metric_ref(
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     assert type(revenue) is Deferred
     assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
-    assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
+    assert consume_metric(revenue).node.ref.ref == ref_factory.metric("sales.revenue")
     assert consume_metric(revenue).node.ref.version.startswith("sha256:")
-    assert consume_metric(revenue).roots == (orders.ref,)
+    assert consume_metric(revenue).roots == (entity_exact(orders),)
     assert consume_metric(revenue).unit == "CNY"
     stored = catalog._state.registry.declared_metrics["sales.revenue"]
     assert (
@@ -183,7 +185,7 @@ def test_explicit_unknown_domain_lists_real_choices(
 def test_session_bound_dependency_is_not_admitted(semantic_project_factory: ProjectFactory) -> None:
     source = (
         _PHYSICAL_PY
-        + '\nfrom marivo._definition.relations import PopulationProgram, PopulationParameter, SourceIdentities\nfrom marivo._definition.types import Owner\n\n_base = amount.sum(time=paid_at)\n_members = PopulationProgram(SourceIdentities(orders.ref), Owner("session-a", "owner-a"))\n_session_bound = _base.per(PopulationParameter(_members)).mean()\n\n\n@ms.metric()\ndef member_mean():\n    return _session_bound\n'
+        + '\nfrom marivo._definition.relations import PopulationProgram, PopulationParameter, SourceIdentities\nfrom marivo._definition.types import Owner, ExactRef\nfrom marivo.refs import ref as private_ref\n\n_base = amount.sum(time=paid_at)\n_members = PopulationProgram(SourceIdentities(ExactRef(private_ref.entity("sales.orders"), "sha256:0")), Owner("session-a", "owner-a"))\n_session_bound = _base.per(PopulationParameter(_members)).mean()\n\n\n@ms.metric()\ndef member_mean():\n    return _session_bound\n'
     )
     result = _project(semantic_project_factory, source).load()
     assert result.status == "errored"
@@ -191,7 +193,7 @@ def test_session_bound_dependency_is_not_admitted(semantic_project_factory: Proj
         error for error in result.errors if error.kind == ErrorKind.INVALID_EXPRESSION_STAGE
     ]
     assert len(rejected) == 1
-    assert "sales.member_mean" in rejected[0].semantic_refs
+    assert "metric:sales.member_mean" in rejected[0].semantic_refs
     assert "session-a" in (rejected[0].received or "")
 
 
@@ -234,7 +236,7 @@ def test_catalog_closure_reports_an_unpublished_metric(
         DeclarationRecord(
             kind="metric",
             name="missing",
-            reference=ExactRef(ms.ref.metric("sales.missing"), "sha256:0"),
+            reference=ExactRef(ref_factory.metric("sales.missing"), "sha256:0"),
         ),
     )
     with pytest.raises(SemanticExpressionError) as raised:
@@ -247,7 +249,7 @@ def test_collection_rejects_definitions_missing_from_the_model_scope(
 ) -> None:
     source = (
         _PHYSICAL_PY
-        + '\nfrom marivo._definition.deferred import semantic_input, SemanticInput\nfrom marivo._definition.types import ExactRef, SumAll\n\n_ghost_root = ExactRef(ms.ref.entity("sales.ghost"), "sha256:0")\n_ghost_amount = semantic_input(SemanticInput(\n    ExactRef(ms.ref.measure("sales.ghost.amount"), "sha256:0"), _ghost_root, "CNY", SumAll()\n))\n_foreign = _ghost_amount.sum()\n\n\n@ms.metric()\ndef foreign_revenue():\n    return _foreign\n'
+        + '\nfrom marivo._definition.deferred import semantic_input, SemanticInput\nfrom marivo._definition.types import ExactRef, SumAll\nfrom marivo.refs import ref as private_ref\n\n_ghost_root = ExactRef(private_ref.entity("sales.ghost"), "sha256:0")\n_ghost_amount = semantic_input(SemanticInput(\n    ExactRef(private_ref.measure("sales.ghost.amount"), "sha256:0"), _ghost_root, "CNY", SumAll()\n))\n_foreign = _ghost_amount.sum()\n\n\n@ms.metric()\ndef foreign_revenue():\n    return _foreign\n'
     )
     result = _project(semantic_project_factory, source).load()
     assert result.status == "errored"
@@ -261,7 +263,7 @@ def test_collection_rejects_definitions_missing_from_the_model_scope(
 def test_collection_rejects_a_changed_field_kind(semantic_project_factory: ProjectFactory) -> None:
     source = (
         _PHYSICAL_PY
-        + '\nfrom marivo._definition.deferred import semantic_input, SemanticInput\nfrom marivo._definition.types import ExactRef, SumNone\n\n_as_dimension = semantic_input(SemanticInput(\n    ExactRef(ms.ref.dimension("sales.orders.paid_at"), "sha256:0"), orders.ref, None, SumNone()\n))\n_miskinded = _as_dimension.count()\n\n\n@ms.metric()\ndef paid_count():\n    return _miskinded\n'
+        + '\nfrom marivo._definition.deferred import semantic_input, SemanticInput\nfrom marivo._definition.types import ExactRef, SumNone\nfrom marivo.refs import ref as private_ref\n\n_as_dimension = semantic_input(SemanticInput(\n    ExactRef(private_ref.dimension("sales.orders.paid_at"), "sha256:0"), ExactRef(private_ref.entity("sales.orders"), "sha256:0"), None, SumNone()\n))\n_miskinded = _as_dimension.count()\n\n\n@ms.metric()\ndef paid_count():\n    return _miskinded\n'
     )
     result = _project(semantic_project_factory, source).load()
     assert result.status == "errored"

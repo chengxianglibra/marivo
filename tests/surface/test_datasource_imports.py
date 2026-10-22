@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
+from tests.support.refs import as_ref
 
 # A fresh interpreter is required for import-isolation checks: the test worker
 # already has marivo.semantic/analysis loaded via conftest, so the probe cannot
@@ -27,6 +29,8 @@ for name in list(sys.modules):
             or name == "marivo.skills" or name.startswith("marivo.skills.")):
         del sys.modules[name]
 
+from ibis.common.deferred import Deferred
+from tests.support.refs import as_ref
 import marivo.datasource as md
 
 after_import = {
@@ -138,10 +142,10 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
 def test_datasource_ref_uses_kind_qualified_identity() -> None:
     ref = ms.ref.datasource("warehouse")
 
-    assert ref.kind is ms.SemanticKind.DATASOURCE
-    assert ref.path == "warehouse"
-    assert ref.name == "warehouse"
-    assert repr(ref) == "Ref[datasource](datasource:warehouse)"
+    assert as_ref(ref).kind is ms.SemanticKind.DATASOURCE
+    assert as_ref(ref).path == "warehouse"
+    assert as_ref(ref).name == "warehouse"
+    assert isinstance(ref, Deferred)
 
 
 def test_datasource_surface_does_not_own_ref_identity() -> None:

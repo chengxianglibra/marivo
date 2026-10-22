@@ -128,12 +128,12 @@ def test_definition_ownership_is_checked_without_source_reads(
     monkeypatch.chdir(tmp_path)
     session = mv.session.create("receiver")
     foreign = mv.session.create("other")
-    import marivo.semantic as ms
     from marivo._definition.relations import SourceIdentities
     from marivo._definition.types import AxisBinding, ExactRef
     from marivo.analysis.dsl.population import Population
+    from marivo.refs import ref as internal_ref
 
-    entity = ExactRef(ms.ref.entity("sales.customers"), "v1")
+    entity = ExactRef(internal_ref.entity("sales.customers"), "v1")
     domain = Population(
         PopulationProgram(
             SourceIdentities(entity),
@@ -162,13 +162,11 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     semantic_project_factory(
         {
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n',
-            "sales/metrics.py": textwrap.dedent("""\
-                import marivo.datasource as md
+            "sales/metrics.py": textwrap.dedent("""                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all(), unit="CNY")
-                finalized = ms.finalize()
-                amount = finalized.resolve(amount_ref)
+                amount = amount_ref
 
                 @ms.metric()
                 def revenue():

@@ -16,8 +16,8 @@ from typing import TypeAlias
 import pytest
 from ibis.common.deferred import Deferred
 
-import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     DatasourceEntry,
@@ -43,8 +43,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
-_DATASETS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
 
     orders = ms.entity(
@@ -68,9 +67,8 @@ _DATASETS_PY = textwrap.dedent("""\
         unit="CNY",
     )
 
-    finalized = ms.finalize()
-    amount_value = finalized.resolve(amount)
-    created_at_value = finalized.resolve(created_at)
+    amount_value = amount
+    created_at_value = created_at
 
     @ms.metric()
     def revenue():
@@ -82,8 +80,7 @@ _OPS_DOMAIN_PY = textwrap.dedent("""\
     ms.domain(name="ops", owner="Mina Zhang")
 """)
 
-_OPS_DATASETS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_OPS_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
 
     events = ms.entity(
@@ -92,8 +89,7 @@ _OPS_DATASETS_PY = textwrap.dedent("""\
         source=md.table("events"),
     )
 
-    finalized = ms.finalize()
-    events_value = finalized.resolve(events)
+    events_value = events
 
     @ms.metric()
     def event_count():
@@ -167,7 +163,7 @@ def _make_relationship_catalog(semantic_project_factory: ProjectFactory) -> Sema
 def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFactory) -> None:
     result = _make_catalog(semantic_project_factory).metrics
 
-    assert result.refs == (ms.ref.metric("sales.revenue"),)
+    assert result._refs == (ref_factory.metric("sales.revenue"),)
     assert all(isinstance(obj, Deferred) for obj in result.items)
     for obj in result.items:
         assert isinstance(consume_metric(obj).node, DeclaredMetricRef)
@@ -177,7 +173,7 @@ def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFact
 def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
     result = _make_multi_domain_catalog(semantic_project_factory).metrics
 
-    assert {ref.path for ref in result.refs} == {"sales.revenue", "ops.event_count"}
+    assert {ref.path for ref in result._refs} == {"sales.revenue", "ops.event_count"}
     assert all(isinstance(obj, Deferred) for obj in result.items)
 
 
@@ -185,15 +181,15 @@ def test_discovery_entities_returns_entities(semantic_project_factory: ProjectFa
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.entities
 
-    assert result.refs == (ms.ref.entity("sales.orders"),)
+    assert result._refs == (ref_factory.entity("sales.orders"),)
     assert all(isinstance(obj, Entity) for obj in result.items)
 
     orders = result.get("sales.orders")
-    assert orders.ref.ref == ms.ref.entity("sales.orders")
+    assert orders._exact_ref.ref == ref_factory.entity("sales.orders")
 
     created_at = catalog.fields.get("sales.orders.created_at")
     assert isinstance(created_at, Deferred)
-    assert orders.default_time == consume_field(created_at).reference
+    assert orders._default_time == consume_field(created_at).reference
 
 
 def test_discovery_fields_holds_dimension_time_field_and_measure(
@@ -206,7 +202,7 @@ def test_discovery_fields_holds_dimension_time_field_and_measure(
         assert isinstance(value, Deferred)
         kinds.add(str(consume_field(value).reference.ref.kind))
     assert kinds == {"dimension", "time_dimension", "measure"}
-    assert {ref.key for ref in result.refs} == {
+    assert {ref.key for ref in result._refs} == {
         "dimension:sales.orders.region",
         "time_dimension:sales.orders.created_at",
         "measure:sales.orders.amount",
@@ -224,7 +220,7 @@ def test_discovery_fields_get_returns_typed_values(
     amount = catalog.fields.get("sales.orders.amount")
     assert isinstance(amount, Deferred)
     assert consume_field(amount).unit == "CNY"
-    assert consume_field(amount).root.ref == ms.ref.entity("sales.orders")
+    assert consume_field(amount).root.ref == ref_factory.entity("sales.orders")
 
 
 def test_discovery_relationships_returns_relationships(
@@ -233,11 +229,11 @@ def test_discovery_relationships_returns_relationships(
     catalog = _make_relationship_catalog(semantic_project_factory)
     result = catalog.relationships
 
-    assert result.refs == (ms.ref.relationship("sales.orders_to_users"),)
+    assert result._refs == (ref_factory.relationship("sales.orders_to_users"),)
     relationship = result.get("sales.orders_to_users")
     assert isinstance(relationship, Relationship)
-    assert relationship.from_entity.ref == ms.ref.entity("sales.orders")
-    assert relationship.to_entity.ref == ms.ref.entity("sales.users")
+    assert relationship._parameter.from_entity.ref == ref_factory.entity("sales.orders")
+    assert relationship._parameter.to_entity.ref == ref_factory.entity("sales.users")
     assert relationship.cardinality == "many_to_one"
     assert isinstance(catalog.relationships.get("sales.orders_to_users"), Relationship)
 
@@ -252,12 +248,12 @@ def test_discovery_top_level_domains_and_datasources_return_only_their_kinds(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    assert {str(ref.kind) for ref in catalog.domains.refs} == {"domain"}
+    assert {str(ref.kind) for ref in catalog.domains._refs} == {"domain"}
     assert all(isinstance(obj, DomainEntry) for obj in catalog.domains.items)
 
-    assert {str(ref.kind) for ref in catalog.datasources.refs} == {"datasource"}
+    assert {str(ref.kind) for ref in catalog.datasources._refs} == {"datasource"}
     assert all(isinstance(obj, DatasourceEntry) for obj in catalog.datasources.items)
-    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources.refs}
+    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources._refs}
 
 
 def test_discovery_domain_and_datasource_scope_their_members(
@@ -266,15 +262,15 @@ def test_discovery_domain_and_datasource_scope_their_members(
     catalog = _make_catalog(semantic_project_factory)
 
     sales = catalog.domains.get("sales")
-    assert sales.metrics.refs == (ms.ref.metric("sales.revenue"),)
-    assert {ref.key for ref in sales.fields.refs} == {
+    assert sales.metrics._refs == (ref_factory.metric("sales.revenue"),)
+    assert {ref.key for ref in sales.fields._refs} == {
         "dimension:sales.orders.region",
         "time_dimension:sales.orders.created_at",
         "measure:sales.orders.amount",
     }
 
     warehouse = catalog.datasources.get("warehouse")
-    assert warehouse.entities.refs == (ms.ref.entity("sales.orders"),)
+    assert warehouse.entities._refs == (ref_factory.entity("sales.orders"),)
 
 
 # ---------------------------------------------------------------------------
@@ -287,14 +283,14 @@ def test_discovery_collection_resolves_every_expression_member(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    assert catalog.entities.refs
-    for ref in catalog.entities.refs:
+    assert catalog.entities._refs
+    for ref in catalog.entities._refs:
         assert isinstance(catalog.entities.get(ref.path), Entity)
-    assert catalog.fields.refs
-    for ref in catalog.fields.refs:
+    assert catalog.fields._refs
+    for ref in catalog.fields._refs:
         assert isinstance(catalog.fields.get(ref.path), Deferred)
-    assert catalog.metrics.refs
-    for ref in catalog.metrics.refs:
+    assert catalog.metrics._refs
+    for ref in catalog.metrics._refs:
         assert isinstance(catalog.metrics.get(ref.path), Deferred)
 
 
@@ -319,7 +315,7 @@ def test_discovery_reads_emit_no_stdout(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    _ = catalog.metrics.refs
+    _ = catalog.metrics._refs
     _ = catalog.fields.items
     _ = catalog.entities.get("sales.orders")
     _ = len(catalog.relationships)

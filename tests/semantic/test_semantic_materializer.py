@@ -83,8 +83,7 @@ _DOMAIN_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
-_DATASET_AND_METRIC_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_DATASET_AND_METRIC_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
@@ -93,8 +92,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
         return table.amount
 
     amount_ref = ms.measure_column(name="amount_value", entity=orders, column="amount", additivity=ms.additive_all())
-    finalized = ms.finalize()
-    amount_value = finalized.resolve(amount_ref)
+    amount_value = amount_ref
     @ms.metric()
     def total_amount():
         return amount_value.sum()
@@ -116,8 +114,7 @@ _PROJECTED_DATASET_PY = textwrap.dedent("""\
     )
 """)
 
-_COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
     amount = ms.measure_column(
@@ -135,8 +132,7 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
         parse=ms.timestamp(timezone="UTC"),
         is_default=True,
     )
-    finalized = ms.finalize()
-    amount_value = finalized.resolve(amount)
+    amount_value = amount
     @ms.metric()
     def total_amount():
         return amount_value.sum()
@@ -618,7 +614,8 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
     assert error.kind == ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR
     assert error.constraint_id == "entity_constructor_assignment"
     assert error.location is not None and error.location.line == 3
-    assert error.expected == "name = ms.entity(...) without a decorated function body"
+    assert "name = ms.entity(...)" in error.expected
+    assert "@ms.entity(...) without name=" in error.expected
     assert error.repair is not None
     assert error.repair.help_target.canonical_id == "entity.define"
 
@@ -657,7 +654,7 @@ def test_unrelated_ref_call_keeps_general_runtime_diagnostic(semantic_project_fa
             "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "entity_ref = ms.ref.entity('sales.orders')\n"
+                "from marivo.refs import ref as keys\nentity_ref = keys.entity('sales.orders')\n"
                 "entity_ref()\n"
             ),
         },
@@ -676,7 +673,7 @@ def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
             "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "ref = ms.ref.entity('sales.orders')\n"
+                "from marivo.refs import ref as keys\nref = keys.entity('sales.orders')\n"
                 "class Other:\n"
                 "    def entity(self, **kwargs):\n"
                 "        return ref\n"

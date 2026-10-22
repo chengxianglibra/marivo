@@ -821,7 +821,7 @@ class AuthoringStore:
                 )
             return DiscoverySnapshot(
                 id=snapshot_id,
-                datasource=datasource,
+                _datasource=datasource,
                 source=source,
                 scope=scope,
                 columns=columns,
@@ -991,7 +991,7 @@ class AuthoringStore:
         payload = {
             **self._metadata(
                 snapshot_id=snapshot.id,
-                datasource=snapshot.datasource,
+                datasource=snapshot._datasource,
                 datasource_fingerprint=datasource_fingerprint,
                 source=snapshot.source,
                 scope=snapshot.scope,

@@ -5,11 +5,11 @@ They capture definitions without source reads. Physical types and backend suppor
 are bound when an execution actually needs them. The same closed expression is
 used locally and in a named declaration; names do not add execution authority.
 
-## Capture, finalize and resolve
+## Symbol capture and loader binding
 
-Entity, physical field and Relationship constructors capture typed Ref lookup
-keys. Capture the complete physical dependency scope before finalization,
-including forward references used by restricted Ibis field bodies:
+Entity, physical field and Relationship constructors return native typed Ibis
+Deferred symbols. Compose them directly, including exact forward references
+created with `ms.ref.<kind>(path)`:
 
 ```python
 import marivo.datasource as md
@@ -27,11 +27,10 @@ status_ref = ms.dimension_column(name="status", entity=orders_ref, column="statu
 paid_at_ref = ms.time_dimension_column(
     name="paid_at", entity=orders_ref, column="paid_at",
 )
-finalized = ms.finalize()
-orders = finalized.resolve(orders_ref)
-amount = finalized.resolve(amount_ref)
-status = finalized.resolve(status_ref)
-paid_at = finalized.resolve(paid_at_ref)
+orders = orders_ref
+amount = amount_ref
+status = status_ref
+paid_at = paid_at_ref
 
 @ms.metric()
 def revenue():
@@ -39,11 +38,21 @@ def revenue():
 ```
 
 This fragment requires a declared warehouse and a domain when collected into a
-model. Finalization validates the physical closure and freezes default-time,
-coordinate and dependency facts. It closes capture; late physical declarations
-fail. Failed closure checks leave it open for repair. Finalization does not
-publish Metrics, read schemas, connect or replay imported modules.
-Bare Refs are lookup inputs rather than row or Metric values.
+model. The loader binds the complete physical and named dependency graph before
+publishing closed Catalog values. It validates default time, permissions, units,
+paths and cycles without reading a source or replaying a module. Physical fields
+and dependencies may be declared later in the same complete load scope.
+
+`ms.ref.*` also produces exact native lookup selectors for Catalog description,
+readiness, preview and source checks. Metadata `.ref` and `.refs` return these
+selectors. Retrieve closed analysis inputs through the appropriate Catalog
+collection's `.get(path)`; ordinary Analysis never binds a lookup symbol implicitly.
+Equality constructs a recipe. Do not use symbols for boolean identity, hash keys,
+sets, dictionary keys or container membership. Inspect identities through Catalog
+metadata rather than `.key`, `.path`, `.kind` or `.version` on a Deferred.
+Unsupported attributes and methods fail when a declaration or parameter captures
+the recipe. Ordinary Python attribute access itself does not promise immediate
+failure; unconsumed recipes and already formatted strings cannot be traced back.
 
 ## Authored bodies and naming
 
@@ -95,7 +104,7 @@ def order_amount():
     return quantity * unit_price
 ```
 
-Here quantity and unit_price must be resolved same-root row inputs with an
+Here quantity and unit_price must be same-root row inputs with an
 established business interpretation. Omitted unit/additivity inherits facts;
 unknown units stay unknown. Unit assertions do not convert currency or scale.
 An assertion cannot erase fixed status-time constraints or refer to foreign axes.
@@ -191,7 +200,7 @@ Detailed current-value and native-carrier policies belong to
 
 - [_deferred_semantics.py](../../../marivo/semantic/_deferred_semantics.py) and [_definition_expression.py](../../../marivo/semantic/_definition_expression.py) own controlled expression binding.
 - [validator.py](../../../marivo/semantic/validator.py) owns authored syntax restrictions.
-- [expressions.py](../../../marivo/semantic/expressions.py) owns finalization; [_authoring_declarations.py](../../../marivo/semantic/_authoring_declarations.py) owns named Metric capture.
+- [expressions.py](../../../marivo/semantic/expressions.py) owns closed Catalog value construction; [_authoring_declarations.py](../../../marivo/semantic/_authoring_declarations.py) owns named Metric capture.
 - [_definition](../../../marivo/_definition/) owns closed computation graphs; [_numeric_recipe.py](../../../marivo/semantic/_numeric_recipe.py) and [_numeric_lowering.py](../../../marivo/semantic/_numeric_lowering.py) own actual-type numeric preparation.
 
 ## Bound numeric results

@@ -47,7 +47,7 @@ no edge. The system stores the direct transitive reduction and admissible
 closure; authors do not add manual roll-up overrides. Derived starts, ends,
 ordinals and containment positions come from the validated rows.
 
-For already declared field Refs and domain, a calendar can be authored as:
+For field symbols and domain, a calendar can be authored as:
 
 ```python
 from datetime import date

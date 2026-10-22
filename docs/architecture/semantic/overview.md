@@ -52,9 +52,10 @@ receivers and dependencies. Analysis membership, observation time and reporting
 coordinates remain independent choices. A relationship describes mappings;
 the consuming expression determines contribution selection or allocation.
 
-Physical constructors return lookup Refs. Finalization closes the physical
-dependency scope and resolves immutable values for composition. Measure/Metric
-declarations capture closed expressions without executing authored functions.
+Physical constructors and `ms.ref.*` return native typed Deferred symbols.
+Compose symbols directly; the loader binds the complete dependency graph and
+publishes immutable closed Catalog values. Measure/Metric declarations capture
+restricted recipes without executing authored functions.
 Entity and categorical/time-field bodies retain their restricted Ibis contract.
 SQL is available only through the terminal datasource escape hatch.
 

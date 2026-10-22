@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import marivo.semantic as ms
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 
 
 def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
@@ -17,7 +19,7 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
             "from .models import amount as amount_ref\n",
             "from .models import amount as amount_ref\nfrom .models import orders as orders_ref\n",
         )
-        + "\n\norders = finalized.resolve(orders_ref)\n\n\n"
+        + "\n\norders = orders_ref\n\n\n"
         + "@ms.metric(ai_context=ms.ai_context(business_definition='Accepted order count.'))\n"
         + "def order_count():\n"
         + "    return orders.count()\n\n\n"
@@ -56,17 +58,15 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     assert calls == 1
     for ref in (*physical, *published):
         identity = catalog.describe(ref).ref
-        assert identity is not None and identity.ref == ref
-    assert catalog.metrics.refs == published
+        assert identity is not None and as_ref(identity) == as_ref(ref)
+    assert catalog.metrics._refs == tuple(as_ref(ref) for ref in published)
     aov = catalog.describe(ms.ref.metric("sales.average_order_value"))
     assert aov.unit == "USD"
-    # Composing declarations inlines their computation, so the published Metric
-    # reads the physical definitions both components consume.
-    assert aov.reads == (
-        ms.ref.entity("sales.orders"),
-        ms.ref.measure("sales.orders.amount"),
-        ms.ref.time_dimension("sales.orders.log_date"),
+    # Named dependencies remain explicit; each component owns its physical closure.
+    assert aov._reads == (
+        ref_factory.metric("sales.order_count"),
+        ref_factory.metric("sales.revenue"),
     )
     report = catalog.readiness(refs=list(physical))
     assert not report.blockers
-    assert report.analysis_ready_inputs == physical
+    assert report._analysis_ready_inputs == tuple(as_ref(ref) for ref in physical)

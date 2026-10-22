@@ -6,7 +6,7 @@ assert Entity identity, business units, allocation or Metric semantics.
 ## Physical sources
 
 A source descriptor names *what to read* inside a datasource. It is not a
-datasource declaration; it is paired with a `Ref[datasource]` in inspection,
+datasource declaration; it is paired with a `DatasourceSymbol` in inspection,
 discovery, and `ms.entity(source=...)`.
 
 | Constructor | IR | Meaning |
@@ -324,7 +324,7 @@ Errors retain diagnostics and actual submission facts. Cleanup releases owned
 source connections; connection closure alone never proves remote query
 termination. Failed reads do not publish or replace a certified snapshot.
 
-`md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
+`md.raw_sql(datasource: DatasourceSymbol, sql: str, *, reason: str,
 timeout_seconds: int = 30, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
 terminal SQL escape hatch for questions outside its governed Analysis capability.

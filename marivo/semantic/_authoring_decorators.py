@@ -12,18 +12,18 @@ from typing import Literal, overload
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
 
-from marivo.refs import (
-    DatasourceKind,
-    DomainKind,
-    EntityKind,
-    MeasureKind,
-    Ref,
-    RelationshipKind,
-    SemanticKind,
-    TimeDimensionKind,
+from marivo._symbolic import (
+    DatasourceSymbol,
+    DimensionSymbol,
+    DomainSymbol,
+    EntitySymbol,
+    MeasureSymbol,
+    RelationshipSymbol,
+    TimeDimensionSymbol,
+    symbol_factory,
 )
 from marivo.refs import (
-    DimensionKind as DimensionRefKind,
+    SemanticKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -78,19 +78,49 @@ from marivo.semantic.ir import (
 from marivo.semantic.typing import AiContextValue
 
 
+def _reject_named_entity_decorator() -> None:
+    """Reject direct-constructor decorator syntax before Deferred can absorb it."""
+    import ast
+    from pathlib import Path
+
+    location = _caller_location()
+    try:
+        tree = ast.parse(Path(location.file).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeError):
+        return
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for decorator in node.decorator_list:
+            if (
+                isinstance(decorator, ast.Call)
+                and any(keyword.arg == "name" for keyword in decorator.keywords)
+                and decorator.lineno <= location.line <= (decorator.end_lineno or decorator.lineno)
+            ):
+                _raise(
+                    ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,
+                    "ms.entity(name=...) returns a native Entity symbol and cannot decorate a definition.",
+                    cls=SemanticDecoratorError,
+                    location=location,
+                    expected="name = ms.entity(...) without a decorated function body, or @ms.entity(...) without name=",
+                    received="@ms.entity(name=...) applied to a definition",
+                    constraint_id=ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+                )
+
+
 def _register_entity_ir(
     *,
     semantic_id: str,
     domain: str,
     name: str,
     python_symbol: str,
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     source: EntitySourceIR,
     primary_key: tuple[str, ...],
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None,
     ai_context: AiContextValue | None,
     expression_body: ExpressionBody | None = None,
-) -> Ref[EntityKind]:
+) -> EntitySymbol:
     """Validate one Entity declaration and push its IR into the loader context."""
     ctx = _require_ctx()
     _check_duplicate(ctx, semantic_id, EntityIR)
@@ -122,50 +152,50 @@ def _register_entity_ir(
     ref = ref_factory.entity(semantic_id)
     _push_ir(ctx, ref, ir, expression_body)
 
-    return ref
+    return symbol_factory.entity(ref.path)
 
 
 @overload
 def entity(
     *,
     name: str,
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     source: EntitySourceIR,
     primary_key: list[str] | None = ...,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
-    domain: Ref[DomainKind] | None = ...,
+    domain: DomainSymbol | None = ...,
     ai_context: AiContextValue | None = ...,
-) -> Ref[EntityKind]: ...
+) -> EntitySymbol: ...
 
 
 @overload
 def entity(
     *,
     name: None = None,
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     source: EntitySourceIR,
     primary_key: list[str] | None = ...,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
-    domain: Ref[DomainKind] | None = ...,
+    domain: DomainSymbol | None = ...,
     ai_context: AiContextValue | None = ...,
-) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], Ref[EntityKind]]: ...
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], EntitySymbol]: ...
 
 
 def entity(
     *,
     name: str | None = None,
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     source: EntitySourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[EntityKind] | Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], Ref[EntityKind]]:
+) -> EntitySymbol | Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], EntitySymbol]:
     """Declare an entity directly or over one Table expression of its source.
 
     With an explicit ``name`` this declares the entity immediately and returns
-    a typed Entity capture Ref. After all physical dependencies, call
-    ms.finalize() and finalized.resolve(ref) to obtain an immutable Entity value. With ``name`` omitted the call returns a decorator:
+    a typed native Entity lookup symbol. The loader binds the complete model
+    before Catalog .get() returns an immutable Entity. With ``name`` omitted the call returns a decorator:
     the decorated function must take exactly one Table parameter and return
     exactly one Ibis Table expression derived from that parameter. The Entity
     name comes from the function name. The Entity output schema is the
@@ -183,14 +213,14 @@ def entity(
             Use ``md.inspect(...)`` to inspect current names and types.
         primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
         versioning: Explicit snapshot or validity representation; never inferred from source partitions.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A typed Entity capture Ref for the direct form, or a decorator returning
-        one for the expression form. Finalize the complete scope, then resolve
-        the Ref for an immutable Entity with Catalog exact-version fingerprints.
+        A native Entity lookup symbol for the direct form, or a decorator
+        returning the same symbol role for an expression body. Loader binding
+        closes its complete facts before Catalog .get() returns an Entity.
 
     Raises:
         SemanticDecoratorError: ``datasource`` is not a datasource ref, the
@@ -218,9 +248,9 @@ def entity(
         ...     '''One latest non-deleted order per day and order ID.'''
         ...     return raw.filter(~raw["is_deleted"])
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     if primary_key is not None and (
@@ -237,6 +267,7 @@ def entity(
         )
     resolved_domain = _resolve_domain(domain, ctx)
     if name is not None:
+        _reject_named_entity_decorator()
         semantic_id = f"{resolved_domain}.{name}"
         return _register_entity_ir(
             semantic_id=semantic_id,
@@ -250,7 +281,7 @@ def entity(
             ai_context=ai_context,
         )
 
-    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Table]) -> Ref[EntityKind]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Table]) -> EntitySymbol:
         obj_name = fn.__name__
         semantic_id = f"{resolved_domain}.{obj_name}"
         return _register_entity_ir(
@@ -276,26 +307,25 @@ def entity(
 def dimension_column(
     *,
     name: str,
-    entity: Entity | Ref[EntityKind],
+    entity: Entity | EntitySymbol,
     column: str,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[DimensionRefKind]:
+) -> DimensionSymbol:
     """Declare a categorical dimension directly from one physical column.
 
     Args:
         name: Semantic dimension name.
-        entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
+        entity: Entity symbol returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A typed Dimension capture Ref. Finalize the complete scope and resolve
-        the Ref for an immutable Dimension with predicates and count reductions.
+        A native Dimension lookup symbol supporting predicates and count reductions.
 
     Constraints:
         Use ``@ms.dimension(...)`` when the dimension is an expression over one
@@ -305,9 +335,9 @@ def dimension_column(
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -344,16 +374,16 @@ def dimension_column(
         source_column=column_name,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
-    return ref
+    return symbol_factory.dimension(ref.path)
 
 
 def dimension(
     *,
     name: str | None = None,
-    entity: Entity | Ref[EntityKind],
-    domain: Ref[DomainKind] | None = None,
+    entity: Entity | EntitySymbol,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], Ref[DimensionRefKind]]:
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], DimensionSymbol]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
@@ -366,12 +396,12 @@ def dimension(
     Args:
         name: Dimension name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator returning a typed Dimension capture Ref; resolve it after ms.finalize().
+        A decorator returning a native Dimension lookup symbol.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
@@ -382,14 +412,14 @@ def dimension(
         ... def region(orders_table):
         ...     return orders_table.region
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> Ref[DimensionRefKind]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> DimensionSymbol:
         obj_name = name or fn.__name__
         entity_ref = _require_ref_id(
             entity,
@@ -431,7 +461,7 @@ def dimension(
             body_ast_hash=expression_body.body_ast_hash,
         )
         _push_ir(ctx, ref, ir, expression_body)
-        return ref
+        return symbol_factory.dimension(ref.path)
 
     return decorator
 
@@ -440,31 +470,31 @@ def dimension(
 def measure_column(
     *,
     name: str,
-    entity: Entity | Ref[EntityKind],
+    entity: Entity | EntitySymbol,
     column: str,
     additivity: AdditivityPolicy,
-    status_time_dimension: TimeField | Ref[TimeDimensionKind] | None = None,
+    status_time_dimension: TimeField | TimeDimensionSymbol | None = None,
     unit: str | None = None,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[MeasureKind]:
+) -> MeasureSymbol:
     """Declare a quantitative measure directly from one physical column.
 
     Args:
         name: Semantic measure name.
-        entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
+        entity: Entity symbol returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
         additivity: Closed policy from ``ms.additive``, ``ms.additive_all`` or ``ms.non_additive``.
         status_time_dimension: Optional business status-time dimension.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A typed Measure capture Ref; finalize and resolve it for an immutable row value.
+        A native Measure lookup symbol for row composition.
 
     Constraints:
         Use ``@ms.measure(...)`` when the measure is an expression over one or
@@ -477,9 +507,9 @@ def measure_column(
         ...     additivity=ms.additive_all(), unit="CNY",
         ... )
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -536,7 +566,7 @@ def measure_column(
         ir,
         ExpressionBody.for_column(column_name),
     )
-    return ref
+    return symbol_factory.measure(ref.path)
 
 
 @reject_parameters(
@@ -631,32 +661,32 @@ def measure(
 def time_dimension_column(
     *,
     name: str,
-    entity: Entity | Ref[EntityKind],
+    entity: Entity | EntitySymbol,
     column: str,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
     is_default: bool = False,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[TimeDimensionKind]:
+) -> TimeDimensionSymbol:
     """Declare a time dimension directly from one physical column.
 
     Args:
         name: Semantic time dimension name.
-        entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
+        entity: Entity symbol returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
         sample_interval: Optional canonical minute/hour source sampling cadence.
         parse: Optional parse variant such as ``ms.strptime(...)``.
         is_default: Whether this is the default time axis for the entity.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A typed TimeDimension capture Ref. Finalize the complete scope and resolve
-        the Ref for an immutable TimeField with source time roles.
+        A native TimeDimension lookup symbol. The loader validates its source
+        time roles and the complete physical scope before analysis.
 
     Constraints:
         Use ``@ms.time_dimension(...)`` when the time axis is an expression over
@@ -669,9 +699,9 @@ def time_dimension_column(
         ...     parse=ms.strptime("%Y%m%d"),
         ... )
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -715,19 +745,19 @@ def time_dimension_column(
         source_column=column_name,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
-    return ref
+    return symbol_factory.time_dimension(ref.path)
 
 
 def time_dimension(
     *,
     name: str | None = None,
-    entity: Entity | Ref[EntityKind],
+    entity: Entity | EntitySymbol,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
     is_default: bool = False,
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], Ref[TimeDimensionKind]]:
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], TimeDimensionSymbol]:
     """Declare a time-aware dimension that carries encoding and optional source cadence.
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
@@ -748,13 +778,13 @@ def time_dimension(
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
             dimension is used automatically.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator returning a typed TimeDimension capture Ref. Finalize the
-        complete scope, then resolve the Ref for an immutable TimeField.
+        A decorator returning a native TimeDimension lookup symbol, with source
+        time roles validated during loader binding.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, the
@@ -766,14 +796,14 @@ def time_dimension(
         ... def created_at(orders):
         ...     return orders.created_at
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> Ref[TimeDimensionKind]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> TimeDimensionSymbol:
         obj_name = name or fn.__name__
         ds_ref = _require_ref_id(
             entity,
@@ -823,7 +853,7 @@ def time_dimension(
             body_ast_hash=expression_body.body_ast_hash,
         )
         _push_ir(ctx, ref, ir, expression_body)
-        return ref
+        return symbol_factory.time_dimension(ref.path)
 
     return decorator
 
@@ -831,12 +861,12 @@ def time_dimension(
 def relationship(
     *,
     name: str,
-    from_entity: Entity | Ref[EntityKind],
-    to_entity: Entity | Ref[EntityKind],
+    from_entity: Entity | EntitySymbol,
+    to_entity: Entity | EntitySymbol,
     keys: list[JoinKey],
-    domain: Ref[DomainKind] | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[RelationshipKind]:
+) -> RelationshipSymbol:
     """Declare a join relationship between two entities.
 
     Top-level call (not a decorator). Used by the compiler to plan joins when a
@@ -847,12 +877,12 @@ def relationship(
         from_entity: Source entity ref.
         to_entity: Target entity ref.
         keys: List of ``ms.join_on(from_key, to_key)`` pairs.
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
+        domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A typed Relationship capture Ref; finalize and resolve it for exact endpoints.
+        A native Relationship lookup symbol for directed path parameters.
 
     Raises:
         SemanticDecoratorError: A ref or key shape is invalid.
@@ -872,9 +902,9 @@ def relationship(
         required matching as an unverified premise; a versioned endpoint needs an exact
         version selection before its one side can be consumed.
 
-    Capture constraints: The result is a lookup Ref, not an expression value.
-    Capture every physical declaration before ms.finalize(), then resolve the
-    required Refs from that frozen result. Closed scopes reject new declarations.
+    Capture constraints: The result is an immutable native lookup symbol. It
+    supports forward composition; the loader validates and binds the complete
+    model before the Catalog returns closed values for analysis.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -919,7 +949,7 @@ def relationship(
     )
     _push_ir(ctx, ref, ir, None)
 
-    return ref
+    return symbol_factory.relationship(ref.path)
 
 
 _register_authoring_file(__file__)

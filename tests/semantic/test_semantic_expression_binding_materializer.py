@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._definition.graph import computation_fingerprint
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
@@ -18,8 +19,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import patch_semantic_connections
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
-_MODEL = """\
-import marivo.datasource as md
+_MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
@@ -30,9 +30,8 @@ def country(rows):
 @ms.time_dimension(entity=orders, is_default=True)
 def ordered_at(rows):
     return rows.ordered_at
-finalized = ms.finalize()
-amount = finalized.resolve(amount_ref)
-discount = finalized.resolve(discount_ref)
+amount = amount_ref
+discount = discount_ref
 @ms.measure(additivity=ms.additive_all())
 def net_amount():
     return amount * 0.9
@@ -82,7 +81,7 @@ def test_pure_measure_composition_and_physical_fields_execute(
         assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
         catalog = SemanticCatalog(project)
         metric = catalog.metrics.get("sales.revenue")
-        assert "callable" not in catalog.describe(ref_factory.metric("sales.revenue")).render()
+        assert "callable" not in catalog.describe(ms.ref.metric("sales.revenue")).render()
         dependencies = catalog._state.dependencies[ref_factory.metric("sales.revenue")]
         assert ref_factory.measure("sales.orders.amount") in dependencies
         with patch_semantic_connections(project, lambda _name: connection):

@@ -6,17 +6,18 @@ from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import resolve
+from marivo.semantic.expressions import entity_exact
+from tests.shared_fixtures import resolve_test_symbol as resolve
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
 ms.domain(name="sales", owner="Analytics", default=True)
 """
 
-_OBJECTS_PY = """\
-import marivo.datasource as md
+_OBJECTS_PY = """import marivo.datasource as md
 import marivo.semantic as ms
 
 orders_ref = ms.entity(
@@ -46,11 +47,10 @@ amount_ref = ms.measure_column(
     unit="CNY",
 )
 
-finalized = ms.finalize()
-orders = finalized.resolve(orders_ref)
-users = finalized.resolve(users_ref)
-paid_at = finalized.resolve(paid_at_ref)
-amount = finalized.resolve(amount_ref)
+orders = orders_ref
+users = users_ref
+paid_at = paid_at_ref
+amount = amount_ref
 
 
 @ms.metric()
@@ -128,12 +128,12 @@ def test_single_entity_metric_roots_follow_its_source_reductions(
     revenue = consume_metric(revenue)
     order_count = consume_metric(order_count)
     assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
+    assert revenue.node.ref.ref == ref_factory.metric("sales.revenue")
     assert revenue.node.ref.version.startswith("sha256:")
-    assert revenue.roots == (orders.ref,)
+    assert revenue.roots == (entity_exact(orders),)
     assert revenue.unit == "CNY"
-    assert consume_metric(resolve(catalog, ms.ref.metric("sales.revenue"))) == revenue
-    assert order_count.roots == (orders.ref,)
+    assert consume_metric(resolve(catalog, ref_factory.metric("sales.revenue"))) == revenue
+    assert order_count.roots == (entity_exact(orders),)
     assert order_count.unit == "1"
 
 
@@ -147,8 +147,8 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
     per_user = consume_metric(catalog.metrics.get("sales.revenue_per_user"))
     share = consume_metric(catalog.metrics.get("sales.user_revenue_share"))
 
-    assert per_user.roots == (orders.ref, users.ref)
-    assert share.roots == (users.ref, orders.ref)
+    assert per_user.roots == (entity_exact(orders), entity_exact(users))
+    assert share.roots == (entity_exact(users), entity_exact(orders))
     assert per_user.unit == "CNY"
     assert share.unit == "1/CNY"
 

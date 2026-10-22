@@ -10,6 +10,8 @@ import duckdb
 import marivo.datasource as md
 import marivo.ontology as mo
 import marivo.semantic as ms
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 
 
 def _extend_authoring_project(root: Path) -> None:
@@ -58,11 +60,11 @@ def test_project_handoff_separates_static_and_physical_evidence(
     amount = ms.ref.measure("sales.orders.amount")
     calendar = ms.ref.period_calendar("sales.fiscal")
     revenue_identity = catalog.describe(revenue).ref
-    assert revenue_identity is not None and revenue_identity.ref == revenue
-    assert catalog.period_calendars.get(calendar.path).ref == calendar
+    assert revenue_identity is not None and as_ref(revenue_identity) == as_ref(revenue)
+    assert as_ref(catalog.period_calendars.get("sales.fiscal").ref) == as_ref(calendar)
 
     baseline = catalog.readiness(refs=[amount])
-    assert baseline.analysis_ready_inputs == (amount,)
+    assert baseline._analysis_ready_inputs == (as_ref(amount),)
     calendar_report = catalog.readiness(refs=[calendar])
     assert calendar_report.analysis_ready_inputs == ()
     assert any(
@@ -73,7 +75,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert ontology.edge_count == 1
     assert ontology.semantic_catalog_fingerprint == catalog.definition_fingerprint
     assert "entity:sales.orders -> metric:sales.revenue" in ontology.render()
-    assert catalog.readiness(refs=[amount]).analysis_ready_inputs == (amount,)
+    assert catalog.readiness(refs=[amount])._analysis_ready_inputs == (as_ref(amount),)
 
     scope = md.unpruned(max_rows=10, timeout_seconds=30)
     preview = catalog.preview(amount, scope=scope)
@@ -94,7 +96,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     value_check = next(check for check in health.checks if check.kind == "allowed_values")
     assert value_check.status == "failed"
     assert value_check.user_data_queried is True
-    assert value_check.scopes == ((ms.ref.entity("sales.orders"), scope),)
+    assert value_check._scopes == ((ref_factory.entity("sales.orders"), scope),)
     assert catalog.readiness(refs=[amount]).to_dict() | {"checked_at": None} == (
         baseline.to_dict() | {"checked_at": None}
     )

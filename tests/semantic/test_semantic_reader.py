@@ -11,8 +11,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 """)
 
 
-_OBJECTS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_OBJECTS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
 
     orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
@@ -20,8 +19,7 @@ _OBJECTS_PY = textwrap.dedent("""\
         name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
     )
 
-    finalized = ms.finalize()
-    amount = finalized.resolve(amount_ref)
+    amount = amount_ref
 
     @ms.metric()
     def revenue():

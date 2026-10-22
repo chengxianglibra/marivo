@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 
+from marivo._symbolic import DatasourceSymbol, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -108,7 +109,7 @@ class DiscoverySnapshot(RenderableResult):
     """Immutable bounded rows and profiles from one explicit source acquisition."""
 
     id: str
-    datasource: Ref[DatasourceKind]
+    _datasource: Ref[DatasourceKind]
     source: TableSource
     scope: AuthoringScope
     columns: tuple[str, ...]
@@ -124,9 +125,14 @@ class DiscoverySnapshot(RenderableResult):
     source_params: tuple[tuple[str, QueryParamScalar | QueryParamScalarList], ...] = ()
     retained_values: tuple[dict[str, JsonScalar], ...] = ()
 
+    @property
+    def datasource(self) -> DatasourceSymbol:
+        """Native lookup selector for the acquired datasource."""
+        return symbol_factory.datasource(self._datasource.path)
+
     def _repr_identity(self) -> str:
         return (
-            f"DiscoverySnapshot id={self.id} datasource={self.datasource.path} "
+            f"DiscoverySnapshot id={self.id} datasource={self._datasource.path} "
             f"columns={len(self.columns)} rows={self.coverage.retained_row_count}"
         )
 
@@ -441,7 +447,7 @@ def acquire_snapshot(
         snapshot_identity,
     )
 
-    datasource_id = _storage_name(inspection.datasource)
+    datasource_id = _storage_name(inspection._datasource)
     datasource_ir = _store.load_one(datasource_id, project_root=inspection._project_root)
     if datasource_ir is None:
         raise _acquisition_error(
@@ -476,7 +482,7 @@ def acquire_snapshot(
     store = AuthoringStore(inspection._project_root)
     lookup = store.lookup_snapshot(
         snapshot_id=snapshot_id,
-        datasource=inspection.datasource,
+        datasource=inspection._datasource,
         datasource_fingerprint=datasource_fingerprint,
         source=inspection.source,
         scope=scope,
@@ -642,7 +648,7 @@ def acquire_snapshot(
 
     snapshot = DiscoverySnapshot(
         id=snapshot_id,
-        datasource=inspection.datasource,
+        _datasource=inspection._datasource,
         source=inspection.source,
         scope=scope,
         columns=columns,

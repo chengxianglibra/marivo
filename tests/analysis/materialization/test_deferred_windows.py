@@ -56,9 +56,8 @@ hour_ref = ms.time_dimension_column(name="hour_at", entity=orders, column="hour_
 customer_ref = ms.dimension_column(name="customer", entity=orders, column="customer")
 region_ref = ms.dimension_column(name="region", entity=orders, column="region")
 channel_ref = ms.dimension_column(name="channel", entity=orders, column="channel")
-frozen = ms.finalize()
-amount = frozen.resolve(amount_ref)
-customer = frozen.resolve(customer_ref)
+amount = amount_ref
+customer = customer_ref
 @ms.metric()
 def revenue():
     return amount.sum()

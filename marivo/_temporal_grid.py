@@ -525,7 +525,7 @@ def bind_grid(
         raise _invalid("grid requires a TimeScope and Grain")
     scope_digest = None if during.kind == "absolute" else during.snapshot_digest
     if grain.kind == "semantic":
-        if snapshot is None or snapshot.calendar_ref != grain.calendar:
+        if snapshot is None or snapshot.calendar_ref != grain._calendar:
             raise _invalid("missing exact certified calendar snapshot")
         if (
             grain._snapshot is not None
@@ -536,7 +536,7 @@ def bind_grid(
         if explicit_timezone is not None and explicit_timezone != boundary:
             raise _invalid("explicit calendar timezone conflicts with certification")
         if during.kind == "calendar_period" and (
-            during.calendar != snapshot.calendar_ref or scope_digest != snapshot.snapshot_digest
+            during._calendar != snapshot.calendar_ref or scope_digest != snapshot.snapshot_digest
         ):
             raise _invalid("scope and grain have different calendar snapshot identities")
     else:

@@ -347,10 +347,9 @@ def test_every_public_attribute_has_an_independent_target() -> None:
 
 def test_semantic_concept_classes_share_their_canonical_object_pages() -> None:
     from marivo.introspection.live.targets import canonical_target
-    from marivo.refs import Ref
     from marivo.semantic.expressions import Entity, Relationship
 
-    for type_obj in (Entity, Relationship, Ref):
+    for type_obj in (Entity, Relationship):
         assert help_render.render_help_text(type_obj) == help_render.render_help_text(
             f"semantic.{canonical_target(type_obj.__name__)}"
         )

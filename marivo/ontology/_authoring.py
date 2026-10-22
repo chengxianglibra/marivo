@@ -6,19 +6,20 @@ import inspect
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Literal, NoReturn, cast
+from typing import Literal, NoReturn
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._symbolic import EntitySymbol, MeasureSymbol, MetricSymbol, native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.ontology.errors import InvalidOntologyRefError, InvalidSemanticEdgeError
 from marivo.ontology.types import (
     OntologyEndpointRef,
-    OntologyOutcomeRef,
     SemanticEdgeIR,
     SemanticEdgeRef,
     _make_semantic_edge_ref,
 )
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.refs import SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.ir import SourceLocation
 from marivo.semantic.typing import AiContextValue
@@ -62,12 +63,12 @@ def _invalid_ref(*, parameter: str, value: object, expected: str) -> NoReturn:
     entry_ref = getattr(value, "ref", None)
     conversion = (
         f" Pass {type(value).__name__}.ref instead of the catalog entry."
-        if type(entry_ref) is Ref
+        if native_symbol_ref(entry_ref) is not None
         else ""
     )
     raise InvalidOntologyRefError(
         kind="invalid_ontology_ref",
-        message=f"{parameter} must be an exact typed semantic Ref.{conversion}",
+        message=f"{parameter} must be a native semantic lookup symbol.{conversion}",
         expected=expected,
         received=f"{type(value).__name__}: {value!r}",
         location=_location(),
@@ -76,20 +77,18 @@ def _invalid_ref(*, parameter: str, value: object, expected: str) -> NoReturn:
 
 
 def _endpoint(value: object, *, parameter: str, allowed: set[SemanticKind]) -> OntologyEndpointRef:
-    if type(value) is not Ref:
+    ref = native_symbol_ref(value)
+    if ref is None or ref.kind not in allowed:
         _invalid_ref(
             parameter=parameter,
             value=value,
-            expected=" | ".join(f"Ref[{kind.value}]" for kind in sorted(allowed, key=str)),
+            expected=" | ".join(f"{kind.value} lookup symbol" for kind in sorted(allowed, key=str)),
         )
-    ref = cast("Ref[SemanticKindTag]", value)
-    if ref.kind not in allowed:
-        _invalid_ref(
-            parameter=parameter,
-            value=value,
-            expected=" | ".join(f"Ref[{kind.value}]" for kind in sorted(allowed, key=str)),
-        )
-    return cast("OntologyEndpointRef", ref)
+    if ref.kind is SemanticKind.ENTITY:
+        return ref_factory.entity(ref.path)
+    if ref.kind is SemanticKind.MEASURE:
+        return ref_factory.measure(ref.path)
+    return ref_factory.metric(ref.path)
 
 
 def _edge(
@@ -194,16 +193,16 @@ def _edge(
 def influences(
     *,
     name: str,
-    driver: OntologyEndpointRef,
-    outcome: OntologyOutcomeRef,
+    driver: EntitySymbol | MeasureSymbol | MetricSymbol,
+    outcome: EntitySymbol | MetricSymbol,
     ai_context: AiContextValue,
 ) -> SemanticEdgeRef:
     """Author a directional, non-causal driver hypothesis.
 
     Args:
         name: Unique lowercase dotted snake_case edge identity.
-        driver: Entity, Measure, or Metric ref proposed as a driver.
-        outcome: Entity or Metric ref matched as the outcome anchor.
+        driver: Entity, Measure, or Metric lookup symbol proposed as a driver.
+        outcome: Entity or Metric lookup symbol matched as the outcome anchor.
         ai_context: Required business definition and optional edge guardrails.
 
     Returns:
@@ -238,8 +237,8 @@ def influences(
 def related_to(
     *,
     name: str,
-    left: OntologyEndpointRef,
-    right: OntologyEndpointRef,
+    left: EntitySymbol | MeasureSymbol | MetricSymbol,
+    right: EntitySymbol | MeasureSymbol | MetricSymbol,
     ai_context: AiContextValue,
 ) -> SemanticEdgeRef:
     """Author a symmetric contextual relation between semantic refs.

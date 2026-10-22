@@ -425,16 +425,14 @@ def test_duplicate_default_time_dimension_raises() -> None:
 
 def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
-    metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
+    metrics_py = textwrap.dedent("""        import marivo.datasource as md
         import marivo.semantic as ms
         orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
         amount_ref = ms.measure_column(
             name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
         )
 
-        finalized = ms.finalize()
-        amount = finalized.resolve(amount_ref)
+        amount = amount_ref
 
         @ms.metric()
         def revenue():

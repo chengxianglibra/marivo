@@ -81,16 +81,16 @@ def _create(project: Path, source: str) -> tuple[mv.Session, DslCase]:
     ).items():
         if relative == "operations/models.py":
             content = content.replace(
-                "finalized = ms.finalize()",
+                "# Named expressions",
                 "status_energy = ms.measure_column(name='status_energy', entity=orders, column='energy', "
                 "additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='kWh')\n"
-                "finalized = ms.finalize()",
+                "# Named expressions",
                 1,
             )
             content += """
 import marivo.analysis as mv
 history = mv.all_history()
-status_value = finalized.resolve(status_energy)
+status_value = status_energy
 @ms.metric()
 def running_energy():
     return energy_total.window(history)

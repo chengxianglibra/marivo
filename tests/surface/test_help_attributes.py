@@ -26,6 +26,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodValue,
     FrameRatioMethod,
 )
+from tests.support.refs import as_ref
 
 
 def test_grain_field_help_matches_runtime_variant_availability() -> None:
@@ -35,7 +36,7 @@ def test_grain_field_help_matches_runtime_variant_availability() -> None:
 
     assert builtin.kind == "builtin"
     assert semantic.kind == "semantic"
-    assert semantic.calendar == calendar
+    assert semantic._calendar == as_ref(calendar)
     with pytest.raises(AttributeError):
         _ = builtin.calendar
 

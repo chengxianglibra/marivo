@@ -14,6 +14,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+from marivo._symbolic import symbol_factory
 from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -43,7 +44,6 @@ from marivo.analysis.materialization.graph_source_execution import (
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import numeric_literal_node, numeric_program_frame, terminal_runs
@@ -68,11 +68,10 @@ buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, k
 refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])
 refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at", is_default=True)
 refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="CNY")
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-refund_value = finalized.resolve(refund_amount)
-region_value = finalized.resolve(region)
-weight_value = finalized.resolve(weight)
+amount_value = amount
+refund_value = refund_amount
+region_value = region
+weight_value = weight
 @ms.metric()
 def masked_overflow():
     return (amount_value.sum() * 4611686018427387904) * 0
@@ -455,7 +454,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
                 'import marivo.datasource as md\nimport marivo.semantic as ms\nwarehouse = ms.ref.datasource("warehouse")\n'
                 + entity
                 + f'value = ms.measure_column(name="value", entity=facts, column={column!r}, additivity=ms.additive_all())\n'
-                "finalized = ms.finalize()\nv = finalized.resolve(value)\n"
+                "v = value\n"
                 "@ms.metric()\ndef total():\n    return v.min()\n"
             ),
         },
@@ -658,10 +657,10 @@ def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> N
     _numeric_inputs(session)
     metric = session.catalog.metrics.get("sales.net")
     assert isinstance(metric, Deferred)
-    scope = {
-        ref.entity(root.ref.path): md.unpruned(max_rows=100, timeout_seconds=10)
+    scope = tuple(
+        (symbol_factory.entity(root.ref.path), md.unpruned(max_rows=100, timeout_seconds=10))
         for root in consume_metric(metric).roots
-    }
+    )
     preview = session.catalog.preview(metric, scope=scope)
     assert preview.rows == ({"value": 57},)
     assert (
@@ -816,11 +815,11 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
     revenue = session.catalog.metrics.get("sales.revenue")
     refund = session.catalog.metrics.get("sales.refund_total")
     assert isinstance(revenue, Deferred) and isinstance(refund, Deferred)
-    scope = {
-        ref.entity(root.ref.path): md.unpruned(max_rows=100, timeout_seconds=10)
+    scope = tuple(
+        (symbol_factory.entity(root.ref.path), md.unpruned(max_rows=100, timeout_seconds=10))
         for metric in (revenue, refund)
         for root in consume_metric(metric).roots
-    }
+    )
     result = session.catalog.preview_many((revenue, refund), scope=scope)
     assert tuple(item.rows for item in result.results) == (({"value": 60},), ({"value": 3},))
 

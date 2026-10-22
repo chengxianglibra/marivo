@@ -10,9 +10,8 @@ import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from marivo._symbolic import DatasourceSymbol, DomainSymbol, EntitySymbol, native_symbol_ref
 from marivo.refs import (
-    DatasourceKind,
-    DomainKind,
     EntityKind,
     Ref,
     SemanticKind,
@@ -49,6 +48,9 @@ def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
 
     if isinstance(value, Deferred):
+        native = native_symbol_ref(value)
+        if native is not None:
+            return native
         field = consume_field(value)
         if field.field_read is not None and (
             field.field_read.path or field.field_read.at is not None
@@ -56,7 +58,7 @@ def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
             raise SemanticExpressionError(
                 kind=ErrorKind.INVALID_TIME_PATH,
                 message="A bound field cannot be used in physical authoring.",
-                action="Use the native field Ref in physical declarations; retain via only for its supported time= or predicate role.",
+                action="Use the native field lookup symbol in physical declarations; retain via only for its supported time= or predicate role.",
                 expected="an unbound native field",
                 received="a path-bound or anchored field",
             )
@@ -65,9 +67,13 @@ def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
     if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="a source declaration lookup")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
-        return value.ref.ref
-    if isinstance(value, Ref):
-        return value
+        return (
+            value._exact_ref.ref
+            if isinstance(value, Entity)
+            else value._parameter.ref.ref
+            if isinstance(value, Relationship)
+            else value.ref.ref
+        )
     return None
 
 
@@ -113,7 +119,7 @@ def _require_ctx() -> LoaderContext:
     if ctx is None:
         _raise(
             ErrorKind.OUTSIDE_LOADER_CONTEXT,
-            "Physical capture and finalization require an active semantic model loader scope.",
+            "Physical declaration capture requires an active semantic model loader scope.",
             cls=SemanticDecoratorError,
             expected="an active physical declaration capture scope",
             received="no active loader scope",
@@ -121,15 +127,16 @@ def _require_ctx() -> LoaderContext:
     return ctx
 
 
-def _resolve_domain(explicit: Ref[DomainKind] | None, ctx: LoaderContext) -> str:
+def _resolve_domain(explicit: DomainSymbol | None, ctx: LoaderContext) -> str:
     """Resolve the domain name: explicit ref > default_domain > error."""
-    if type(explicit) is Ref and explicit.kind is SemanticKind.DOMAIN:
-        return explicit.path
+    key = native_symbol_ref(explicit)
+    if key is not None and key.kind is SemanticKind.DOMAIN:
+        return key.path
     if explicit is not None:
         _raise(
             ErrorKind.INVALID_REF,
-            "domain= accepts Ref[domain] from ms.domain(name=...). "
-            "Do not pass a bare string such as 'sales'.",
+            "domain= requires a native Domain symbol from ms.domain(name=...) "
+            "or ms.ref.domain(...).",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
@@ -231,17 +238,22 @@ def _require_ref_id(
     parameter: str,
     expected: tuple[SemanticKind, ...],
 ) -> str:
-    resolved = _value_ref(ref)
+    try:
+        resolved = _value_ref(ref)
+    except SemanticExpressionError as error:
+        error.location = _caller_location()
+        error.semantic_refs = (parameter, *error.semantic_refs)
+        raise
     if resolved is not None and resolved.kind in expected:
         return resolved.path
-    expected_label = " or ".join(f"Ref[{kind.value}]" for kind in expected)
-    received = getattr(ref, "key", ref)
+    expected_label = " or ".join(f"native {kind.value} symbol" for kind in expected)
+    received = repr(ref)
     _raise(
         ErrorKind.INVALID_REF,
         f"{parameter} must be {expected_label}; got {type(ref).__name__}: {received!r}. "
-        "Pass the Ref object returned by the semantic authoring call, import a declared "
-        "Ref from another model, or use ref.<kind>('<path>') for an explicit "
-        "forward or cross-file reference.",
+        "Pass the matching symbol returned by its constructor or ms.ref.<kind>('<path>'), "
+        "or use the closed value already supported by this parameter. Composite "
+        "expressions and identity-attribute recipes cannot identify a physical declaration.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
@@ -251,15 +263,12 @@ def _domain_from_ref_id(ref_id: str) -> str:
     return ref_id.split(".", 1)[0]
 
 
-def _entity_lookup(value: Entity | Ref[EntityKind], *, parameter: str) -> Ref[EntityKind]:
-    from marivo.semantic.expressions import Entity
+def _entity_lookup(value: Entity | EntitySymbol, *, parameter: str) -> Ref[EntityKind]:
 
-    _require_ref_id(value, parameter=parameter, expected=(SemanticKind.ENTITY,))
-    if isinstance(value, Entity):
-        from marivo.refs import ref as ref_factory
+    from marivo.refs import ref as ref_factory
 
-        return ref_factory.entity(value.ref.ref.path)
-    return value
+    path = _require_ref_id(value, parameter=parameter, expected=(SemanticKind.ENTITY,))
+    return ref_factory.entity(path)
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
@@ -274,14 +283,15 @@ def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
     )
 
 
-def _resolve_datasource_ref(ref: Ref[DatasourceKind]) -> str:
+def _resolve_datasource_ref(ref: DatasourceSymbol) -> str:
     """Extract canonical datasource id from a datasource ref."""
-    if type(ref) is Ref and ref.kind is SemanticKind.DATASOURCE:
-        return ref.path
+    key = native_symbol_ref(ref)
+    if key is not None and key.kind is SemanticKind.DATASOURCE:
+        return key.path
     _raise(
         ErrorKind.INVALID_REF,
-        "ms.entity(datasource=...) accepts Ref[datasource] from a datasource spec's .ref "
-        "or ref_factory.datasource('warehouse'). Do not pass a bare string.",
+        "ms.entity(datasource=...) requires a native Datasource symbol from a "
+        "datasource spec's .ref or ms.ref.datasource('warehouse').",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
@@ -294,30 +304,6 @@ def _push_ir(
     expression_body: ExpressionBody | None,
 ) -> None:
     """Capture one definition before the physical dependency closure is complete."""
-    from marivo.semantic.errors import SemanticExpressionError
-
-    closed = ctx.finalized is not None
-    for prior in ctx.prior_contexts:
-        if prior.finalized is None:
-            continue
-        owner = definition.entity if isinstance(definition, (DimensionIR, MeasureIR)) else None
-        if any(
-            pending.ref == ref
-            or (
-                isinstance(pending.definition, EntityIR) and pending.definition.semantic_id == owner
-            )
-            for pending in prior.pending_definitions
-        ):
-            closed = True
-    if closed:
-        raise SemanticExpressionError(
-            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-            message="Physical declaration capture is already finalized.",
-            refs=(ref.key,),
-            expected="all physical declarations captured before ms.finalize()",
-            received=f"late declaration {ref.key}",
-            action="Move this declaration and its dependencies before ms.finalize(); compose only resolved values after finalization.",
-        )
     ctx.pending_definitions.append(
         PendingDefinition(
             ref=ref,

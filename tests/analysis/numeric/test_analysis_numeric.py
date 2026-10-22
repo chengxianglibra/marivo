@@ -187,9 +187,7 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     models = case.root / "models/semantic/sales/models.py"
     physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\ndecimal_amount = ms.measure_column(name='decimal_amount', entity=orders, column='decimal_amount', additivity=ms.additive_all())\n"
     models.write_text(
-        models.read_text().replace(
-            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
-        )
+        models.read_text().replace("# Named expressions", physical + "# Named expressions", 1)
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -270,9 +268,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     models = case.root / "models/semantic/sales/models.py"
     physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nfloat_amount = ms.measure_column(name='float_amount', entity=orders, column='float_amount', additivity=ms.additive_all())\n"
     models.write_text(
-        models.read_text().replace(
-            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
-        )
+        models.read_text().replace("# Named expressions", physical + "# Named expressions", 1)
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -438,9 +434,7 @@ def test_duration_matrix(
     models = case.root / "models/semantic/sales/models.py"
     physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     models.write_text(
-        models.read_text().replace(
-            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
-        )
+        models.read_text().replace("# Named expressions", physical + "# Named expressions", 1)
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -646,9 +640,7 @@ def test_numeric_states_produce_offline_and_cold(
     path = case.root / "models/semantic/sales/models.py"
     physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     path.write_text(
-        path.read_text().replace(
-            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
-        )
+        path.read_text().replace("# Named expressions", physical + "# Named expressions", 1)
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -862,9 +854,7 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
     path = case.root / "models/semantic/sales/models.py"
     physical = "small = ms.measure_column(name='small', entity=orders, column='small', additivity=ms.additive_all(), unit='CNY')\ncancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additivity=ms.additive_all(), unit='CNY')\n"
     path.write_text(
-        path.read_text().replace(
-            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
-        )
+        path.read_text().replace("# Named expressions", physical + "# Named expressions", 1)
     )
     ms.load(workspace_dir=case.root)
     session = case.session

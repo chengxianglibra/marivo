@@ -50,10 +50,9 @@ day = ms.time_dimension_column(name="day", entity=orders, column="day")
 naive = ms.time_dimension_column(name="naive", entity=orders, column="naive", parse=ms.timestamp(timezone="Asia/Shanghai"))
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(buyer_id, customer_id)])
 seller = ms.relationship(name="seller", from_entity=orders, to_entity=customers, keys=[ms.join_on(seller_id, customer_id)])
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-region_value = finalized.resolve(region)
-buyer_value = finalized.resolve(buyer)
+amount_value = amount
+region_value = region
+buyer_value = buyer
 anchor = InstantAnchor.fromisoformat("2026-01-01T00:00:00+00:00")
 anchored_region = region_value.via((buyer_value,)).at(anchor)
 @ms.metric()

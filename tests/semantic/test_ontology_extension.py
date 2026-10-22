@@ -199,3 +199,18 @@ def test_relation_constructors_enforce_roles_context_and_symmetric_identity(tmp_
     with pytest.raises(OntologyLoadError) as load_error:
         mo.load(semantic=ms.load(workspace_dir=tmp_path))
     assert "duplicate related_to endpoint pair" in str(load_error.value.issues[0])
+
+
+def test_ontology_endpoints_reject_composite_and_private_ref_inputs() -> None:
+    from marivo.refs import ref as internal_ref
+
+    for invalid in (ms.ref.metric("sales.revenue") + 1, internal_ref.metric("sales.revenue")):
+        with pytest.raises(InvalidOntologyRefError, match="native semantic lookup symbol"):
+            mo.related_to(
+                name="invalid_selector",
+                left=invalid,
+                right=ms.ref.metric("sales.order_count"),
+                ai_context=ms.ai_context(
+                    business_definition="Selector validation precedes publication."
+                ),
+            )

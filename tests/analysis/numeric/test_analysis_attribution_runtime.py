@@ -186,8 +186,8 @@ def test_numeric_source_fixed_and_axis_expansion(
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text().replace(
-            "finalized = ms.finalize()",
-            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\n# Named expressions",
         )
     )
     if parquet:
@@ -428,8 +428,8 @@ def test_zero_component_basis_cannot_hide_under_other(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
-            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\n# Named expressions",
         )
     )
     ms.load(workspace_dir=case.root)

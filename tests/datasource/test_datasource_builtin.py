@@ -24,6 +24,7 @@ from marivo.datasource.errors import (
 from marivo.datasource.loader import load_datasources
 from marivo.semantic.loader import load_project
 from tests.shared_fixtures import bootstrap_sales_project_from_template
+from tests.support.refs import as_ref
 
 
 @pytest.fixture
@@ -83,8 +84,8 @@ def test_layered_loading_injects_default_once(project_root: Path) -> None:
     assert result.errors == ()
     assert [item.name for item in result.datasource_irs].count("default") == 1
     catalog = ms.load(workspace_dir=project_root)
-    assert catalog.datasources.get("default").ref.name == "default"
-    assert catalog.datasources.get("warehouse").ref.name == "warehouse"
+    assert as_ref(catalog.datasources.get("default").ref).name == "default"
+    assert as_ref(catalog.datasources.get("warehouse").ref).name == "warehouse"
 
 
 def test_reserved_registration_fails_before_writes(project_root: Path) -> None:

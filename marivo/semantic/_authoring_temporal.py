@@ -7,15 +7,17 @@ from collections.abc import Mapping
 
 from ibis.common.deferred import Deferred
 
+from marivo._symbolic import (
+    DimensionSymbol,
+    DomainSymbol,
+    PeriodCalendarSymbol,
+    TemporalSetSymbol,
+    TimeDimensionSymbol,
+    symbol_factory,
+)
 from marivo._temporal import Grain, semantic_grain
 from marivo.refs import (
-    DimensionKind,
-    DomainKind,
-    PeriodCalendarKind,
-    Ref,
     SemanticKind,
-    TemporalSetKind,
-    TimeDimensionKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -38,13 +40,13 @@ from marivo.semantic.typing import AiContextValue
 def period_calendar(
     *,
     name: str,
-    date: Deferred | Ref[TimeDimensionKind],
+    date: Deferred | TimeDimensionSymbol,
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    levels: Mapping[str, Deferred | Ref[DimensionKind]],
-    domain: Ref[DomainKind] | None = None,
+    levels: Mapping[str, Deferred | DimensionSymbol],
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[PeriodCalendarKind]:
+) -> PeriodCalendarSymbol:
     """Declare one finite governed calendar over an exhaustive civil-date spine.
 
     The declaration fixes source fields and business coverage. Certification of
@@ -53,15 +55,15 @@ def period_calendar(
 
     Args:
         name: Calendar name.
-        date: Native day TimeField or explicit lookup Ref.
+        date: Native day TimeField or explicit lookup symbol.
         boundary_timezone: IANA boundary zone.
         coverage: Half-open civil-date coverage tuple.
-        levels: Level names mapped to native Dimensions or lookup Refs.
-        domain: Optional domain lookup Ref.
+        levels: Level names mapped to native Dimensions or lookup symbols.
+        domain: Optional domain lookup symbol.
         ai_context: Optional business context.
-    Returns: A typed calendar capture Ref, validated with the physical closure.
+    Returns: A typed calendar lookup symbol, validated with the physical closure.
     Example: ``ms.period_calendar(name="fiscal", date=day, boundary_timezone="UTC", coverage=coverage, levels={"week": week})``.
-    Constraints: Fields resolve by kind/path in the completed calendar scope; lookup Refs support forward references.
+    Constraints: Fields resolve by kind/path in the completed calendar scope; lookup symbols support forward references.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -123,10 +125,10 @@ def period_calendar(
         ),
         None,
     )
-    return ref
+    return symbol_factory.period_calendar(ref.path)
 
 
-def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
+def calendar_grain(*, calendar: PeriodCalendarSymbol, level: str) -> Grain:
     """Construct one semantic aggregation grain from a period-calendar level.
 
     Args:
@@ -143,36 +145,43 @@ def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
             "level= must be a non-empty declared level name.",
             cls=SemanticDecoratorError,
         )
-    return semantic_grain(calendar=calendar, level=level)
+    return semantic_grain(
+        calendar=ref_factory.period_calendar(
+            _require_ref_id(
+                calendar, parameter="calendar", expected=(SemanticKind.PERIOD_CALENDAR,)
+            )
+        ),
+        level=level,
+    )
 
 
 def temporal_set(
     *,
     name: str,
-    occurrence_id: Deferred | Ref[DimensionKind],
-    start: Deferred | Ref[TimeDimensionKind],
-    end: Deferred | Ref[TimeDimensionKind],
+    occurrence_id: Deferred | DimensionSymbol,
+    start: Deferred | TimeDimensionSymbol,
+    end: Deferred | TimeDimensionSymbol,
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    category: Deferred | Ref[DimensionKind] | None = None,
-    domain: Ref[DomainKind] | None = None,
+    category: Deferred | DimensionSymbol | None = None,
+    domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[TemporalSetKind]:
+) -> TemporalSetSymbol:
     """Declare one finite governed set of named temporal occurrences.
 
     Args:
         name: Set name.
-        occurrence_id: Native identity Dimension or lookup Ref.
-        start: Native start TimeField or lookup Ref.
-        end: Native end TimeField or lookup Ref.
+        occurrence_id: Native identity Dimension or lookup symbol.
+        start: Native start TimeField or lookup symbol.
+        end: Native end TimeField or lookup symbol.
         boundary_timezone: IANA boundary zone.
         coverage: Half-open civil-date coverage tuple.
-        category: Optional native category Dimension or lookup Ref.
-        domain: Optional domain lookup Ref.
+        category: Optional native category Dimension or lookup symbol.
+        domain: Optional domain lookup symbol.
         ai_context: Optional business context.
-    Returns: A typed temporal-set capture Ref.
+    Returns: A typed temporal-set lookup symbol.
     Example: ``ms.temporal_set(name="campaigns", occurrence_id=identifier, start=start, end=end, boundary_timezone="UTC", coverage=coverage)``.
-    Constraints: The completed scope resolves input fields and checks kind, ownership and time roles; Refs retain forward-reference semantics.
+    Constraints: The completed scope resolves input fields and checks kind, ownership and time roles; Symbols retain forward-reference semantics.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -237,4 +246,4 @@ def temporal_set(
         ),
         None,
     )
-    return ref
+    return symbol_factory.temporal_set(ref.path)

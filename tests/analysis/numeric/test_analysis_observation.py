@@ -58,9 +58,7 @@ def _by_member(frame: pd.DataFrame) -> pd.Series:
 
 def _extend(case: DslCase, *, physical: str = "", definitions: str = "") -> None:
     model = case.root / "models/semantic/sales/models.py"
-    text = model.read_text().replace(
-        "finalized = ms.finalize()", physical + "\nfinalized = ms.finalize()", 1
-    )
+    text = model.read_text().replace("# Named expressions", physical + "\n# Named expressions", 1)
     model.write_text(text + "\n" + definitions)
     ms.load(workspace_dir=case.root)
 
@@ -279,8 +277,8 @@ shipment_time = ms.time_dimension_column(name='ordered_at', entity=shipments, co
 shipment_buyer = ms.relationship(name='shipment_buyer', from_entity=shipments, to_entity=customer, keys=[ms.join_on(shipment_customer, customer_id)])
 """,
         definitions="""
-shipment_value = finalized.resolve(shipments)
-shipment_clock = finalized.resolve(shipment_time)
+shipment_value = shipments
+shipment_clock = shipment_time
 @ms.metric()
 def shipment_count():
     return shipment_value.count(time=shipment_clock)
@@ -439,7 +437,7 @@ def test_linear_rejects_incommensurable_units(analysis_dsl_case_factory: DslCase
     _extend(
         case,
         physical="amount_usd = ms.measure_column(name='amount_usd', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n",
-        definitions="usd_value = finalized.resolve(amount_usd)\n@ms.metric()\ndef revenue_usd():\n    return usd_value.sum(time=time_value)\n",
+        definitions="usd_value = amount_usd\n@ms.metric()\ndef revenue_usd():\n    return usd_value.sum(time=time_value)\n",
     )
     session = case.session
     expression = session.catalog.metrics.get("sales.revenue") + session.catalog.metrics.get(

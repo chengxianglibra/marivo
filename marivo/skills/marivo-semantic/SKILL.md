@@ -116,11 +116,13 @@ checks while their identity and scope remain applicable.
 
 ## Expression authoring boundary
 
-Physical authoring captures lookup keys before dependency closure. Finalize the
-complete physical scope before consuming immutable values; resolve needed
-fields from that same frozen scope. Keep capture and expression composition in
-order. Missing dependencies are capture repairs, not permission to discard an
-Ibis forward reference or refresh a value already returned.
+Physical constructors and exact lookup factories capture native typed Deferred
+symbols. Compose them directly and load the complete dependency slice once;
+the loader binds forward references before publishing closed Catalog values.
+Use metadata selectors for supported lookup/check operations and retrieve closed
+analysis inputs through the matching Catalog collection. Unsupported recipes
+fail at declaration or parameter capture; ordinary Python attribute access and
+already formatted strings do not establish identity or binding facts.
 Do not reject an input solely because a same-path definition changed. Assess
 whether the changed meaning still suits the question, and follow structured
 repairs for incompatible inputs. Resolve needed inputs from the complete scope;
@@ -134,7 +136,7 @@ naming, filtering or arithmetic cannot grant it. Keep known units, contribution
 roots, status-time constraints and sampling contracts with their owners.
 
 Keep restricted Ibis source and categorical/time-field authoring separate from
-pure Measure/Metric bodies. Bare Refs identify lookup inputs. Do not revive old
+pure Measure/Metric bodies. Lookup symbols need binding before analysis. Do not revive old
 Metric factories, table-parameter bodies, default folds or declaration-wide
 value policies; follow the concrete structured reauthoring error. Where model
 publication or execution is unavailable, report that boundary and continue the

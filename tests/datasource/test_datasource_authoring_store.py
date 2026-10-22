@@ -566,7 +566,7 @@ def test_query_free_snapshot_lookup_rejects_resigned_invalid_payloads(
     assert datasource is not None
 
     valid = authoring_store.AuthoringStore(project_root).valid_snapshots(
-        datasource=inspection.datasource,
+        datasource=inspection._datasource,
         datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
         source=inspection.source,
     )
@@ -603,7 +603,7 @@ def test_query_free_snapshot_lookup_rejects_digest_failure(
     assert datasource is not None
 
     valid = authoring_store.AuthoringStore(project_root).valid_snapshots(
-        datasource=inspection.datasource,
+        datasource=inspection._datasource,
         datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
         source=inspection.source,
     )
@@ -638,7 +638,7 @@ def test_expired_snapshot_is_reused_and_reports_stale(
     datasource = datasource_store.load_one("warehouse", project_root=inspection._project_root)
     assert datasource is not None
     persisted = authoring_store.AuthoringStore(inspection._project_root).valid_snapshots(
-        datasource=inspection.datasource,
+        datasource=inspection._datasource,
         datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
         source=inspection.source,
         now=now + timedelta(hours=25),

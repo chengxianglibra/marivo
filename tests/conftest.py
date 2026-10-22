@@ -216,8 +216,8 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     (semantic_dir / "revenue.py").write_text(
         "import marivo.semantic as ms\n\n"
         "from .models import amount as amount_ref\n\n"
-        "finalized = ms.finalize()\n"
-        "amount = finalized.resolve(amount_ref)\n\n\n"
+        ""
+        "amount = amount_ref\n\n\n"
         "@ms.metric(\n"
         "    ai_context=ms.ai_context(\n"
         "        business_definition='Sum of accepted order amounts.',\n"

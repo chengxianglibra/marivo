@@ -32,6 +32,18 @@ from typing import (
 from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import root_declaration
+from marivo._symbolic import (
+    DatasourceSymbol,
+    DimensionSymbol,
+    DomainSymbol,
+    LookupSymbol,
+    PeriodCalendarSymbol,
+    TemporalSetSymbol,
+    TimeDimensionSymbol,
+    native_symbol_ref,
+    symbol_factory,
+    symbol_from_ref,
+)
 from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV2,
@@ -380,28 +392,44 @@ def _common_detail_sections(
 class _DetailsBase(RenderableResult):
     """Common fields and result protocol shared by all *Details classes."""
 
-    ref: Ref[SemanticKindTag]
+    _ref: Ref[SemanticKindTag]
     kind: SemanticKind
     name: str
     domain: str | None
     context: AiContextView
     source_location: SourceLocation
-    parents: tuple[Ref[SemanticKindTag], ...]
-    children: tuple[Ref[SemanticKindTag], ...]
-    dependents: tuple[Ref[SemanticKindTag], ...]
+    _parents: tuple[Ref[SemanticKindTag], ...]
+    _children: tuple[Ref[SemanticKindTag], ...]
+    _dependents: tuple[Ref[SemanticKindTag], ...]
     python_symbol: str
 
+    @property
+    def ref(self) -> LookupSymbol:
+        return symbol_from_ref(self._ref)
+
+    @property
+    def parents(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._parents)
+
+    @property
+    def children(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._children)
+
+    @property
+    def dependents(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._dependents)
+
     def _repr_identity(self) -> str:
-        return f"{self.__class__.__name__} ref={self.ref.key}"
+        return f"{self.__class__.__name__} ref={self._ref.key}"
 
     def _detail_sections(self) -> list[Section]:
         return _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
+            parents=self._parents,
+            children=self._children,
+            dependents=self._dependents,
         )
 
     def _card(self) -> Card:
@@ -418,6 +446,10 @@ class DatasourceDetails(_DetailsBase):
     backend_type: str
     fields: Mapping[str, object]
     env_refs: Mapping[str, str]
+
+    @property
+    def ref(self) -> DatasourceSymbol:
+        return symbol_factory.datasource(self._ref.path)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
@@ -444,6 +476,10 @@ class DomainDetails(_DetailsBase):
     owner: str
     default: bool
 
+    @property
+    def ref(self) -> DomainSymbol:
+        return symbol_factory.domain(self._ref.path)
+
     def _detail_sections(self) -> list[Section]:
         sections = super()._detail_sections()
         sections.extend(
@@ -460,11 +496,17 @@ class CalendarLevelDetails(RenderableResult):
     """Certification-derived facts for one owned period-calendar level."""
 
     name: str
-    key_ref: Ref[DimensionKind] | Ref[TimeDimensionKind]
+    _key_ref: Ref[DimensionKind] | Ref[TimeDimensionKind]
     period_count: int | None
     direct_finer_levels: tuple[str, ...] | None
     direct_coarser_levels: tuple[str, ...] | None
     rollup_targets: tuple[str, ...] | None
+
+    @property
+    def key_ref(self) -> DimensionSymbol | TimeDimensionSymbol:
+        if self._key_ref.kind is SemanticKind.TIME_DIMENSION:
+            return symbol_factory.time_dimension(self._key_ref.path)
+        return symbol_factory.dimension(self._key_ref.path)
 
     def _repr_identity(self) -> str:
         return f"CalendarLevelDetails name={self.name}"
@@ -472,7 +514,7 @@ class CalendarLevelDetails(RenderableResult):
     def _card(self) -> Card:
         return (
             Card(identity=self._repr_identity(), available=(".show()",))
-            .field("key_ref", self.key_ref.key)
+            .field("key_ref", self._key_ref.key)
             .field("period_count", str(self.period_count))
             .field("direct_finer_levels", repr(self.direct_finer_levels))
             .field("direct_coarser_levels", repr(self.direct_coarser_levels))
@@ -484,7 +526,7 @@ class CalendarLevelDetails(RenderableResult):
 class PeriodCalendarDetails(_DetailsBase):
     """Static source contract for one governed period calendar."""
 
-    date: Ref[TimeDimensionKind]
+    _date: Ref[TimeDimensionKind]
     boundary_timezone: str
     coverage: tuple[CalendarDate, CalendarDate]
     levels: tuple[CalendarLevelDetails, ...]
@@ -493,7 +535,15 @@ class PeriodCalendarDetails(_DetailsBase):
     snapshot_digest: str | None = None
 
     @property
-    def source_date(self) -> Ref[TimeDimensionKind]:
+    def ref(self) -> PeriodCalendarSymbol:
+        return symbol_factory.period_calendar(self._ref.path)
+
+    @property
+    def date(self) -> TimeDimensionSymbol:
+        return symbol_factory.time_dimension(self._date.path)
+
+    @property
+    def source_date(self) -> TimeDimensionSymbol:
         """The calendar's civil-date source field (target public spelling)."""
         return self.date
 
@@ -501,8 +551,8 @@ class PeriodCalendarDetails(_DetailsBase):
         sections = super()._detail_sections()
         sections.extend(
             (
-                FieldSection(label="calendar_ref", value=self.ref.key),
-                FieldSection(label="source_date", value=self.date.key),
+                FieldSection(label="calendar_ref", value=self._ref.key),
+                FieldSection(label="source_date", value=self._date.key),
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),
                 FieldSection(
                     label="coverage",
@@ -546,12 +596,32 @@ class TemporalSetDetails(_DetailsBase):
 
     boundary_timezone: str
     coverage: tuple[CalendarDate, CalendarDate]
-    occurrence_id: Ref[DimensionKind]
-    start: Ref[TimeDimensionKind]
-    end: Ref[TimeDimensionKind]
-    category: Ref[DimensionKind] | None
+    _occurrence_id: Ref[DimensionKind]
+    _start: Ref[TimeDimensionKind]
+    _end: Ref[TimeDimensionKind]
+    _category: Ref[DimensionKind] | None
     occurrence_count: int | None
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
+
+    @property
+    def ref(self) -> TemporalSetSymbol:
+        return symbol_factory.temporal_set(self._ref.path)
+
+    @property
+    def occurrence_id(self) -> DimensionSymbol:
+        return symbol_factory.dimension(self._occurrence_id.path)
+
+    @property
+    def start(self) -> TimeDimensionSymbol:
+        return symbol_factory.time_dimension(self._start.path)
+
+    @property
+    def end(self) -> TimeDimensionSymbol:
+        return symbol_factory.time_dimension(self._end.path)
+
+    @property
+    def category(self) -> DimensionSymbol | None:
+        return symbol_factory.dimension(self._category.path) if self._category is not None else None
 
     def _detail_sections(self) -> list[Section]:
         sections = super()._detail_sections()
@@ -562,12 +632,12 @@ class TemporalSetDetails(_DetailsBase):
                     label="coverage",
                     value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
                 ),
-                FieldSection(label="occurrence_id", value=self.occurrence_id.key),
-                FieldSection(label="start", value=self.start.key),
-                FieldSection(label="end", value=self.end.key),
+                FieldSection(label="occurrence_id", value=self._occurrence_id.key),
+                FieldSection(label="start", value=self._start.key),
+                FieldSection(label="end", value=self._end.key),
                 FieldSection(
                     label="category",
-                    value=self.category.key if self.category is not None else "(none)",
+                    value=self._category.key if self._category is not None else "(none)",
                 ),
                 FieldSection(label="occurrence_count", value=str(self.occurrence_count)),
                 FieldSection(label="snapshot_status", value=self.snapshot_status),
@@ -597,7 +667,7 @@ class TemporalOccurrencePage(RenderableResult):
                 columns=("temporal_set", "key", "start", "end", "category", "boundary_timezone"),
                 rows=(
                     (
-                        item.temporal_set.key,
+                        item._temporal_set.key,
                         repr(item.key),
                         item.start.isoformat(),
                         item.end.isoformat(),
@@ -620,11 +690,15 @@ _CatalogObjectDetails = (
 class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
     """One immutable browsable object in one compiled semantic catalog."""
 
-    ref: Ref[CatalogEntryKindT]
+    _ref: Ref[CatalogEntryKindT]
     _details: _CatalogObjectDetails
     _catalog: SemanticCatalog
 
     _navigation_names: ClassVar[tuple[str, ...]] = ()
+
+    @property
+    def ref(self) -> LookupSymbol:
+        return symbol_from_ref(self._ref)
 
     def details(self) -> _CatalogObjectDetails:
         return self._details
@@ -633,15 +707,15 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         return (
             type(self) is type(other)
             and isinstance(other, CatalogEntry)
-            and self.ref == other.ref
+            and self._ref == other._ref
             and self._catalog is other._catalog
         )
 
     def __hash__(self) -> int:
-        return hash((type(self), id(self._catalog), self.ref))
+        return hash((type(self), id(self._catalog), self._ref))
 
     def _repr_identity(self) -> str:
-        return f"{type(self).__name__} {self.ref.key}"
+        return f"{type(self).__name__} {self._ref.key}"
 
     def _card(self) -> Card:
         available = (
@@ -651,18 +725,18 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         )
         card = (
             Card(identity=self._repr_identity(), available=available)
-            .field(label="kind", value=self.ref.kind.value)
-            .field(label="path", value=self.ref.path)
-            .field(label="ref", value=self.ref.key)
+            .field(label="kind", value=self._ref.kind.value)
+            .field(label="path", value=self._ref.path)
+            .field(label="ref", value=self._ref.key)
             .field(
                 label="business_definition",
                 value=self._details.context.business_definition or "(none)",
             )
         )
-        if self._details.parents:
+        if self._details._parents:
             card = card.field(
                 label="parents",
-                value=_format_card_refs(self._details.parents),
+                value=_format_card_refs(self._details._parents),
             )
         owner = getattr(self._details, "owner", None)
         if isinstance(owner, str) and owner:
@@ -689,13 +763,13 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
 
 
 CatalogItem: TypeAlias = CatalogEntry[SemanticKindTag] | ResolvedValue
-_SemanticInput: TypeAlias = Ref[SemanticKindTag] | CatalogEntry[SemanticKindTag] | ResolvedValue
+_SemanticInput: TypeAlias = Deferred | CatalogEntry[SemanticKindTag] | ResolvedValue
 
 
 class DomainEntry(CatalogEntry[DomainKind]):
     """Loaded semantic domain with its scoped member collections."""
 
-    ref: Ref[DomainKind]
+    _ref: Ref[DomainKind]
     _navigation_names = (
         "entities",
         "fields",
@@ -705,45 +779,53 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "temporal_sets",
     )
 
+    @property
+    def ref(self) -> DomainSymbol:
+        return symbol_factory.domain(self._ref.path)
+
     def details(self) -> DomainDetails:
         return cast("DomainDetails", self._details)
 
     @property
     def entities(self) -> CatalogCollection[Entity]:
         """Entities declared in this domain, as expression values."""
-        return CatalogCollection(self._catalog, "entities", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "entities", scope_ref=self._ref)
 
     @property
     def fields(self) -> CatalogCollection[Deferred]:
         """Dimensions, time fields and Measures declared in this domain."""
-        return CatalogCollection(self._catalog, "fields", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "fields", scope_ref=self._ref)
 
     @property
     def metrics(self) -> CatalogCollection[Deferred]:
         """Metrics published by this domain."""
-        return CatalogCollection(self._catalog, "metrics", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "metrics", scope_ref=self._ref)
 
     @property
     def relationships(self) -> CatalogCollection[Relationship]:
         """Relationships declared in this domain."""
-        return CatalogCollection(self._catalog, "relationships", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "relationships", scope_ref=self._ref)
 
     @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarEntry]:
         """Period calendars declared in this domain."""
-        return CatalogCollection(self._catalog, "period_calendars", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "period_calendars", scope_ref=self._ref)
 
     @property
     def temporal_sets(self) -> CatalogCollection[TemporalSetEntry]:
         """Temporal sets declared in this domain."""
-        return CatalogCollection(self._catalog, "temporal_sets", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "temporal_sets", scope_ref=self._ref)
 
 
 class DatasourceEntry(CatalogEntry[DatasourceKind]):
     """Loaded datasource with the entities it backs."""
 
-    ref: Ref[DatasourceKind]
+    _ref: Ref[DatasourceKind]
     _navigation_names = ("entities",)
+
+    @property
+    def ref(self) -> DatasourceSymbol:
+        return symbol_factory.datasource(self._ref.path)
 
     def details(self) -> DatasourceDetails:
         return cast("DatasourceDetails", self._details)
@@ -751,13 +833,17 @@ class DatasourceEntry(CatalogEntry[DatasourceKind]):
     @property
     def entities(self) -> CatalogCollection[Entity]:
         """Entities backed by this datasource, as expression values."""
-        return CatalogCollection(self._catalog, "entities", scope_ref=self.ref)
+        return CatalogCollection(self._catalog, "entities", scope_ref=self._ref)
 
 
 class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
     """Loaded period-calendar declaration with direct semantic-grain lookup."""
 
-    ref: Ref[PeriodCalendarKind]
+    _ref: Ref[PeriodCalendarKind]
+
+    @property
+    def ref(self) -> PeriodCalendarSymbol:
+        return symbol_factory.period_calendar(self._ref.path)
 
     def details(self) -> PeriodCalendarDetails:
         details = cast("PeriodCalendarDetails", self._details)
@@ -792,16 +878,16 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         details = self.details()
         if level not in {item.name for item in details.levels}:
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "grain",
-                f"Calendar level {level!r} is not declared by {self.ref.key}.",
+                f"Calendar level {level!r} is not declared by {self._ref.key}.",
                 details={"level": level},
             )
         from marivo._temporal import semantic_grain
 
         status, snapshot = self._snapshot_with_status()
         return semantic_grain(
-            calendar=self.ref,
+            calendar=self._ref,
             level=level,
             snapshot=snapshot if status == "current" else None,
         )
@@ -832,7 +918,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             return self._snapshot().period_scope(level, key)
         except (KeyError, TypeError, ValueError):
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "period",
                 f"No certified {level!r} period matches key {key!r}.",
                 details={"level": level, "key": key},
@@ -856,7 +942,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             return snapshot.period_scope(level, period.key)
         except (KeyError, TypeError, ValueError):
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "period_on",
                 f"No certified {level!r} period contains date {value!r}.",
                 details={"level": level, "date": str(value)},
@@ -884,7 +970,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         """
         if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "periods",
                 "period page limit must be an integer in [1, 100].",
                 details={"limit": limit},
@@ -896,14 +982,14 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             )
         except (TypeError, ValueError):
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "periods",
                 "The cursor is invalid or belongs to a different certified snapshot/level.",
                 details={"level": level, "cursor": "provided"},
             )
         if level not in snapshot.levels:
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "periods",
                 f"Calendar level {level!r} is not certified.",
                 details={"level": level},
@@ -913,7 +999,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             total = (end - start).days
             if offset >= total and total:
                 _raise_period_lookup(
-                    self.ref,
+                    self._ref,
                     "periods",
                     "The cursor points beyond the current certified period page.",
                     details={"level": level, "cursor": "provided", "offset": offset},
@@ -936,7 +1022,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         values = tuple(period for period in snapshot.periods if period.level_name == level)
         if offset >= len(values) and values:
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "periods",
                 "The cursor points beyond the current certified period page.",
                 details={"level": level, "cursor": "provided", "offset": offset},
@@ -957,9 +1043,9 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         status, snapshot = self._snapshot_with_status()
         if status != "current" or snapshot is None:
             _raise_period_lookup(
-                self.ref,
+                self._ref,
                 "snapshot",
-                f"{self.ref.key} has no current certified period-calendar snapshot ({status}).",
+                f"{self._ref.key} has no current certified period-calendar snapshot ({status}).",
                 details={"snapshot_status": status},
             )
         return snapshot
@@ -972,19 +1058,19 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
 
         details = cast("PeriodCalendarDetails", self._details)
         definition_digest = period_calendar_definition_digest(
-            calendar_ref=self.ref,
+            calendar_ref=self._ref,
             boundary_timezone=details.boundary_timezone,
             coverage=(details.coverage[0], details.coverage[1]),
             levels=tuple((name, value.path) for name, value in details._level_bindings),
             dependency_digest=scoped_definition_fingerprint(
-                root=self.ref,
+                root=self._ref,
                 definitions=self._catalog._state.definitions,
                 dependencies=self._catalog._state.dependencies,
                 sidecar=self._catalog._state.sidecar,
             ),
         )
         return TemporalSnapshotStore(self._catalog.workspace_dir).inspect_current(
-            self.ref,
+            self._ref,
             definition_digest=definition_digest,
         )
 
@@ -992,7 +1078,11 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
 class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
     """Loaded temporal-set declaration with exact occurrence navigation."""
 
-    ref: Ref[TemporalSetKind]
+    _ref: Ref[TemporalSetKind]
+
+    @property
+    def ref(self) -> TemporalSetSymbol:
+        return symbol_factory.temporal_set(self._ref.path)
 
     def _card(self) -> Card:
         details = self.details()
@@ -1007,8 +1097,8 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
                     ".show()",
                 ),
             )
-            .field(label="kind", value=self.ref.kind.value)
-            .field(label="path", value=self.ref.path)
+            .field(label="kind", value=self._ref.kind.value)
+            .field(label="path", value=self._ref.path)
             .field(label="boundary_timezone", value=details.boundary_timezone)
             .field(
                 label="coverage",
@@ -1049,7 +1139,7 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
             return self._snapshot().occurrence_scope(key)
         except (KeyError, TypeError, ValueError):
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrence",
                 f"No certified temporal occurrence matches key {key!r}.",
                 details={"key": key},
@@ -1092,14 +1182,14 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         """
         if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrences",
                 "occurrence page limit must be an integer in [1, 100].",
                 details={"limit": limit},
             )
         if category is not None and (type(category) is not str or not category):
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrences",
                 "category must be a non-empty string or null.",
                 details={"category": category},
@@ -1113,7 +1203,7 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
             )
         except (TypeError, ValueError) as exc:
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrences",
                 str(exc),
                 details={"start": repr(start), "end": repr(end)},
@@ -1127,7 +1217,7 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
             )
         except (TypeError, ValueError):
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrences",
                 "The cursor is invalid or belongs to a different snapshot/filter.",
                 details={"cursor": "provided"},
@@ -1140,7 +1230,7 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         )
         if offset > len(values):
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "occurrences",
                 "The cursor points beyond the current certified occurrence page.",
                 details={"offset": offset},
@@ -1161,9 +1251,9 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         status, snapshot = self._snapshot_with_status()
         if status != "current" or snapshot is None:
             _raise_temporal_set_lookup(
-                self.ref,
+                self._ref,
                 "snapshot",
-                f"{self.ref.key} has no current certified temporal-set snapshot ({status}).",
+                f"{self._ref.key} has no current certified temporal-set snapshot ({status}).",
                 details={"snapshot_status": status},
             )
         return snapshot
@@ -1176,22 +1266,22 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
 
         details = cast("TemporalSetDetails", self._details)
         definition_digest = temporal_set_definition_digest(
-            temporal_set_ref=self.ref,
+            temporal_set_ref=self._ref,
             boundary_timezone=details.boundary_timezone,
             coverage=(details.coverage[0], details.coverage[1]),
-            occurrence_id=details.occurrence_id.path,
-            start=details.start.path,
-            end=details.end.path,
-            category=details.category.path if details.category is not None else None,
+            occurrence_id=details._occurrence_id.path,
+            start=details._start.path,
+            end=details._end.path,
+            category=details._category.path if details._category is not None else None,
             dependency_digest=scoped_definition_fingerprint(
-                root=self.ref,
+                root=self._ref,
                 definitions=self._catalog._state.definitions,
                 dependencies=self._catalog._state.dependencies,
                 sidecar=self._catalog._state.sidecar,
             ),
         )
         return TemporalSetSnapshotStore(self._catalog.workspace_dir).inspect_current(
-            self.ref,
+            self._ref,
             definition_digest=definition_digest,
         )
 
@@ -1203,14 +1293,14 @@ def _calendar_level_details(
 ) -> tuple[CalendarLevelDetails, ...]:
     """Project static level bindings plus certified graph facts."""
     bindings: tuple[tuple[str, Ref[DimensionKind] | Ref[TimeDimensionKind]], ...] = (
-        ("day", details.date),
+        ("day", details._date),
         *details._level_bindings,
     )
     if snapshot is None:
         return tuple(
             CalendarLevelDetails(
                 name=name,
-                key_ref=key_ref,
+                _key_ref=key_ref,
                 period_count=None,
                 direct_finer_levels=None,
                 direct_coarser_levels=None,
@@ -1256,7 +1346,7 @@ def _calendar_level_details(
     return tuple(
         CalendarLevelDetails(
             name=name,
-            key_ref=key_ref,
+            _key_ref=key_ref,
             period_count=counts.get(name, 0),
             direct_finer_levels=finer_by_target.get(name, ()),
             direct_coarser_levels=coarser_by_source.get(name, ()),
@@ -1543,7 +1633,7 @@ def _object_from_details(
     return cast(
         "CatalogObjectT",
         cast("Any", object_type)(
-            ref=details.ref,
+            _ref=details._ref,
             _details=details,
             _catalog=catalog,
         ),
@@ -1573,7 +1663,12 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         self._scope_ref = scope_ref
 
     @property
-    def refs(self) -> tuple[Ref[SemanticKindTag], ...]:
+    def refs(self) -> tuple[LookupSymbol, ...]:
+        """Native lookup selectors for visible members, in key order."""
+        return tuple(symbol_from_ref(ref) for ref in self._refs)
+
+    @property
+    def _refs(self) -> tuple[Ref[SemanticKindTag], ...]:
         """Typed refs of the visible members, in key order."""
         return self._catalog._require_index().members(self._kinds, scope_ref=self._scope_ref)
 
@@ -1581,7 +1676,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
     def items(self) -> tuple[ItemT, ...]:
         """Visible members in key order."""
         index = self._catalog._require_index()
-        return tuple(self._member(index.item(ref)) for ref in self.refs)
+        return tuple(self._member(index.item(ref)) for ref in self._refs)
 
     def get(self, key: str) -> ItemT:
         """Return one visible member by local name or full semantic path.
@@ -1612,7 +1707,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         return cast("ItemT", item if isinstance(item, CatalogEntry) else author_value(item))
 
     def __len__(self) -> int:
-        return len(self.refs)
+        return len(self._refs)
 
     def __iter__(self) -> Iterator[ItemT]:
         return iter(self.items)
@@ -1630,7 +1725,7 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         return "collection.get"
 
     def _card(self) -> Card:
-        rows = [(ref.path, ref.key, ref.name) for ref in self.refs]
+        rows = [(ref.path, ref.key, ref.name) for ref in self._refs]
         card = Card(
             identity=self._repr_identity(),
             available=(
@@ -1687,14 +1782,14 @@ def _same_kind_candidates(
     catalog: SemanticCatalog,
     allowed_kinds: frozenset[SemanticKind],
 ) -> tuple[Ref[SemanticKindTag], ...]:
-    return tuple(ref for ref in catalog._require_index().refs if ref.kind in allowed_kinds)[
+    return tuple(ref for ref in catalog._require_index()._refs if ref.kind in allowed_kinds)[
         :_SEMANTIC_INPUT_CANDIDATE_LIMIT
     ]
 
 
 def _semantic_input_expected(allowed_kinds: frozenset[SemanticKind]) -> str:
     kinds = ", ".join(sorted(kind.value for kind in allowed_kinds))
-    return f"exact Ref, current catalog entry, or catalog value with kind in {{{kinds}}}"
+    return f"native lookup symbol, current catalog entry, or catalog value with kind in {{{kinds}}}"
 
 
 def _physical_dependencies(
@@ -1739,16 +1834,21 @@ def _value_lookup_ref(value: object) -> Ref[SemanticKindTag] | None:
         return field.reference.ref
     if isinstance(value, TimeField) and value.path:
         return None
-    if isinstance(value, (Entity, Dimension, TimeField, Measure, Relationship)):
+    if isinstance(value, Entity):
+        return value._exact_ref.ref
+    if isinstance(value, Relationship):
+        return value._parameter.ref.ref
+    if isinstance(value, (Dimension, TimeField, Measure)):
         return value.ref.ref
     return None
 
 
 def _semantic_input_ref(value: object) -> Ref[SemanticKindTag] | None:
-    if type(value) is Ref:
-        return cast("Ref[SemanticKindTag]", value)
-    if isinstance(value, CatalogEntry) and type(value.ref) is Ref:
-        return cast("Ref[SemanticKindTag]", value.ref)
+    symbolic = native_symbol_ref(value)
+    if symbolic is not None:
+        return symbolic
+    if isinstance(value, CatalogEntry):
+        return value._ref
     return _value_lookup_ref(value)
 
 
@@ -1834,11 +1934,12 @@ def _normalize_semantic_input(
 
     index = catalog._require_index()
     entry: CatalogEntry[SemanticKindTag] | None = None
-    if type(value) is Ref:
-        exact_ref = value
+    symbolic = native_symbol_ref(value)
+    if symbolic is not None:
+        exact_ref = symbolic
     elif isinstance(value, CatalogEntry):
         entry = value
-        if type(entry.ref) is not Ref:
+        if type(entry._ref) is not Ref:
             _raise_invalid_semantic_input(
                 catalog=catalog,
                 value=value,
@@ -1846,7 +1947,7 @@ def _normalize_semantic_input(
                 location=location,
                 message="the entry does not carry an exact sealed Ref value.",
             )
-        exact_ref = entry.ref
+        exact_ref = entry._ref
         expected_entry_type = _ENTRY_TYPE_BY_KIND.get(exact_ref.kind)
         if type(entry) is not expected_entry_type:
             _raise_invalid_semantic_input(
@@ -1866,7 +1967,7 @@ def _normalize_semantic_input(
             if (
                 same_semantic_root
                 and current is not None
-                and current.ref.kind in allowed_kinds
+                and current._ref.kind in allowed_kinds
                 and type(current) is expected_entry_type
             ):
                 collection = CATALOG_COLLECTION_BY_KIND[exact_ref.kind]
@@ -1914,7 +2015,7 @@ def _normalize_semantic_input(
                 allowed_kinds=allowed_kinds,
                 location=location,
                 message=(
-                    "expected an exact Ref, a current catalog entry, or a catalog value; "
+                    "expected a native lookup symbol, a current catalog entry, or a catalog value; "
                     "bare strings, anonymous expressions, via-bound time fields, and "
                     "duck-typed objects are not accepted."
                 ),
@@ -1991,18 +2092,19 @@ def _normalize_semantic_input(
 
 
 def _require_semantic_ref(value: object, *, parameter: str) -> Ref[SemanticKindTag]:
-    if type(value) is Ref:
-        return cast("Ref[SemanticKindTag]", value)
+    symbolic = native_symbol_ref(value)
+    if symbolic is not None:
+        return symbolic
     _raise(
         ErrorKind.INVALID_REF,
-        f"catalog.{parameter} requires an exact Ref[kind]; received {type(value).__name__}. "
+        f"catalog.{parameter} requires a native lookup symbol; received {type(value).__name__}. "
         "Pass entry.ref when starting from catalog navigation, or construct one "
         "with the exact ms.ref.<kind>(path) factory.",
         cls=SemanticRuntimeError,
         constraint_id=ConstraintId.REF_SHAPE,
         details={
             "operation": f"catalog.{parameter}",
-            "expected": "exact Ref[kind]",
+            "expected": "native lookup symbol",
             "received_type": type(value).__name__,
         },
     )
@@ -2012,7 +2114,11 @@ def _require_readiness_input(
     catalog: SemanticCatalog,
     value: object,
 ) -> Ref[SemanticKindTag]:
-    if type(value) is Ref or isinstance(value, CatalogEntry) or _value_lookup_ref(value):
+    if (
+        native_symbol_ref(value) is not None
+        or isinstance(value, CatalogEntry)
+        or _value_lookup_ref(value)
+    ):
         return _normalize_semantic_input(
             catalog,
             cast("_SemanticInput", value),
@@ -2023,11 +2129,11 @@ def _require_readiness_input(
     repair_snippet: str | None = None
     repair_action = (
         "Inspect the relevant catalog collection, then pass its current value or entry, or "
-        "an exact typed Ref."
+        "a native lookup symbol."
     )
     if isinstance(value, str):
         candidates = tuple(
-            ref for ref in catalog._require_index().refs if value in {ref.path, ref.key}
+            ref for ref in catalog._require_index()._refs if value in {ref.path, ref.key}
         )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
         if len(candidates) == 1:
             candidate = candidates[0]
@@ -2044,7 +2150,7 @@ def _require_readiness_input(
             )
     message = (
         "catalog.readiness(refs=...) requires a current catalog value or entry, "
-        f"Ref[kind]; received {type(value).__name__}"
+        f"native lookup symbol; received {type(value).__name__}"
     )
     if isinstance(value, str):
         message += "; bare strings are not accepted."
@@ -2056,7 +2162,7 @@ def _require_readiness_input(
         cls=SemanticRuntimeError,
         constraint_id=ConstraintId.REF_SHAPE,
         hint=("Pass a current physical catalog value or entry, or exact ms.ref.<kind>(path)."),
-        expected="current catalog value or entry, exact Ref[kind]",
+        expected="current catalog value or entry, native lookup symbol",
         received=type(value).__name__,
         repair_value=repair(
             kind="inspect",
@@ -2067,7 +2173,7 @@ def _require_readiness_input(
         ),
         details={
             "operation": "catalog.readiness(refs=...)",
-            "expected": "current catalog value or entry, exact Ref[kind]",
+            "expected": "current catalog value or entry, native lookup symbol",
             "received_type": type(value).__name__,
             "candidates": tuple(candidate.key for candidate in candidates),
         },
@@ -2111,15 +2217,15 @@ def _build_datasource_object(
 ) -> DatasourceEntry:
     ref = ref_factory.datasource(ds_ir.semantic_id)
     details = DatasourceDetails(
-        ref=ref,
+        _ref=ref,
         kind=SemanticKind.DATASOURCE,
         name=ds_ir.name,
         domain=None,
         context=ds_ir.ai_context,
         source_location=_normalize_location(ds_ir.location),
-        parents=(),
-        children=(),
-        dependents=build_index.datasource_entities.get(ds_ir.semantic_id, ()),
+        _parents=(),
+        _children=(),
+        _dependents=build_index.datasource_entities.get(ds_ir.semantic_id, ()),
         python_symbol=ds_ir.python_symbol,
         backend_type=ds_ir.backend_type,
         fields=dict(ds_ir.fields),
@@ -2133,15 +2239,15 @@ def _build_domain_object(
 ) -> DomainEntry:
     ref = _make_ref(model_ir.name, SemanticKind.DOMAIN)
     details = DomainDetails(
-        ref=ref,
+        _ref=ref,
         kind=SemanticKind.DOMAIN,
         name=model_ir.name,
         domain=model_ir.name,
         context=model_ir.ai_context,
         source_location=model_ir.location,
-        parents=(),
-        children=build_index.domain_children.get(model_ir.name, ()),
-        dependents=(),
+        _parents=(),
+        _children=build_index.domain_children.get(model_ir.name, ()),
+        _dependents=(),
         python_symbol="",
         owner=model_ir.owner,
         default=model_ir.default,
@@ -2189,17 +2295,17 @@ def _build_period_calendar_object(
     dependents: tuple[Ref[SemanticKindTag], ...] = ()
     declared_levels = tuple((name, value) for name, value in levels)
     details = PeriodCalendarDetails(
-        ref=ref,
+        _ref=ref,
         kind=SemanticKind.PERIOD_CALENDAR,
         name=calendar_ir.name,
         domain=calendar_ir.domain,
         context=calendar_ir.ai_context,
         source_location=calendar_ir.location,
-        parents=parents,
-        children=(),
-        dependents=dependents,
+        _parents=parents,
+        _children=(),
+        _dependents=dependents,
         python_symbol=calendar_ir.python_symbol,
-        date=date_ref,
+        _date=date_ref,
         boundary_timezone=calendar_ir.boundary_timezone,
         coverage=(
             date.fromisoformat(calendar_ir.coverage[0]),
@@ -2208,7 +2314,7 @@ def _build_period_calendar_object(
         levels=tuple(
             CalendarLevelDetails(
                 name=name,
-                key_ref=cast("Ref[DimensionKind] | Ref[TimeDimensionKind]", value),
+                _key_ref=cast("Ref[DimensionKind] | Ref[TimeDimensionKind]", value),
                 period_count=None,
                 direct_finer_levels=None,
                 direct_coarser_levels=None,
@@ -2239,25 +2345,25 @@ def _build_temporal_set_object(
         value for value in (occurrence_ref, start_ref, end_ref, category_ref) if value is not None
     )
     details = TemporalSetDetails(
-        ref=ref,
+        _ref=ref,
         kind=SemanticKind.TEMPORAL_SET,
         name=temporal_set_ir.name,
         domain=temporal_set_ir.domain,
         context=temporal_set_ir.ai_context,
         source_location=temporal_set_ir.location,
-        parents=parents,
-        children=(),
-        dependents=(),
+        _parents=parents,
+        _children=(),
+        _dependents=(),
         python_symbol=temporal_set_ir.python_symbol,
         boundary_timezone=temporal_set_ir.boundary_timezone,
         coverage=(
             date.fromisoformat(temporal_set_ir.coverage[0]),
             date.fromisoformat(temporal_set_ir.coverage[1]),
         ),
-        occurrence_id=occurrence_ref,
-        start=start_ref,
-        end=end_ref,
-        category=category_ref,
+        _occurrence_id=occurrence_ref,
+        _start=start_ref,
+        _end=end_ref,
+        _category=category_ref,
         occurrence_count=None,
         snapshot_status="missing",
     )
@@ -2705,13 +2811,13 @@ class _CatalogIndex:
                 for item in registry.temporal_sets.values()
             ),
         )
-        self._entries = MappingProxyType({entry.ref: entry for entry in entries})
-        self.refs: tuple[Ref[SemanticKindTag], ...] = tuple(
+        self._entries = MappingProxyType({entry._ref: entry for entry in entries})
+        self._refs: tuple[Ref[SemanticKindTag], ...] = tuple(
             sorted((*self._entries, *self.values.refs), key=lambda ref: ref.key)
         )
-        known = frozenset(self.refs)
+        known = frozenset(self._refs)
         scopes: dict[Ref[SemanticKindTag], frozenset[Ref[SemanticKindTag]]] = {}
-        for ref in self.refs:
+        for ref in self._refs:
             owners: list[Ref[SemanticKindTag]] = []
             if ref.kind not in {SemanticKind.DOMAIN, SemanticKind.DATASOURCE}:
                 owners.append(ref_factory.domain(ref.path.split(".", 1)[0]))
@@ -2745,7 +2851,7 @@ class _CatalogIndex:
     ) -> tuple[Ref[SemanticKindTag], ...]:
         return tuple(
             ref
-            for ref in self.refs
+            for ref in self._refs
             if ref.kind in kinds and (scope_ref is None or scope_ref in self._scopes[ref])
         )
 
@@ -2852,7 +2958,7 @@ class SemanticCatalog(RenderableResult):
 
     def _repr_identity(self) -> str:
         fingerprint = self.definition_fingerprint[:12]
-        return f"SemanticCatalog fingerprint={fingerprint} objects={len(self._index.refs)}"
+        return f"SemanticCatalog fingerprint={fingerprint} objects={len(self._index._refs)}"
 
     def _card(self) -> Card:
         rows: list[tuple[str, str, str, str]] = []
@@ -2897,7 +3003,7 @@ class SemanticCatalog(RenderableResult):
         index = self._require_index()
         if type(key) is not str or ":" in key:
             candidates = tuple(
-                ref.path for ref in collection.refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+                ref.path for ref in collection._refs[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
             )
             _raise(
                 ErrorKind.INVALID_REF,
@@ -2916,7 +3022,7 @@ class SemanticCatalog(RenderableResult):
             )
         if "." in key:
             exact = tuple(
-                ref for ref in index.refs if ref.kind in collection._kinds and ref.path == key
+                ref for ref in index._refs if ref.kind in collection._kinds and ref.path == key
             )
             if exact:
                 ref = exact[0]
@@ -2943,7 +3049,7 @@ class SemanticCatalog(RenderableResult):
             available = tuple(
                 ref.path
                 for ref in sorted(
-                    collection.refs,
+                    collection._refs,
                     key=lambda ref: (-SequenceMatcher(None, key, ref.path).ratio(), ref.key),
                 )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
             )
@@ -2982,7 +3088,7 @@ class SemanticCatalog(RenderableResult):
                 received=key,
                 hint=f"Browse catalog.{collection._property_name}.show() and pass a displayed plain path.",
             )
-        refs = collection.refs
+        refs = collection._refs
         matches = tuple(ref for ref in refs if ref.name == key)
         if len(matches) == 1:
             return index.item(matches[0])
@@ -3055,12 +3161,12 @@ class SemanticCatalog(RenderableResult):
 
     def _require_ref(self, ref: Ref[SemanticKindTag]) -> None:
         """Validate exact internal identity in this compiled scope."""
-        exact_ref = _require_semantic_ref(ref, parameter="semantic identity")
+        exact_ref = ref
         index = self._require_index()
         if index.require(exact_ref) is not None:
             return
         collection = CATALOG_COLLECTION_BY_KIND[exact_ref.kind]
-        candidates = tuple(item.path for item in index.refs if item.kind is exact_ref.kind)[
+        candidates = tuple(item.path for item in index._refs if item.kind is exact_ref.kind)[
             :_SEMANTIC_INPUT_CANDIDATE_LIMIT
         ]
         _raise(
@@ -3084,11 +3190,11 @@ class SemanticCatalog(RenderableResult):
             },
         )
 
-    def describe(self, ref: Ref[SemanticKindTag], /) -> ExpressionContract:
+    def describe(self, ref: LookupSymbol, /) -> ExpressionContract:
         """Describe one Entity, field, Metric or Relationship without source access.
 
         Args:
-            ref: An exact semantic Ref present in this Catalog.
+            ref: A native semantic lookup symbol present in this Catalog.
         Returns:
             Bounded definition facts, dependencies and available expression operations.
         Example:
@@ -3132,13 +3238,13 @@ class SemanticCatalog(RenderableResult):
             location = declaration.location
             return ExpressionContract(
                 stage="declared_measure" if declaration.kind == "measure" else "published_metric",
-                ref=_Resolver(self._state).exact(target),
-                roots=roots,
+                _ref=_Resolver(self._state).exact(target),
+                _roots=roots,
                 unit=unit,
                 sum_permission=permission,
-                default_time=default_time,
+                _default_time=default_time,
                 computation=computation_fingerprint(node),
-                reads=self._state.dependencies.get(target, ()),
+                _reads=self._state.dependencies.get(target, ()),
                 name=declaration.name,
                 business_definition=context.business_definition if context else None,
                 guardrails=tuple(context.guardrails or ()) if context else (),
@@ -3182,7 +3288,7 @@ class SemanticCatalog(RenderableResult):
         """
         self._require_ready()
         if refs is None:
-            return self._project.readiness(refs=None)
+            return self._project._readiness(refs=None)
         inputs = tuple(_require_readiness_input(self, value) for value in refs)
         if not inputs:
             _raise(
@@ -3201,7 +3307,7 @@ class SemanticCatalog(RenderableResult):
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in duplicates),
             )
-        return self._project.readiness(refs=inputs)
+        return self._project._readiness(refs=inputs)
 
     def source_health(
         self,
@@ -3226,7 +3332,7 @@ class SemanticCatalog(RenderableResult):
                 cardinality expectation is inferred.
             scope: Required for data-reading checks and forbidden otherwise.
                 Use one ``AuthoringScope`` for one checked Entity or an exact
-                ``Ref[entity]`` mapping for multiple checked Entities.
+                Entity symbol/scope pair sequence for multiple checked Entities.
 
         Returns:
             SourceHealthReport with per-check status, observed identities,
@@ -3340,18 +3446,25 @@ class SemanticCatalog(RenderableResult):
             rows; metric previews independently aggregate at most 10,000 scoped
             input rows and must be treated as approximate.
         """
+        target = _normalize_semantic_input(
+            self,
+            ref,
+            allowed_kinds=_ALL_SEMANTIC_KINDS,
+            location="catalog.preview(ref)",
+            metric_preview=True,
+        )
+        bindings = normalize_preview_scope(
+            ref=target.path,
+            kind=target.kind,
+            scope=scope,
+            source_bindings=source_bindings,
+            registry=self._require_ready(),
+        )
         with self._project._connection_operation() as connections:
             return self._preview_one(
-                _normalize_semantic_input(
-                    self,
-                    ref,
-                    allowed_kinds=_ALL_SEMANTIC_KINDS,
-                    location="catalog.preview(ref)",
-                    metric_preview=True,
-                ),
-                scope=scope,
+                target,
+                bindings=bindings,
                 connections=connections,
-                source_bindings=source_bindings,
                 limit=limit,
                 include_types=include_types,
                 context_columns=context_columns,
@@ -3419,16 +3532,15 @@ class SemanticCatalog(RenderableResult):
         self,
         ref: Ref[SemanticKindTag],
         *,
-        scope: PreviewScope,
+        bindings: NormalizedPreviewScope,
         connections: DatasourceConnectionService,
-        source_bindings: PreviewSourceBindings | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
     ) -> PreviewResult:
         """Execute the existing one-object preview contract."""
         reg = self._require_ready()
-        ref_obj = _require_semantic_ref(ref, parameter="preview(ref)")
+        ref_obj = ref
         self._require_ref(ref_obj)
         ref_str = ref_obj.path
         kind = ref_obj.kind
@@ -3446,13 +3558,6 @@ class SemanticCatalog(RenderableResult):
             metric = self.metrics.get(ref_str)
             assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
-        bindings = normalize_preview_scope(
-            ref=ref_str,
-            kind=kind,
-            scope=scope,
-            source_bindings=source_bindings,
-            registry=reg,
-        )
         if kind is SemanticKind.METRIC and bindings.backend != "duckdb":
             from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -3777,9 +3882,7 @@ class SemanticCatalog(RenderableResult):
                 cls=SemanticRuntimeError,
                 details={"query_executed": False},
             )
-        ref_objects = tuple(
-            _require_semantic_ref(value, parameter="preview_many(refs)") for value in refs
-        )
+        ref_objects = tuple(refs)
         for ref_obj in ref_objects:
             self._require_ref(ref_obj)
         seen_refs: set[Ref[SemanticKindTag]] = set()
@@ -3900,18 +4003,7 @@ class SemanticCatalog(RenderableResult):
                         self._preview_one(
                             item.ref,
                             connections=connections,
-                            scope=(
-                                item.bindings.scopes[0][1]
-                                if len(item.bindings.entity_ids) == 1
-                                else {
-                                    _make_ref(entity_id, SemanticKind.ENTITY): bound_scope
-                                    for entity_id, bound_scope in item.bindings.scopes
-                                }
-                            ),
-                            source_bindings={
-                                _make_ref(entity_id, SemanticKind.ENTITY): params
-                                for entity_id, params in item.bindings.source_bindings.items()
-                            },
+                            bindings=item.bindings,
                             limit=preview_limit,
                             include_types=include_types,
                         ),

@@ -33,6 +33,7 @@ from marivo.semantic import catalog as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
+from tests.support.refs import as_ref
 
 _BackendKind = Literal["trino", "postgres", "mysql"]
 _PreviewPath = Literal["single", "rows", "metrics"]
@@ -93,16 +94,14 @@ def _probe(
                 'import marivo.semantic as ms\nms.domain(name="sales", owner="Data", default=True)\n'
             ),
             "sales/orders.py": textwrap.dedent(
-                """\
-                import marivo.datasource as md
+                """                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
                 refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="USD")
-                finalized = ms.finalize()
-                amount_value = finalized.resolve(amount)
+                amount_value = amount
                 @ms.metric()
                 def revenue():
                     return amount_value.sum()
@@ -291,12 +290,12 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
         ]
         batch = probe.catalog.preview_many(
             refs,
-            scope={
-                ms.ref.entity("sales.orders"): md.unpruned(max_rows=10, timeout_seconds=30),
-                ms.ref.entity("sales.refunds"): md.unpruned(max_rows=10, timeout_seconds=11),
-            },
+            scope=(
+                (ms.ref.entity("sales.orders"), md.unpruned(max_rows=10, timeout_seconds=30)),
+                (ms.ref.entity("sales.refunds"), md.unpruned(max_rows=10, timeout_seconds=11)),
+            ),
         )
-        assert batch.refs == tuple(ref.path for ref in refs)
+        assert batch.refs == tuple(as_ref(ref).path for ref in refs)
         assert len(probe.collected) == 2
         assert [backend._marivo_terminal_timeout_seconds for backend in probe.created] == [
             30,

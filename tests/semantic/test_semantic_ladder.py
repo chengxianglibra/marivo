@@ -8,6 +8,7 @@ from ibis.common.deferred import Deferred
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import (
     SemanticDecoratorError,
@@ -51,8 +52,8 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "def region(orders):\n"
                 "    return orders.region\n"
                 "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-                "finalized = ms.finalize()\n"
-                "amount_value = finalized.resolve(amount)\n"
+                ""
+                "amount_value = amount\n"
                 "@ms.metric()\n"
                 "def revenue():\n"
                 "    return amount_value.sum()\n"
@@ -73,7 +74,7 @@ def test_require_entity_is_static_without_audit_side_effects(
     result = ms.SemanticCatalog(project).entities.get("sales.orders")
 
     assert isinstance(result, Entity)
-    assert result.ref.ref == ms.ref.entity("sales.orders")
+    assert result._exact_ref.ref == ref_factory.entity("sales.orders")
     assert result.contract().stage == "entity"
     assert not (Path(project.state_root) / "evidence").exists()
 
@@ -84,7 +85,7 @@ def test_require_entity_uses_current_loaded_project(
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
     first = ms.SemanticCatalog(project).entities.get("sales.orders")
-    assert first.ref.ref == ms.ref.entity("sales.orders")
+    assert first._exact_ref.ref == ref_factory.entity("sales.orders")
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -107,8 +108,8 @@ def test_require_entity_uses_current_loaded_project(
     )
 
     second = ms.SemanticCatalog(project2).entities.get("sales.orders")
-    assert second.ref.ref == first.ref.ref
-    assert second.ref.version != first.ref.version
+    assert second._exact_ref.ref == first._exact_ref.ref
+    assert second._exact_ref.version != first._exact_ref.version
     assert not (Path(project2.state_root) / "evidence").exists()
 
 
@@ -233,7 +234,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
     result = ms.SemanticCatalog(project).fields.get("sales.orders.amount")
 
     assert isinstance(result, Deferred)
-    assert consume_field(result).reference.ref == ms.ref.measure("sales.orders.amount")
+    assert consume_field(result).reference.ref == ref_factory.measure("sales.orders.amount")
 
 
 def test_require_unknown_ref_is_not_found_when_loaded(

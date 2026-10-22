@@ -103,7 +103,9 @@ compatible work into one decision round.
 Choose disclosure for the current gap:
 
 - Unknown method: start at `marivo help analysis` and follow its relevant intent.
-- Unknown identity: browse a bounded catalog collection; with exact refs, resolve directly.
+- Unknown identity: browse a bounded catalog collection; select closed inputs by
+  exact path through the matching collection. Native lookup selectors belong only
+  to explicitly supported metadata/readiness operations, not ordinary analysis.
 - Missing syntax or precondition: read the exact callable Help.
 - Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`
   for complete names. Type Help lists operations when the next method is unknown.

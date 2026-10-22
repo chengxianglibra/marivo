@@ -18,9 +18,6 @@ Public surface::
         additivity=ms.additive_all(), unit="USD",
     )
 
-    finalized = ms.finalize()
-    amount = finalized.resolve(amount)
-
     @ms.metric()
     def revenue():
         return amount.sum()
@@ -28,12 +25,11 @@ Public surface::
 
 from __future__ import annotations
 
+from marivo._symbolic import symbol_factory as ref
 from marivo.refs import (
     PeriodCalendarKind,
-    Ref,
     SemanticKind,
     TemporalSetKind,
-    ref,
 )
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
@@ -47,7 +43,6 @@ from marivo.semantic.authoring import (
     dimension_column,
     domain,
     entity,
-    finalize,
     hour_prefix,
     join_on,
     measure,
@@ -135,7 +130,6 @@ __all__ = [
     "PeriodCalendarKind",
     "PreviewBatchResult",
     "ReadinessReport",
-    "Ref",
     "SemanticCatalog",
     "SemanticKind",
     "SourceCheck",
@@ -154,7 +148,6 @@ __all__ = [
     "domain",
     "entity",
     "errors",
-    "finalize",
     "hour_prefix",
     "join_on",
     "load",

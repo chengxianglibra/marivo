@@ -54,7 +54,6 @@ from marivo.semantic._capabilities.naming import semantic_target
 OUTPUT_FAMILIES = frozenset(
     {
         "Dimension | TimeField | Measure",
-        "FinalizedDeclarations",
         "ExpressionContract",
         "Entity | Deferred | Relationship",
         "SemanticCatalog",
@@ -78,19 +77,19 @@ OUTPUT_FAMILIES = frozenset(
         "RelationshipMatchesSourceCheck",
         "RelationshipCardinalitySourceCheck",
         "SourceHealthReport",
-        "Ref",
-        "Ref[domain]",
-        "Ref[datasource]",
-        "Ref[entity]",
-        "Ref[dimension]",
-        "Ref[time_dimension]",
-        "Ref[measure]",
-        "Ref[metric]",
-        "Ref[relationship]",
-        "Ref[period_calendar]",
-        "Ref[temporal_set]",
-        "Ref[dimension | time_dimension]",
-        "Ref[dimension | time_dimension | measure]",
+        "LookupSymbol",
+        "DomainSymbol",
+        "DatasourceSymbol",
+        "EntitySymbol",
+        "DimensionSymbol",
+        "TimeDimensionSymbol",
+        "MeasureSymbol",
+        "MetricSymbol",
+        "RelationshipSymbol",
+        "PeriodCalendarSymbol",
+        "TemporalSetSymbol",
+        "DimensionSymbol | TimeDimensionSymbol",
+        "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "JoinKey",
         "AiContextValue",
         "Additivity",
@@ -127,26 +126,25 @@ INPUT_FAMILIES = frozenset(
         "TimeScope",
         "WindowRule",
         "Expression",
-        "FinalizedDeclarations",
         "Field",
         "IbisTable",
         "Duration",
-        "Ref",
-        "Ref[domain]",
-        "Ref[datasource]",
-        "Ref[entity]",
-        "Ref[dimension]",
-        "Ref[time_dimension]",
-        "Ref[measure]",
-        "Ref[metric]",
-        "Ref[relationship]",
-        "tuple[Ref[relationship], ...]",
+        "LookupSymbol",
+        "DomainSymbol",
+        "DatasourceSymbol",
+        "EntitySymbol",
+        "DimensionSymbol",
+        "TimeDimensionSymbol",
+        "MeasureSymbol",
+        "MetricSymbol",
+        "RelationshipSymbol",
+        "tuple[RelationshipSymbol, ...]",
         "NullInputPolicyV1",
         "EmptyContributionPolicyV1",
-        "Ref[period_calendar]",
-        "Ref[temporal_set]",
-        "Ref[dimension | time_dimension]",
-        "Ref[dimension | time_dimension | measure]",
+        "PeriodCalendarSymbol",
+        "TemporalSetSymbol",
+        "DimensionSymbol | TimeDimensionSymbol",
+        "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "CatalogEntry",
         "DomainEntry",
         "DatasourceEntry",
@@ -159,12 +157,12 @@ INPUT_FAMILIES = frozenset(
         "ReadinessIssue",
         "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
         "tuple[Grouping, ...]",
-        "CatalogEntry | Ref",
+        "CatalogEntry | LookupSymbol",
         "CatalogCollection",
         "str",
         "SemanticCatalog",
         "SemanticKind",
-        "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+        "AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]",
         "SourceCheck",
         "NotNullSourceCheck",
         "AllowedValuesSourceCheck",
@@ -172,7 +170,7 @@ INPUT_FAMILIES = frozenset(
         "FreshnessSourceCheck",
         "RelationshipMatchesSourceCheck",
         "RelationshipCardinalitySourceCheck",
-        "Mapping[Ref[entity], JSON source parameter mapping]",
+        "Sequence[tuple[EntitySymbol, JSON source parameter mapping]]",
         "HelpTarget",
         "DomainName",
         "EntityName",
@@ -525,9 +523,9 @@ def _object_contract(
         summary=summary,
         semantic_kind=kind,
         construction_families={
-            SemanticKind.MEASURE: ("Ref[measure]", "Deferred"),
+            SemanticKind.MEASURE: ("MeasureSymbol", "Deferred"),
             SemanticKind.METRIC: ("Deferred",),
-        }.get(kind, (f"Ref[{kind.value}]",)),
+        }.get(kind, (_symbol_family(kind),)),
         ref_target=_target(f"ref.{kind.value}"),
         catalog_collection=source_contract.catalog_collection,
         placement_kind=source_contract.placement_kind,
@@ -1268,8 +1266,8 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("authoring"),
             action=(
-                "Move physical capture and ms.finalize() into a semantic model loaded through "
-                "ms.load(); compose pure declarations from resolved values after finalization."
+                "Move physical declarations into a semantic model loaded through "
+                "ms.load(); compose native symbols directly and retrieve closed inputs from the Catalog."
             ),
             snippet=(
                 "# models/semantic/<domain>/<module>.py\n"
@@ -1298,7 +1296,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("bind"),
             action=(
-                "Assign a captured field Ref or finalized physical field value to a module-level "
+                "Assign a native field symbol or closed physical field value to a module-level "
                 "name before the decorator, then pass that bare name to ms.bind. For a "
                 "cross-file field, use ms.ref.<kind>(the field's exact existing path). "
                 "Use ms.bind only in the retained Ibis Dimension/TimeDimension bodies."
@@ -1683,7 +1681,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
     }
     for contract in object_contracts:
         kind = contract.semantic_kind
-        expected_ref_family = f"Ref[{kind.value}]"
+        expected_ref_family = _symbol_family(kind)
         if contract.canonical_id not in {f"objects.{kind.value}", kind.value}:
             raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
         if contract.catalog_collection != catalog_collection_by_kind[kind]:
@@ -2072,6 +2070,57 @@ def _finalize_registry(
     )
 
 
+def _symbol_family(kind: SemanticKind) -> str:
+    return "".join(part.title() for part in kind.value.split("_")) + "Symbol"
+
+
+def _ref_role(kind: SemanticKind) -> tuple[str, tuple[LiveHelpTarget, ...]]:
+    """Keep each native lookup's static role with its owning operations."""
+    roles: dict[SemanticKind, tuple[str, tuple[LiveHelpTarget, ...]]] = {
+        SemanticKind.DOMAIN: (
+            "Parameter-only Domain identity for domain= and Catalog navigation; no numeric operations.",
+            (_target("domain"),),
+        ),
+        SemanticKind.DATASOURCE: (
+            "Parameter-only Datasource identity for datasource= and datasource inspection; no numeric operations.",
+            (_target("entity"), LiveHelpTarget(surface="datasource", canonical_id="inspect")),
+        ),
+        SemanticKind.ENTITY: (
+            "Entity identity supports count() and identity parameters; it is not a numeric row field.",
+            (_target("Entity.count"), _target("entity")),
+        ),
+        SemanticKind.DIMENSION: (
+            "Categorical field for comparisons and grouping; numeric casts do not grant Measure sum permission.",
+            (_target("field"), _target("dimension")),
+        ),
+        SemanticKind.TIME_DIMENSION: (
+            "TimeField for time=, time predicates and grouping; its role and ownership are checked at binding.",
+            (_target("TimeField.within"), _target("time_dimension")),
+        ),
+        SemanticKind.MEASURE: (
+            "Numeric row field or declared Measure; arithmetic and source reductions retain unit and sum permission.",
+            (_target("row.sum"), _target("measure")),
+        ),
+        SemanticKind.METRIC: (
+            "Completed Metric for Metric arithmetic, filtering and per(...).reducer(); never a row-field identity.",
+            (_target("Metric.per"), _target("metric")),
+        ),
+        SemanticKind.RELATIONSHIP: (
+            "Parameter-only directed relationship for explicit via paths and relationship checks; no numeric operations.",
+            (_target("Field.via"), _target("relationship")),
+        ),
+        SemanticKind.PERIOD_CALENDAR: (
+            "Parameter-only calendar identity for calendar= and calendar_grain; authority still requires certification.",
+            (_target("calendar_grain"), _target("period_calendar")),
+        ),
+        SemanticKind.TEMPORAL_SET: (
+            "Parameter-only temporal-set identity for navigation and temporal authority; no numeric operations.",
+            (_target("temporal_set"),),
+        ),
+    }
+    return roles[kind]
+
+
 def _ref_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     """Build the closed public ``ms.ref`` factory contract and exact leaves."""
 
@@ -2079,24 +2128,27 @@ def _ref_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     parent = _capability(
         "ref",
         None,
-        "Create one immutable exact-kind semantic identity for a known path.",
+        "Create a native typed Deferred lookup symbol for an exact path; no lookup or source read occurs.",
         kind="boundary",
-        output="Ref",
+        output="LookupSymbol",
         effects=_NONE,
         see_also=tuple(_target(f"ref.{kind.value}") for kind in kinds),
     )
     leaves = tuple(
         _capability(
             f"ref.{kind.value}",
-            f"marivo.refs._RefFactory.{kind.value}",
-            f"Create an exact {kind.value} ref from its kind-relative canonical path.",
+            f"marivo._symbolic._SymbolFactory.{kind.value}",
+            f"Create a native {kind.value} Deferred symbol from an exact path. "
+            + _ref_role(kind)[0]
+            + " Compose supported recipes directly; the loader binds them. Metadata selectors require a native leaf. Equality builds a recipe; bool, hash, dictionary keys and container membership are not identity operations. Invalid attributes and methods fail when a declaration or parameter captures the recipe; unconsumed recipes and formatted strings have no such guarantee.",
             kind="method",
-            output=f"Ref[{kind.value}]",
+            output=_symbol_family(kind),
             inputs=(_parameter_input("subject", "Text", "path"),),
             effects=_NONE,
             constraints=("ref_shape",),
             example=f"ms.ref.{kind.value}({_ref_example_path(kind)!r})",
             public_entrypoint=f"ms.ref.{kind.value}",
+            see_also=_ref_role(kind)[1],
         )
         for kind in kinds
     )
@@ -2126,7 +2178,9 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             kind="method",
             output="NotNullSourceCheck",
             inputs=(
-                _parameter_input("subject", "Ref[dimension | time_dimension | measure]", "field"),
+                _parameter_input(
+                    "subject", "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol", "field"
+                ),
             ),
             effects=_NONE,
             example="ms.source_check.not_null(ms.ref.dimension('sales.orders.region'))",
@@ -2139,7 +2193,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             kind="method",
             output="AllowedValuesSourceCheck",
             inputs=(
-                _parameter_input("subject", "Ref[dimension | time_dimension]", "field"),
+                _parameter_input("subject", "DimensionSymbol | TimeDimensionSymbol", "field"),
                 _parameter_input("dependency", "SourceScalarSequence", "values"),
             ),
             effects=_NONE,
@@ -2158,7 +2212,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             inputs=(
                 _parameter_input(
                     "subject",
-                    "Ref[dimension | time_dimension | measure]",
+                    "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
                     "fields",
                 ),
             ),
@@ -2173,7 +2227,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             kind="method",
             output="FreshnessSourceCheck",
             inputs=(
-                _parameter_input("subject", "Ref[time_dimension]", "field"),
+                _parameter_input("subject", "TimeDimensionSymbol", "field"),
                 _parameter_input("dependency", "Duration", "max_age"),
             ),
             effects=_NONE,
@@ -2191,7 +2245,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             kind="method",
             output="RelationshipMatchesSourceCheck",
             inputs=(
-                _parameter_input("subject", "Ref[relationship]", "relationship"),
+                _parameter_input("subject", "RelationshipSymbol", "relationship"),
                 _parameter_input("dependency", "RelationshipSide", "side"),
             ),
             effects=_NONE,
@@ -2208,7 +2262,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
             kind="method",
             output="RelationshipCardinalitySourceCheck",
             inputs=(
-                _parameter_input("subject", "Ref[relationship]", "relationship"),
+                _parameter_input("subject", "RelationshipSymbol", "relationship"),
                 _parameter_input("dependency", "RelationshipCardinality", "expected"),
             ),
             effects=_NONE,
@@ -2225,30 +2279,6 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
 def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
     """Canonical receiver contracts; dispatch never depends on method spelling alone."""
     rows: list[AuthoringCapability] = [
-        _capability(
-            "finalize",
-            "marivo.semantic.expressions.finalize",
-            "Close physical capture after every dependency is declared. Assembly closes default-time, coordinate and retained Ibis dependencies. Constructed inputs resolve by kind/path in this scope without original-version matching; Refs retain forward-reference semantics. Resolve captured Refs from this immutable result. No module replay, source reads, Metric publication or execution. Closed scopes reject later declarations.",
-            output="FinalizedDeclarations",
-            effects=_NONE,
-            example="finalized = ms.finalize()",
-            see_also=(_target("FinalizedDeclarations.resolve"),),
-        ),
-        _capability(
-            "FinalizedDeclarations.resolve",
-            "marivo.semantic.expressions.FinalizedDeclarations.resolve",
-            "Resolve a physical capture Ref into the exact Entity, Dimension, TimeField, Measure or Relationship value in this frozen scope. Default time, permission coordinates and retained Ibis dependencies come from the complete closure. A missing key requires recapturing before finalization.",
-            kind="method",
-            output="Entity | Deferred | Relationship",
-            inputs=(
-                AuthoringInputRequirement(role="receiver", family="FinalizedDeclarations"),
-                _parameter_input("dependency", "Ref", "target"),
-            ),
-            effects=_NONE,
-            example="amount = finalized.resolve(amount_ref)",
-            public_entrypoint="finalized.resolve",
-            see_also=(_target("finalize"), _target("expressions")),
-        ),
         _capability(
             "Entity.show",
             "marivo.semantic.expressions._ExpressionDisplay.show",
@@ -2278,18 +2308,6 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 _target("expressions"),
                 LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),
             ),
-        ),
-        _capability(
-            "FinalizedDeclarations.show",
-            "marivo.semantic.expressions.FinalizedDeclarations.show",
-            "Print the frozen physical definition count and how to resolve captured lookup keys. Does not read source data, publish Catalog Metrics or execute a query.",
-            kind="method",
-            output="None",
-            inputs=(AuthoringInputRequirement(role="receiver", family="FinalizedDeclarations"),),
-            effects=_NONE,
-            example="finalized.show()",
-            public_entrypoint="finalized.show",
-            see_also=(_target("FinalizedDeclarations.resolve"),),
         ),
         _capability(
             "Field.isin",
@@ -2619,7 +2637,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "domain",
             "marivo.semantic._authoring_declarations.domain",
             "Declare a semantic domain namespace.",
-            output="Ref[domain]",
+            output="DomainSymbol",
             inputs=(
                 _parameter_input("mapping_key", "DomainName", "name"),
                 _parameter_input("dependency", "OwnerName", "owner"),
@@ -2638,10 +2656,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "current physical column names and types."
                 " Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own all downstream fields and identity/version rules."
             ),
-            output="Ref[entity]",
+            output="EntitySymbol",
             inputs=(
                 _parameter_input("mapping_key", "EntityName", "name", optional=True),
-                _parameter_input("dependency", "Ref[datasource]", "datasource"),
+                _parameter_input("dependency", "DatasourceSymbol", "datasource"),
                 _parameter_input("dependency", "TableName", "source"),
             ),
             effects=_AUTHOR,
@@ -2670,10 +2688,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "dimension",
             "marivo.semantic._authoring_decorators.dimension",
             "Declare a calculated dimension on an entity.",
-            output="Ref[dimension]",
+            output="DimensionSymbol",
             inputs=(
                 _parameter_input("mapping_key", "DimensionName", "name", optional=True),
-                _parameter_input("subject", "Ref[entity]", "entity"),
+                _parameter_input("subject", "EntitySymbol", "entity"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
@@ -2688,10 +2706,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "dimension_column",
             "marivo.semantic._authoring_decorators.dimension_column",
             "Declare a column-backed dimension on an entity.",
-            output="Ref[dimension]",
+            output="DimensionSymbol",
             inputs=(
                 _parameter_input("mapping_key", "DimensionName", "name"),
-                _parameter_input("subject", "Ref[entity]", "entity"),
+                _parameter_input("subject", "EntitySymbol", "entity"),
                 _parameter_input("dependency", "ColumnName", "column"),
             ),
             effects=_AUTHOR,
@@ -2702,10 +2720,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "time_dimension",
             "marivo.semantic._authoring_decorators.time_dimension",
             "Declare a calculated time dimension on an entity.",
-            output="Ref[time_dimension]",
+            output="TimeDimensionSymbol",
             inputs=(
                 _parameter_input("mapping_key", "TimeDimensionName", "name", optional=True),
-                _parameter_input("subject", "Ref[entity]", "entity"),
+                _parameter_input("subject", "EntitySymbol", "entity"),
                 _parameter_input("dependency", "ParseVariant", "parse", optional=True),
                 _parameter_input(
                     "dependency", "tuple[int, minute | hour]", "sample_interval", optional=True
@@ -2729,10 +2747,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "time_dimension_column",
             "marivo.semantic._authoring_decorators.time_dimension_column",
             "Declare a column-backed time dimension on an entity.",
-            output="Ref[time_dimension]",
+            output="TimeDimensionSymbol",
             inputs=(
                 _parameter_input("mapping_key", "TimeDimensionName", "name"),
-                _parameter_input("subject", "Ref[entity]", "entity"),
+                _parameter_input("subject", "EntitySymbol", "entity"),
                 _parameter_input("dependency", "ColumnName", "column"),
                 _parameter_input("dependency", "ParseVariant", "parse", optional=True),
                 _parameter_input(
@@ -2755,11 +2773,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "period_calendar",
             "marivo.semantic._authoring_temporal.period_calendar",
             "Declare a finite governed period calendar over an exhaustive civil-date spine.",
-            output="Ref[period_calendar]",
+            output="PeriodCalendarSymbol",
             inputs=(
                 _parameter_input("mapping_key", "Text", "name"),
-                _parameter_input("subject", "Ref[time_dimension]", "date"),
-                _parameter_input("dependency", "Ref[dimension]", "levels"),
+                _parameter_input("subject", "TimeDimensionSymbol", "date"),
+                _parameter_input("dependency", "DimensionSymbol", "levels"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
@@ -2776,13 +2794,13 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "temporal_set",
             "marivo.semantic._authoring_temporal.temporal_set",
             "Declare a finite governed set of named temporal occurrences.",
-            output="Ref[temporal_set]",
+            output="TemporalSetSymbol",
             inputs=(
                 _parameter_input("mapping_key", "Text", "name"),
-                _parameter_input("subject", "Ref[dimension]", "occurrence_id"),
-                _parameter_input("dependency", "Ref[time_dimension]", "start"),
-                _parameter_input("dependency", "Ref[time_dimension]", "end"),
-                _parameter_input("dependency", "Ref[dimension]", "category", optional=True),
+                _parameter_input("subject", "DimensionSymbol", "occurrence_id"),
+                _parameter_input("dependency", "TimeDimensionSymbol", "start"),
+                _parameter_input("dependency", "TimeDimensionSymbol", "end"),
+                _parameter_input("dependency", "DimensionSymbol", "category", optional=True),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
@@ -2798,7 +2816,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Construct a source-free semantic Grain lookup for one governed calendar level. Metric windows bind it against the consuming Session's frozen certified scope; naming does not require a loaded calendar.",
             output="Grain",
             inputs=(
-                _parameter_input("subject", "Ref[period_calendar]", "calendar"),
+                _parameter_input("subject", "PeriodCalendarSymbol", "calendar"),
                 _parameter_input("dependency", "Granularity", "level"),
             ),
             effects=_NONE,
@@ -2822,9 +2840,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example=(
                 "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
                 "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
-                "finalized = ms.finalize()\n"
-                "quantity = finalized.resolve(quantity)\n"
-                "unit_price = finalized.resolve(unit_price)\n"
                 "@ms.measure(additivity=ms.additive_all())\n"
                 "def order_amount():\n    return quantity * unit_price"
             ),
@@ -2835,14 +2850,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "measure_column",
             "marivo.semantic._authoring_decorators.measure_column",
             "Declare a column-backed measure on an entity." + _ADDITIVITY_HELP,
-            output="Ref[measure]",
+            output="MeasureSymbol",
             inputs=(
                 _parameter_input("mapping_key", "MeasureName", "name"),
-                _parameter_input("subject", "Ref[entity]", "entity"),
+                _parameter_input("subject", "EntitySymbol", "entity"),
                 _parameter_input("dependency", "ColumnName", "column"),
                 _parameter_input("dependency", "Additivity", "additivity"),
                 _parameter_input(
-                    "dependency", "Ref[time_dimension]", "status_time_dimension", optional=True
+                    "dependency", "TimeDimensionSymbol", "status_time_dimension", optional=True
                 ),
             ),
             effects=_AUTHOR,
@@ -2856,7 +2871,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "relationship",
             "marivo.semantic._authoring_decorators.relationship",
             "Declare a directed Entity mapping; key coverage derives structural cardinality, not required matches.",
-            output="Ref[relationship]",
+            output="RelationshipSymbol",
             inputs=(
                 _parameter_input("mapping_key", "RelationshipName", "name"),
                 _parameter_input("subject", "RelationshipEndpoint", "from_entity"),
@@ -2891,10 +2906,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "bind",
             "marivo.semantic._authoring_values.bind",
-            "Apply a constructed leaf field or explicit lookup Ref to a direct Entity table parameter inside a restricted Ibis Dimension/TimeDimension declaration. Finalization checks kind and ownership in the completed consumer scope; lookup Refs allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.",
+            "Apply a constructed leaf field or native lookup symbol to a direct Entity table parameter inside a restricted Ibis Dimension/TimeDimension declaration. Loader binding checks kind and ownership in the completed consumer scope; lookup symbols allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.",
             output="IbisValue",
             inputs=(
-                _parameter_input("subject", "Ref[dimension | time_dimension | measure]", "field"),
+                _parameter_input(
+                    "subject", "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol", "field"
+                ),
                 _parameter_input("dependency", "IbisTable", "entity_alias"),
             ),
             effects=_NONE,
@@ -2908,7 +2925,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions and a leading docstring are allowed; arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
             output="Deferred",
             inputs=(
-                _parameter_input("dependency", "Ref[domain]", "domain", optional=True),
+                _parameter_input("dependency", "DomainSymbol", "domain", optional=True),
                 _parameter_input("dependency", "AiContextValue", "ai_context", optional=True),
             ),
             effects=_NONE,
@@ -2916,9 +2933,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example=(
                 "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
                 "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
-                "finalized = ms.finalize()\n"
-                "quantity = finalized.resolve(quantity)\n"
-                "unit_price = finalized.resolve(unit_price)\n"
                 "@ms.measure(additivity=ms.additive_all())\n"
                 "def amount():\n    return quantity * unit_price\n"
                 "@ms.metric()\ndef revenue():\n    return amount.sum()"
@@ -2962,7 +2976,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_values.additive",
             "Declare exactly the native coordinates on which values may be added.",
             output="Additivity",
-            inputs=(_parameter_input("dependency", "Ref[dimension | time_dimension]", "over"),),
+            inputs=(
+                _parameter_input("dependency", "DimensionSymbol | TimeDimensionSymbol", "over"),
+            ),
             effects=_AUTHOR,
             constraints=("ref_shape",),
             example="ms.additive(over=(region,))",
@@ -2981,7 +2997,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=("ref_shape",),
             inputs=(
                 _parameter_input(
-                    "dependency", "Ref[dimension | time_dimension]", "except_", optional=True
+                    "dependency", "DimensionSymbol | TimeDimensionSymbol", "except_", optional=True
                 ),
             ),
             effects=_AUTHOR,
@@ -3050,13 +3066,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="PreviewResult",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "CatalogEntry | Ref", "ref"),
+                _parameter_input("subject", "CatalogEntry | LookupSymbol", "ref"),
                 _parameter_input(
-                    "scope", "AuthoringScope | Mapping[Ref[entity], AuthoringScope]", "scope"
+                    "scope",
+                    "AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]",
+                    "scope",
                 ),
                 _parameter_input(
                     "dependency",
-                    "Mapping[Ref[entity], JSON source parameter mapping]",
+                    "Sequence[tuple[EntitySymbol, JSON source parameter mapping]]",
                     "source_bindings",
                     optional=True,
                 ),
@@ -3089,16 +3107,18 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
                     role="subject",
-                    family="CatalogEntry | Ref",
+                    family="CatalogEntry | LookupSymbol",
                     parameter_names=("refs",),
                     max_count=None,
                 ),
                 _parameter_input(
-                    "scope", "AuthoringScope | Mapping[Ref[entity], AuthoringScope]", "scope"
+                    "scope",
+                    "AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]",
+                    "scope",
                 ),
                 _parameter_input(
                     "dependency",
-                    "Mapping[Ref[entity], JSON source parameter mapping]",
+                    "Sequence[tuple[EntitySymbol, JSON source parameter mapping]]",
                     "source_bindings",
                     optional=True,
                 ),
@@ -3149,14 +3169,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
                     role="subject",
-                    family="CatalogEntry | Ref",
+                    family="CatalogEntry | LookupSymbol",
                     parameter_names=("refs",),
                     max_count=None,
                 ),
                 _parameter_input("dependency", "SourceCheck", "checks", optional=True),
                 _parameter_input(
                     "scope",
-                    "AuthoringScope | Mapping[Ref[entity], AuthoringScope]",
+                    "AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]",
                     "scope",
                     optional=True,
                 ),
@@ -3178,7 +3198,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="ReadinessReport",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "CatalogEntry | Ref", "refs", optional=True),
+                _parameter_input("subject", "CatalogEntry | LookupSymbol", "refs", optional=True),
             ),
             effects=_LOCAL,
             example="catalog.readiness(refs=[ms.ref.measure('sales.orders.amount')])",
@@ -3203,7 +3223,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="ExpressionContract",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "Ref", "ref"),
+                _parameter_input("subject", "LookupSymbol", "ref"),
             ),
             effects=_LOCAL,
             example="catalog.describe(ms.ref.metric('sales.revenue')).show()",
@@ -3229,7 +3249,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         row.model_copy(
             update={
                 "summary": row.summary
-                + " Capture returns a typed lookup Ref; after all physical declarations call ms.finalize(), then finalized.resolve(ref) before composition."
+                + " Capture returns a native typed Deferred symbol. Compose it directly; the loader binds the complete dependency scope before Catalog publication."
             }
         )
         if row.canonical_id
@@ -3274,7 +3294,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="field",
-                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Capture physical fields with their constructors, then finalize and resolve their Refs before composition. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
+                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Compose native field symbols directly; the loader binds their complete dependency scope before Catalog publication. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
                 members=(
                     _navigation_route("source boolean conditions", _target("predicate")),
                     _navigation_route(
@@ -3349,15 +3369,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="expressions",
-                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Bare Refs are lookup keys. Local declarations do not publish Catalog Metrics or execute queries. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); untyped Decimal literals bind their own digits/exponent. Result convergence uses ties away from zero. SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved results keep committed types and values without new rounding.",
+                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Native lookup symbols compose before loading; Analysis requires closed Catalog values. Local declarations do not publish Catalog Metrics or execute queries. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); untyped Decimal literals bind their own digits/exponent. Result convergence uses ties away from zero. SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved results keep committed types and values without new rounding.",
                 members=tuple(
                     _navigation_route(label, _target(target))
                     for label, target in (
-                        ("close physical capture", "finalize"),
-                        ("resolve captured Refs", "FinalizedDeclarations.resolve"),
                         ("inspect Entity/Relationship metadata", "Entity.show"),
                         ("inspect published expression definitions", "SemanticCatalog.describe"),
-                        ("inspect finalized declarations", "FinalizedDeclarations.show"),
                         ("numeric source reductions", "expressions.row"),
                         ("complete row counts", "Entity.count"),
                         ("sample reductions", "expressions.MetricSamples"),
@@ -3378,13 +3395,12 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
+    from marivo._symbolic import symbol_factory as ref_factory
     from marivo.preview import PreviewResult
     from marivo.refs import (
         PeriodCalendarKind,
-        Ref,
         SemanticKind,
     )
-    from marivo.refs import ref as ref_factory
     from marivo.semantic.catalog import (
         CalendarLevelDetails,
         CalendarPeriodPage,
@@ -3710,13 +3726,12 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     from marivo.semantic.expressions import (
         Entity,
         ExpressionContract,
-        FinalizedDeclarations,
         Relationship,
     )
 
     for expression_type, family, producers, methods in (
-        (Entity, "Entity", ("FinalizedDeclarations.resolve",), ("count", "contract", "show")),
-        (Relationship, "Relationship", ("FinalizedDeclarations.resolve",), ("contract", "show")),
+        (Entity, "Entity", ("CatalogCollection.get",), ("count", "contract", "show")),
+        (Relationship, "Relationship", ("CatalogCollection.get",), ("contract", "show")),
     ):
         add(
             expression_type,
@@ -3736,32 +3751,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "Bounded source-free definition facts; analysis computation belongs to AnalysisFrame.compute()/persist().",
         ),
     )
-    add(
-        FinalizedDeclarations,
-        "FinalizedDeclarations",
-        ("finalize",),
-        methods=("resolve", "show"),
-        notes=(
-            "Physical capture is closed. Values have immutable complete dependency versions; local Metric publication and execution remain separate capabilities.",
-        ),
-    )
     # Identity types
-    add(
-        Ref,
-        "Ref",
-        (
-            "domain",
-            "period_calendar",
-            "temporal_set",
-        ),
-        properties=("kind", "path", "key", "name"),
-        consumers=(
-            "preview",
-            "preview_many",
-            "source_health",
-            "readiness",
-        ),
-    )
     add(
         type(ref_factory),
         "ref",

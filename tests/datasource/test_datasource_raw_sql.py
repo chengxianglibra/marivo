@@ -22,6 +22,8 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 
 
 def _register_raw_sql_fixture(project_root: Path) -> None:
@@ -76,7 +78,7 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     )
 
     assert isinstance(result, RawSqlResult)
-    assert result.datasource == ms.ref.datasource("warehouse")
+    assert as_ref(result.datasource) == ref_factory.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 2
     assert result.row_count == 2
@@ -698,7 +700,7 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     from marivo.datasource.manage import RawSqlResult
 
     result = RawSqlResult(
-        datasource=ms.ref.datasource("wh"),
+        _datasource=ref_factory.datasource("wh"),
         backend_type="duckdb",
         sql="SELECT data FROM tbl",
         reason="recursive isolation",
@@ -721,7 +723,7 @@ def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
 
     with pytest.raises(ValueError, match="returned_row_count must equal"):
         RawSqlResult(
-            datasource=ms.ref.datasource("wh"),
+            _datasource=ref_factory.datasource("wh"),
             backend_type="duckdb",
             sql="SELECT ok",
             reason="validate bounded result count",

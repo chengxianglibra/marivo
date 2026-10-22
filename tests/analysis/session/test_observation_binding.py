@@ -24,7 +24,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic.errors import SemanticError
-from marivo.semantic.expressions import Entity
+from marivo.semantic.expressions import Entity, relationship_parameter
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
@@ -104,9 +104,9 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
         code += 'other_buyer = ms.relationship(name="other_buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])\n'
     return (
         code
-        + """finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-refund_value = finalized.resolve(refund_amount)
+        + """# Named expressions
+amount_value = amount
+refund_value = refund_amount
 @ms.metric()
 def revenue():
     return amount_value.sum()
@@ -261,7 +261,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(
     assert binding is not None and binding.period is None
     assert binding.contributions[0].period is None
     assert _captured_graph(query).fingerprint == _captured_graph(explicit_none).fingerprint
-    assert binding.contributions[0].reads[-1].path == (buyer.ref,)
+    assert binding.contributions[0].reads[-1].path == (relationship_parameter(buyer).ref,)
     changed = session.observe(
         {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "EMEA"
     )
@@ -310,7 +310,7 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     contribution = _captured_observation(query).contributions[0]
     assert contribution.time is not None
     assert contribution.time.field == consume_field(time).reference
-    assert contribution.time.path == (buyer.ref,)
+    assert contribution.time.path == (relationship_parameter(buyer).ref,)
     assert contribution.root == consume_field(amount).root
     assert terminal_runs(session) == ()
 
@@ -478,13 +478,13 @@ def test_declared_metric_binds_inline_scalar_via(
     field_kind: str,
 ) -> None:
     source = _model().replace(
-        "finalized = ms.finalize()",
-        'credit = ms.measure_column(name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY")\nfinalized = ms.finalize()',
+        "# Named expressions",
+        'credit = ms.measure_column(name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY")\n# Named expressions',
     )
     field_name, literal = ("region", '"APAC"') if field_kind == "dimension" else ("credit", "100")
     source += f"""
-field_value = finalized.resolve({field_name})
-buyer_value = finalized.resolve(buyer)
+field_value = {field_name}
+buyer_value = buyer
 @ms.metric()
 def filtered():
     return amount_value.sum().where(field_value.via((buyer_value,)) == {literal})
@@ -509,7 +509,9 @@ def filtered():
     query = session.observe({"filtered": metric})
     contribution = _captured_observation(query).contributions[0]
     assert len(contribution.intrinsic_conditions) == 1
-    assert contribution.reads[-1].path == (catalog.relationships.get("sales.buyer").ref,)
+    assert contribution.reads[-1].path == (
+        relationship_parameter(catalog.relationships.get("sales.buyer")).ref,
+    )
     assert contribution.reads[-1].field.ref.path == f"sales.customers.{field_name}"
     routed = catalog.fields.get(f"sales.customers.{field_name}").via(
         (catalog.relationships.get("sales.buyer"),)

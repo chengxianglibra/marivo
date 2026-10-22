@@ -15,18 +15,16 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
 
-_MODEL = """\
-import marivo.datasource as md
+_MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())
 gross_ref = ms.measure_column(name="gross", entity=orders_ref, column="gross", additivity=ms.additive_all())
 refund_ref = ms.measure_column(name="refund", entity=orders_ref, column="refund", additivity=ms.additive_all())
-finalized = ms.finalize()
-amount = finalized.resolve(amount_ref)
-gross = finalized.resolve(gross_ref)
-refund = finalized.resolve(refund_ref)
-orders = finalized.resolve(orders_ref)
+amount = amount_ref
+gross = gross_ref
+refund = refund_ref
+orders = orders_ref
 @ms.metric()
 def revenue():
     return amount.sum()

@@ -89,7 +89,7 @@ def _project(
             + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
             + "big=ms.measure_column(name='big',entity=facts,column='big',additivity=ms.additive_all())\n"
             + "weight=ms.measure_column(name='weight',entity=facts,column='weight',additivity=ms.additive_all())\n"
-            + "frozen=ms.finalize()\na=frozen.resolve(amount)\nb=frozen.resolve(big)\nw=frozen.resolve(weight)\n"
+            + "a=amount\nb=big\nw=weight\n"
             + "@ms.metric()\ndef total():\n    return a.sum()\n"
             + "@ms.metric()\ndef minimum():\n    return a.min()\n"
             + "@ms.metric()\ndef maximum():\n    return a.max()\n"

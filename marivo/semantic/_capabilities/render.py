@@ -254,7 +254,7 @@ def _render_object_contract(descriptor: SemanticObjectContract) -> str:
     lines = [
         descriptor.canonical_id,
         f"  Meaning: {descriptor.summary}",
-        f"  lookup key: Ref[{descriptor.semantic_kind.value}]; catalog.{descriptor.catalog_collection}; {descriptor.placement_kind}",
+        f"  lookup symbol: ms.ref.{descriptor.semantic_kind.value}(path); catalog.{descriptor.catalog_collection}; {descriptor.placement_kind}",
         f"  Forward/cross-file refs: {_help_invocation(descriptor.ref_target)}",
         "",
         "  Construction modes:",
@@ -450,24 +450,10 @@ def _render_type(type_name: str, original: object | None) -> str:
     if contract.example is not None:
         lines.append("  Example:")
         lines.extend(f"    {line}" for line in contract.example.splitlines())
-    if type_name == "Ref":
-        lines.extend(
-            (
-                "  Construction: use one exact factory such as "
-                "ms.ref.metric('sales.revenue') or "
-                "ms.ref.dimension('sales.orders.region').",
-                "  Persisted/config identity: "
-                "domain = catalog.domains.get('sales'); domain_ref = domain.ref.",
-                "  Definition: catalog.describe(ref) reads an exact identity in the current "
-                "catalog; select values with collection.get(path).",
-                "  Field application: capture typed Refs with physical constructors, "
-                "then call ms.finalize() and finalized.resolve(ref) before composition.",
-            )
-        )
     if type_name == "ref":
         lines.append(
             "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
-            "one immutable Ref[kind]."
+            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; collection.get(path) returns closed values."
         )
     if type_name == "SourceCheckNamespace":
         lines.append(

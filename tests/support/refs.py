@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 
+from marivo._symbolic import native_symbol_ref
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 
@@ -31,8 +32,11 @@ def make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
 def as_ref(value: object) -> Ref[SemanticKindTag] | None:
     if type(value) is Ref:
         return value
+    symbol = native_symbol_ref(value)
+    if symbol is not None:
+        return symbol
     candidate = getattr(value, "ref", None)
-    return candidate if type(candidate) is Ref else None
+    return candidate if type(candidate) is Ref else native_symbol_ref(candidate)
 
 
 def as_ref_id(value: object) -> str:

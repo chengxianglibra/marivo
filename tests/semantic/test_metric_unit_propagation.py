@@ -8,8 +8,7 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind
 from tests.shared_fixtures import load_inline_semantic
 
-_FIELDS = """\
-import marivo.datasource as md
+_FIELDS = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
@@ -17,13 +16,12 @@ latency_ref = ms.measure_column(name="latency", entity=orders, column="latency",
 requests_ref = ms.measure_column(name="requests", entity=orders, column="requests", additivity=ms.additive_all(), unit="{request}")
 duration_ref = ms.measure_column(name="duration", entity=orders, column="duration", additivity=ms.additive_all(), unit="s")
 opaque_ref = ms.measure_column(name="opaque", entity=orders, column="opaque", additivity=ms.additive_all(), unit="CNY/(request)")
-finalized = ms.finalize()
-amount = finalized.resolve(amount_ref)
-latency = finalized.resolve(latency_ref)
-orders_value = finalized.resolve(orders)
-requests = finalized.resolve(requests_ref)
-duration = finalized.resolve(duration_ref)
-opaque = finalized.resolve(opaque_ref)
+amount = amount_ref
+latency = latency_ref
+orders_value = orders
+requests = requests_ref
+duration = duration_ref
+opaque = opaque_ref
 """
 
 _METRICS = """\

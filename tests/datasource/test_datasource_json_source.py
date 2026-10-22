@@ -16,6 +16,8 @@ import marivo.datasource as md
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.json_source import json_source_url, read_json_source
+from marivo.refs import ref as ref_factory
+from tests.support.refs import as_ref
 
 _EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
 _EVENT_COLUMNS = {name: name for name in _EVENT_SCHEMA}
@@ -400,8 +402,8 @@ def _write_project_with_json_entity(
         "warehouse = ms.ref.datasource('warehouse')\n"
         f"events = ms.entity(name='events', datasource=warehouse, source=md.json({source_args}))\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
-        "finalized = ms.finalize()\n"
-        "amount_value = finalized.resolve(amount)\n"
+        ""
+        "amount_value = amount\n"
         "@ms.metric()\n"
         "def revenue():\n"
         "    return amount_value.sum()\n"
@@ -420,7 +422,7 @@ def test_load_and_require_json_entity(tmp_path: Path) -> None:
 
     result = ms.SemanticCatalog(project).entities.get("sales.events")
 
-    assert result.ref.ref == ms.ref.entity("sales.events")
+    assert as_ref(result.ref) == ref_factory.entity("sales.events")
     assert result.primary_key == ()
 
 
@@ -436,7 +438,7 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
 
     result = ms.SemanticCatalog(project).entities.get("sales.events")
 
-    assert result.ref.ref == ms.ref.entity("sales.events")
+    assert as_ref(result.ref) == ref_factory.entity("sales.events")
     assert result.primary_key == ()
 
 

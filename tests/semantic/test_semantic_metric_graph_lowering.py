@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef, PerReduce, SourceAggregate
 from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.relations import ObserveQuery
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
@@ -30,15 +30,13 @@ def _captured_graph(frame: AnalysisFrame) -> BoundGraph:
     return frame._backing.root.graph
 
 
-_MODEL = """\
-import marivo.datasource as md
+_MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders", columns={"amount":"amount", "sample_time":"sample_time"}))
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
 sample_time_ref = ms.time_dimension_column(name="sample_time", entity=orders, column="sample_time", sample_interval=(5,"minute"), parse=ms.timestamp(timezone="UTC"))
-finalized = ms.finalize()
-amount = finalized.resolve(amount_ref)
-sample_time = finalized.resolve(sample_time_ref)
+amount = amount_ref
+sample_time = sample_time_ref
 @ms.metric()
 def revenue():
     return amount.sum()
@@ -149,7 +147,7 @@ def test_projected_source_mapping_is_canonical_and_changes_consumed_identity(
         state = catalog._state
         identities.append(
             scoped_definition_fingerprint(
-                root=ms.ref.metric("sales.revenue"),
+                root=ref_factory.metric("sales.revenue"),
                 definitions=state.definitions,
                 dependencies=state.dependencies,
                 sidecar=state.sidecar,

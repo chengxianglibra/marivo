@@ -17,6 +17,7 @@ import marivo.semantic as ms
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo.preview import PreviewResult
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.expressions import Entity
@@ -47,15 +48,18 @@ def test_modeling_tutorial_capture_sequence(
         or "def normalized_region(" in block
         or "def gross_margin_rate(" in block
     )
-    source += (
-        "\nfrom marivo.semantic._deferred_semantics import consume_field\n"
-        "assert consume_field(normalized_region) == consume_field(finalized.resolve("
-        'ms.ref.dimension("sales.orders.normalized_region")))\n'
-    )
     project = semantic_project_factory({"sales/_domain.py": source})
     catalog = SemanticCatalog(project)
-    normalized = catalog._state.sidecar.bodies[ms.ref.dimension("sales.orders.normalized_region")]
-    assert normalized.bindings[0].to_ref() == ms.ref.dimension("sales.orders.region")
+    from marivo.semantic._deferred_semantics import consume_field
+
+    value = catalog.fields.get("sales.orders.normalized_region")
+    assert consume_field(value).reference.ref == ref_factory.dimension(
+        "sales.orders.normalized_region"
+    )
+    normalized = catalog._state.sidecar.bodies[
+        ref_factory.dimension("sales.orders.normalized_region")
+    ]
+    assert normalized.bindings[0].to_ref() == ref_factory.dimension("sales.orders.region")
     assert (
         catalog._state.registry.dimensions["sales.orders.normalized_region"].entity
         == "sales.orders"
@@ -123,9 +127,9 @@ def test_metric_help_executes_the_declared_computed_measure(
         assert SemanticCatalog(project).preview(
             ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
         ).rows == ({"value": 46},)
-    parents = SemanticCatalog(project)._state.dependencies[ms.ref.metric("sales.revenue")]
-    assert ms.ref.measure("sales.orders.quantity") in parents
-    assert ms.ref.measure("sales.orders.unit_price") in parents
+    parents = SemanticCatalog(project)._state.dependencies[ref_factory.metric("sales.revenue")]
+    assert ref_factory.measure("sales.orders.quantity") in parents
+    assert ref_factory.measure("sales.orders.unit_price") in parents
 
 
 def test_bind_help_executes_cross_file_fields_before_their_declaration_file(
@@ -263,7 +267,7 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
     source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     source += "status = ms.dimension_column(name='status', entity=orders, column='state')\n"
     source += "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
-    source += "finalized = ms.finalize()\norders = finalized.resolve(orders)\namount = finalized.resolve(amount)\nstatus = finalized.resolve(status)\nregion = finalized.resolve(region)\n"
+    source += "orders = orders\namount = amount\nstatus = status\nregion = region\n"
     source += "revenue = orders.count()\n"
     expression = _example(f"semantic.{canonical}", capsys).strip().replace("'paid'", "'FAILED'")
     if target == "count":
@@ -305,7 +309,7 @@ def test_filter_keywords_cannot_name_dimensions_owned_by_another_entity(
         "state = ms.dimension_column(name='state', entity=users, column='state')\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     )
-    source += "finalized = ms.finalize()\norders = finalized.resolve(orders)\namount = finalized.resolve(amount)\nstate = finalized.resolve(state)\n"
+    source += "orders = orders\namount = amount\nstate = state\n"
     expression = "orders.count()" if builder == "count" else "amount.sum()"
     source += f"@ms.metric()\ndef failed():\n    return {expression}.where(state == 'FAILED')\n"
     project = _project(semantic_project_factory, source)

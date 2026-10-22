@@ -71,7 +71,7 @@ def freeze_calendar(
         if (
             snapshot is None
             or snapshot.snapshot_digest != coordinate.snapshot_digest
-            or snapshot.calendar_ref != grain.calendar
+            or snapshot.calendar_ref != grain._calendar
         ):
             reject(
                 "the exact captured named calendar snapshot",
@@ -79,7 +79,7 @@ def freeze_calendar(
                 "Capture the complete certified calendar before source evaluation.",
                 "frame.calendar",
             )
-        definition = NamedCalendarData(grain.calendar.path, snapshot.snapshot_digest, grain.level)
+        definition = NamedCalendarData(grain._calendar.path, snapshot.snapshot_digest, grain.level)
         for civil in coordinate.civil_bounds:
             start, end = (
                 datetime.fromisoformat(civil[0]).date(),

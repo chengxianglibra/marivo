@@ -9,6 +9,7 @@ import pytest
 import marivo
 import marivo.semantic as ms
 from marivo._temporal import certify_temporal_set
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog, _normalize_occurrence_filters
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
@@ -107,7 +108,7 @@ def test_uncovered_occurrence_filters_raise_structured_repairs(
 
 def test_timestamp_filters_use_certified_midnights_across_dst() -> None:
     snapshot = certify_temporal_set(
-        temporal_set_ref=ms.ref.temporal_set("sales.events"),
+        temporal_set_ref=ref_factory.temporal_set("sales.events"),
         boundary_timezone="America/New_York",
         coverage=(date(2026, 3, 8), date(2026, 3, 10)),
         rows=(

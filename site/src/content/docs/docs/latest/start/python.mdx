@@ -84,9 +84,6 @@ amount = ms.measure_column(
     unit="CNY",
 )
 
-finalized = ms.finalize()
-order_date = finalized.resolve(order_date)
-amount = finalized.resolve(amount)
 
 
 @ms.metric()

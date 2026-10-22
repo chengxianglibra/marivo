@@ -69,10 +69,10 @@ def test_source_and_retained(
         models = tmp_path / "models/semantic/sales/models.py"
         models.write_text(
             models.read_text().replace(
-                "frozen = ms.finalize()",
+                "# Named expressions",
                 "region = ms.dimension_column(name='region', entity=facts, column='region')\n"
                 "null_region = ms.dimension_column(name='null_region', entity=facts, column='null_region')\n"
-                "frozen = ms.finalize()",
+                "# Named expressions",
             )
         )
         session = mv.session.create("r93-attribution", timezone="UTC")

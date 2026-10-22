@@ -25,7 +25,7 @@ md.trino(
 )
 ```
 Every constructor returns its spec and, when executed inside a datasource loader
-file, auto-declares it for the project. `spec.ref` yields the `Ref[datasource]`
+file, auto-declares it for the project. `spec.ref` yields the `DatasourceSymbol`
 used everywhere downstream.
 
 ### Backends and engines
@@ -50,7 +50,7 @@ loading alone grants no backend execution support.
 
 `DatasourceSpec` is the closed union of these five types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
-public surface is the spec constructors and `Ref[datasource]`.
+public surface is the spec constructors and `DatasourceSymbol`.
 
 Every spec has a bounded, decision-first `show()` / `render()` card. It exposes
 the declared state, exact ref, core connection target, credential field names,
@@ -77,7 +77,7 @@ one-line pointer to this card rather than a dataclass field dump.
 Semantic declarations reference a datasource by one exact ref:
 
 ```python
-warehouse = ms.ref.datasource("warehouse")  # -> Ref[datasource]
+warehouse = ms.ref.datasource("warehouse")  # -> DatasourceSymbol
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 `ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare

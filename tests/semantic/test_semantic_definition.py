@@ -8,9 +8,10 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
-from marivo.refs import SemanticKindTag
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import (
@@ -18,6 +19,7 @@ from marivo.semantic._definition_expression_types import (
     _UnsupportedExpression,
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from tests.support.refs import as_ref
 
 _DOMAIN_PY = "import marivo.semantic as ms\nms.domain(name='sales', owner='Owner')\n"
 _MODEL = """
@@ -36,10 +38,9 @@ def literal_values(t):
 def unsupported(t):
     return t.region.upper()
 
-finalized = ms.finalize()
-rows_value = finalized.resolve(rows)
-day_value = finalized.resolve(day)
-spend_value = finalized.resolve(spend)
+rows_value = rows
+day_value = day
+spend_value = spend
 
 @ms.measure()
 def scaled():
@@ -79,13 +80,11 @@ def catalog(workspace: Path) -> ms.SemanticCatalog:
     return ms.load(workspace_dir=workspace)
 
 
-def _description(
-    catalog: ms.SemanticCatalog, ref: ms.Ref[SemanticKindTag]
-) -> ExpressionDescription:
-    return catalog._state.sidecar.bodies[ref].description
+def _description(catalog: ms.SemanticCatalog, ref: Deferred) -> ExpressionDescription:
+    return catalog._state.sidecar.bodies[as_ref(ref)].description
 
 
-def _expression_fact(catalog: ms.SemanticCatalog, ref: ms.Ref[SemanticKindTag]) -> str | None:
+def _expression_fact(catalog: ms.SemanticCatalog, ref: Deferred) -> str | None:
     facts = dict(catalog.describe(ref).facts)
     return facts.get("expression")
 
@@ -104,7 +103,7 @@ def test_restricted_body_literals_are_disclosed_as_normalized_expression(
     text = _expression_fact(catalog, ref)
     assert text == "(t1['region'] == 'private-token-987').ifelse(73921, 0)"
     assert description.display is not None and description.display.text == text
-    assert description.display.bindings == (("t1", ms.ref.entity("sales.rows")),)
+    assert description.display.bindings == (("t1", ref_factory.entity("sales.rows")),)
     rendered = catalog.describe(ref).render()
     assert "private-token-987" in rendered and "73921" in rendered
 
@@ -180,8 +179,8 @@ def test_description_does_not_change_fingerprint(
     ref = ms.ref.dimension("sales.rows.literal_values")
     assert current.definition_fingerprint == catalog.definition_fingerprint
     assert (
-        consume_field(current.fields.get(ref.path)).reference
-        == consume_field(catalog.fields.get(ref.path)).reference
+        consume_field(current.fields.get(as_ref(ref).path)).reference
+        == consume_field(catalog.fields.get(as_ref(ref).path)).reference
     )
     assert _description(current, ref).status == "unsupported"
     assert _expression_fact(current, ref) is None
@@ -204,7 +203,7 @@ def test_expression_operator_tokens_are_syntax_faithful() -> None:
         function = ast.parse("def value(t):\n    return " + expression).body[0]
         assert isinstance(function, ast.FunctionDef)
         result = describe_expression(
-            function, entities={"t": ms.ref.entity("sales.rows")}, bindings={}
+            function, entities={"t": ref_factory.entity("sales.rows")}, bindings={}
         )
         assert result.status == "supported" and result.expression.kind == "binary"
         return result.expression.operator
@@ -256,7 +255,7 @@ def test_description_limits_and_external_names() -> None:
         function = ast.parse("def value(t):\n    return " + expression).body[0]
         assert isinstance(function, ast.FunctionDef)
         result = describe_expression(
-            function, entities={"t": ms.ref.entity("sales.rows")}, bindings={}
+            function, entities={"t": ref_factory.entity("sales.rows")}, bindings={}
         )
         assert result.status == "unsupported"
         return result.reason

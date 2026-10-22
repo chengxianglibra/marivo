@@ -11,7 +11,9 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
+from marivo._symbolic import native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import SemanticHelpTargetError, SemanticLoadError, SemanticRuntimeError
 
 
@@ -196,7 +198,9 @@ def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
 
     raiser = getattr(catalog_module, raiser_name)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        raiser(ref, operation, "probe", details={})
+        reference = native_symbol_ref(ref)
+        assert reference is not None
+        raiser(reference, operation, "probe", details={})
 
     error = exc_info.value
     assert error.repair is not None
@@ -211,7 +215,7 @@ def test_temporal_catalog_lookup_rejects_an_unregistered_operation() -> None:
 
     with pytest.raises(RuntimeError, match="unsupported period-calendar lookup operation"):
         _raise_period_lookup(
-            ms.ref.period_calendar("sales.fiscal"),
+            ref_factory.period_calendar("sales.fiscal"),
             "synthetic",
             "probe",
             details={},
@@ -363,25 +367,23 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
     assert distances["dimension.isnull"] <= 3
 
 
-def test_capture_finalization_has_owned_help_and_navigation(
+def test_native_lookup_factories_have_owned_help_without_finalization_routes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from marivo.semantic._capabilities.registry import REGISTRY
-    from marivo.semantic.expressions import FinalizedDeclarations
 
     assert callable(marivo.help)
-    for target, method in (
-        ("finalize", ms.finalize),
-        ("finalized_declarations.resolve", FinalizedDeclarations.resolve),
-    ):
+    for target, method in (("ref.entity", ms.ref.entity), ("ref.metric", ms.ref.metric)):
         marivo.help("semantic." + target)
         expected = capsys.readouterr().out
         marivo.help(method)
         assert capsys.readouterr().out == expected
         assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
-        assert target in {route.canonical_id for route in REGISTRY.routes("expressions")}
-    marivo.help("semantic.finalized_declarations")
-    assert "resolve" in capsys.readouterr().out
+        assert target in REGISTRY.canonical_ids()
+    assert not hasattr(ms, "finalize")
+    for target in ("finalize", "finalized_declarations", "finalized_declarations.resolve"):
+        with pytest.raises(MarivoHelpTargetError):
+            marivo.help("semantic." + target)
 
 
 def test_expression_display_has_one_owner_for_all_receiver_forms(
@@ -520,24 +522,21 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
         )
 
 
-def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
+def test_closed_definition_display_routes_remain_bounded_and_reachable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from collections import deque
 
     from marivo.semantic._capabilities.registry import REGISTRY
-    from marivo.semantic.expressions import FinalizedDeclarations
-    from marivo.semantic.loader import LoaderContext, loader_context
+    from marivo.semantic.expressions import Entity
 
     assert callable(marivo.help)
-    with loader_context(LoaderContext()):
-        finalized = ms.finalize()
-    marivo.help("semantic.finalized_declarations.show")
+    marivo.help("semantic.entity.show")
     expected = capsys.readouterr().out
-    for operation in (FinalizedDeclarations.show, finalized.show):
+    for operation in (Entity.show,):
         marivo.help(operation)
         assert capsys.readouterr().out == expected
-    assert "finalized.show()" in expected
+    assert "orders.show()" in expected
     assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
     distances = {"authoring": 0}
     queue = deque(("authoring",))
@@ -550,8 +549,7 @@ def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    for target in ("entity.show", "finalized_declarations.show"):
-        assert distances[target] <= 3
+    assert distances["entity.show"] <= 3
 
 
 def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> None:
@@ -740,11 +738,11 @@ def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None
     from marivo._help.render import render_help_text
 
     metric = render_help_text("semantic.metric")[0]
-    assert "lookup key: Ref[metric]" in metric
+    assert "lookup symbol: ms.ref.metric(path)" in metric
     assert 'marivo.help("semantic.metric.define"); returns Deferred' in metric
     assert "output: Ref[metric]" not in metric
     measure = render_help_text("semantic.measure")[0]
-    assert 'marivo.help("semantic.measure.from_column"); returns Ref[measure]' in measure
+    assert 'marivo.help("semantic.measure.from_column"); returns MeasureSymbol' in measure
     assert 'marivo.help("semantic.measure.define"); returns Deferred' in measure
 
 

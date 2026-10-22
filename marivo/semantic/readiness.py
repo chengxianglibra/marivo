@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
+from marivo._symbolic import LookupSymbol, symbol_from_ref
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
@@ -86,12 +87,17 @@ def _issue_summary(issue: ReadinessIssue) -> str:
 class ReadinessReport(RenderableResult):
     scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
     status: ReadinessStatus
-    analysis_ready_inputs: tuple[Ref[SemanticKindTag], ...]
+    _analysis_ready_inputs: tuple[Ref[SemanticKindTag], ...]
     blockers: tuple[ReadinessIssue, ...]
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
     catalog_definition_fingerprint: str | None = None
+
+    @property
+    def analysis_ready_inputs(self) -> tuple[LookupSymbol, ...]:
+        """Native lookup selectors for definitions ready for analysis."""
+        return tuple(symbol_from_ref(ref) for ref in self._analysis_ready_inputs)
 
     def _repr_identity(self) -> str:
         return (
@@ -129,7 +135,7 @@ class ReadinessReport(RenderableResult):
                 label=f"advisories ({len(advisories)})",
                 items=(_issue_summary(issue) for issue in advisories),
             )
-        ready_refs = self.analysis_ready_inputs
+        ready_refs = self._analysis_ready_inputs
         if ready_refs:
             card = card.field(
                 label="analysis_ready",
@@ -147,7 +153,7 @@ class ReadinessReport(RenderableResult):
             "scope": self.scope,
             "status": self.status,
             "analysis_ready_inputs": [
-                RefPayloadV1.from_ref(item).to_dict() for item in self.analysis_ready_inputs
+                RefPayloadV1.from_ref(item).to_dict() for item in self._analysis_ready_inputs
             ],
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
@@ -421,7 +427,7 @@ def build_readiness_report(
             )
         return ReadinessReport(
             status="blocked",
-            analysis_ready_inputs=(),
+            _analysis_ready_inputs=(),
             blockers=tuple(blockers),
             warnings=(),
             input_summary=ReadinessInputSummary(
@@ -681,7 +687,7 @@ def build_readiness_report(
 
     return ReadinessReport(
         status=_status(blockers, warnings),
-        analysis_ready_inputs=analysis_ready_inputs,
+        _analysis_ready_inputs=analysis_ready_inputs,
         blockers=tuple(blockers),
         warnings=tuple(warnings),
         input_summary=ReadinessInputSummary(

@@ -31,14 +31,12 @@ def _catalog(factory: ProjectFactory, backend: Backend = "trino") -> ms.Semantic
             + declarations[backend]
             + "\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
-            "sales/models.py": """\
-import marivo.datasource as md
+            "sales/models.py": """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 region = ms.dimension_column(name="region", entity=orders, column="region")
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
+amount_value = amount
 @ms.metric()
 def revenue():
     return amount_value.sum()
@@ -90,7 +88,7 @@ catalog = ms.load(workspace_dir=sys.argv[1])
 amount = ms.ref.measure('sales.orders.amount')
 report = catalog.readiness(refs=[amount])
 assert report.status == 'ready'
-assert report.analysis_ready_inputs == (amount,)
+assert report._analysis_ready_inputs == (__import__('marivo._symbolic', fromlist=['native_symbol_ref']).native_symbol_ref(amount),)
 assert not report.blockers
 """
     result = subprocess.run(

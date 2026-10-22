@@ -30,8 +30,8 @@ order_id = ms.dimension_column(name="order_id", entity=links, column="order_id")
 tag_id = ms.dimension_column(name="tag_id", entity=links, column="tag_id")
 order_links = ms.relationship(name="order_links", from_entity=orders, to_entity=links, keys=[ms.join_on(oid, order_id)])
 link_tags = ms.relationship(name="link_tags", from_entity=links, to_entity=tags, keys=[ms.join_on(tag_id, tid)])
-frozen = ms.finalize()
-a = frozen.resolve(amount)
+# Named expressions
+a = amount
 @ms.metric()
 def revenue():
     return a.sum()
@@ -241,9 +241,9 @@ def test_nested_per_keeps_each_layers_membership_rule(
     outer_route: str,
 ) -> None:
     model = _MODEL.replace(
-        "frozen = ms.finalize()",
+        "# Named expressions",
         'order_direct = ms.relationship(name="order_direct", from_entity=orders, '
-        "to_entity=tags, keys=[ms.join_on(customer, tid)])\nfrozen = ms.finalize()",
+        "to_entity=tags, keys=[ms.join_on(customer, tid)])\n# Named expressions",
     )
     session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
     revenue = session.catalog.metrics.get("sales.revenue")
@@ -525,14 +525,14 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
 ) -> None:
     model = (
         _MODEL.replace(
-            "frozen = ms.finalize()",
+            "# Named expressions",
             'refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])\n'
             'refund_customer = ms.dimension_column(name="customer", entity=refunds, column="customer")\n'
             'refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all())\n'
             'refund_tags = ms.relationship(name="refund_tags", from_entity=refunds, to_entity=tags, keys=[ms.join_on(refund_customer, tid)])\n'
-            "frozen = ms.finalize()",
+            "# Named expressions",
         )
-        + "\nr = frozen.resolve(refund_amount)\n@ms.metric()\ndef refunded():\n    return r.sum()\n"
+        + "\nr = refund_amount\n@ms.metric()\ndef refunded():\n    return r.sum()\n"
     )
     session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:

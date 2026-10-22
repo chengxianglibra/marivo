@@ -29,8 +29,7 @@ import marivo.semantic as ms
 ms.domain(name="sales", owner="Mina Zhang", default=True)
 """
 
-_OBJECTS_PY = """\
-import marivo.datasource as md
+_OBJECTS_PY = """import marivo.datasource as md
 import marivo.semantic as ms
 
 orders = ms.entity(
@@ -56,9 +55,8 @@ ms.relationship(
     keys=[ms.join_on(status, status)],
 )
 
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-paid_at_value = finalized.resolve(paid_at)
+amount_value = amount
+paid_at_value = paid_at
 
 
 @ms.metric()
@@ -104,9 +102,9 @@ def test_every_member_property_is_a_typed_collection_of_its_declared_kinds(
         collection = getattr(catalog, member.property_name)
         assert isinstance(collection, CatalogCollection)
         # The collection holds only the kinds its contract declares.
-        assert {ref.kind for ref in collection.refs} <= set(member.kinds)
-        assert len(collection) == len(collection.refs)
-        if collection.refs:
+        assert {ref.kind for ref in collection._refs} <= set(member.kinds)
+        assert len(collection) == len(collection._refs)
+        if collection._refs:
             assert member.item_type_name in collection.render()
 
 
@@ -116,10 +114,10 @@ def test_every_member_property_lists_its_declared_members_in_key_order(tmp_path:
 
     for property_name, expected_keys in _EXPECTED_MEMBER_KEYS.items():
         collection = getattr(catalog, property_name)
-        assert tuple(ref.key for ref in collection.refs) == expected_keys
+        assert tuple(ref.key for ref in collection._refs) == expected_keys
 
-    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources.refs}
-    assert {ref.kind for ref in catalog.datasources.refs} == {SemanticKind.DATASOURCE}
+    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources._refs}
+    assert {ref.kind for ref in catalog.datasources._refs} == {SemanticKind.DATASOURCE}
 
 
 def test_every_member_value_round_trips_through_get_by_name_and_path(
@@ -130,15 +128,15 @@ def test_every_member_value_round_trips_through_get_by_name_and_path(
 
     for member in CATALOG_MEMBER_CONTRACTS:
         collection = getattr(catalog, member.property_name)
-        for ref, item in zip(collection.refs, collection.items, strict=True):
+        for ref, item in zip(collection._refs, collection.items, strict=True):
             assert (
                 (consume_field(collection.get(ref.path)) == consume_field(item))
                 if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
                 else collection.get(ref.path) is item
             )
-        names = [ref.name for ref in collection.refs]
+        names = [ref.name for ref in collection._refs]
         if len(set(names)) == len(names):
-            for ref, item in zip(collection.refs, collection.items, strict=True):
+            for ref, item in zip(collection._refs, collection.items, strict=True):
                 assert (
                     (consume_field(collection.get(ref.name)) == consume_field(item))
                     if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
@@ -151,12 +149,12 @@ def test_fields_collection_spans_dimension_time_field_and_measure(tmp_path: Path
     catalog = ms.load(workspace_dir=tmp_path)
 
     fields = catalog.fields
-    assert [ref.kind.value for ref in fields.refs] == [
+    assert [ref.kind.value for ref in fields._refs] == [
         "dimension",
         "measure",
         "time_dimension",
     ]
-    for ref in fields.refs:
+    for ref in fields._refs:
         assert consume_field(fields.get(ref.path)).reference.ref == ref
 
 
@@ -166,8 +164,8 @@ def test_scoped_collection_matches_the_global_collection(tmp_path: Path) -> None
 
     sales = catalog.domains.get("sales")
 
-    assert sales.metrics.refs == catalog.metrics.refs
-    assert sales.fields.refs == catalog.fields.refs
+    assert sales.metrics._refs == catalog.metrics._refs
+    assert sales.fields._refs == catalog.fields._refs
     assert sales.metrics.get("sales.revenue") is catalog.metrics.get("sales.revenue")
 
 
@@ -181,4 +179,4 @@ def test_every_collection_rejects_refs_and_kind_prefixed_strings(tmp_path: Path)
                 collection.get(key)  # type: ignore[arg-type]  # Deliberately exercise rejected inputs.
             assert captured.value.kind == ErrorKind.INVALID_REF
             assert captured.value.repair is not None
-            assert set(captured.value.repair.candidates) <= {ref.path for ref in collection.refs}
+            assert set(captured.value.repair.candidates) <= {ref.path for ref in collection._refs}

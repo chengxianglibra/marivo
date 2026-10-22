@@ -25,10 +25,9 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), sou
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", unit="CNY", additivity=ms.additive_all())
 cost_ref = ms.measure_column(name="cost", entity=orders, column="cost", unit="CNY", additivity=ms.additive_all())
 status_ref = ms.dimension_column(name="status", entity=orders, column="status")
-frozen = ms.finalize()
-amount = frozen.resolve(amount_ref)
-cost = frozen.resolve(cost_ref)
-status = frozen.resolve(status_ref)
+amount = amount_ref
+cost = cost_ref
+status = status_ref
 @ms.measure(additivity=ms.additive_all())
 def margin():
     """Positive margin with explicit business authorization."""
@@ -66,7 +65,7 @@ def test_deferred_capture_declaration_collection_and_native_composition(
     assert isinstance(amount, Deferred)
     assert isinstance(revenue, Deferred)
     assert isinstance(margin, Deferred)
-    assert tuple(ref.path for ref in catalog.metrics.refs) == (
+    assert tuple(ref.path for ref in catalog.metrics._refs) == (
         "sales.margin_total",
         "sales.revenue",
     )
@@ -111,7 +110,7 @@ def average_sample():
     )
     sample = samples
     argument_value = (sample,) if as_tuple else sample
-    expected = amount.sum().per(argument_value).mean()
+    expected = catalog.metrics.get("sales.revenue").per(argument_value).mean()
     declared = catalog.metrics.get("sales.average_sample")
     body = next(
         body
@@ -228,7 +227,7 @@ def test_catalog_description_owns_definition_facts(
     margin = catalog.describe(ms.ref.measure("sales.orders.margin"))
     assert revenue.stage == "published_metric"
     assert revenue.unit == margin.unit == "CNY"
-    assert revenue.ref is not None and revenue.ref.ref.path == "sales.revenue"
+    assert revenue.ref is not None and revenue._ref.ref.path == "sales.revenue"
     assert ".show()" in repr(revenue)
     assert margin.computation is not None
 

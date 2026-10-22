@@ -18,6 +18,18 @@ import pandas as pd
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
+from marivo._symbolic import (
+    DatasourceSymbol,
+    DimensionSymbol,
+    EntitySymbol,
+    LookupSymbol,
+    MeasureSymbol,
+    RelationshipSymbol,
+    TimeDimensionSymbol,
+    native_symbol_ref,
+    symbol_factory,
+    symbol_from_ref,
+)
 from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
@@ -82,33 +94,71 @@ def _require_ref(
     parameter: str,
     allowed: frozenset[SemanticKind],
 ) -> Ref[SemanticKindTag]:
-    if type(value) is not Ref or value.kind not in allowed:
+    reference = native_symbol_ref(value)
+    if reference is None or reference.kind not in allowed:
         expected = " | ".join(sorted(kind.value for kind in allowed))
-        raise TypeError(f"{parameter} must be exact Ref[{expected}].")
-    return cast("Ref[SemanticKindTag]", value)
+        raise TypeError(f"{parameter} must be a native lookup symbol with kind [{expected}].")
+    return reference
 
 
-@dataclass(frozen=True, slots=True)
+FieldSymbol: TypeAlias = DimensionSymbol | TimeDimensionSymbol | MeasureSymbol
+
+
+def _field_key(
+    value: FieldSymbol, *, allowed: frozenset[SemanticKind] = _FIELD_KINDS
+) -> Ref[FieldKind]:
+    reference = _require_ref(value, parameter="field", allowed=allowed)
+    if reference.kind is SemanticKind.DIMENSION:
+        return ref_factory.dimension(reference.path)
+    if reference.kind is SemanticKind.TIME_DIMENSION:
+        return ref_factory.time_dimension(reference.path)
+    return ref_factory.measure(reference.path)
+
+
+def _field_symbol(reference: Ref[FieldKind]) -> FieldSymbol:
+    if reference.kind is SemanticKind.DIMENSION:
+        return symbol_factory.dimension(reference.path)
+    if reference.kind is SemanticKind.TIME_DIMENSION:
+        return symbol_factory.time_dimension(reference.path)
+    return symbol_factory.measure(reference.path)
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class NotNullSourceCheck:
-    field: Ref[FieldKind]
+    _field: Ref[FieldKind]
     kind: Literal["not_null"] = "not_null"
 
-    def __post_init__(self) -> None:
-        _require_ref(self.field, parameter="field", allowed=_FIELD_KINDS)
+    def __init__(self, field: FieldSymbol) -> None:
+        object.__setattr__(self, "_field", _field_key(field))
+        object.__setattr__(self, "kind", "not_null")
+
+    @property
+    def field(self) -> FieldSymbol:
+        return _field_symbol(self._field)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class AllowedValuesSourceCheck:
-    field: Ref[DimensionKind | TimeDimensionKind]
+    _field: Ref[DimensionKind | TimeDimensionKind]
     values: tuple[SourceScalar, ...]
     kind: Literal["allowed_values"] = "allowed_values"
 
-    def __post_init__(self) -> None:
-        _require_ref(
-            self.field,
+    def __init__(
+        self, field: DimensionSymbol | TimeDimensionSymbol, values: tuple[SourceScalar, ...]
+    ) -> None:
+        reference = _require_ref(
+            field,
             parameter="field",
             allowed=frozenset({SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}),
         )
+        key = (
+            ref_factory.dimension(reference.path)
+            if reference.kind is SemanticKind.DIMENSION
+            else ref_factory.time_dimension(reference.path)
+        )
+        object.__setattr__(self, "_field", key)
+        object.__setattr__(self, "values", values)
+        object.__setattr__(self, "kind", "allowed_values")
         if not self.values:
             raise ValueError("allowed_values requires at least one value.")
         if len(set(self.values)) != len(self.values):
@@ -116,72 +166,95 @@ class AllowedValuesSourceCheck:
         if not all(isinstance(value, str | int | float | bool) for value in self.values):
             raise TypeError("allowed_values values must be str, int, float, or bool.")
 
+    @property
+    def field(self) -> DimensionSymbol | TimeDimensionSymbol:
+        return (
+            symbol_factory.dimension(self._field.path)
+            if self._field.kind is SemanticKind.DIMENSION
+            else symbol_factory.time_dimension(self._field.path)
+        )
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, init=False)
 class UniqueSourceCheck:
-    fields: tuple[Ref[FieldKind], ...]
+    _fields: tuple[Ref[FieldKind], ...]
     kind: Literal["unique"] = "unique"
 
-    def __post_init__(self) -> None:
-        if not self.fields:
+    def __init__(self, fields: tuple[FieldSymbol, ...]) -> None:
+        keys = tuple(_field_key(field) for field in fields)
+        if not keys:
             raise ValueError("unique requires at least one field.")
-        for field in self.fields:
-            _require_ref(field, parameter="fields", allowed=_FIELD_KINDS)
-        if len(set(self.fields)) != len(self.fields):
+        if len(set(keys)) != len(keys):
             raise ValueError("unique fields must not repeat.")
+        object.__setattr__(self, "_fields", keys)
+        object.__setattr__(self, "kind", "unique")
+
+    @property
+    def fields(self) -> tuple[FieldSymbol, ...]:
+        return tuple(_field_symbol(reference) for reference in self._fields)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class FreshnessSourceCheck:
-    field: Ref[TimeDimensionKind]
+    _field: Ref[TimeDimensionKind]
     max_age: timedelta
     kind: Literal["freshness"] = "freshness"
 
-    def __post_init__(self) -> None:
-        _require_ref(
-            self.field,
-            parameter="field",
-            allowed=frozenset({SemanticKind.TIME_DIMENSION}),
+    def __init__(self, field: TimeDimensionSymbol, max_age: timedelta) -> None:
+        reference = _require_ref(
+            field, parameter="field", allowed=frozenset({SemanticKind.TIME_DIMENSION})
         )
+        object.__setattr__(self, "_field", ref_factory.time_dimension(reference.path))
+        object.__setattr__(self, "max_age", max_age)
+        object.__setattr__(self, "kind", "freshness")
         if not isinstance(self.max_age, timedelta) or self.max_age <= timedelta(0):
             raise ValueError("freshness max_age must be a positive timedelta.")
 
+    @property
+    def field(self) -> TimeDimensionSymbol:
+        return symbol_factory.time_dimension(self._field.path)
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, init=False)
 class RelationshipMatchesSourceCheck:
-    relationship: Ref[RelationshipKind]
+    _relationship: Ref[RelationshipKind]
     side: RelationshipSide
     kind: Literal["relationship_matches"] = "relationship_matches"
 
-    def __post_init__(self) -> None:
-        _require_ref(
-            self.relationship,
-            parameter="relationship",
-            allowed=frozenset({SemanticKind.RELATIONSHIP}),
+    def __init__(self, relationship: RelationshipSymbol, side: RelationshipSide) -> None:
+        reference = _require_ref(
+            relationship, parameter="relationship", allowed=frozenset({SemanticKind.RELATIONSHIP})
         )
+        object.__setattr__(self, "_relationship", ref_factory.relationship(reference.path))
+        object.__setattr__(self, "side", side)
+        object.__setattr__(self, "kind", "relationship_matches")
         if self.side not in {"from", "both"}:
             raise ValueError("relationship_matches side must be 'from' or 'both'.")
 
+    @property
+    def relationship(self) -> RelationshipSymbol:
+        return symbol_factory.relationship(self._relationship.path)
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, init=False)
 class RelationshipCardinalitySourceCheck:
-    relationship: Ref[RelationshipKind]
+    _relationship: Ref[RelationshipKind]
     expected: RelationshipCardinality
     kind: Literal["relationship_cardinality"] = "relationship_cardinality"
 
-    def __post_init__(self) -> None:
-        _require_ref(
-            self.relationship,
-            parameter="relationship",
-            allowed=frozenset({SemanticKind.RELATIONSHIP}),
+    def __init__(self, relationship: RelationshipSymbol, expected: RelationshipCardinality) -> None:
+        reference = _require_ref(
+            relationship, parameter="relationship", allowed=frozenset({SemanticKind.RELATIONSHIP})
         )
-        if self.expected not in {
-            "one_to_one",
-            "many_to_one",
-            "one_to_many",
-            "many_to_many",
-        }:
+        object.__setattr__(self, "_relationship", ref_factory.relationship(reference.path))
+        object.__setattr__(self, "expected", expected)
+        object.__setattr__(self, "kind", "relationship_cardinality")
+        if self.expected not in {"one_to_one", "many_to_one", "one_to_many", "many_to_many"}:
             raise ValueError("relationship_cardinality expected value is invalid.")
+
+    @property
+    def relationship(self) -> RelationshipSymbol:
+        return symbol_factory.relationship(self._relationship.path)
 
 
 SourceCheck: TypeAlias = (
@@ -200,24 +273,24 @@ FieldSourceCheck: TypeAlias = (
 class SourceCheckNamespace:
     """Closed constructors for explicit source-health expectations."""
 
-    def not_null(self, field: Ref[FieldKind], /) -> NotNullSourceCheck:
+    def not_null(self, field: FieldSymbol, /) -> NotNullSourceCheck:
         return NotNullSourceCheck(field=field)
 
     def allowed_values(
         self,
-        field: Ref[DimensionKind | TimeDimensionKind],
+        field: DimensionSymbol | TimeDimensionSymbol,
         /,
         *,
         values: Sequence[SourceScalar],
     ) -> AllowedValuesSourceCheck:
         return AllowedValuesSourceCheck(field=field, values=tuple(values))
 
-    def unique(self, *, fields: Sequence[Ref[FieldKind]]) -> UniqueSourceCheck:
+    def unique(self, *, fields: Sequence[FieldSymbol]) -> UniqueSourceCheck:
         return UniqueSourceCheck(fields=tuple(fields))
 
     def freshness(
         self,
-        field: Ref[TimeDimensionKind],
+        field: TimeDimensionSymbol,
         /,
         *,
         max_age: timedelta,
@@ -226,7 +299,7 @@ class SourceCheckNamespace:
 
     def relationship_matches(
         self,
-        relationship: Ref[RelationshipKind],
+        relationship: RelationshipSymbol,
         /,
         *,
         side: RelationshipSide,
@@ -241,7 +314,7 @@ class SourceCheckNamespace:
             A check consumed by ``catalog.source_health(..., checks=..., scope=...)``.
 
         Example:
-            ms.source_check.relationship_matches(
+            ms.source_check._relationship_matches(
                 ms.ref.relationship("sales.orders_to_customers"), side="from"
             )
 
@@ -253,7 +326,7 @@ class SourceCheckNamespace:
 
     def relationship_cardinality(
         self,
-        relationship: Ref[RelationshipKind],
+        relationship: RelationshipSymbol,
         /,
         *,
         expected: RelationshipCardinality,
@@ -304,22 +377,38 @@ def _repair_dict(value: AuthoringRepair | None) -> dict[str, object] | None:
 class SourceHealthCheckResult(RenderableResult):
     kind: SourceHealthCheckKind
     status: SourceHealthStatus
-    datasource: Ref[DatasourceKind]
+    _datasource: Ref[DatasourceKind]
     source: EntitySourceIR
-    target_refs: tuple[Ref[SemanticKindTag], ...]
-    affected_refs: tuple[Ref[SemanticKindTag], ...]
+    _target_refs: tuple[Ref[SemanticKindTag], ...]
+    _affected_refs: tuple[Ref[SemanticKindTag], ...]
     checked_at: str
     observed_schema_fingerprint: str | None
     observed_capability_fingerprint: str | None
     observed: Mapping[str, object]
     repair: AuthoringRepair | None
     user_data_queried: bool
-    scopes: tuple[tuple[Ref[EntityKind], AuthoringScope], ...] = ()
+    _scopes: tuple[tuple[Ref[EntityKind], AuthoringScope], ...] = ()
+
+    @property
+    def datasource(self) -> DatasourceSymbol:
+        return symbol_factory.datasource(self._datasource.path)
+
+    @property
+    def target_refs(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._target_refs)
+
+    @property
+    def affected_refs(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._affected_refs)
+
+    @property
+    def scopes(self) -> tuple[tuple[EntitySymbol, AuthoringScope], ...]:
+        return tuple((symbol_factory.entity(ref.path), scope) for ref, scope in self._scopes)
 
     def _repr_identity(self) -> str:
         return (
             f"SourceHealthCheckResult kind={self.kind} status={self.status} "
-            f"targets={len(self.target_refs)}"
+            f"targets={len(self._target_refs)}"
         )
 
     def _card(self) -> Card:
@@ -335,16 +424,16 @@ class SourceHealthCheckResult(RenderableResult):
             ),
         ).status(
             f"user_data_queried={self.user_data_queried} "
-            f"datasource={self.datasource.key} source={self.source.kind}"
+            f"datasource={self._datasource.key} source={self.source.kind}"
         )
-        if self.affected_refs:
-            card = card.listing("affected refs", (ref.key for ref in self.affected_refs))
-        if self.scopes:
+        if self._affected_refs:
+            card = card.listing("affected refs", (ref.key for ref in self._affected_refs))
+        if self._scopes:
             card = card.listing(
                 "scopes",
                 (
                     f"{entity_ref.key}: {json.dumps(_scope_dict(scope), sort_keys=True, default=str)}"
-                    for entity_ref, scope in self.scopes
+                    for entity_ref, scope in self._scopes
                 ),
             )
         if self.observed:
@@ -359,10 +448,10 @@ class SourceHealthCheckResult(RenderableResult):
         return {
             "kind": self.kind,
             "status": self.status,
-            "datasource": self.datasource.key,
+            "datasource": self._datasource.key,
             "source": self.source.to_dict(),
-            "target_refs": [ref.key for ref in self.target_refs],
-            "affected_refs": [ref.key for ref in self.affected_refs],
+            "target_refs": [ref.key for ref in self._target_refs],
+            "affected_refs": [ref.key for ref in self._affected_refs],
             "checked_at": self.checked_at,
             "observed_schema_fingerprint": self.observed_schema_fingerprint,
             "observed_capability_fingerprint": self.observed_capability_fingerprint,
@@ -371,7 +460,7 @@ class SourceHealthCheckResult(RenderableResult):
             "user_data_queried": self.user_data_queried,
             "scopes": [
                 {"entity": entity_ref.key, "scope": _scope_dict(scope)}
-                for entity_ref, scope in self.scopes
+                for entity_ref, scope in self._scopes
             ],
         }
 
@@ -384,8 +473,12 @@ class SourceHealthReport(RenderableResult):
     catalog_definition_fingerprint: str
 
     @property
-    def affected_refs(self) -> tuple[Ref[SemanticKindTag], ...]:
-        return tuple(dict.fromkeys(ref for check in self.checks for ref in check.affected_refs))
+    def _affected_refs(self) -> tuple[Ref[SemanticKindTag], ...]:
+        return tuple(dict.fromkeys(ref for check in self.checks for ref in check._affected_refs))
+
+    @property
+    def affected_refs(self) -> tuple[LookupSymbol, ...]:
+        return tuple(symbol_from_ref(ref) for ref in self._affected_refs)
 
     def _repr_identity(self) -> str:
         return f"SourceHealthReport status={self.status} checks={len(self.checks)}"
@@ -401,7 +494,7 @@ class SourceHealthReport(RenderableResult):
                 "non-successful checks",
                 (
                     f"{check.kind}: {check.status}; affected refs: "
-                    f"{', '.join(ref.key for ref in check.affected_refs) or 'none'}"
+                    f"{', '.join(ref.key for ref in check._affected_refs) or 'none'}"
                     + (f" -> {_repair_summary(check.repair)}" if check.repair is not None else "")
                     for check in failures
                 ),
@@ -413,7 +506,7 @@ class SourceHealthReport(RenderableResult):
                     check.kind,
                     check.status,
                     "yes" if check.user_data_queried else "no",
-                    str(len(check.affected_refs)),
+                    str(len(check._affected_refs)),
                 )
                 for check in self.checks
             ),
@@ -427,7 +520,7 @@ class SourceHealthReport(RenderableResult):
         return {
             "status": self.status,
             "checks": [check.to_dict() for check in self.checks],
-            "affected_refs": [ref.key for ref in self.affected_refs],
+            "affected_refs": [ref.key for ref in self._affected_refs],
             "checked_at": self.checked_at,
             "catalog_definition_fingerprint": self.catalog_definition_fingerprint,
         }
@@ -476,10 +569,10 @@ def _field_owner(registry: Registry, ref: Ref[SemanticKindTag]) -> str:
 
 def _check_entities(check: SourceCheck, registry: Registry) -> tuple[str, ...]:
     if isinstance(check, UniqueSourceCheck):
-        return tuple(dict.fromkeys(_field_owner(registry, field) for field in check.fields))
+        return tuple(dict.fromkeys(_field_owner(registry, field) for field in check._fields))
     if isinstance(check, NotNullSourceCheck | AllowedValuesSourceCheck | FreshnessSourceCheck):
-        return (_field_owner(registry, check.field),)
-    relationship = registry.relationships[check.relationship.path]
+        return (_field_owner(registry, check._field),)
+    relationship = registry.relationships[check._relationship.path]
     return tuple(dict.fromkeys((relationship.from_entity, relationship.to_entity)))
 
 
@@ -507,15 +600,15 @@ def _normalize_checks(
                 details={"query_executed": False, "received_type": type(check).__name__},
             )
         target_refs = (
-            check.fields
+            check._fields
             if isinstance(check, UniqueSourceCheck)
             else (
-                (check.field,)
+                (check._field,)
                 if isinstance(
                     check,
                     NotNullSourceCheck | AllowedValuesSourceCheck | FreshnessSourceCheck,
                 )
-                else (check.relationship,)
+                else (check._relationship,)
             )
         )
         for target in target_refs:
@@ -533,7 +626,7 @@ def _normalize_checks(
                 ErrorKind.INVALID_REF,
                 "ms.source_check.unique(fields=...) requires fields from one Entity.",
                 cls=SemanticRuntimeError,
-                refs=tuple(field.key for field in check.fields),
+                refs=tuple(field.key for field in check._fields),
                 details={"query_executed": False},
             )
         if not set(entities).issubset(selected_entities):
@@ -587,17 +680,17 @@ def _result(
     return SourceHealthCheckResult(
         kind=kind,
         status=status,
-        datasource=datasource,
+        _datasource=datasource,
         source=source,
-        target_refs=tuple(target_refs),
-        affected_refs=tuple(affected_refs),
+        _target_refs=tuple(target_refs),
+        _affected_refs=tuple(affected_refs),
         checked_at=checked_at,
         observed_schema_fingerprint=schema_fingerprint,
         observed_capability_fingerprint=capability_fingerprint,
         observed=MappingProxyType(dict(observed)),
         repair=repair_value,
         user_data_queried=user_data_queried,
-        scopes=tuple(scopes),
+        _scopes=tuple(scopes),
     )
 
 
@@ -861,7 +954,7 @@ def _execute_field_check(
     checked_at: str,
 ) -> SourceHealthCheckResult:
     registry = catalog._reg
-    fields = check.fields if isinstance(check, UniqueSourceCheck) else (check.field,)
+    fields = check._fields if isinstance(check, UniqueSourceCheck) else (check._field,)
     entity_id = _field_owner(registry, fields[0])
     entity = registry.entities[entity_id]
     datasource = ref_factory.datasource(entity.datasource)
@@ -928,7 +1021,7 @@ def _execute_field_check(
         }
     elif isinstance(check, FreshnessSourceCheck):
         maximum = frame.iloc[:, 0].max() if not frame.empty else None
-        parse = registry.dimensions[check.field.path].parse
+        parse = registry.dimensions[check._field.path].parse
         normalized, issue = _freshness_observation(
             maximum,
             declared_timezone=getattr(parse, "timezone", None),
@@ -1033,11 +1126,11 @@ def _execute_relationship_check(
     checked_at: str,
 ) -> SourceHealthCheckResult:
     registry = catalog._reg
-    relationship = registry.relationships[check.relationship.path]
+    relationship = registry.relationships[check._relationship.path]
     left_entity = registry.entities[relationship.from_entity]
     right_entity = registry.entities[relationship.to_entity]
     datasource = ref_factory.datasource(left_entity.datasource)
-    target_refs = (check.relationship,)
+    target_refs = (check._relationship,)
     affected = _reverse_affected(catalog, target_refs)
     bound_scopes = (
         (ref_factory.entity(relationship.from_entity), scopes[relationship.from_entity]),
@@ -1080,7 +1173,7 @@ def _execute_relationship_check(
                 left, right, _left_id, _right_id = _relationship_frames(
                     resolver,
                     registry,
-                    check.relationship,
+                    check._relationship,
                     scopes,
                 )
     except Exception as exc:

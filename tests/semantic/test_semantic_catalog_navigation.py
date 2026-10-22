@@ -12,6 +12,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo.refs import SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
@@ -23,14 +24,14 @@ from marivo.semantic.catalog import (
     _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from tests.support.refs import as_ref
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
 ms.domain(name="sales", owner="Analytics", default=True)
 """
 
-_OBJECTS_PY = """\
-import marivo.datasource as md
+_OBJECTS_PY = """import marivo.datasource as md
 import marivo.semantic as ms
 
 orders = ms.entity(
@@ -73,10 +74,9 @@ ms.relationship(
     keys=[ms.join_on(user_id, user_id)],
 )
 
-finalized = ms.finalize()
-orders_value = finalized.resolve(orders)
-ordered_at_value = finalized.resolve(ordered_at)
-amount_value = finalized.resolve(amount)
+orders_value = orders
+ordered_at_value = ordered_at
+amount_value = amount
 
 
 @ms.metric()
@@ -125,7 +125,7 @@ def test_catalog_collection_implements_shared_result_and_consumption_protocol(
     metrics = _catalog(semantic_project_factory).metrics
 
     assert isinstance(metrics.items, tuple)
-    assert tuple(ref.kind.value for ref in metrics.refs) == ("metric",)
+    assert tuple(ref.kind.value for ref in metrics._refs) == ("metric",)
     assert metrics[0] is metrics.items[0]
     assert list(metrics) == list(metrics.items)
     assert "CatalogCollection" in repr(metrics)
@@ -141,7 +141,7 @@ def test_every_displayed_collection_key_round_trips_through_get(
 
     for member in CATALOG_MEMBER_CONTRACTS:
         collection = getattr(catalog, member.property_name)
-        for ref, item in zip(collection.refs, collection.items, strict=True):
+        for ref, item in zip(collection._refs, collection.items, strict=True):
             value = collection.get(ref.path)
             if isinstance(item, Deferred) and ref.kind.value != "metric":
                 assert consume_field(value) == consume_field(item)
@@ -213,31 +213,31 @@ def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory)
 
     assert isinstance(sales, DomainEntry)
     assert isinstance(warehouse, DatasourceEntry)
-    assert orders.ref.ref.key == "entity:sales.orders"
-    assert [ref.key for ref in sales.entities.refs] == [
+    assert orders._exact_ref.ref.key == "entity:sales.orders"
+    assert [ref.key for ref in sales.entities._refs] == [
         "entity:sales.orders",
         "entity:sales.users",
     ]
-    assert [ref.key for ref in sales.fields.refs] == [
+    assert [ref.key for ref in sales.fields._refs] == [
         "dimension:sales.orders.region",
         "dimension:sales.orders.user_id",
         "dimension:sales.users.id",
         "measure:sales.orders.amount",
         "time_dimension:sales.orders.ordered_at",
     ]
-    assert [ref.key for ref in sales.metrics.refs] == ["metric:sales.revenue"]
-    assert [ref.key for ref in sales.relationships.refs] == [
+    assert [ref.key for ref in sales.metrics._refs] == ["metric:sales.revenue"]
+    assert [ref.key for ref in sales.relationships._refs] == [
         "relationship:sales.orders_self",
         "relationship:sales.orders_to_users",
     ]
-    assert sales.period_calendars.refs == ()
-    assert sales.temporal_sets.refs == ()
-    assert [ref.key for ref in warehouse.entities.refs] == [
+    assert sales.period_calendars._refs == ()
+    assert sales.temporal_sets._refs == ()
+    assert [ref.key for ref in warehouse.entities._refs] == [
         "entity:ops.events",
         "entity:sales.orders",
         "entity:sales.users",
     ]
-    assert warehouse.details().dependents == warehouse.entities.refs
+    assert warehouse.details()._dependents == warehouse.entities._refs
     assert not hasattr(warehouse, "fields")
     assert not hasattr(warehouse, "metrics")
 
@@ -246,11 +246,11 @@ def test_relationship_endpoints_disclose_exact_entity_refs(semantic_project_fact
     catalog = _catalog(semantic_project_factory)
     relationship = catalog.relationships.get("orders_to_users")
 
-    assert relationship.from_entity.ref.key == "entity:sales.orders"
-    assert relationship.to_entity.ref.key == "entity:sales.users"
-    assert relationship.from_entity == catalog.entities.get("sales.orders").ref
-    assert relationship.to_entity == catalog.entities.get("sales.users").ref
-    assert relationship.from_entity.version.startswith("sha256:")
+    assert relationship._parameter.from_entity.ref.key == "entity:sales.orders"
+    assert relationship._parameter.to_entity.ref.key == "entity:sales.users"
+    assert relationship._parameter.from_entity == catalog.entities.get("sales.orders")._exact_ref
+    assert relationship._parameter.to_entity == catalog.entities.get("sales.users")._exact_ref
+    assert relationship._parameter.from_entity.version.startswith("sha256:")
     assert relationship.contract().facts[:2] == (
         ("from", "entity:sales.orders"),
         ("to", "entity:sales.users"),
@@ -394,7 +394,7 @@ def test_semantic_input_normalization_accepts_values_like_their_refs(
         )
 
         assert by_value == by_ref
-        assert by_value == exact_ref
+        assert by_value == as_ref(exact_ref)
 
 
 def test_semantic_input_rejects_published_metric_as_a_physical_input(
@@ -435,7 +435,7 @@ def test_semantic_input_normalization_accepts_entries_like_their_refs(
         location="test.input",
     )
 
-    assert by_entry == by_ref == sales.ref
+    assert by_entry == by_ref == sales._ref
 
 
 def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
@@ -448,7 +448,7 @@ def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
         pass
 
     forged = UnregisteredDomainEntry(
-        ref=sales.ref,
+        _ref=sales._ref,
         _details=sales.details(),
         _catalog=catalog,
     )
@@ -655,7 +655,9 @@ def test_exact_collection_lookup_does_not_enumerate_members(
 
 def test_collection_with_unknown_scope_remains_empty(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    collection = CatalogCollection(catalog, "metrics", scope_ref=ms.ref.entity("sales.missing"))
+    collection = CatalogCollection(
+        catalog, "metrics", scope_ref=ref_factory.entity("sales.missing")
+    )
     assert collection.items == ()
     assert len(collection) == 0
     with pytest.raises(
@@ -670,25 +672,25 @@ def test_navigation_preserves_declared_ownership_and_relationship_order(
     catalog = _catalog(semantic_project_factory)
     warehouse = catalog.datasources.get("warehouse")
 
-    assert [ref.key for ref in catalog.domains.get("sales").details().children] == [
+    assert [ref.key for ref in catalog.domains.get("sales").details()._children] == [
         "entity:sales.orders",
         "entity:sales.users",
         "metric:sales.revenue",
     ]
-    assert [ref.key for ref in catalog.domains.get("ops").details().children] == [
+    assert [ref.key for ref in catalog.domains.get("ops").details()._children] == [
         "entity:ops.events"
     ]
-    assert [ref.key for ref in catalog.relationships.refs] == [
+    assert [ref.key for ref in catalog.relationships._refs] == [
         "relationship:sales.orders_self",
         "relationship:sales.orders_to_users",
     ]
     # Datasource membership follows declaration order, not metric dependency.
-    assert warehouse.entities.refs == (
-        ms.ref.entity("ops.events"),
-        ms.ref.entity("sales.orders"),
-        ms.ref.entity("sales.users"),
+    assert warehouse.entities._refs == (
+        ref_factory.entity("ops.events"),
+        ref_factory.entity("sales.orders"),
+        ref_factory.entity("sales.users"),
     )
-    assert warehouse.details().dependents == warehouse.entities.refs
+    assert warehouse.details()._dependents == warehouse.entities._refs
     assert consume_metric(catalog.metrics.get("sales.revenue")).roots == (
-        catalog.entities.get("sales.orders").ref,
+        catalog.entities.get("sales.orders")._exact_ref,
     )

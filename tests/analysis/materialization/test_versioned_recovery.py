@@ -88,7 +88,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
             models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
             if backend == "mysql":
                 models += f"@ms.dimension(entity={name})\ndef enabled_{kind}({name}):\n    return {name}.enabled == 1\n"
-        models += "frozen = ms.finalize()\n"
+        models += ""
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"

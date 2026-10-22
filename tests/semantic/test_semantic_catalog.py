@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, cast, get_type_hints
 
 import ibis
 import pytest
@@ -14,20 +14,21 @@ from ibis.common.deferred import Deferred
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo._symbolic import (
+    DatasourceSymbol,
+    DomainSymbol,
+    PeriodCalendarSymbol,
+    TemporalSetSymbol,
+    symbol_from_ref,
+)
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.refs import (
-    DatasourceKind,
     DimensionKind,
-    DomainKind,
     MeasureKind,
-    PeriodCalendarKind,
     Ref,
     SemanticKindTag,
-    TemporalSetKind,
 )
-from marivo.refs import (
-    ref as ref_factory,
-)
+from marivo.refs import ref as ref_factory
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
@@ -106,15 +107,15 @@ def test_datasource_details_fields() -> None:
     fields: dict[str, object] = {"path": ":memory:"}
     env_refs = {"password": "WAREHOUSE_PASSWORD"}
     d = DatasourceDetails(
-        ref=_make_ref("warehouse", SemanticKind.DATASOURCE),
+        _ref=_make_ref("warehouse", SemanticKind.DATASOURCE),
         kind=SemanticKind.DATASOURCE,
         name="warehouse",
         domain=None,
         context=_make_ctx(),
         source_location=_make_loc(),
-        parents=(),
-        children=(),
-        dependents=(),
+        _parents=(),
+        _children=(),
+        _dependents=(),
         python_symbol="warehouse",
         backend_type="duckdb",
         fields=fields,
@@ -167,8 +168,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
-_DATASETS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
 
     orders = ms.entity(
@@ -185,17 +185,15 @@ _DATASETS_PY = textwrap.dedent("""\
         name="amount", entity=orders, column="amount", additivity=ms.additive_all()
     )
 
-    finalized = ms.finalize()
-    amount_value = finalized.resolve(amount)
-    created_at_value = finalized.resolve(created_at)
+    amount_value = amount
+    created_at_value = created_at
 
     @ms.metric()
     def revenue():
         return amount_value.sum(time=created_at_value)
 """)
 
-_RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_RICH_DETAILS_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
 
     orders = ms.entity(
@@ -238,9 +236,8 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ),
     )
 
-    finalized = ms.finalize()
-    amount_value = finalized.resolve(amount)
-    created_at_value = finalized.resolve(created_at)
+    amount_value = amount
+    created_at_value = created_at
 
     @ms.metric(
         ai_context=ms.ai_context(
@@ -291,12 +288,12 @@ def test_catalog_collection_returns_entries_for_containers_and_values_for_member
         ).get(ref.path)
 
         assert type(obj) is expected_type
-        assert obj.ref == ref
-        assert obj.ref.path == typed_id.partition(".")[2]
-        assert obj.ref.name == expected_name
-        assert obj.ref.key == typed_id.replace(".", ":", 1)
+        assert obj._ref == ref
+        assert obj._ref.path == typed_id.partition(".")[2]
+        assert obj._ref.name == expected_name
+        assert obj._ref.key == typed_id.replace(".", ":", 1)
         assert not any(hasattr(obj, alias) for alias in ("kind", "path", "key", "name"))
-        assert obj.ref.kind.value == typed_id.partition(".")[0]
+        assert obj._ref.kind.value == typed_id.partition(".")[0]
 
     value_cases: tuple[tuple[str, type[object]], ...] = (
         ("entity.sales.orders", Entity),
@@ -312,7 +309,7 @@ def test_catalog_collection_returns_entries_for_containers_and_values_for_member
 
         assert type(value) is expected_value_type
         if isinstance(value, Entity):
-            exact = value.ref
+            exact = value._exact_ref
         else:
             assert isinstance(value, Deferred)
             exact = consume_field(value).reference
@@ -323,7 +320,7 @@ def test_catalog_collection_returns_entries_for_containers_and_values_for_member
     assert type(revenue) is Deferred
     node = consume_metric(revenue).node
     assert isinstance(node, DeclaredMetricRef)
-    assert node.ref.ref == ms.ref.metric("sales.revenue")
+    assert node.ref.ref == ref_factory.metric("sales.revenue")
     assert node.ref.version.startswith("sha256:")
 
 
@@ -367,8 +364,8 @@ def test_catalog_result_protocol_and_collection_accessors(
     assert_conforms(catalog.describe(ms.ref.metric("sales.revenue")))
     assert len(collection.items) == 1
     assert catalog.describe(ms.ref.metric("sales.revenue")).name == "revenue"
-    assert collection.refs == (ms.ref.metric("sales.revenue"),)
-    assert type(collection.refs[0]) is Ref
+    assert collection._refs == (ref_factory.metric("sales.revenue"),)
+    assert type(collection._refs[0]) is Ref
     capsys.readouterr()
     rendered = collection.render()
 
@@ -396,8 +393,7 @@ def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": textwrap.dedent("""\
-                import marivo.datasource as md
+            "sales/datasets.py": textwrap.dedent("""                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(
                     name="orders", datasource=ms.ref.datasource("warehouse"),
@@ -405,9 +401,8 @@ def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
                 )
                 region = ms.dimension_column(name="region", entity=orders, column="region")
 
-                finalized = ms.finalize()
-                orders_value = finalized.resolve(orders)
-                region_value = finalized.resolve(region)
+                orders_value = orders
+                region_value = region
 
                 @ms.metric()
                 def all_count():
@@ -427,8 +422,8 @@ def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
     assert all_contract.computation is not None
     assert failed_contract.computation is not None
     assert all_contract.computation != failed_contract.computation
-    assert all_contract.ref is not None and failed_contract.ref is not None
-    assert all_contract.ref.version != failed_contract.ref.version
+    assert all_contract._ref is not None and failed_contract._ref is not None
+    assert all_contract._ref.version != failed_contract._ref.version
     assert all_contract.unit == failed_contract.unit == "1"
 
 
@@ -452,17 +447,15 @@ def test_catalog_list_xxx_attribute_error_points_to_collection_property(
     assert catalog.metrics is not None
 
 
-def test_catalog_entries_publish_exact_ref_annotations() -> None:
+def test_catalog_entries_publish_native_selector_annotations() -> None:
     expectations = (
-        (DomainEntry, DomainKind),
-        (DatasourceEntry, DatasourceKind),
-        (PeriodCalendarEntry, PeriodCalendarKind),
-        (TemporalSetEntry, TemporalSetKind),
+        (DomainEntry, DomainSymbol),
+        (DatasourceEntry, DatasourceSymbol),
+        (PeriodCalendarEntry, PeriodCalendarSymbol),
+        (TemporalSetEntry, TemporalSetSymbol),
     )
     for entry_type, marker in expectations:
-        annotation = get_type_hints(entry_type)["ref"]
-        assert get_origin(annotation) is Ref
-        assert get_args(annotation) == (marker,)
+        assert get_type_hints(entry_type.ref.fget)["return"] is marker
 
 
 def test_catalog_domains_access_and_render_are_silent_and_bounded(
@@ -542,8 +535,8 @@ def test_catalog_collection_returns_semantic_object_for_domain(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.domains.get("sales")
-    assert obj.ref.path == "sales"
-    assert str(obj.ref.kind) == "domain"
+    assert obj._ref.path == "sales"
+    assert str(obj._ref.kind) == "domain"
     assert obj.details().owner == "Mina Zhang"
 
 
@@ -588,7 +581,7 @@ def test_catalog_contracts_expose_declared_ai_context(
         "metric.sales.revenue": "revenue",
     }
     for typed_id, declared_name in cases.items():
-        contract = catalog.describe(_ref_from_typed_id_path(typed_id))
+        contract = catalog.describe(symbol_from_ref(_ref_from_typed_id_path(typed_id)))
         assert contract.business_definition
         assert contract.guardrails
         assert contract.name == declared_name
@@ -619,8 +612,7 @@ def test_catalog_contract_render_bounds_long_business_definition(
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": textwrap.dedent("""\
-                import marivo.datasource as md
+            "sales/datasets.py": textwrap.dedent("""                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(
                     name="orders", datasource=ms.ref.datasource("warehouse"),
@@ -630,8 +622,7 @@ def test_catalog_contract_render_bounds_long_business_definition(
                     name="amount", entity=orders, column="amount", additivity=ms.additive_all()
                 )
 
-                finalized = ms.finalize()
-                amount_value = finalized.resolve(amount)
+                amount_value = amount
 
                 @ms.metric(
                     ai_context=ms.ai_context(
@@ -691,13 +682,15 @@ def test_catalog_entity_value_reads_its_datasource_and_typed_source(
     contract = orders.contract()
 
     assert contract.stage == "entity"
-    assert contract.reads == (ms.ref.datasource("warehouse"),)
-    assert type(contract.reads[0]) is Ref
+    assert contract._reads == (ref_factory.datasource("warehouse"),)
+    assert type(contract._reads[0]) is Ref
     facts = dict(contract.facts)
     assert "'kind': 'table'" in facts["source"]
     assert "'table': 'orders'" in facts["source"]
-    assert [value.ref.ref.path for value in catalog.entities.items] == ["sales.orders"]
-    assert catalog.datasources.get("warehouse").entities.refs == (ms.ref.entity("sales.orders"),)
+    assert [value._exact_ref.ref.path for value in catalog.entities.items] == ["sales.orders"]
+    assert catalog.datasources.get("warehouse").entities._refs == (
+        ref_factory.entity("sales.orders"),
+    )
 
 
 def test_catalog_metric_value_roots_on_its_entity(
@@ -706,10 +699,10 @@ def test_catalog_metric_value_roots_on_its_entity(
     catalog = _make_catalog(semantic_project_factory)
     revenue = catalog.metrics.get("sales.revenue")
     orders = catalog.entities.get("sales.orders")
-    assert consume_metric(revenue).roots == (orders.ref,)
+    assert consume_metric(revenue).roots == (orders._exact_ref,)
     assert any(
         root.ref.path == "sales.orders"
-        for root in catalog.describe(ms.ref.metric("sales.revenue")).roots
+        for root in catalog.describe(ms.ref.metric("sales.revenue"))._roots
     )
 
 
@@ -768,7 +761,7 @@ def test_catalog_domain_details_include_children(
     catalog = _make_catalog(semantic_project_factory)
     domain_details = catalog.domains.get("sales").details()
     assert isinstance(domain_details, DomainDetails)
-    domain_child_refs = {ref.path for ref in domain_details.children}
+    domain_child_refs = {ref.path for ref in domain_details._children}
     assert "sales.revenue" in domain_child_refs
     assert "sales.orders" in domain_child_refs
 
@@ -780,7 +773,7 @@ def test_ms_load_defaults_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     _write_minimal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
     catalog = ms.load()
-    assert {ref.path for ref in catalog.metrics.refs} == {"sales.revenue"}
+    assert {ref.path for ref in catalog.metrics._refs} == {"sales.revenue"}
 
 
 def test_ms_load_failure_raises_semantic_load_error(tmp_path: Path) -> None:
@@ -806,19 +799,19 @@ def test_ms_load_catalog_can_browse(tmp_path: Path) -> None:
     catalog = ms.load(workspace_dir=tmp_path)
     result = catalog.domains
     assert len(result.items) >= 1
-    assert "sales.revenue" in {ref.path for ref in catalog.metrics.refs}
+    assert "sales.revenue" in {ref.path for ref in catalog.metrics._refs}
 
 
 def test_ms_load_with_domains_filters_domains_and_accepts_string(tmp_path: Path) -> None:
     """ms.load(domains=...) filters to the specified domain directories."""
     _write_multi_domain_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path, domains=["sales"])
-    refs = {obj.ref.path for obj in catalog.domains.items}
+    refs = {obj._ref.path for obj in catalog.domains.items}
     assert "sales" in refs
     assert "ops" not in refs
 
     string_catalog = ms.load(workspace_dir=tmp_path, domains="sales")
-    string_refs = {obj.ref.path for obj in string_catalog.domains.items}
+    string_refs = {obj._ref.path for obj in string_catalog.domains.items}
     assert "sales" in string_refs
     assert "ops" not in string_refs
 
@@ -892,7 +885,7 @@ def test_ms_load_can_recreate_filtered_domain_scope(
 
     reloaded = ms.load(workspace_dir=project.workspace_dir, domains="sales")
 
-    refs = {obj.ref.path for obj in reloaded.domains.items}
+    refs = {obj._ref.path for obj in reloaded.domains.items}
     assert "sales" in refs
     assert "ops" not in refs
 
@@ -917,10 +910,10 @@ def test_ms_load_with_domains_returns_different_filtered_catalog(
 
     reloaded = ms.load(workspace_dir=project.workspace_dir, domains="ops")
 
-    refs = {obj.ref.path for obj in reloaded.domains.items}
+    refs = {obj._ref.path for obj in reloaded.domains.items}
     assert "ops" in refs
     assert "sales" not in refs
-    assert {obj.ref.path for obj in catalog.domains.items} == {"sales"}
+    assert {obj._ref.path for obj in catalog.domains.items} == {"sales"}
 
 
 # --- catalog.preview() ---
@@ -973,7 +966,7 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
         semantic_project_factory, tmp_path, monkeypatch
     )
     field_preview = catalog.preview(
-        consume_field(catalog.fields.get("sales.orders.region")).reference.ref,
+        ms.ref.dimension("sales.orders.region"),
         scope=snapshot.scope,
         context_columns=("order_id",),
         limit=2,
@@ -1021,8 +1014,8 @@ _SALES_REVENUE_PY = (
     "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
     "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     "\n"
-    "finalized = ms.finalize()\n"
-    "amount_value = finalized.resolve(amount)\n"
+    ""
+    "amount_value = amount\n"
     "\n"
     "@ms.metric()\n"
     "def revenue():\n"
@@ -1080,13 +1073,13 @@ def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload
     by_entry = catalog.readiness(refs=[sales])
     by_ref = catalog.readiness(refs=[sales.ref])
     by_value = catalog.readiness(refs=[region])
-    by_value_ref = catalog.readiness(refs=[consume_field(region).reference.ref])
+    by_value_ref = catalog.readiness(refs=[ms.ref.dimension("sales.orders.region")])
 
-    assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs == (sales.ref,)
+    assert by_entry._analysis_ready_inputs == by_ref._analysis_ready_inputs == (sales._ref,)
     assert by_entry.input_summary == by_ref.input_summary
-    assert by_value.analysis_ready_inputs == by_value_ref.analysis_ready_inputs
+    assert by_value._analysis_ready_inputs == by_value_ref._analysis_ready_inputs
     assert by_value.input_summary == by_value_ref.input_summary
-    assert all(type(value) is Ref for value in by_entry.analysis_ready_inputs)
+    assert all(type(value) is Ref for value in by_entry._analysis_ready_inputs)
 
     with pytest.raises(SemanticRuntimeError, match="unique exact refs"):
         catalog.readiness(refs=[sales, sales.ref])
@@ -1123,12 +1116,12 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     datasource_report = catalog.readiness(refs=[ms.ref.datasource("sales")])
     all_report = catalog.readiness()
 
-    assert domain_report.analysis_ready_inputs == (ms.ref.domain("sales"),)
-    assert datasource_report.analysis_ready_inputs == (ms.ref.datasource("sales"),)
-    assert set(all_report.analysis_ready_inputs) == {
-        ms.ref.datasource("default"),
-        ms.ref.domain("sales"),
-        ms.ref.datasource("sales"),
+    assert domain_report._analysis_ready_inputs == (ref_factory.domain("sales"),)
+    assert datasource_report._analysis_ready_inputs == (ref_factory.datasource("sales"),)
+    assert set(all_report._analysis_ready_inputs) == {
+        ref_factory.datasource("default"),
+        ref_factory.domain("sales"),
+        ref_factory.datasource("sales"),
     }
 
 
@@ -1140,7 +1133,7 @@ def test_catalog_readiness_rejects_string_refs(
         catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
     error = exc_info.value
     assert error.kind == ErrorKind.INVALID_REF
-    assert error.expected == ("current catalog value or entry, exact Ref[kind]")
+    assert error.expected == ("current catalog value or entry, native lookup symbol")
     assert error.received == "str"
     assert error.repair is not None
     assert error.repair.help_target.surface == "semantic"
@@ -1188,7 +1181,7 @@ def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(
         catalog.readiness(refs=[])
     with pytest.raises(SemanticRuntimeError, match="unique exact refs") as exc_info:
         catalog.readiness(refs=[orders, orders])
-    assert exc_info.value.semantic_refs == (orders.key,)
+    assert exc_info.value.semantic_refs == ("entity:sales.orders",)
 
 
 def test_catalog_readiness_no_stdout(
@@ -1221,9 +1214,9 @@ _UNIT_DATASETS_PY = (
     "margin = ms.measure_column(name='margin', entity=orders, column='margin', "
     "additivity=ms.additive_all())\n"
     "\n"
-    "finalized = ms.finalize()\n"
-    "amount_value = finalized.resolve(amount)\n"
-    "margin_value = finalized.resolve(margin)\n"
+    ""
+    "amount_value = amount\n"
+    "margin_value = margin\n"
     "\n"
     "@ms.metric()\n"
     "def revenue():\n"

@@ -29,8 +29,7 @@ _DOMAIN_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
-_OBJECTS_PY = textwrap.dedent("""\
-    import marivo.datasource as md
+_OBJECTS_PY = textwrap.dedent("""    import marivo.datasource as md
     import marivo.semantic as ms
     orders_ref = ms.entity(
         name="orders",
@@ -53,10 +52,9 @@ _OBJECTS_PY = textwrap.dedent("""\
         is_default=True,
     )
 
-    finalized = ms.finalize()
-    orders = finalized.resolve(orders_ref)
-    amount = finalized.resolve(amount_ref)
-    created_at = finalized.resolve(created_at_ref)
+    orders = orders_ref
+    amount = amount_ref
+    created_at = created_at_ref
 
     @ms.metric()
     def total_revenue():

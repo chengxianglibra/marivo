@@ -70,7 +70,6 @@ from marivo.semantic._authoring_values import (
 from marivo.semantic._dsl_authoring import (
     non_additive,
 )
-from marivo.semantic.expressions import finalize
 
 
 class _RetiredPolicy:
@@ -116,7 +115,6 @@ __all__ = [
     "dimension_column",
     "domain",
     "entity",
-    "finalize",
     "hour_prefix",
     "join_on",
     "measure",

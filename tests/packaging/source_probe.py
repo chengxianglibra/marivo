@@ -128,11 +128,11 @@ customer = ms.relationship(name="customer", from_entity=orders, to_entity=custom
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 weight = ms.measure_column(name="weight", entity=orders, column="weight", additivity=ms.additive_all())
 unit = ms.measure_column(name="unit", entity=orders, column="unit", additivity=ms.additive_all())
-finalized = ms.finalize()
-a = finalized.resolve(amount)
-w = finalized.resolve(weight)
-u = finalized.resolve(unit)
-t = finalized.resolve(order_day)
+# Named expressions
+a = amount
+w = weight
+u = unit
+t = order_day
 @ms.metric()
 def revenue():
     return a.sum(time=t)

@@ -222,8 +222,8 @@ def _write_models_root(
                 name="amount", entity=rows_ref, column="amount", additivity=ms.additive_all()
             )
 
-            finalized = ms.finalize()
-            amount = finalized.resolve(amount_ref)
+            # Named expressions
+            amount = amount_ref
 
             @ms.metric()
             def {metric}():
@@ -272,8 +272,8 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root)
-    top_level_refs = {obj.ref.path for obj in catalog.domains.items}
-    top_level_refs |= {obj.ref.path for obj in catalog.datasources.items}
+    top_level_refs = {obj._ref.path for obj in catalog.domains.items}
+    top_level_refs |= {obj._ref.path for obj in catalog.datasources.items}
 
     assert {
         "sales",
@@ -294,7 +294,7 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root, domains=["finance"])
-    top_level_refs = {obj.ref.path for obj in catalog.domains.items}
+    top_level_refs = {obj._ref.path for obj in catalog.domains.items}
 
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs
@@ -369,7 +369,7 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     )
 
     catalog = ms.load(workspace_dir=project_root)
-    entity_ref = catalog.entities.get("finance.refunds").ref.ref
+    entity_ref = catalog.entities.get("finance.refunds")._exact_ref.ref
     metric_ref = consume_metric(catalog.metrics.get("finance.refunds_total")).node.ref.ref
     monkeypatch.chdir(project_root)
     snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("refunds")).sample(
@@ -378,9 +378,9 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     )
 
     verify = catalog.entities.get(entity_ref.path)
-    preview = catalog.preview(metric_ref, scope=snapshot.scope, limit=1)
+    preview = catalog.preview(ms.ref.metric(metric_ref.path), scope=snapshot.scope, limit=1)
 
-    assert verify.ref.ref == entity_ref
+    assert verify._exact_ref.ref == entity_ref
     assert preview.rows == ({"value": 150.0},)
 
 

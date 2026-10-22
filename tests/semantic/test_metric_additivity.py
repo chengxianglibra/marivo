@@ -26,8 +26,7 @@ def test_additivity_bucket_maps_all_three() -> None:
 # loader — _resolve_metric_additivity resolution pass
 # ---------------------------------------------------------------------------
 
-_PHYSICAL = """\
-import marivo.datasource as md
+_PHYSICAL = """import marivo.datasource as md
 import marivo.semantic as ms
 
 wh = ms.ref.datasource("wh")
@@ -44,11 +43,10 @@ refund_ref = ms.measure_column(
     name="refund", entity=refunds_ref, column="refund", additivity=ms.additive_all(), unit="CNY"
 )
 
-finalized = ms.finalize()
-orders = finalized.resolve(orders_ref)
-amount = finalized.resolve(amount_ref)
-unit_price = finalized.resolve(unit_price_ref)
-refund = finalized.resolve(refund_ref)
+orders = orders_ref
+amount = amount_ref
+unit_price = unit_price_ref
+refund = refund_ref
 """
 
 _PUBLISHED = (

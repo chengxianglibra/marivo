@@ -105,9 +105,8 @@ calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"),
 calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
 period = ms.dimension_column(name="period", entity=calendar, column="period")
 unequal = ms.period_calendar(name="unequal", date=calendar_date, boundary_timezone="UTC", coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
-frozen = ms.finalize()
-amount = frozen.resolve(amount_ref)
-time = frozen.resolve(time_ref)
+amount = amount_ref
+time = time_ref
 @ms.metric()
 def maximum():
     return amount.max(time=time)

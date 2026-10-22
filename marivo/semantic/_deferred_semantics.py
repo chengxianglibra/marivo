@@ -456,7 +456,11 @@ def _compose(
 
 
 def _constant(recipe: Resolver, default: object = None) -> object:
-    return recipe.value if isinstance(recipe, Just) else default
+    if isinstance(recipe, Just):
+        from marivo.semantic.expressions import Relationship
+
+        return recipe.value._parameter if isinstance(recipe.value, Relationship) else recipe.value
+    return default
 
 
 def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
@@ -1162,6 +1166,15 @@ def _consume(recipe: Resolver) -> _Facts:
 def _inspect(value: Deferred) -> DeferredInspection:
     try:
         result: DeferredInspection = inspect_deferred(value)
+        if result.symbols:
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                message="Analysis requires closed semantic inputs; this recipe contains unbound lookup symbols.",
+                refs=tuple(reference.key for reference in result.symbols),
+                expected="closed values returned by a loaded Catalog .get()",
+                received="an authoring recipe with unbound semantic lookups",
+                action="Load the model, then obtain closed fields, Entities, or Metrics through the Catalog before analysis.",
+            )
         return result
     except DefinitionGraphError as error:
         raise SemanticExpressionError.from_definition(

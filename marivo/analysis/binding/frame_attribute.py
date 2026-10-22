@@ -197,6 +197,7 @@ def source_inputs(
             (FrameKeyInput(parent._input_id, parent),),
         )
         fine_by = product(projection, by) if isinstance(by, Population) else None
+        assert fine_by is None or isinstance(fine_by, Population)
         axes = (*source_axes, *fine_axes)
         reads = tuple(
             axis

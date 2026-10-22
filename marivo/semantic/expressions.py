@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, is_dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace as dataclass_replace
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, TypeVar, cast, o
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.deferred import RelationshipParameter
+from marivo._definition.deferred import RelationshipParameter, _RelationshipValue
 from marivo._definition.expressions import (
     DeclaredMetricRef,
     MetricNode,
@@ -32,6 +32,14 @@ from marivo._definition.types import (
 )
 from marivo._definition.types import (
     SourceLocation as DefinitionSourceLocation,
+)
+from marivo._symbolic import (
+    EntitySymbol,
+    LookupSymbol,
+    RelationshipSymbol,
+    TimeDimensionSymbol,
+    symbol_factory,
+    symbol_from_ref,
 )
 from marivo._temporal import InstantAnchor
 from marivo.refs import (
@@ -75,9 +83,8 @@ from marivo.semantic.unit_algebra import (
 from marivo.semantic.validator import Registry, normalize_target_relationship
 
 if TYPE_CHECKING:
-    from marivo.datasource.ir import AiContextIR, DatasourceIR
+    from marivo.datasource.ir import AiContextIR
     from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.loader import LoaderContext
 
 
 Cardinality: TypeAlias = Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
@@ -140,13 +147,13 @@ class ExpressionContract(RenderableResult):
     """
 
     stage: ExpressionStage
-    ref: ExactRef | None
-    roots: tuple[ExactRef, ...]
+    _ref: ExactRef | None
+    _roots: tuple[ExactRef, ...]
     unit: str | None
     sum_permission: SumPermission | None
-    default_time: ExactRef | None
+    _default_time: ExactRef | None
     computation: str | None
-    reads: tuple[Ref[SemanticKindTag], ...]
+    _reads: tuple[Ref[SemanticKindTag], ...]
     name: str | None
     business_definition: str | None
     guardrails: tuple[str, ...]
@@ -154,28 +161,52 @@ class ExpressionContract(RenderableResult):
     facts: tuple[tuple[str, str], ...]
     operations: tuple[str, ...]
 
+    @property
+    def ref(self) -> LookupSymbol | None:
+        """Return the optional declared identity as a native lookup symbol."""
+        return symbol_from_ref(self._ref.ref) if self._ref is not None else None
+
+    @property
+    def roots(self) -> tuple[EntitySymbol, ...]:
+        """Return the contribution-root lookup symbols in captured order."""
+        return tuple(symbol_factory.entity(root.ref.path) for root in self._roots)
+
+    @property
+    def default_time(self) -> TimeDimensionSymbol | None:
+        """Return the optional default-time lookup symbol."""
+        return (
+            symbol_factory.time_dimension(self._default_time.ref.path)
+            if self._default_time is not None
+            else None
+        )
+
+    @property
+    def reads(self) -> tuple[LookupSymbol, ...]:
+        """Return the captured definition dependencies as lookup symbols."""
+        return tuple(symbol_from_ref(reference) for reference in self._reads)
+
     def _repr_identity(self) -> str:
-        identity = self.ref.ref.key if self.ref is not None else (self.name or "anonymous")
+        identity = self._ref.ref.key if self._ref is not None else (self.name or "anonymous")
         return f"ExpressionContract {self.stage} {identity}"
 
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         card = card.field("stage", self.stage)
-        if self.ref is not None:
-            card = card.field("ref", f"{self.ref.ref.key}@{self.ref.version[:19]}")
+        if self._ref is not None:
+            card = card.field("ref", f"{self._ref.ref.key}@{self._ref.version[:19]}")
         if self.name is not None:
             card = card.field("name", self.name)
-        if self.roots:
-            card = card.field("roots", _bounded_refs(root.ref for root in self.roots))
+        if self._roots:
+            card = card.field("roots", _bounded_refs(root.ref for root in self._roots))
         if self.unit is not None:
             card = card.field("unit", self.unit)
         if self.sum_permission is not None:
             card = card.field("sum_permission", _permission_text(self.sum_permission))
-        if self.default_time is not None:
-            card = card.field("default_time", self.default_time.ref.key)
+        if self._default_time is not None:
+            card = card.field("default_time", self._default_time.ref.key)
         if self.computation is not None:
             card = card.field("computation", self.computation[:26])
-        card = card.field("reads", _bounded_refs(self.reads) or "(none)")
+        card = card.field("reads", _bounded_refs(self._reads) or "(none)")
         for label, value in self.facts[:8]:
             card = card.field(label, value[:160])
         if self.business_definition is not None:
@@ -239,30 +270,77 @@ class _ExpressionDisplay:
 class Entity(_ExpressionDisplay):
     """Resolved Entity: one contribution root with its complete primary key."""
 
-    ref: ExactRef
+    _exact_ref: ExactRef
     primary_key: tuple[str, ...]
-    default_time: ExactRef | None
+    _default_time: ExactRef | None
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+
+    @property
+    def ref(self) -> EntitySymbol:
+        """Return a native lookup symbol for this Entity's identity."""
+        return symbol_factory.entity(self._exact_ref.ref.path)
+
+    @property
+    def default_time(self) -> TimeDimensionSymbol | None:
+        """Return the captured default-time identity as a lookup symbol."""
+        return (
+            symbol_factory.time_dimension(self._default_time.ref.path)
+            if self._default_time is not None
+            else None
+        )
 
     def count(self, *, time: Deferred | None = None) -> Deferred:
         """Capture a count of complete contribution rows without reading a source."""
         from marivo._definition.deferred import SemanticInput, semantic_input
 
-        value = semantic_input(SemanticInput(self.ref, self.ref, "1", SumNone(), self.default_time))
+        value = semantic_input(
+            SemanticInput(self._exact_ref, self._exact_ref, "1", SumNone(), self._default_time)
+        )
         return cast("Deferred", value.count(time=time))
 
     def __repr__(self) -> str:
-        return f"Entity {self.ref.ref.path}@{self.ref.version[:19]} (use .show())"
+        return f"Entity {self._exact_ref.ref.path}@{self._exact_ref.version[:19]} (use .show())"
+
+
+def entity_exact(value: Entity) -> ExactRef:
+    """Consume the closed Entity identity without entering Deferred navigation."""
+    return value._exact_ref
 
 
 @dataclass(frozen=True, slots=True)
-class Relationship(RelationshipParameter, _ExpressionDisplay):
-    """Resolved directed relationship between two Entities."""
+class Relationship(_RelationshipValue, _ExpressionDisplay):
+    """Resolved directed relationship, keeping its closed parameter private."""
 
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
+    @property
+    def ref(self) -> RelationshipSymbol:
+        """Return this relationship's lookup symbol."""
+        return symbol_factory.relationship(self._parameter.ref.ref.path)
+
+    @property
+    def from_entity(self) -> EntitySymbol:
+        """Return the source Entity lookup symbol."""
+        return symbol_factory.entity(self._parameter.from_entity.ref.path)
+
+    @property
+    def to_entity(self) -> EntitySymbol:
+        """Return the destination Entity lookup symbol."""
+        return symbol_factory.entity(self._parameter.to_entity.ref.path)
+
+    @property
+    def cardinality(self) -> Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]:
+        """Return the captured relationship cardinality."""
+        return self._parameter.cardinality
+
     def __repr__(self) -> str:
-        return f"Relationship {self.ref.ref.path}@{self.ref.version[:19]} (use .show())"
+        exact = self._parameter.ref
+        return f"Relationship {exact.ref.path}@{exact.version[:19]} (use .show())"
+
+
+def relationship_parameter(value: Relationship) -> RelationshipParameter:
+    """Consume the immutable internal relationship facts."""
+    return value._parameter
 
 
 class _FieldMetadata(_ExpressionDisplay):
@@ -335,6 +413,39 @@ def declare_measure(
     from marivo._definition.deferred import DeclarationRecord, declare, inspect_deferred
     from marivo.semantic._deferred_semantics import consume_row
 
+    if additivity is not None and type(additivity) not in {
+        AdditiveOverV1,
+        AdditiveAllV1,
+        NonAdditiveV1,
+    }:
+        _fail(
+            ErrorKind.INVALID_EXPRESSION_VALUE,
+            "Measure additivity requires a closed additivity policy.",
+            expected="ms.additive(...), ms.additive_all(...), or ms.non_additive()",
+            received=type(additivity).__name__,
+            action="Call the public policy helper, or omit additivity to inherit the expression's permission.",
+        )
+    inspection = inspect_deferred(row)
+    if inspection.symbols:
+        policy: tuple[Literal["over", "all", "none"], tuple[str, ...]] | None = None
+        if isinstance(additivity, AdditiveOverV1):
+            policy = ("over", additivity.coordinates)
+        elif isinstance(additivity, AdditiveAllV1):
+            policy = ("all", additivity.exceptions)
+        elif isinstance(additivity, NonAdditiveV1):
+            policy = ("none", ())
+        return declare(
+            row,
+            DeclarationRecord(
+                kind="measure",
+                name=name,
+                unit=unit,
+                pending_additivity=policy,
+                pending_assertion=True,
+                ai_context=ai_context,
+                location=DefinitionSourceLocation(location.file, location.line),
+            ),
+        )
     value = consume_row(row)
     declared_unit = render_unit(unit_state(unit)) if unit is not None else value.unit
     if unit is not None and value.unit is not None:
@@ -540,117 +651,6 @@ _SUPPORTED_KINDS = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class FinalizedDeclarations:
-    """Validated, immutable physical definitions; resolving never reads source data."""
-
-    _state: CompiledSemanticState = field(repr=False)
-
-    def __repr__(self) -> str:
-        return f"FinalizedDeclarations {self._state.definition_fingerprint[:26]} (use .show())"
-
-    def show(self) -> None:
-        """Print the frozen definition count and available operation.
-
-        Returns: None.
-        Example: ``finalized.show()``.
-        Constraints: No Catalog Metric publication or execution is implied.
-        """
-        print(repr(self))
-        print(f"  Physical definitions: {len(self._state.definitions)}")
-        print("  Resolve: finalized.resolve(captured_ref)")
-
-    @overload
-    def resolve(self, target: Ref[EntityKind]) -> Entity: ...
-    @overload
-    def resolve(self, target: Ref[DimensionKind]) -> Deferred: ...
-    @overload
-    def resolve(self, target: Ref[TimeDimensionKind]) -> Deferred: ...
-    @overload
-    def resolve(self, target: Ref[MeasureKind]) -> Deferred: ...
-    @overload
-    def resolve(self, target: Ref[RelationshipKind]) -> Relationship: ...
-    @overload
-    def resolve(self, target: Ref[SemanticKindTag]) -> ResolvedValue: ...
-    def resolve(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
-        """Resolve a captured lookup key into a closed immutable expression value.
-
-        Args: target: An Entity, Dimension, TimeField, Measure or Relationship Ref.
-        Returns: The corresponding immutable value with complete scope facts.
-        Example: ``amount = finalized.resolve(amount_ref)``.
-        Constraints: Only this frozen scope is read; bare Refs cannot be composed.
-        """
-        return resolve(self, target)
-
-    def require(self, target: Ref[SemanticKindTag]) -> None:
-        if target not in self._state.definitions:
-            raise SemanticExpressionError(
-                kind=ErrorKind.NOT_FOUND,
-                message=f"Ref {target.key!r} is not among the finalized declarations.",
-                expected=f"a captured {target.kind.value} Ref in this finalized scope",
-                received=target.key,
-                action="Capture this declaration and its dependencies before ms.finalize(), then resolve its Ref from that result.",
-                refs=(target.key,),
-            )
-
-
-def declaration_state(
-    contexts: Sequence[LoaderContext], *, datasource_irs: tuple[DatasourceIR, ...]
-) -> FinalizedDeclarations:
-    """Validate and close a physical capture scope using the existing loader owners."""
-    from marivo.semantic._compiled_state import build_compiled_state
-    from marivo.semantic.loader import _build_registry, _semantic_duplicate_errors
-    from marivo.semantic.validator import assembly_validate
-
-    registry, sidecar, build_errors = _build_registry(list(contexts), datasource_irs=datasource_irs)
-    validation_errors, _ = assembly_validate(registry, sidecar)
-    errors = (*build_errors, *_semantic_duplicate_errors(contexts), *validation_errors)
-    if errors:
-        error = errors[0]
-        raise SemanticExpressionError(
-            kind=ErrorKind(error.kind),
-            message="Physical declarations cannot be finalized: " + error.message,
-            expected=error.expected or "a complete, valid physical dependency closure",
-            received=error.received
-            or f"{error.kind}: {error.message}; refs={error.semantic_refs!r}",
-            action=(error.repair.action if error.repair is not None else str(error))
-            + " Complete or repair the referenced declarations before calling ms.finalize() again.",
-            refs=error.semantic_refs,
-        ) from error
-    result = FinalizedDeclarations(
-        build_compiled_state(
-            registry=registry,
-            sidecar=sidecar,
-            selected_root_roles=(),
-            filtered_domains=(),
-        )
-    )
-    for ctx in contexts:
-        if ctx.finalized is None:
-            ctx.finalized = result
-    return result
-
-
-def finalize() -> FinalizedDeclarations:
-    """Validate and freeze all physical declarations captured in this loader scope.
-
-    Returns: A FinalizedDeclarations result whose resolve(ref) yields exact values.
-    Example:
-        >>> amount_ref = ms.measure_column(name="amount", entity=orders_ref,
-        ...     column="amount", additivity=ms.additive_all())
-        >>> finalized = ms.finalize()
-        >>> amount = finalized.resolve(amount_ref)
-    Constraints: Capture every physical dependency first. Finalization performs no
-        source reads, closes capture, and does not publish local Measure/Metric graphs.
-    """
-    from marivo.semantic._authoring_context import _require_ctx
-
-    ctx = _require_ctx()
-    if ctx.finalized is not None:
-        return ctx.finalized
-    return declaration_state((*ctx.prior_contexts, ctx), datasource_irs=ctx.datasource_irs)
-
-
 class _Resolver:
     """Definition identity over one compiled or declared semantic state."""
 
@@ -737,9 +737,9 @@ class _Resolver:
     def entity(self, path: str) -> Entity:
         target = ref_factory.entity(path)
         return Entity(
-            ref=self.entity_ref(path),
+            _exact_ref=self.entity_ref(path),
             primary_key=self._registry.entities[path].primary_key,
-            default_time=self.default_time(path),
+            _default_time=self.default_time(path),
             _facts=self.facts(target),
         )
 
@@ -839,63 +839,48 @@ class _Resolver:
     def relationship(self, path: str) -> Relationship:
         contract: TargetRelationshipContract = normalize_target_relationship(self._registry, path)
         return Relationship(
-            ref=self.exact(ref_factory.relationship(path)),
-            from_entity=self.entity_ref(contract.from_entity_ref.path),
-            to_entity=self.entity_ref(contract.to_entity_ref.path),
-            cardinality=contract.cardinality,
+            _parameter=RelationshipParameter(
+                ref=self.exact(ref_factory.relationship(path)),
+                from_entity=self.entity_ref(contract.from_entity_ref.path),
+                to_entity=self.entity_ref(contract.to_entity_ref.path),
+                cardinality=contract.cardinality,
+            ),
             _facts=self.facts(ref_factory.relationship(path)),
         )
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[EntityKind]
-) -> Entity: ...
+def resolve(catalog: SemanticCatalog, target: Ref[EntityKind]) -> Entity: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[DimensionKind]
-) -> Deferred: ...
+def resolve(catalog: SemanticCatalog, target: Ref[DimensionKind]) -> Deferred: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[TimeDimensionKind]
-) -> Deferred: ...
+def resolve(catalog: SemanticCatalog, target: Ref[TimeDimensionKind]) -> Deferred: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[MeasureKind]
-) -> Deferred: ...
+def resolve(catalog: SemanticCatalog, target: Ref[MeasureKind]) -> Deferred: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[MetricKind]
-) -> Deferred: ...
+def resolve(catalog: SemanticCatalog, target: Ref[MetricKind]) -> Deferred: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[RelationshipKind]
-) -> Relationship: ...
+def resolve(catalog: SemanticCatalog, target: Ref[RelationshipKind]) -> Relationship: ...
 
 
 @overload
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[SemanticKindTag]
-) -> ResolvedValue: ...
+def resolve(catalog: SemanticCatalog, target: Ref[SemanticKindTag]) -> ResolvedValue: ...
 
 
-def resolve(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[SemanticKindTag]
-) -> ResolvedValue:
+def resolve(catalog: SemanticCatalog, target: Ref[SemanticKindTag]) -> ResolvedValue:
     """Resolve one exact ref in ``catalog`` into its immutable expression value.
 
-    ``catalog`` is a loaded Catalog or finalized declarations; both share one
-    exact-version function. Unsupported kinds fail with a structured error;
+    ``catalog`` is a loaded Catalog with one exact-version identity function. Unsupported kinds fail with a structured error;
     absent refs fail through the source's own lookup error. No datasource is read.
     """
     if type(target) is not Ref:
@@ -954,7 +939,10 @@ def author_value(value: ResolvedValue) -> ResolvedValue:
                 coordinates=value.coordinates if isinstance(value, Measure) else (),
                 versioned=value._versioned,
                 field_read=FieldRead(
-                    value.ref, value.root, tuple(step.ref for step in value.path), value.anchor
+                    value.ref,
+                    value.root,
+                    tuple(step._parameter.ref for step in value.path),
+                    value.anchor,
                 ),
             )
         )
@@ -994,9 +982,7 @@ class CatalogValues:
         return value
 
 
-def catalog_metric_definition(
-    catalog: SemanticCatalog | FinalizedDeclarations, target: ExactRef
-) -> MetricNode | None:
+def catalog_metric_definition(catalog: SemanticCatalog, target: ExactRef) -> MetricNode | None:
     """The stored body of the published Metric at ``target``'s path; None when absent.
 
     Lookup is by kind and path in this scope: a reference built against an
@@ -1045,9 +1031,7 @@ def _rebind_declared(
     return cast("_RebindT", result)  # rebinding preserves each value's type
 
 
-def catalog_closure(
-    catalog: SemanticCatalog | FinalizedDeclarations, value: Deferred
-) -> DefinitionClosure:
+def catalog_closure(catalog: SemanticCatalog, value: Deferred) -> DefinitionClosure:
     """Expand ``value`` through the published Metrics of ``catalog`` into one graph.
 
     Declared Metric references resolve by kind and path in this scope; a
@@ -1080,10 +1064,14 @@ def _expression_contract(value: object) -> ExpressionContract:
     facts = value._facts
     if isinstance(value, Entity):
         stage: ExpressionStage = "entity"
-        roots: tuple[ExactRef, ...] = (value.ref,)
+        roots: tuple[ExactRef, ...] = (value._exact_ref,)
         operations: tuple[str, ...] = ("count",)
     elif isinstance(value, Relationship):
-        stage, roots, operations = "relationship", (value.from_entity, value.to_entity), ("via",)
+        stage, roots, operations = (
+            "relationship",
+            (value._parameter.from_entity, value._parameter.to_entity),
+            ("via",),
+        )
     else:
         stage = (
             "measure"
@@ -1096,21 +1084,37 @@ def _expression_contract(value: object) -> ExpressionContract:
     details = facts.details if facts else ()
     if isinstance(value, Relationship):
         details = (
-            ("from", value.from_entity.ref.key),
-            ("to", value.to_entity.ref.key),
+            ("from", value._parameter.from_entity.ref.key),
+            ("to", value._parameter.to_entity.ref.key),
             ("cardinality", value.cardinality),
             *details,
         )
     return ExpressionContract(
         stage=stage,
-        ref=value.ref,
-        roots=roots,
+        _ref=value._exact_ref
+        if isinstance(value, Entity)
+        else value._parameter.ref
+        if isinstance(value, Relationship)
+        else value.ref,
+        _roots=roots,
         unit=value.unit if isinstance(value, Measure) else None,
         sum_permission=value.permission if isinstance(value, Measure) else None,
-        default_time=value.default_time if not isinstance(value, Relationship) else None,
+        _default_time=value._default_time
+        if isinstance(value, Entity)
+        else value.default_time
+        if not isinstance(value, Relationship)
+        else None,
         computation=None,
-        reads=facts.reads if facts else (),
-        name=facts.name if facts else value.ref.ref.name,
+        _reads=facts.reads if facts else (),
+        name=facts.name
+        if facts
+        else (
+            value._exact_ref
+            if isinstance(value, Entity)
+            else value._parameter.ref
+            if isinstance(value, Relationship)
+            else value.ref
+        ).ref.name,
         business_definition=getattr(facts.ai_context, "business_definition", None)
         if facts
         else None,

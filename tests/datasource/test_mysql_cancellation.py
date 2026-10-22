@@ -15,6 +15,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.driver_protocols import _DriverExecute, _MysqlCursor
 from tests.datasource.source_cases import SourceData, source_case
 from tests.datasource.source_receipts import receipt
+from tests.support.refs import as_ref
 
 
 @pytest.mark.runtime
@@ -63,7 +64,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
             )
             catalog = ms.load(workspace_dir=tmp_path)
             calendar = ms.ref.period_calendar("sales.fiscal")
-            entry = catalog.period_calendars.get(calendar.path)
+            entry = catalog.period_calendars.get(as_ref(calendar).path)
             assert entry.details().snapshot_status == "missing"
             source_session = DatasourceConnectionService.source_session
             owners: list[SourceSession] = []
@@ -172,7 +173,7 @@ def test_certified_capture_error_keeps_prior_snapshot_and_submission_facts(
     )
     calendar = ms.ref.period_calendar("sales.fiscal")
     catalog.preview(calendar, scope=default_scope(max_rows=4))
-    entry = catalog.period_calendars.get(calendar.path)
+    entry = catalog.period_calendars.get(as_ref(calendar).path)
     previous = entry.details()
     assert previous.snapshot_status == "current"
     typed_failure = _invalid("a qualified source capture", "fixture rejection before submission")

@@ -14,13 +14,16 @@ from typing import Any
 
 import ibis
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.refs import Ref
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from tests.support.refs import as_ref
 
 
 def _enter_ctx(**kwargs: object) -> LoaderContext:
@@ -45,7 +48,7 @@ def _pending_entity_bodies(ctx: LoaderContext) -> dict[str, ExpressionBody]:
         pending.definition.name: pending.expression_body
         for pending in ctx.pending_definitions
         if pending.expression_body is not None
-        and type(pending.ref) is ms.Ref
+        and type(pending.ref) is Ref
         and pending.ref.kind is ms.SemanticKind.ENTITY
     }
 
@@ -87,8 +90,8 @@ def test_entity_without_name_returns_decorator_that_registers_ref() -> None:
             datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
         )(daily_orders)
-        assert type(ref) is ms.Ref and ref.kind is ms.SemanticKind.ENTITY
-        assert ref.path == "sales.daily_orders"
+        assert isinstance(ref, Deferred) and as_ref(ref).kind is ms.SemanticKind.ENTITY
+        assert as_ref(ref).path == "sales.daily_orders"
         ir, body = [
             (pending.definition, pending.expression_body)
             for pending in ctx.pending_definitions
@@ -123,7 +126,7 @@ def test_direct_entity_still_returns_ref_immediately_and_has_no_body() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         ref = _direct_entity()
-        assert type(ref) is ms.Ref and ref.kind is ms.SemanticKind.ENTITY
+        assert isinstance(ref, Deferred) and as_ref(ref).kind is ms.SemanticKind.ENTITY
         pending = ctx.pending_definitions[-1]
         assert pending.expression_body is None
         assert pending.definition.name == "orders"
@@ -364,11 +367,11 @@ def test_decorator_entity_ref_joins_same_ref_family() -> None:
             datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
         )(daily_orders)
-        direct_ref = ref_factory.entity("sales.daily_orders")
+        direct_ref = ms.ref.entity("sales.daily_orders")
         assert type(decorator_ref) is type(direct_ref)
-        assert decorator_ref.kind is direct_ref.kind
-        assert decorator_ref.path == direct_ref.path
-        assert decorator_ref.key == direct_ref.key
+        assert as_ref(decorator_ref).kind is as_ref(direct_ref).kind
+        assert as_ref(decorator_ref).path == as_ref(direct_ref).path
+        assert as_ref(decorator_ref) == as_ref(direct_ref)
     finally:
         _exit_ctx()
 
@@ -429,8 +432,7 @@ daily_amount_ref = ms.measure_column(
     unit="CNY",
 )
 
-finalized = ms.finalize()
-daily_amount = finalized.resolve(daily_amount_ref)
+daily_amount = daily_amount_ref
 
 
 @ms.metric()

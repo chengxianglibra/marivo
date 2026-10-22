@@ -112,10 +112,9 @@ recorded_at=ms.time_dimension_column(name='recorded_at',entity=readings,column='
 settled_at=ms.time_dimension_column(name='settled_at',entity=readings,column='settled_at', parse=ms.timestamp())
 reading_subjects=ms.relationship(name='reading_subjects',from_entity=readings,to_entity=subjects,keys=[ms.join_on(reading_subject,subject_id),ms.join_on(reading_tenant,subject_tenant)])
 reading_validity=ms.relationship(name='reading_validity',from_entity=readings,to_entity=subjects_validity,keys=[ms.join_on(reading_subject,subjects_validity_id),ms.join_on(reading_tenant,subjects_validity_tenant)])
-finalized=ms.finalize()
-energy_value=finalized.resolve(energy)
-recorded_value=finalized.resolve(recorded_at)
-settled_value=finalized.resolve(settled_at)
+energy_value=energy
+recorded_value=recorded_at
+settled_value=settled_at
 @ms.metric()
 def recorded_energy():
     return energy_value.sum(time=recorded_value)

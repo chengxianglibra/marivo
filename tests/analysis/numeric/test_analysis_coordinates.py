@@ -364,10 +364,10 @@ def test_weighted_coordinates_merge_paired_components(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
-            "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n# Named expressions",
         )
-        + "\nweight_value = finalized.resolve(weight)\n@ms.metric()\ndef weighted():\n    return amount_value.weighted_mean(weight=weight_value, time=time_value)\n"
+        + "\nweight_value = weight\n@ms.metric()\ndef weighted():\n    return amount_value.weighted_mean(weight=weight_value, time=time_value)\n"
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -391,8 +391,8 @@ def test_combined_member_classifications_do_not_expand_facts(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
-            "cohort = ms.dimension_column(name='cohort', entity=customer, column='customer_id')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "cohort = ms.dimension_column(name='cohort', entity=customer, column='customer_id')\n# Named expressions",
         )
     )
     ms.load(workspace_dir=case.root)
@@ -502,8 +502,8 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
-            "band=ms.dimension_column(name='band', entity=customer, column='band')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "band=ms.dimension_column(name='band', entity=customer, column='band')\n# Named expressions",
         )
     )
     ms.load(workspace_dir=case.root)

@@ -113,10 +113,10 @@ def canonical_value(value: object) -> object:
     if isinstance(value, TemporalGrain):
         if value.kind == "builtin":
             return value._to_token()
-        assert value.calendar is not None and value.level is not None
+        assert value._calendar is not None and value.level is not None
         return {
             "kind": "semantic",
-            "calendar_ref": value.calendar.path,
+            "calendar_ref": value._calendar.path,
             "level": value.level,
             "snapshot_digest": None if value._snapshot is None else value._snapshot.snapshot_digest,
         }
@@ -397,8 +397,8 @@ def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKi
         if isinstance(node, MetricWindow) and isinstance(node.rule, ToDate):
             grain = node.rule.grain
             if grain.kind == "semantic":
-                assert grain.calendar is not None
-                found.add(grain.calendar)
+                assert grain._calendar is not None
+                found.add(grain._calendar)
         pending.extend(edge.child for edge in children(node))
     return frozenset(found)
 

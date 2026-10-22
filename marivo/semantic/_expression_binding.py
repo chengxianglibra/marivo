@@ -398,7 +398,6 @@ class _DeclarationExpressionBuilder:
         )
 
     def dependency(self, value: object, node: ast.Name) -> object:
-        from marivo._definition.deferred import inspect_deferred
         from marivo._definition.relations import PopulationParameter
         from marivo._definition.windows import (
             AllHistory,
@@ -416,12 +415,12 @@ class _DeclarationExpressionBuilder:
         if isinstance(value, (Grouping, PopulationParameter)):
             return value
         if isinstance(value, Deferred):
-            inspect_deferred(value)
+            self.capture(value)
             return value
         if isinstance(value, Ref):
             self.fail(
                 node,
-                "an expression resolved from a finalized physical scope",
+                "a native symbolic lookup or a closed semantic expression",
                 f"{node.id}: {value.key}",
                 kind=ErrorKind.INVALID_EXPRESSION_STAGE,
             )
@@ -456,6 +455,17 @@ class _DeclarationExpressionBuilder:
             kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         )
 
+    def capture(self, value: Deferred) -> None:
+        from marivo._definition.deferred import inspect_capture
+        from marivo._definition.types import DefinitionGraphError
+
+        try:
+            inspect_capture(value)
+        except DefinitionGraphError as error:
+            raise SemanticExpressionError.from_definition(
+                error, operation=f"{self.stage} declaration {self.name}"
+            ) from error
+
     def _function(self, node: ast.expr) -> Callable[..., object] | None:
         from types import ModuleType
 
@@ -479,11 +489,7 @@ class _DeclarationExpressionBuilder:
                 value = vars(ibis).get(node.attr)
             elif isinstance(module, ModuleType) and module.__name__ == "marivo.analysis":
                 value = vars(module).get(node.attr)
-        if (
-            admitted_function(value)
-            or value is ibis.literal
-            or any(value is factory for factory in window_factories)
-        ):
+        if admitted_function(value) or any(value is factory for factory in window_factories):
             # Exact identity has been checked before admitting this Ibis constructor.
             return cast("Callable[..., object]", value)
         return None
@@ -588,6 +594,15 @@ class _DeclarationExpressionBuilder:
                 receiver = self.value(node.func.value)
                 name = node.func.attr
                 if isinstance(receiver, Deferred) and name in NATIVE_METHODS | SEMANTIC_METHODS:
+                    from marivo._definition.deferred import resolver_of
+                    from marivo._definition.population_parameters import parameter_role
+
+                    if parameter_role(resolver_of(receiver)) in {"population", "grouping", "axes"}:
+                        self.fail(
+                            node,
+                            "a precomputed Population result captured at module scope",
+                            ast.unparse(node.func),
+                        )
                     # Deferred attributes construct a recipe; they do not invoke author code.
                     method = cast("Callable[..., object]", getattr(receiver, name))
                 elif type(receiver) is Entity and name == "count":
@@ -604,6 +619,25 @@ class _DeclarationExpressionBuilder:
                 for keyword in node.keywords
                 if keyword.arg is not None
             }
+            from marivo._definition.deferred import admitted_function, capture_function_call
+            from marivo._definition.types import DefinitionGraphError
+
+            if admitted_function(method):
+                try:
+                    capture_function_call(method, tuple(args), kwargs)
+                except DefinitionGraphError as error:
+                    raise SemanticExpressionError.from_definition(
+                        error, operation=f"{self.stage} declaration {self.name}"
+                    ) from error
+                try:
+                    return method(*args, **kwargs)
+                except (TypeError, ValueError) as error:
+                    self.fail(
+                        node,
+                        "valid scalar or expression arguments for the admitted Ibis constructor",
+                        str(error),
+                        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                    )
             return method(*args, **kwargs)
         self.fail(node, "closed semantic expression syntax", ast.unparse(node))
 
@@ -631,7 +665,22 @@ def _construct_declaration_expression(
             builder.symbols[target.id] = builder.value(stmt.value)
         elif isinstance(stmt, ast.Return):
             assert stmt.value is not None
-            return builder.value(stmt.value)
+            value = builder.value(stmt.value)
+            if isinstance(value, Deferred):
+                builder.capture(value)
+                from marivo._symbolic import native_symbol_ref
+
+                native = native_symbol_ref(value)
+                if native is not None and native.kind not in {
+                    SemanticKind.DIMENSION,
+                    SemanticKind.TIME_DIMENSION,
+                    SemanticKind.MEASURE,
+                    SemanticKind.METRIC,
+                }:
+                    builder.fail(
+                        stmt.value, "a numeric row or completed Metric expression", native.key
+                    )
+            return value
     raise AssertionError("validated declaration has no final return")
 
 
@@ -641,7 +690,10 @@ def construct_measure_expression(fn: Callable[[], Deferred]) -> Deferred:
 
     result = _construct_declaration_expression(fn, stage="measure")
     if isinstance(result, Deferred):
-        consume_row(result)
+        from marivo._definition.deferred import inspect_deferred
+
+        if not inspect_deferred(result).symbols:
+            consume_row(result)
         return result
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
@@ -658,7 +710,10 @@ def construct_metric_expression(fn: Callable[[], Deferred]) -> Deferred:
 
     result = _construct_declaration_expression(fn, stage="metric")
     if isinstance(result, Deferred):
-        consume_metric(result)
+        from marivo._definition.deferred import inspect_deferred
+
+        if not inspect_deferred(result).symbols:
+            consume_metric(result)
         return result
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
@@ -673,8 +728,12 @@ def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
 
     if isinstance(value, Deferred):
+        from marivo._symbolic import native_symbol_ref
         from marivo.semantic._deferred_semantics import consume_field
 
+        native = native_symbol_ref(value)
+        if native is not None:
+            return native
         field = consume_field(value)
         if field.field_read is not None and field.field_read.path:
             return None
@@ -682,8 +741,14 @@ def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="an Ibis field binding")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
-        return value.ref.ref
-    return value if isinstance(value, Ref) else None
+        return (
+            value._exact_ref.ref
+            if isinstance(value, Entity)
+            else value._parameter.ref.ref
+            if isinstance(value, Relationship)
+            else value.ref.ref
+        )
+    return None
 
 
 def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
@@ -1533,7 +1598,7 @@ def evaluate_expression_body(
         _EXPRESSION_BINDING_CONTEXT.reset(token)
 
 
-def bind(field: Deferred | Field | Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
+def bind(field: Deferred | Field, entity_alias: ir.Table, /) -> ir.Value:
     """Apply a semantic field ref to an entity alias in an expression body.
 
     Parameters

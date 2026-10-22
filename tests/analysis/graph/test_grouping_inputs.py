@@ -106,8 +106,8 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         session.observe({"value": metric}, by=(people._definition.axes[0],))  # type: ignore[arg-type]  # Internal records are not public grouping inputs.
     with pytest.raises(AnalysisError):
         mv.identity(())
-    with pytest.raises(AnalysisError):
-        mv.identity(ms.ref.entity("sales.customer"))  # type: ignore[arg-type]  # Unresolved lookup keys are not grouping definitions.
+    with pytest.raises(SemanticError):
+        session.observe({"value": metric}, by=(mv.identity(ms.ref.entity("sales.customer")),))
 
 
 def test_population_predicates_and_classify_have_explicit_boundaries(

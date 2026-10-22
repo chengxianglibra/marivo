@@ -487,8 +487,7 @@ orders = ms.entity(name="orders",datasource=ms.ref.datasource("warehouse"),sourc
 region = ms.dimension_column(name="region",entity=orders,column="region")
 amount = ms.measure_column(name="amount",entity=orders,column="amount",additivity=ms.additive_all(),unit="CNY")
 stamp = ms.time_dimension_column(name="stamp",entity=orders,column="stamp",is_default=True)
-finalized = ms.finalize()
-a = finalized.resolve(amount)
+a = amount
 @ms.metric()
 def revenue():
     return a.sum()

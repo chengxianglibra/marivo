@@ -69,6 +69,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
+from marivo.semantic.expressions import entity_exact, relationship_parameter
 from marivo.semantic.reader import SemanticProject
 
 
@@ -397,7 +398,8 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
         replace(
             facts,
             field_read=replace(
-                facts.field_read, entity=session.catalog.entities.get("sales.customers").ref
+                facts.field_read,
+                entity=entity_exact(session.catalog.entities.get("sales.customers")),
             ),
         )
     )
@@ -406,7 +408,8 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
             session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], bad),)
         )
     missing = replace(
-        session.catalog.entities.get("sales.facts"), ref=ExactRef(ref.entity("sales.absent"), "v")
+        session.catalog.entities.get("sales.facts"),
+        _exact_ref=ExactRef(ref.entity("sales.absent"), "v"),
     )
     identity = _identities(session)
     with pytest.raises(CoreRuleError, match="declared in the receiving Catalog"):
@@ -426,8 +429,8 @@ def test_explicit_field_path_is_retained_and_rebound(session: Session) -> None:
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], segment),)
     )
     assert isinstance(population._definition.axes[0], AxisBinding)
-    assert population._definition.axes[0].path == (relationship.ref,)
-    assert population._definition.axes[0].entity == relationship.to_entity
+    assert population._definition.axes[0].path == (relationship_parameter(relationship).ref,)
+    assert population._definition.axes[0].entity == relationship_parameter(relationship).to_entity
 
 
 def test_known_axis_unit_must_match_the_current_target_contract(session: Session) -> None:
@@ -455,7 +458,7 @@ def test_prepared_keys_validate_deferred_time_role_without_source_reads(session:
     frame = _fields(session)
     assert isinstance(frame._schema, DataSchema)
     target = AxisBinding(
-        session.catalog.entities.get("sales.facts").ref,
+        entity_exact(session.catalog.entities.get("sales.facts")),
         ExactRef(ref.time_dimension("sales.facts.day"), "current"),
         (),
         "field",

@@ -31,14 +31,12 @@ def invalid(rows):
 
 
 def test_derived_metric_uses_source_permission_without_global_fanout_policy() -> None:
-    source = """\
-import marivo.datasource as md
+    source = """import marivo.datasource as md
 import marivo.semantic as ms
 orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
 amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())
-finalized = ms.finalize()
-amount = finalized.resolve(amount_ref)
-orders = finalized.resolve(orders_ref)
+amount = amount_ref
+orders = orders_ref
 @ms.metric()
 def aov():
     return amount.sum() / orders.count()

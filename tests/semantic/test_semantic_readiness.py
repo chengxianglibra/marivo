@@ -18,6 +18,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import UTC
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import StructuredWarning
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
@@ -25,6 +26,7 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
+from tests.support.refs import as_ref
 
 _DOMAIN = "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
 
@@ -37,8 +39,7 @@ def _ready_project(
     files = {
         "sales/_domain.py": _DOMAIN,
         "sales/models.py": textwrap.dedent(
-            """\
-                import marivo.datasource as md
+            """                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(
                     name="orders",
@@ -57,8 +58,7 @@ def _ready_project(
                     ),
                 )
                 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
-                finalized = ms.finalize()
-                amount = finalized.resolve(amount_ref)
+                amount = amount_ref
                 @ms.metric(
                     ai_context=ms.ai_context(
                         business_definition="Order revenue.",
@@ -93,7 +93,7 @@ def test_analysis_readiness_help_example_accepts_physical_selection(
     exec(compile(descriptor.example, "<readiness-help-example>", "exec"), namespace)
     report = namespace["result"]
     assert isinstance(report, ReadinessReport)
-    assert report.analysis_ready_inputs == (ms.ref.entity("sales.orders"),)
+    assert report._analysis_ready_inputs == (ref_factory.entity("sales.orders"),)
 
 
 def _without_checked_at(report: ReadinessReport) -> dict[str, object]:
@@ -105,7 +105,7 @@ def _without_checked_at(report: ReadinessReport) -> dict[str, object]:
 def test_report_has_one_ready_input_projection() -> None:
     assert tuple(field.name for field in fields(ReadinessReport)) == (
         "status",
-        "analysis_ready_inputs",
+        "_analysis_ready_inputs",
         "blockers",
         "warnings",
         "input_summary",
@@ -117,7 +117,7 @@ def test_report_has_one_ready_input_projection() -> None:
 def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
     report = ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_inputs=(ms.ref.metric("sales.revenue"),),
+        _analysis_ready_inputs=(ref_factory.metric("sales.revenue"),),
         blockers=(),
         warnings=(
             ReadinessIssue(
@@ -167,9 +167,9 @@ def test_direct_requests_only_are_ready_inputs(
 
     report = project.readiness(refs=("sales.orders.amount",))
 
-    assert report.analysis_ready_inputs == (ms.ref.measure("sales.orders.amount"),)
-    assert ms.ref.metric("sales.revenue") not in report.analysis_ready_inputs
-    assert ms.ref.entity("sales.orders") not in report.analysis_ready_inputs
+    assert report._analysis_ready_inputs == (ref_factory.measure("sales.orders.amount"),)
+    assert ref_factory.metric("sales.revenue") not in report._analysis_ready_inputs
+    assert ref_factory.entity("sales.orders") not in report._analysis_ready_inputs
 
 
 def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
@@ -197,7 +197,7 @@ def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
     )
 
     metric = project.readiness(refs=(ms.ref.measure("sales.orders.amount"),))
-    assert metric.analysis_ready_inputs == (ms.ref.measure("sales.orders.amount"),)
+    assert metric._analysis_ready_inputs == (ref_factory.measure("sales.orders.amount"),)
     assert "sales.orders.amount" in metric.input_summary.refs
     assert "sales.orders.region" not in metric.input_summary.refs
     assert tuple(issue.refs for issue in metric.warnings) == (("sales.orders.amount",),)
@@ -211,7 +211,7 @@ def test_unknown_requested_ref_is_blocked(
 ) -> None:
     report = _ready_project(semantic_project_factory).readiness(refs=("sales.missing",))
     assert report.status == "blocked"
-    assert report.analysis_ready_inputs == ()
+    assert report._analysis_ready_inputs == ()
     assert {issue.kind for issue in report.blockers} == {"unknown_ref"}
 
 
@@ -278,14 +278,12 @@ def test_missing_business_context_does_not_block_readiness(
         {
             "sales/_domain.py": _DOMAIN,
             "sales/models.py": textwrap.dedent(
-                """\
-                import marivo.datasource as md
+                """                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
-                finalized = ms.finalize()
-                amount = finalized.resolve(amount_ref)
+                amount = amount_ref
                 @ms.metric()
                 def revenue():
                     return amount.sum()
@@ -315,16 +313,14 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
             ),
             "sales/_domain.py": _DOMAIN,
             "sales/models.py": textwrap.dedent(
-                """\
-                import marivo.datasource as md
+                """                import marivo.datasource as md
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"))
                 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
                 refund_ref = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all())
-                finalized = ms.finalize()
-                amount = finalized.resolve(amount_ref)
-                refunded = finalized.resolve(refund_ref)
+                amount = amount_ref
+                refunded = refund_ref
                 @ms.metric()
                 def net_revenue():
                     return amount.sum() - refunded.sum()
@@ -348,7 +344,7 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
     inputs = (ms.ref.measure("sales.orders.amount"), ms.ref.measure("sales.refunds.amount"))
     report = catalog.readiness(refs=inputs)
     assert report.status == "ready"
-    assert report.analysis_ready_inputs == inputs
+    assert report._analysis_ready_inputs == tuple(as_ref(value) for value in inputs)
     assert set(report.input_summary.datasources) == {"warehouse", "finance"}
 
 
@@ -418,4 +414,4 @@ def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
     report = project.readiness(refs=(ms.ref.time_dimension("sales.events.point"),))
     assert report.status == "ready"
     assert report.blockers == ()
-    assert report.analysis_ready_inputs == (ms.ref.time_dimension("sales.events.point"),)
+    assert report._analysis_ready_inputs == (ref_factory.time_dimension("sales.events.point"),)

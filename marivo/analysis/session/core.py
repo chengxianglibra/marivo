@@ -167,7 +167,7 @@ class Session:
             condition_populations,
         )
         from marivo.semantic._deferred_semantics import consume_predicate
-        from marivo.semantic.expressions import Entity, _Resolver
+        from marivo.semantic.expressions import Entity, _Resolver, entity_exact
 
         if not isinstance(entity, Entity):
             reject(
@@ -176,7 +176,7 @@ class Session:
                 "Resolve the Entity with session.catalog.entities.get(path).",
                 "session.members.entity",
             )
-        resolved = _Resolver(self.catalog._state).entity(entity.ref.ref.path)
+        resolved = _Resolver(self.catalog._state).entity(entity_exact(entity).ref.path)
         if entity.primary_key != resolved.primary_key:
             reject(
                 "an Entity with the receiving Catalog's complete primary key",
@@ -192,7 +192,9 @@ class Session:
             else ()
         )
         predicate = consume_predicate(where) if where is not None else None
-        if predicate is not None and any(root.ref != resolved.ref.ref for root in predicate.roots):
+        if predicate is not None and any(
+            root.ref != entity_exact(resolved).ref for root in predicate.roots
+        ):
             reject(
                 "a predicate on the selected Entity",
                 str(tuple(root.ref.key for root in predicate.roots)),
@@ -206,7 +208,7 @@ class Session:
                 "Construct at with session.instant(...).",
                 "session.members",
             )
-        axis = AxisBinding(entity.ref, None, (), "identity", at)
+        axis = AxisBinding(entity_exact(entity), None, (), "identity", at)
         if predicate is not None and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
             for domain in condition_populations(predicate.node)
@@ -218,7 +220,7 @@ class Session:
                 "session.members",
             )
         node = SourceIdentities(
-            entity.ref,
+            entity_exact(entity),
             at,
             predicate.node if predicate is not None else None,
         )

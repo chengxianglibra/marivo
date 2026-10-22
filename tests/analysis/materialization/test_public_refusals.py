@@ -20,6 +20,7 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import run_ids
 from tests.support.json import Json, encode
+from tests.support.refs import as_ref
 
 
 def test_public_composition_refuses_before_source_or_run(
@@ -36,15 +37,15 @@ def test_public_composition_refuses_before_source_or_run(
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
         live = session.read(
-            session.members(session.catalog.entities.get(entity.path)),
-            {"value": session.catalog.fields.get(measure.path)},
+            session.members(session.catalog.entities.get(as_ref(entity).path)),
+            {"value": session.catalog.fields.get(as_ref(measure).path)},
         )
         previous = live.persist()
         saved = snapshot(previous)
         foreign = mv.session.create("r94-foreign", timezone="UTC")
         other = foreign.read(
-            foreign.members(foreign.catalog.entities.get(entity.path)),
-            {"value": foreign.catalog.fields.get(measure.path)},
+            foreign.members(foreign.catalog.entities.get(as_ref(entity).path)),
+            {"value": foreign.catalog.fields.get(as_ref(measure).path)},
         )
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -216,7 +217,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             models += f"{name}_amount = ms.measure_column(name={name + '_amount'!r}, entity={name}, column='amount', additivity=ms.additive_all())\n"
         models += "event_subject = ms.relationship(name='event_subject', from_entity=events, to_entity=subjects, keys=[ms.join_on(events_tenant,subjects_tenant),ms.join_on(events_id,subjects_id),ms.join_on(events_revision,subjects_revision)])\n"
         models += "event_time = ms.time_dimension_column(name='happened', entity=events, column='happened', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
-        models += "frozen = ms.finalize()\namount_value = frozen.resolve(events_amount)\ntime_value = frozen.resolve(event_time)\n@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
+        models += "amount_value = events_amount\ntime_value = event_time\n@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
         semantic_project_factory(
             {
                 "datasources/left.py": "import marivo.datasource as md\n"

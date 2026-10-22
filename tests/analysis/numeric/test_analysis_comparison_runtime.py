@@ -436,12 +436,11 @@ def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
+            "# Named expressions",
             """
 account = ms.entity(name='account', datasource=warehouse, source=md.table('customer'), primary_key=['customer_id'])
 account_id = ms.dimension_column(name='customer_id', entity=account, column='customer_id')
 customer_account = ms.relationship(name='customer_account', from_entity=customer, to_entity=account, keys=[ms.join_on(customer_id, account_id)])
-finalized = ms.finalize()
 """,
             1,
         )
@@ -708,8 +707,8 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
-            "finalized = ms.finalize()",
-            "denominator_value = ms.measure_column(name='denominator', entity=orders, column='denominator', additivity=ms.additive_all(), unit='CNY')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "denominator_value = ms.measure_column(name='denominator', entity=orders, column='denominator', additivity=ms.additive_all(), unit='CNY')\n# Named expressions",
             1,
         )
     )
@@ -762,8 +761,8 @@ def test_float_status_fold_comparison_uses_native_values(
     path = case.root / "models/semantic/sales/models.py"
     path.write_text(
         path.read_text().replace(
-            "finalized = ms.finalize()",
-            "status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount', additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='CNY')\nfinalized = ms.finalize()",
+            "# Named expressions",
+            "status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount', additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='CNY')\n# Named expressions",
             1,
         )
     )

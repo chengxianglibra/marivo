@@ -110,10 +110,10 @@ to_facts=ms.relationship(name='to_facts',from_entity=subset,to_entity=facts,keys
 amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())
 weight=ms.measure_column(name='weight',entity=facts,column='weight',additivity=ms.additive_all())
 subset_weight=ms.measure_column(name='weight',entity=subset,column='weight',additivity=ms.additive_all())
-frozen=ms.finalize()
-a=frozen.resolve(amount)
-w=frozen.resolve(weight)
-s=frozen.resolve(subset_weight)
+# Named expressions
+a=amount
+w=weight
+s=subset_weight
 @ms.metric()
 def combined():
     return a.sum()+s.sum()

@@ -6,7 +6,6 @@ from datetime import date, datetime, timedelta
 import ibis
 import pytest
 
-import marivo.semantic as ms
 from marivo._compat import UTC
 from marivo._temporal import (
     GregorianIsoResolver,
@@ -20,6 +19,7 @@ from marivo._temporal import (
 )
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.refs import ref
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import StrptimeParse
@@ -68,7 +68,7 @@ def test_resolver_table_uses_connection_service(semantic_project_factory):
     connections = _FakeConnections(backend)
     resolver = _catalog(semantic_project_factory)._semantic_resolver(connections=connections)
 
-    table = resolver.entity(ms.ref.entity("sales.orders"))
+    table = resolver.entity(ref_factory.entity("sales.orders"))
 
     assert "amount" in table.columns
     assert connections.names == ["warehouse"]

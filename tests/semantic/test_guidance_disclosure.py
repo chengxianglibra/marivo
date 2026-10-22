@@ -19,6 +19,7 @@ from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
 from marivo._help.render import render_help_text
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import ref as ref_factory
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
@@ -31,21 +32,20 @@ from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
 from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
+from tests.support.refs import as_ref
 
 
 def _no_io(*args: object, **kwargs: object) -> object:
     raise AssertionError("Reading guidance must not load, connect, or run checks")
 
 
-_REVENUE_MODEL = """\
-import marivo.datasource as md
+_REVENUE_MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'), primary_key=['order_id'])
 paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'), is_default=True)
 amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')
-finalized = ms.finalize()
-amount_value = finalized.resolve(amount)
-paid_at_value = finalized.resolve(paid_at)
+amount_value = amount
+paid_at_value = paid_at
 
 @ms.metric(ai_context=ms.ai_context(business_definition='Sum of accepted order amounts.'))
 def revenue():
@@ -135,7 +135,7 @@ def test_error_instance_keeps_concrete_facts(
 def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
     report = ReadinessReport(
         status="blocked",
-        analysis_ready_inputs=(ms.ref.metric("sales.ready"),),
+        _analysis_ready_inputs=tuple(as_ref(item) for item in (ms.ref.metric("sales.ready"),)),
         blockers=(ReadinessIssue("unknown_ref", "blocker", ("sales.missing",), "Not found"),),
         warnings=(
             ReadinessIssue(
@@ -178,10 +178,10 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
     check = SourceHealthCheckResult(
         kind="not_null",
         status="failed",
-        datasource=ms.ref.datasource("warehouse"),
+        _datasource=as_ref(ms.ref.datasource("warehouse")),
         source=TableSourceIR(table="orders"),
-        target_refs=(entity,),
-        affected_refs=(ms.ref.metric("sales.revenue"),),
+        _target_refs=tuple(as_ref(item) for item in (entity,)),
+        _affected_refs=tuple(as_ref(item) for item in (ms.ref.metric("sales.revenue"),)),
         checked_at="2026-10-07T00:00:00Z",
         observed_schema_fingerprint=None,
         observed_capability_fingerprint=None,
@@ -192,7 +192,10 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
             help_target=LiveHelpTarget(surface="semantic", canonical_id="measure.from_column"),
         ),
         user_data_queried=True,
-        scopes=((entity, md.unpruned(max_rows=10, timeout_seconds=5)),),
+        _scopes=tuple(
+            (as_ref(item), scope)
+            for item, scope in ((entity, md.unpruned(max_rows=10, timeout_seconds=5)),)
+        ),
     )
     report = SourceHealthReport("failed", (check,), check.checked_at, "definition:fixture")
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
@@ -247,15 +250,7 @@ def test_decorator_help_example_loads_the_declared_object(
             "from marivo._definition.graph import computation_fingerprint\n"
             f"assert isinstance({symbol}, Deferred)\n"
             f"assert root_declaration({symbol}).name == {symbol!r}\n"
-            f"assert consume_{'row' if target == 'measure' else 'metric'}({symbol}).unit == 'CNY'\n"
         )
-        if target == "measure":
-            local_assertions += (
-                f"assert consume_row(order_amount).root.ref.path + '.' + root_declaration(order_amount).name == {path!r}\n"
-                "assert consume_metric(order_amount.sum()).unit == 'CNY'\n"
-            )
-        else:
-            local_assertions += "assert inspect_deferred(revenue).fingerprint == inspect_deferred(amount.sum()).fingerprint\n"
     semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -290,12 +285,12 @@ def test_decorator_help_example_loads_the_declared_object(
             assert isinstance(value, Deferred)
             metric = consume_metric(value)
             assert isinstance(metric.node, DeclaredMetricRef)
-            assert metric.node.ref.ref == ms.ref.metric(path)
+            assert metric.node.ref.ref == ref_factory.metric(path)
             assert metric.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
             dependency_value = catalog.fields.get(f"sales.orders.{dependency}")
             assert isinstance(dependency_value, Deferred)
-            assert consume_field(dependency_value).reference.ref == ms.ref.measure(
+            assert consume_field(dependency_value).reference.ref == ref_factory.measure(
                 f"sales.orders.{dependency}"
             )
         return
@@ -359,7 +354,7 @@ def test_missing_path_ranks_real_collection_paths_before_bounding(
     assert "catalog.domains.show()" not in str(captured.value)
     assert eval(repair.snippet, {"catalog": expression_catalog, "ms": ms}) is not None
     for key in repair.candidates:
-        assert key in {ref.path for ref in expression_catalog.metrics.refs}
+        assert key in {ref.path for ref in expression_catalog.metrics._refs}
 
 
 def test_row_filter_failure_points_to_its_exact_expression_role(

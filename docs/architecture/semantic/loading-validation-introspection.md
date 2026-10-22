@@ -37,7 +37,7 @@ A new load establishes a new scope; see [definition identity](semantic-object-mo
 ## Catalog consumption
 
 Collections accept a unique local name or complete path string within their
-scope. They do not accept kind-prefixed strings or Ref objects as get keys.
+scope. They do not accept kind-prefixed strings or lookup symbols as get keys.
 Domain-scoped collections cannot escape their domain. Empty collections,
 unknown names and ambiguous short names remain distinct outcomes.
 
@@ -78,8 +78,10 @@ and blockers stay on the same ReadinessReport.
 Build preview scopes with md.partition, md.time_range or md.unpruned. Positive
 row guards and requested native timeouts bound acquisition; a returned-row limit
 is not a scan bound or complete-call deadline. Multiple dependency Entities use
-an exact Entity-ref-to-scope mapping. JSON preview can supply explicit non-secret
-source_bindings. Ordinary preview reads the current datasource and does not
+an ordered sequence of `(EntitySymbol, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
+source_bindings as `(EntitySymbol, parameter_mapping)` pairs. A single Entity scope
+still accepts one AuthoringScope; source_bindings always explicitly names its Entity.
+Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
 persist a general validation checkpoint.
 
 Metric preview supports ordinary source reductions/formulas over at most 10,000

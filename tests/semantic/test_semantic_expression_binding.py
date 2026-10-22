@@ -9,6 +9,7 @@ import ibis
 import ibis.expr.types as ir
 import pytest
 
+from marivo._symbolic import symbol_from_ref
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
@@ -23,14 +24,17 @@ from marivo.semantic.errors import ErrorKind, SemanticLoadError, SemanticRuntime
 ORDERS = ref_factory.entity("sales.orders")
 USERS = ref_factory.entity("sales.users")
 AMOUNT = ref_factory.measure("sales.orders.amount")
-AMOUNT_ALIAS = AMOUNT
+AMOUNT_SYMBOL = symbol_from_ref(AMOUNT)
+AMOUNT_ALIAS = AMOUNT_SYMBOL
 NET_AMOUNT = ref_factory.measure("sales.orders.net_amount")
 COUNTRY = ref_factory.dimension("sales.orders.country")
 REVENUE = ref_factory.metric("sales.revenue")
+NET_AMOUNT_SYMBOL = symbol_from_ref(NET_AMOUNT)
+REVENUE_SYMBOL = symbol_from_ref(REVENUE)
 
 
 def _revenue(orders):
-    return bind(AMOUNT, orders).sum()
+    return bind(AMOUNT_SYMBOL, orders).sum()
 
 
 def _renamed_revenue(rows):
@@ -38,31 +42,31 @@ def _renamed_revenue(rows):
 
 
 def _net_amount(orders):
-    return bind(AMOUNT, orders) * 0.9
+    return bind(AMOUNT_SYMBOL, orders) * 0.9
 
 
 def _net_revenue(orders):
-    return bind(NET_AMOUNT, orders).sum()
+    return bind(NET_AMOUNT_SYMBOL, orders).sum()
 
 
 def _wrong_alias(orders):
-    return bind(AMOUNT, orders.filter(orders.amount > 0)).sum()
+    return bind(AMOUNT_SYMBOL, orders.filter(orders.amount > 0)).sum()
 
 
 def _two_entities(orders, users):
-    return bind(AMOUNT, orders).sum()
+    return bind(AMOUNT_SYMBOL, orders).sum()
 
 
 def _second_entity(orders, users):
-    return bind(AMOUNT, users).sum()
+    return bind(AMOUNT_SYMBOL, users).sum()
 
 
 def _identity_metric(orders):
-    return bind(AMOUNT, orders)
+    return bind(AMOUNT_SYMBOL, orders)
 
 
 def _recursive_amount(orders):
-    return bind(AMOUNT, orders)
+    return bind(AMOUNT_SYMBOL, orders)
 
 
 def _raw_amount(orders):
@@ -74,7 +78,7 @@ def _raw_country(orders):
 
 
 def _metric_ref_call(orders):
-    return bind(REVENUE, orders)  # type: ignore[arg-type]
+    return bind(REVENUE_SYMBOL, orders)  # type: ignore[arg-type]
 
 
 def _sidecar(
@@ -221,7 +225,7 @@ def test_context_is_cleaned_after_success_and_body_failure() -> None:
         aliases=(table,),
     )
     with pytest.raises(SemanticRuntimeError) as success_cleanup:
-        bind(AMOUNT, table)
+        bind(AMOUNT_SYMBOL, table)
     assert success_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
     def fails(_orders):
@@ -243,7 +247,7 @@ def test_context_is_cleaned_after_success_and_body_failure() -> None:
             aliases=(table,),
         )
     with pytest.raises(SemanticRuntimeError) as failure_cleanup:
-        bind(AMOUNT, table)
+        bind(AMOUNT_SYMBOL, table)
     assert failure_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
 
@@ -367,7 +371,7 @@ def test_cycle_and_invalid_nested_result_reset_every_frame() -> None:
         )
     assert cycle_error.value.kind == ErrorKind.BINDING_CYCLE
     with pytest.raises(SemanticRuntimeError) as cycle_cleanup:
-        bind(AMOUNT, table)
+        bind(AMOUNT_SYMBOL, table)
     assert cycle_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
     invalid = ExpressionBody(
@@ -387,14 +391,14 @@ def test_cycle_and_invalid_nested_result_reset_every_frame() -> None:
         )
     assert result_error.value.kind == ErrorKind.BINDING_RESULT_INVALID
     with pytest.raises(SemanticRuntimeError) as result_cleanup:
-        bind(AMOUNT, table)
+        bind(AMOUNT_SYMBOL, table)
     assert result_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
 
 def test_runtime_rejects_non_field_and_non_exact_receivers_structurally() -> None:
     table = ibis.table({"amount": "float64"}, name="orders")
     with pytest.raises(SemanticRuntimeError) as metric_error:
-        bind(REVENUE, table)  # type: ignore[arg-type]
+        bind(REVENUE_SYMBOL, table)  # type: ignore[arg-type]
     assert metric_error.value.kind == ErrorKind.INVALID_BINDING_REF
     with pytest.raises(SemanticRuntimeError) as exact_error:
         bind(object(), table)  # type: ignore[arg-type]

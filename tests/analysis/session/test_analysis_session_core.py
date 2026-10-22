@@ -78,8 +78,8 @@ def test_session_catalog_loads_external_semantic_layer(
                 rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": "id", "amount": "amount"}}), primary_key=["id"])
 
                 amount_ref = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
-                finalized = ms.finalize()
-                amount = finalized.resolve(amount_ref)
+                # Named expressions
+                amount = amount_ref
                 @ms.metric()
                 def {metric}():
                     return amount.sum()
@@ -147,8 +147,7 @@ def test_session_observe_uses_external_layer_datasource(
 
             amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
             instant = ms.time_dimension_column(name="instant", entity=rows, column="occurred_at", parse=None, is_default=True)
-            finalized = ms.finalize()
-            amount_value = finalized.resolve(amount)
+            amount_value = amount
             @ms.metric()
             def refunds_total():
                 return amount_value.sum()

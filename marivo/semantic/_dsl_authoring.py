@@ -7,10 +7,11 @@ from typing import Literal, TypeAlias
 
 from ibis.common.deferred import Deferred
 
-from marivo.refs import DimensionKind, Ref, SemanticKind, TimeDimensionKind
+from marivo._symbolic import DimensionSymbol, TimeDimensionSymbol
+from marivo.refs import Ref, SemanticKind
 
 _TOKEN = object()
-CoordinateRef: TypeAlias = Ref[DimensionKind | TimeDimensionKind]
+CoordinateRef: TypeAlias = DimensionSymbol | TimeDimensionSymbol
 CoordinateInput: TypeAlias = CoordinateRef | Deferred
 
 

@@ -14,22 +14,23 @@ import marivo.semantic as ms
 from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.refs import ref as private_ref
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
-CUSTOMER = ms.ref.entity("sales.customer")
-ORDER = ms.ref.entity("sales.order")
-LINE = ms.ref.entity("sales.order_line")
-BUYER = ms.ref.relationship("sales.order_buyer")
-LINE_ORDER = ms.ref.relationship("sales.line_order")
-REVENUE = ms.ref.metric("sales.revenue")
-LINE_REVENUE = ms.ref.metric("sales.line_revenue")
-REGION = ms.ref.dimension("sales.customer.region")
-CATEGORY = ms.ref.dimension("sales.product.category")
-LINE_PRODUCT = ms.ref.relationship("sales.line_product")
-RECIPIENT = ms.ref.relationship("sales.order_recipient")
+CUSTOMER = private_ref.entity("sales.customer")
+ORDER = private_ref.entity("sales.order")
+LINE = private_ref.entity("sales.order_line")
+BUYER = private_ref.relationship("sales.order_buyer")
+LINE_ORDER = private_ref.relationship("sales.line_order")
+REVENUE = private_ref.metric("sales.revenue")
+LINE_REVENUE = private_ref.metric("sales.line_revenue")
+REGION = private_ref.dimension("sales.customer.region")
+CATEGORY = private_ref.dimension("sales.product.category")
+LINE_PRODUCT = private_ref.relationship("sales.line_product")
+RECIPIENT = private_ref.relationship("sales.order_recipient")
 
 
 def _window(session: mv.Session) -> mv.TimeScope:
@@ -79,9 +80,7 @@ order_product = ms.relationship(name='order_product', from_entity=orders, to_ent
     keys=[ms.join_on(order_product_id, product_id)])
 """
     model.write_text(
-        model.read_text().replace(
-            "finalized = ms.finalize()", extra + "\nfinalized = ms.finalize()", 1
-        )
+        model.read_text().replace("# Named expressions", extra + "\n# Named expressions", 1)
     )
     ms.load(workspace_dir=case.root)
     return mv.session.create("relationship-bindings", timezone="UTC")
@@ -152,9 +151,7 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     model = case.root / "models/semantic/sales/models.py"
     extra = "alternative = ms.relationship(name='alternative_buyer', from_entity=orders, to_entity=customer, keys=[ms.join_on(order_customer_id, customer_id)])\n"
     model.write_text(
-        model.read_text().replace(
-            "finalized = ms.finalize()", extra + "finalized = ms.finalize()", 1
-        )
+        model.read_text().replace("# Named expressions", extra + "# Named expressions", 1)
     )
     other = mv.session.create("new-role", timezone="UTC")
     with pytest.raises(AnalysisError):
@@ -420,9 +417,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         "interval='closed_open', open_end=(None,), timezone='UTC'))",
     )
     fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending')\n"
-    model.write_text(
-        contents.replace("finalized = ms.finalize()", fields + "finalized = ms.finalize()", 1)
-    )
+    model.write_text(contents.replace("# Named expressions", fields + "# Named expressions", 1))
     session = mv.session.create("timed-coverage", timezone="UTC")
     metric = session.catalog.metrics.get(LINE_REVENUE.path)
     field = session.catalog.fields.get(CATEGORY.path)

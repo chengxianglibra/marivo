@@ -95,7 +95,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         )
         models.write_text(
             models.read_text().replace(
-                "frozen = ms.finalize()", subject_models + "frozen = ms.finalize()"
+                "# Named expressions", subject_models + "# Named expressions"
             )
         )
         ms.load(workspace_dir=tmp_path)

@@ -1,7 +1,7 @@
 """Dependency-neutral temporal values and certified period resolution.
 
-This module deliberately has no datasource, semantic-registry, Ibis, pandas,
-or analysis-session dependency.  Semantic authoring certifies a finite period
+This module has no datasource, semantic-registry, pandas, or analysis-session
+dependency. Public identity navigation uses the native Deferred selector base.  Semantic authoring certifies a finite period
 snapshot here; later analysis slices consume the exact same resolver.
 """
 
@@ -29,10 +29,18 @@ from typing import (
 )
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 from pydantic_core import core_schema
 
 from marivo._grouping import Grouping
+from marivo._symbolic import PeriodCalendarSymbol, TemporalSetSymbol, symbol_factory
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
@@ -160,7 +168,11 @@ class Grain:
     if TYPE_CHECKING:
         unit: str | None
         count: int | None
-        calendar: Ref[PeriodCalendarKind] | None
+        _calendar: Ref[PeriodCalendarKind] | None
+
+        @property
+        def calendar(self) -> PeriodCalendarSymbol | None: ...
+
         level: str | None
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
@@ -235,11 +247,11 @@ class Grain:
                 "calendar": (
                     {
                         "schema": "marivo.semantic_ref/v1",
-                        "kind": semantic.calendar.kind.value,
-                        "path": semantic.calendar.path,
+                        "kind": semantic._calendar.kind.value,
+                        "path": semantic._calendar.path,
                     }
                     if mode == "json"
-                    else semantic.calendar
+                    else semantic._calendar
                 ),
                 "level": semantic.level,
                 "snapshot": None
@@ -263,7 +275,7 @@ class Grain:
             return left.unit == right.unit and left.count == right.count
         semantic_left, semantic_right = cast("_SemanticGrain", self), cast("_SemanticGrain", other)
         return (
-            semantic_left.calendar == semantic_right.calendar
+            semantic_left._calendar == semantic_right._calendar
             and semantic_left.level == semantic_right.level
             and (
                 None if semantic_left._snapshot is None else semantic_left._snapshot.snapshot_digest
@@ -283,7 +295,7 @@ class Grain:
         return hash(
             (
                 self.kind,
-                semantic_value.calendar,
+                semantic_value._calendar,
                 semantic_value.level,
                 None
                 if semantic_value._snapshot is None
@@ -329,7 +341,7 @@ class Grain:
             value = cast("_BuiltinGrain", self)
             return value.unit if value.count == 1 else f"{value.count}{value.unit}"
         semantic_value = cast("_SemanticGrain", self)
-        return f"{semantic_value.calendar.path}::{semantic_value.level}"
+        return f"{semantic_value._calendar.path}::{semantic_value.level}"
 
     def __repr__(self) -> str:
         if self.kind == "builtin":
@@ -339,7 +351,7 @@ class Grain:
         semantic_value = cast("_SemanticGrain", self)
         snapshot = semantic_value._snapshot
         state = "unbound" if snapshot is None else f"snapshot={snapshot.snapshot_digest}"
-        return f"Grain(calendar={semantic_value.calendar.key!r}, level={semantic_value.level!r}, {state})"
+        return f"Grain(calendar={semantic_value._calendar.key!r}, level={semantic_value.level!r}, {state})"
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
@@ -361,9 +373,14 @@ class _BuiltinGrain(Grain):
 
 @dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
 class _SemanticGrain(Grain):
-    calendar: Ref[PeriodCalendarKind]
+    _calendar: Ref[PeriodCalendarKind]
     level: str
     _captured_snapshot: PeriodCalendarSnapshotV2 | None
+
+    @property
+    def calendar(self) -> PeriodCalendarSymbol:
+        """Native lookup selector for this grain's governed calendar."""
+        return symbol_factory.period_calendar(self._calendar.path)
 
     def __init__(
         self,
@@ -383,7 +400,7 @@ class _SemanticGrain(Grain):
                 "semantic Grain requires its own certified calendar and declared level"
             )
         object.__setattr__(self, "kind", "semantic")
-        object.__setattr__(self, "calendar", calendar)
+        object.__setattr__(self, "_calendar", calendar)
         object.__setattr__(self, "level", level)
         object.__setattr__(self, "_captured_snapshot", snapshot)
 
@@ -679,8 +696,16 @@ class TimeScope(BaseModel):
     # keep the dependency-neutral base usable by statically typed internal
     # helpers without leaking optional fields into the runtime public object.
     if TYPE_CHECKING:
-        calendar: Ref[PeriodCalendarKind]
-        temporal_set: Ref[TemporalSetKind]
+
+        @property
+        def _calendar(self) -> Ref[PeriodCalendarKind]: ...
+        @property
+        def _temporal_set(self) -> Ref[TemporalSetKind]: ...
+        @property
+        def calendar(self) -> PeriodCalendarSymbol: ...
+        @property
+        def temporal_set(self) -> TemporalSetSymbol: ...
+
         snapshot_digest: str
         boundary_timezone: str
         level: str
@@ -747,8 +772,8 @@ class TimeScope(BaseModel):
 
     @model_validator(mode="after")
     def _validate_scope(self) -> TimeScope:
-        calendar = getattr(self, "calendar", None)
-        temporal_set = getattr(self, "temporal_set", None)
+        calendar = getattr(self, "_calendar", None)
+        temporal_set = getattr(self, "_temporal_set", None)
         snapshot_digest = getattr(self, "snapshot_digest", None)
         boundary_timezone = getattr(self, "boundary_timezone", None)
         level = getattr(self, "level", None)
@@ -823,7 +848,7 @@ class TimeScope(BaseModel):
                 "temporal_occurrence",
                 self.start,
                 self.end,
-                occurrence_scope.temporal_set,
+                occurrence_scope._temporal_set,
                 occurrence_scope.snapshot_digest,
                 occurrence_scope.boundary_timezone,
                 occurrence_scope.key,
@@ -834,7 +859,7 @@ class TimeScope(BaseModel):
             "calendar_period",
             self.start,
             self.end,
-            calendar_scope.calendar,
+            calendar_scope._calendar,
             calendar_scope.snapshot_digest,
             calendar_scope.boundary_timezone,
             calendar_scope.level,
@@ -856,13 +881,13 @@ class TimeScope(BaseModel):
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return (
-                f"TimeScope(occurrence={occurrence_scope.temporal_set.key!r}/"
+                f"TimeScope(occurrence={occurrence_scope._temporal_set.key!r}/"
                 f"{occurrence_scope.key!r}; "
                 "call .show() for detail)"
             )
         calendar_scope = cast("_CalendarPeriodTimeScope", self)
         return (
-            f"TimeScope(period={calendar_scope.calendar.key!r}/{calendar_scope.level}:{calendar_scope.key!r}; "
+            f"TimeScope(period={calendar_scope._calendar.key!r}/{calendar_scope.level}:{calendar_scope.key!r}; "
             "call .show() for detail)"
         )
 
@@ -894,7 +919,7 @@ class TimeScope(BaseModel):
             calendar_scope = cast("_CalendarPeriodTimeScope", self)
             values.extend(
                 (
-                    f"calendar={calendar_scope.calendar.key}",
+                    f"calendar={calendar_scope._calendar.key}",
                     f"snapshot={calendar_scope.snapshot_digest}",
                     f"level={calendar_scope.level}",
                     f"key={calendar_scope.key!r}",
@@ -905,7 +930,7 @@ class TimeScope(BaseModel):
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             values.extend(
                 (
-                    f"temporal_set={occurrence_scope.temporal_set.key}",
+                    f"temporal_set={occurrence_scope._temporal_set.key}",
                     f"snapshot={occurrence_scope.snapshot_digest}",
                     f"key={occurrence_scope.key!r}",
                     f"category={occurrence_scope.occurrence_category!r}",
@@ -929,7 +954,7 @@ class TimeScope(BaseModel):
                 kind="temporal_occurrence",
                 start=start,
                 end=end,
-                temporal_set_ref=occurrence_scope.temporal_set.path,
+                temporal_set_ref=occurrence_scope._temporal_set.path,
                 snapshot_digest=occurrence_scope.snapshot_digest,
                 boundary_timezone=occurrence_scope.boundary_timezone,
                 key=occurrence_scope.key,
@@ -940,12 +965,23 @@ class TimeScope(BaseModel):
             kind="calendar_period",
             start=start,
             end=end,
-            calendar_ref=calendar_scope.calendar.path,
+            calendar_ref=calendar_scope._calendar.path,
             snapshot_digest=calendar_scope.snapshot_digest,
             boundary_timezone=calendar_scope.boundary_timezone,
             level=calendar_scope.level,
             key=calendar_scope.key,
         )
+
+    @model_serializer(mode="wrap")
+    def _serialize_scope(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        payload: dict[str, object] = handler(self)
+        for backing, wire in (
+            ("calendar_identity", "calendar"),
+            ("temporal_set_identity", "temporal_set"),
+        ):
+            if backing in payload:
+                payload[wire] = payload.pop(backing)
+        return payload
 
     def _model_dump(
         self, *, mode: Literal["python", "json"] = "python", exclude_none: bool = True
@@ -977,22 +1013,38 @@ def session_time_scope(
 class _CalendarPeriodTimeScope(TimeScope):
     """Private concrete scope carrying one certified calendar period."""
 
-    calendar: Ref[PeriodCalendarKind]
+    calendar_identity: Ref[PeriodCalendarKind] = Field(alias="calendar", repr=False)
     snapshot_digest: str
     boundary_timezone: str
     level: str
     key: _JSON_SCALAR
     ordinal: int
 
+    @property
+    def _calendar(self) -> Ref[PeriodCalendarKind]:
+        return self.calendar_identity
+
+    @property
+    def calendar(self) -> PeriodCalendarSymbol:
+        return symbol_factory.period_calendar(self._calendar.path)
+
 
 class _TemporalOccurrenceTimeScope(TimeScope):
     """Private concrete scope carrying one certified temporal occurrence."""
 
-    temporal_set: Ref[TemporalSetKind]
+    temporal_set_identity: Ref[TemporalSetKind] = Field(alias="temporal_set", repr=False)
     snapshot_digest: str
     boundary_timezone: str
     key: _JSON_SCALAR
     occurrence_category: str | None = None
+
+    @property
+    def _temporal_set(self) -> Ref[TemporalSetKind]:
+        return self.temporal_set_identity
+
+    @property
+    def temporal_set(self) -> TemporalSetSymbol:
+        return symbol_factory.temporal_set(self._temporal_set.path)
 
 
 def _new_time_scope(**data: Any) -> TimeScope:

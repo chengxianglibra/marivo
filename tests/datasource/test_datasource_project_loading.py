@@ -17,6 +17,7 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
     DatasourceMissingError,
 )
+from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
 
@@ -78,9 +79,9 @@ def test_project_selection_and_bound_catalog_methods(
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(env))
 
-    assert ms.load().datasources.refs == (
-        ms.ref.datasource("default"),
-        ms.ref.datasource("env_source"),
+    assert ms.load().datasources._refs == (
+        ref_factory.datasource("default"),
+        ref_factory.datasource("env_source"),
     )
     assert md.load().get("env_source").name == "env_source"
     assert md.inspect(ms.ref.datasource("env_source"), md.table("orders"))._project_root == env
@@ -131,9 +132,9 @@ def test_external_datasource_is_usable_without_a_local_copy(
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
     semantic = ms.load()
     datasources = md.load()
-    assert semantic.datasources.refs == (
-        ms.ref.datasource("default"),
-        ms.ref.datasource("warehouse"),
+    assert semantic.datasources._refs == (
+        ref_factory.datasource("default"),
+        ref_factory.datasource("warehouse"),
     )
     assert [item.name for item in datasources.list()] == ["default", "warehouse"]
     assert datasources.describe("warehouse").literal_fields["path"] == str(
@@ -276,7 +277,7 @@ def test_exact_arbitrary_directory_and_empty_projects_remain_valid(tmp_path: Pat
     assert not loader.load_datasources(empty).errors
     assert not loader.load_datasources(empty / "missing").errors
     assert md.load(workspace_dir=empty).list().ids() == ["default"]
-    assert ms.load(workspace_dir=empty).datasources.refs == (ms.ref.datasource("default"),)
+    assert ms.load(workspace_dir=empty).datasources._refs == (ref_factory.datasource("default"),)
 
 
 def test_registration_saves_without_executing_other_declarations(tmp_path: Path) -> None:

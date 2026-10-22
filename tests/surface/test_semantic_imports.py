@@ -20,6 +20,7 @@ import subprocess
 import sys
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo.refs import RefPayloadV1
@@ -40,6 +41,7 @@ from marivo.semantic.ir import (
     SourceLocation,
     TargetDimensionContract,
 )
+from tests.support.refs import as_ref
 
 # ---------------------------------------------------------------------------
 # __all__ importability
@@ -392,15 +394,15 @@ def test_field_kind_is_str_enum() -> None:
 
 def test_dataset_ref() -> None:
     ref = ms.ref.entity("sales.orders")
-    assert ref.path == "sales.orders"
-    assert ref.kind == SemanticKind.ENTITY
-    assert repr(ref) == "Ref[entity](entity:sales.orders)"
+    assert as_ref(ref).path == "sales.orders"
+    assert as_ref(ref).kind == SemanticKind.ENTITY
+    assert isinstance(ref, Deferred)
 
 
 def test_field_ref() -> None:
     ref = ms.ref.dimension("sales.orders.amount")
-    assert ref.path == "sales.orders.amount"
-    assert ref.kind == SemanticKind.DIMENSION
+    assert as_ref(ref).path == "sales.orders.amount"
+    assert as_ref(ref).kind == SemanticKind.DIMENSION
 
 
 def test_field_ref_bind_without_context_raises() -> None:
@@ -412,8 +414,8 @@ def test_field_ref_bind_without_context_raises() -> None:
 
 def test_time_field_ref() -> None:
     ref = ms.ref.time_dimension("sales.orders.order_date")
-    assert ref.path == "sales.orders.order_date"
-    assert ref.kind == SemanticKind.TIME_DIMENSION
+    assert as_ref(ref).path == "sales.orders.order_date"
+    assert as_ref(ref).kind == SemanticKind.TIME_DIMENSION
 
 
 def test_time_field_ref_bind_without_context_raises() -> None:
@@ -425,8 +427,8 @@ def test_time_field_ref_bind_without_context_raises() -> None:
 
 def test_metric_ref() -> None:
     ref = ms.ref.metric("sales.revenue")
-    assert ref.path == "sales.revenue"
-    assert ref.kind == SemanticKind.METRIC
+    assert as_ref(ref).path == "sales.revenue"
+    assert as_ref(ref).kind == SemanticKind.METRIC
 
 
 def test_metric_ref_rejects_field_binding_call() -> None:
@@ -439,8 +441,8 @@ def test_metric_ref_rejects_field_binding_call() -> None:
 
 def test_relationship_ref() -> None:
     ref = ms.ref.relationship("sales.orders_to_items")
-    assert ref.path == "sales.orders_to_items"
-    assert ref.kind == SemanticKind.RELATIONSHIP
+    assert as_ref(ref).path == "sales.orders_to_items"
+    assert as_ref(ref).kind == SemanticKind.RELATIONSHIP
 
 
 # ---------------------------------------------------------------------------

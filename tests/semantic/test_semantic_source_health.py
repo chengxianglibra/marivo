@@ -12,8 +12,10 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.semantic.source_health as source_health_module
+from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
+from tests.support.refs import as_ref
 
 
 def _seed_sources(path: Path) -> None:
@@ -69,8 +71,7 @@ def _catalog(
                 "ms.domain(name='sales', owner='Analytics', default=True)\n"
             ),
             "sales/model.py": textwrap.dedent(
-                """\
-                import marivo.datasource as md
+                """                import marivo.datasource as md
                 import marivo.semantic as ms
 
                 orders = ms.entity(
@@ -147,10 +148,9 @@ def _catalog(
                     to_entity=customers,
                     keys=[ms.join_on(order_customer_id, customer_id)],
                 )
-                finalized = ms.finalize()
-                amount_value = finalized.resolve(amount)
-                decorator_value = finalized.resolve(decorator_amount)
-                projected_value = finalized.resolve(projected_amount)
+                amount_value = amount
+                decorator_value = decorator_amount
+                projected_value = projected_amount
                 @ms.metric()
                 def revenue():
                     return amount_value.sum()
@@ -192,7 +192,8 @@ def test_source_health_without_declared_checks_is_metadata_only(
     assert tuple(check.kind for check in report.checks) == ("connectivity", "schema")
     assert all(check.user_data_queried is False for check in report.checks)
     assert all(check.scopes == () for check in report.checks)
-    assert schema.datasource == ms.ref.datasource("warehouse")
+    assert as_ref(schema.datasource) == ref_factory.datasource("warehouse")
+    assert catalog.readiness(refs=schema.target_refs)._analysis_ready_inputs == schema._target_refs
     assert schema.source == md.table("orders")
     assert schema.observed_schema_fingerprint is not None
     assert schema.observed_schema_fingerprint.startswith("sha256:")
@@ -217,10 +218,10 @@ def test_source_health_runs_only_explicit_bounded_data_checks(
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     relationship = ms.ref.relationship("sales.orders_to_customers")
-    scopes = {
-        ms.ref.entity("sales.orders"): md.unpruned(max_rows=20, timeout_seconds=5),
-        ms.ref.entity("sales.customers"): md.unpruned(max_rows=20, timeout_seconds=5),
-    }
+    scopes = (
+        (ms.ref.entity("sales.orders"), md.unpruned(max_rows=20, timeout_seconds=5)),
+        (ms.ref.entity("sales.customers"), md.unpruned(max_rows=20, timeout_seconds=5)),
+    )
 
     report = catalog.source_health(
         [ms.ref.measure("sales.orders.amount"), relationship],
@@ -263,7 +264,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     relationship = ms.ref.relationship("sales.orders_to_customers")
     before = catalog.readiness(refs=[relationship])
-    details = catalog.relationships.get(relationship.path)
+    details = catalog.relationships.get("sales.orders_to_customers")
     assert details.cardinality == "many_to_one"
 
     connection = duckdb.connect(str(database_path))
@@ -279,17 +280,14 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     report = catalog.source_health(
         [relationship],
         checks=[ms.source_check.relationship_matches(relationship, side="from")],
-        scope={
-            ms.ref.entity("sales.orders"): scope,
-            ms.ref.entity("sales.customers"): scope,
-        },
+        scope=((ms.ref.entity("sales.orders"), scope), (ms.ref.entity("sales.customers"), scope)),
     )
     check = next(item for item in report.checks if item.kind == "relationship_matches")
     assert check.status == "failed"
     assert check.user_data_queried is True
     assert check.observed["from_unmatched_count"] == 2
     assert len(check.scopes) == 2
-    assert catalog.relationships.get(relationship.path).cardinality == "many_to_one"
+    assert catalog.relationships.get("sales.orders_to_customers").cardinality == "many_to_one"
     assert catalog.readiness(refs=[relationship]).to_dict() | {"checked_at": None} == (
         before.to_dict() | {"checked_at": None}
     )
@@ -313,7 +311,7 @@ def test_schema_drift_reports_current_affected_refs_and_repair(
 
     assert report.status == "failed"
     assert schema.status == "failed"
-    assert ms.ref.measure("sales.orders.amount") in schema.affected_refs
+    assert ref_factory.measure("sales.orders.amount") in schema._affected_refs
     assert schema.repair is not None
     assert schema.repair.kind == "reauthor"
 
@@ -352,7 +350,7 @@ def test_decorator_field_schema_drift_fails_closed_with_affected_refs(
 
     assert report.status == "failed"
     assert schema.status == "failed"
-    assert ms.ref.measure("sales.decorator_orders.decorator_amount") in schema.affected_refs
+    assert ref_factory.measure("sales.decorator_orders.decorator_amount") in schema._affected_refs
     assert schema.repair is not None
     assert schema.repair.kind == "reauthor"
 

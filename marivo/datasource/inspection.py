@@ -11,6 +11,7 @@ from typing import Literal
 
 import ibis
 
+from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -56,6 +57,7 @@ from marivo.datasource.source import (
 )
 from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 
 _PARTITION_VALUE_LIMIT = 100
@@ -91,7 +93,7 @@ class ExecutionCapabilities:
 
 @dataclass(frozen=True, repr=False)
 class PartitionInspection(RenderableResult):
-    datasource: Ref[DatasourceKind]
+    _datasource: Ref[DatasourceKind]
     source: TableSource
     partitioning: Partitioning
     limit: int
@@ -99,9 +101,14 @@ class PartitionInspection(RenderableResult):
     status: Literal["complete", "truncated", "incomplete"]
     issues: tuple[str, ...]
 
+    @property
+    def datasource(self) -> DatasourceSymbol:
+        """Native lookup selector for the inspected datasource."""
+        return symbol_factory.datasource(self._datasource.path)
+
     def _repr_identity(self) -> str:
         return (
-            f"PartitionInspection datasource={self.datasource.path} "
+            f"PartitionInspection datasource={self._datasource.path} "
             f"state={self.partitioning.state} order={self.order} "
             f"limit={self.limit} status={self.status}"
         )
@@ -168,7 +175,7 @@ class PartitionInspection(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class SourceInspection(RenderableResult):
-    datasource: Ref[DatasourceKind]
+    _datasource: Ref[DatasourceKind]
     source: TableSource
     physical_extent: PhysicalExtent
     partitioning: Partitioning
@@ -179,9 +186,14 @@ class SourceInspection(RenderableResult):
     projectable_columns: tuple[ColumnMetadata, ...] = ()
     _backend_type: str = ""
 
+    @property
+    def datasource(self) -> DatasourceSymbol:
+        """Native lookup selector for the inspected datasource."""
+        return symbol_factory.datasource(self._datasource.path)
+
     def _repr_identity(self) -> str:
         return (
-            f"SourceInspection datasource={self.datasource.path} source={self.source.kind} "
+            f"SourceInspection datasource={self._datasource.path} source={self.source.kind} "
             f"columns={len(self.schema)} projectable={len(self.projectable_columns)} "
             f"partition_state={self.partitioning.state}"
         )
@@ -422,7 +434,7 @@ class SourceInspection(RenderableResult):
         else:
             status = "complete"
         return PartitionInspection(
-            datasource=self.datasource,
+            _datasource=self._datasource,
             source=self.source,
             partitioning=partitioning,
             limit=limit,
@@ -1287,16 +1299,16 @@ def _listed_partitioning(
     if inspection.partitioning.state != "known" or not isinstance(inspection.source, TableSourceIR):
         return inspection.partitioning, ()
 
-    datasource_name = _storage_name(inspection.datasource)
+    datasource_name = _storage_name(inspection._datasource)
     datasource_ir = _store.load_one(datasource_name, project_root=inspection._project_root)
     if datasource_ir is None:
         raise _authoring_error(
             code="datasource_missing",
             stage="project",
-            expected=f"registered datasource {inspection.datasource.path}",
+            expected=f"registered datasource {inspection._datasource.path}",
             received="missing datasource",
             reason=(
-                f"datasource {inspection.datasource.path!r} was removed after source inspection"
+                f"datasource {inspection._datasource.path!r} was removed after source inspection"
             ),
             scope_state=inspection.partitioning.state,
         )
@@ -1366,7 +1378,7 @@ def _structured_inspection_warnings(
 
 
 def inspect(
-    datasource: Ref[DatasourceKind],
+    datasource: DatasourceSymbol,
     source: TableSource,
     *,
     workspace_dir: str | Path | None = None,
@@ -1395,14 +1407,23 @@ def inspect(
         Does not execute a user-data query. Tables use metadata hooks and
         Parquet reads footer metadata. The backend may open local CSV and JSON
         files to discover their columns and observed types. Remote HTTP JSON is
-        not fetched. ``datasource`` is the typed ref itself.
+        not fetched. ``datasource`` must be a native datasource lookup symbol.
         Reads local and configured external model roots. One call uses one
         loaded datasource definition; later calls read current declarations.
     """
+    reference = native_symbol_ref(datasource)
+    if reference is None or reference.kind is not SemanticKind.DATASOURCE:
+        received = "bare string" if isinstance(datasource, str) else type(datasource).__name__
+        raise TypeError(
+            "datasource must be a native datasource lookup symbol from spec.ref or "
+            f"ms.ref.datasource('warehouse'); received {received}."
+        )
     project_root = (
         resolve_project_root() if workspace_dir is None else Path(workspace_dir).resolve()
     )
-    return _inspect_in_project(datasource, source, project_root=project_root)
+    return _inspect_in_project(
+        ref_factory.datasource(reference.path), source, project_root=project_root
+    )
 
 
 def _inspect_in_project(
@@ -1548,7 +1569,7 @@ def _inspect_bound_source(
     ):
         capabilities = replace(capabilities, partition_predicate_supported=False)
     return SourceInspection(
-        datasource=datasource,
+        _datasource=datasource,
         source=source,
         physical_extent=_physical_extent(metadata.physical_profile),
         partitioning=partitioning,
