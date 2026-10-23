@@ -197,6 +197,18 @@ instants. Source wall clocks follow backend-native gap/fold interpretation; a
 native choice does not invent missing sample points. Complete sampling requires a bounded
 contribution interval. An aware non-UTC civil sampling plan is not supported.
 
+DuckDB and Trino can finish a direct float64 source mean followed by one internal
+time-sample mean in the source. The exact sample identities and completed inner
+means remain the inputs to the outer equal-weight mean. A source guard requires
+complete coverage, satisfied numeric/null checks and a bound proving the outer
+sum finite in every accumulation order. Unproved inputs retain the existing
+sampled local finish, including its checked finite-sum behavior. Original-input
+consumers, Duration/Decimal, windows, explicit sample populations and conditional
+formulas retain their existing execution routes. Native floating order remains
+backend-dependent. Raw-wall coverage transport contains only clocks capable of
+satisfying scheduled points; off-grid observations still participate in numeric
+reduction. `sample_interval` never truncates or buckets those observations.
+
 Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated
 member fields stay in one tuple descriptor. [Observation](../analysis/populations-and-observation.md)
 owns allocation and output-domain behavior.

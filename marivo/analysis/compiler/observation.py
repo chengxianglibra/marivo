@@ -80,6 +80,7 @@ class ReductionInput:
     native_quantile_value: bool = False
     coverage: tuple[SampleCoverage, ...] = ()
     provider: str = "duckdb"
+    mean_fold: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +96,7 @@ class FormulaInput:
     coverage: tuple[SampleCoverage, ...] = ()
     key_groups: tuple[tuple[str, ...], ...] = ()
     presence: str | None = None
+    folded_mean: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,13 +268,19 @@ def lower_observation(
             if selected
             else table.count() > 0
         )
+    inline_presence = (
+        prepared.preserve_sample_presence
+        and not selected
+        and not assignments
+        and not predicate_checks
+    )
     predicate_summary = (
         (
             table.group_by(**predicate_axes).aggregate(**predicate_metrics)
             if predicate_axes
             else table.aggregate(**predicate_metrics)
         )
-        if predicate_metrics
+        if predicate_metrics and not inline_presence
         else None
     )
     value_predicates = (*(item.value for item in selected), *assignments.values())
@@ -358,6 +366,11 @@ def lower_observation(
             metrics[f"{prefix}_upper"] = value.min(where=upper)
             metrics[f"{prefix}_count"] = filtered["__quantile_n"].max().fill_null(0)
             axes = {name: filtered[name] for name in axes}
+    if inline_presence:
+        # Bind to the final relation, including any quantile ranking projections.
+        # Its numeric groups already contain precisely the presence domain.
+        metrics["__sample_present"] = filtered.count() > 0
+        metrics["__numeric_present"] = ibis.literal(True)
     result = (
         filtered.group_by(**axes).aggregate(**metrics) if axes else filtered.aggregate(**metrics)
     )
@@ -384,7 +397,12 @@ def lower_observation(
         # Coverage carries raw clocks separately from numeric grouping. Native
         # projections may merge gap clocks or choose either repeated occurrence.
         clocks = {coverage_field(key): filtered[columns[coverage_field(key)]] for key in wall_keys}
-        observed = filtered.select(**output_axes(fields), **clocks).distinct()
+        # Coverage consumes scheduled wall clocks only; off-grid observations
+        # remain numeric samples, but cannot satisfy any coverage requirement.
+        from marivo.analysis.compiler.sampled_mean import coverage_selection
+
+        expected = coverage_selection(prepared.coverage, clocks, output_axes(fields))
+        observed = filtered.filter(expected).select(**output_axes(fields), **clocks).distinct()
         normal = result.mutate(
             __coverage_row=ibis.literal(False),
             **{name: ibis.null().cast(value.type()) for name, value in clocks.items()},
@@ -402,6 +420,10 @@ def lower_observation(
             }
         )
         result = normal.union(coverage)
+    if prepared.mean_fold:
+        from marivo.analysis.compiler.sampled_mean import compact_mean
+
+        result = compact_mean(prepared, result, tuple(name for name, _ in checks))
     return result, tuple(checks)
 
 

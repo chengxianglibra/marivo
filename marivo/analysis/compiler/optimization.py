@@ -114,6 +114,7 @@ def _support(stage: QueryStage) -> set[str]:
                     "predicate_check.",
                     "__numeric_present",
                     "__sample_present",
+                    "__mean_folded",
                     "__sample_scope_",
                 )
             )
@@ -757,8 +758,13 @@ def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> Que
             (DataColumn(f"__original_id.{index}", column.field, column.dtype, False), column.column)
             for index, column in enumerate(schema.original_identity or schema.keys)
         )
+        # Original-contribution consumers require every completed sample.
+        reduction = replace(require_reduction(stage), mean_fold=None)
+        stage = replace(
+            stage, columns=tuple(c for c in stage.columns if c.slot_id != "__mean_folded")
+        )
         layout = component_layout(
-            require_reduction(stage), stage.columns, identity, table, dict(stage.field_columns)
+            reduction, stage.columns, identity, table, dict(stage.field_columns)
         )
         stages.append(replace(stage, program=ComponentRead(layout)))
     return replace(plan, stages=tuple(stages))

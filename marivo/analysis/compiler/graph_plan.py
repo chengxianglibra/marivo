@@ -642,6 +642,9 @@ def _plan_query(
         else ()
     )
     calendar_key = "key.0"
+    from marivo.analysis.compiler.sampled_mean import mean_occurrences
+
+    mean_folds = mean_occurrences(graph.root.metrics, dict(graph.signature.declared_metrics))
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
     for stage, contribution in zip(source_stages, contributions, strict=True):
         reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
@@ -667,6 +670,33 @@ def _plan_query(
             ),
         )
         table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
+        folded_mean = mean_folds.get(contribution.logical_occurrence or contribution.occurrence)
+        if (
+            folded_mean is not None
+            and schema.provider in {"duckdb", "trino"}
+            and reduction.duration is None
+            and reduction.window_key is None
+            and observation is not None
+            and observation.coordinates.population is None
+            and observation.coordinates.parent_scope is None
+            and isinstance(contribution.definition, SourceAggregate)
+            and len(contribution.sample_axes) == 1
+            and len(reduction.axes) == contribution.output_axis_count + 1
+            and not stage.parameters
+            and not stage.inputs
+            and not stage.preparation_checks
+        ):
+            from marivo.semantic._numeric_lowering import lower_row
+
+            sample_key, sample_path = reduction.axes[-1]
+            fields = {path: table[name] for path, name in stage.field_columns}
+            if (
+                sample_path == reduction.time_column
+                and lower_row(contribution.definition.operand, fields).value.type().is_float64()
+            ):
+                reduction = replace(reduction, mean_fold=(sample_key, folded_mean[1]))
+        if reduction.mean_fold is None:
+            folded_mean = None
         expression, numeric_checks = lower_observation(
             reduction, table, dict(stage.field_columns), stage.predicates
         )
@@ -750,7 +780,7 @@ def _plan_query(
                     *(
                         DataColumn(name, name, ScalarDataType("boolean"), False)
                         for name in expression.columns
-                        if name.startswith("__sample_scope_")
+                        if name.startswith("__sample_scope_") or name == "__mean_folded"
                     ),
                     *(
                         DataColumn(name, name, data_type(expression[name].type()), True)
@@ -797,6 +827,7 @@ def _plan_query(
                 keys=tuple(c.slot_id for c in stage_keys),
                 coverage=contribution.coverage,
                 key_groups=tuple(key_groups),
+                folded_mean=folded_mean[0] if folded_mean is not None else None,
             )
         )
     population_inputs: list[PopulationInput] = []

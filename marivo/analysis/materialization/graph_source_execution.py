@@ -1675,10 +1675,13 @@ def _complete_source_frame(
         assert q is not None
         quantile_values: list[int | float | Decimal | None] = []
         for row in frame.to_dict("records"):
-            count = int(row["__quantile_count"])
-            if count == 0:
+            raw_count = row["__quantile_count"]
+            # Coverage-only rows and predicate groups without numeric inputs
+            # carry no bounds. Keep their presence/checks for local completion.
+            if pd.isna(raw_count) or raw_count == 0:
                 quantile_values.append(None)
                 continue
+            count = int(raw_count)
             position = Fraction(str(q)) * (count - 1)
             fraction = position - (position.numerator // position.denominator)
             lower = row["__quantile_lower"]
