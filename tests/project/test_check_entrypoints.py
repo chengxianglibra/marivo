@@ -178,10 +178,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
 
 
 def test_default_test_runs_slow_cases_without_marker_narrowing(tmp_path: Path) -> None:
-    selected = (
-        "tests/analysis/graph/test_capability_consumers.py::"
-        "test_source_coordinates_statistics_and_original_state"
-    )
+    selected = "tests/surface/test_analysis_context_budget.py::test_attribute_context_budget"
     result, commands = _run_make(tmp_path, "test", tests=selected)
     assert result.returncode == 0, result.stderr
     assert commands == [["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "0", selected]]

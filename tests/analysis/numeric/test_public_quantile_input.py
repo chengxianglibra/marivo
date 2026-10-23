@@ -5,10 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Literal
 
 import duckdb
-import pytest
 
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory
@@ -21,9 +19,8 @@ def test_observation_algorithm_override_is_not_public() -> None:
     assert not hasattr(ms, "QuantileMetricInput")
 
 
-@pytest.mark.parametrize("agg", ("median", "approx_median"))
-def test_defined_quantile_survives_source_offline_recovery(
-    analysis_dsl_case_factory: DslCaseFactory, agg: Literal["median", "approx_median"]
+def test_defined_quantiles_survive_source_offline_recovery(
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -38,34 +35,49 @@ def test_defined_quantile_survives_source_offline_recovery(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()
-        + f"\n@ms.metric()\ndef median_amount():\n    return amount_value.{agg}(time=time_value)\n"
+        + "\n@ms.metric()\ndef median_amount():\n"
+        + "    return amount_value.median(time=time_value)\n"
+        + "\n@ms.metric()\ndef approximate_median_amount():\n"
+        + "    return amount_value.approx_median(time=time_value)\n"
     )
     ms.load(workspace_dir=case.root)
     session = case.session
     query = session.observe(
-        {"value": session.catalog.metrics.get("sales.median_amount")},
+        {
+            "median": session.catalog.metrics.get("sales.median_amount"),
+            "approximate_median": session.catalog.metrics.get("sales.approximate_median_amount"),
+        },
         by=session.members(session.catalog.entities.get("sales.customer")),
     )
     output = query.persist()
     exported = output.to_pandas()
     frame = exported.set_index(exported.columns[0])
-    assert frame.loc["A", ("value", "value")] == 187.875
-    assert frame.loc[["B", "C", "D"], ("value", "value")].isna().all()
+    for name in ("median", "approximate_median"):
+        assert frame.loc["A", ("value", name)] == 187.875
+        assert frame.loc[["B", "C", "D"], ("value", name)].isna().all()
     # The algorithm belongs to the definition and actual source statement.
     submitted = [
         str(record["sql"]).upper()
         for record in execution_records(case.root)
         if record["event"] == "query.submitted"
     ]
-    expected = "APPROX_QUANTILE" if agg == "approx_median" else "QUANTILE_CONT"
-    assert any(expected in sql for sql in submitted)
+    assert any("QUANTILE_CONT" in sql for sql in submitted)
+    assert any("APPROX_QUANTILE" in sql for sql in submitted)
     # Original quantities are requested from the explicit source at the new grain.
     total = (
-        session.observe({"value": session.catalog.metrics.get("sales.median_amount")})
+        session.observe(
+            {
+                "median": session.catalog.metrics.get("sales.median_amount"),
+                "approximate_median": session.catalog.metrics.get(
+                    "sales.approximate_median_amount"
+                ),
+            }
+        )
         .compute()
         .to_pandas()
     )
-    assert total[("value", "value")].tolist() == [187.875]
+    assert total[("value", "median")].tolist() == [187.875]
+    assert total[("value", "approximate_median")].tolist() == [187.875]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     script = """
@@ -85,8 +97,9 @@ fixed = session.persisted_frame(sys.argv[2])
 assert isinstance(fixed, mv.AnalysisFrame)
 frame = fixed.to_pandas()
 frame = frame.set_index(frame.columns[0])
-assert frame.loc['A', ('value', 'value')] == 187.875
-assert frame.loc[['B','C','D'], ('value','value')].isna().all()
+for name in ('median', 'approximate_median'):
+    assert frame.loc['A', ('value', name)] == 187.875
+    assert frame.loc[['B', 'C', 'D'], ('value', name)].isna().all()
 assert len(frame) == 4
 assert run_ids(session) == before
 """

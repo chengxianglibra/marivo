@@ -19,12 +19,14 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _amounts(case: DslCase) -> mv.AnalysisFrame:
+    grouping = mv.product(
+        case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+        case.session.members(case.session.catalog.entities.get("sales.customer")),
+    )
+    assert isinstance(grouping, mv.Population)
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        by=mv.product(
-            case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            case.session.members(case.session.catalog.entities.get("sales.customer")),
-        ),
+        by=grouping,
     )
 
 
@@ -63,12 +65,13 @@ def test_public_multi_input_source_and_exported_pandas(
     revenue = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get(f"sales.{case.names.buyer}")
+    grouping = mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members)
+    assert isinstance(grouping, mv.Population)
     amount = session.observe(
         {"amount": revenue, "twice": revenue + revenue},
-        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
+        by=grouping,
         where=region.via((buyer,)) == "east",
     )
-    predicate = (amount["amount"] > 0) & (amount["amount"] < amount["twice"])
     facts = analysis_dsl_rows("j2")
     east = {member for member, region in facts.customers if region == "east"}
     totals: dict[str, float] = {}
@@ -76,12 +79,15 @@ def test_public_multi_input_source_and_exported_pandas(
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + value
     expected = {member for member, total in totals.items() if total > 0 and member in east}
-    assert set(amount.where(predicate).compute().to_pandas().iloc[:, 1]) == expected
-    frame = amount.compute().to_pandas()
+    completed = amount.compute()
+    frame = completed.to_pandas()
+    predicate = (completed["amount"] > 0) & (completed["amount"] < completed["twice"])
+    selected = completed.where(predicate).compute().to_pandas()
     matched = frame.loc[
         (frame[("value", "amount")] > 0) & (frame[("value", "amount")] < frame[("value", "twice")])
-    ]
-    assert set(matched[ordinary_columns(matched)[0]]) == expected
+    ].reset_index(drop=True)
+    assert selected.equals(matched)
+    assert set(selected.iloc[:, 1]) == expected
 
 
 @pytest.mark.release
