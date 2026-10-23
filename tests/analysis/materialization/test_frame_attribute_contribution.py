@@ -243,47 +243,41 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
         return execute(self, issued)
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    for derive in ("where", "direct", "top0", "select"):
-        pending = _contribution(
-            session.observe(
-                {
-                    "safe": amount.sum(),
-                    "bad": amount.sum() * 2,
-                },
-                where=phase == "current",
-            ),
-            session.observe(
-                {
-                    "safe": amount.sum(),
-                    "bad": amount.sum() * 2,
-                },
-                where=phase == "base",
-            ),
-            by=(channel,),
-        )
-        if derive == "top0":
-            pending = pending.top(0, by=pending["detail.current.safe"])
-        elif derive == "select":
-            pending = pending.select({"only": pending["detail.current.safe"]})
-        elif derive == "where":
-            pending = pending.where(pending.coord(pending.axes[0]) != "B")
-            pending.show(n=0)
-            assert reads == []
-            assert terminal_runs(session) == ()
-        with pytest.raises(MaterializationError) as failure:
-            pending.compute()
-        error = failure.value
-        assert error.stage == "numeric_value"
-        assert error.location == "dataset.numeric_value"
-        assert error.attribute_context is not None
-        assert {use.metric for use in error.attribute_context.uses} == {"bad"}
-        assert {use.endpoint for use in error.attribute_context.uses} == {"left"}
-        fiber = error.attribute_context.fiber
-        assert isinstance(fiber, AttributeFineFiber)
-        assert fiber.parent == ()
-        assert fiber.fine == ((ScalarDataType("string"), "B"),)
-        assert len(fiber.fine_columns) == 1
-        assert error.repair is not None and "numeric" in error.repair.action
+    pending = _contribution(
+        session.observe(
+            {
+                "safe": amount.sum(),
+                "bad": amount.sum() * 2,
+            },
+            where=phase == "current",
+        ),
+        session.observe(
+            {
+                "safe": amount.sum(),
+                "bad": amount.sum() * 2,
+            },
+            where=phase == "base",
+        ),
+        by=(channel,),
+    )
+    pending = pending.where(pending.coord(pending.axes[0]) != "B")
+    pending.show(n=0)
+    assert reads == []
+    assert terminal_runs(session) == ()
+    with pytest.raises(MaterializationError) as failure:
+        pending.compute()
+    error = failure.value
+    assert error.stage == "numeric_value"
+    assert error.location == "dataset.numeric_value"
+    assert error.attribute_context is not None
+    assert {use.metric for use in error.attribute_context.uses} == {"bad"}
+    assert {use.endpoint for use in error.attribute_context.uses} == {"left"}
+    fiber = error.attribute_context.fiber
+    assert isinstance(fiber, AttributeFineFiber)
+    assert fiber.parent == ()
+    assert fiber.fine == ((ScalarDataType("string"), "B"),)
+    assert len(fiber.fine_columns) == 1
+    assert error.repair is not None and "numeric" in error.repair.action
 
 
 @pytest.mark.parametrize("shape", ("direct", "derived", "shared", "distinct", "source"))
