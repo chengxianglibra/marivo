@@ -206,9 +206,10 @@ owned by the change. `make format` formats the whole checkout.
 `make test` runs the daily local regression suite, including slow-marked cases
 unless they are also marked `release`. Measured high-cost subprocess, CPU-bound,
 typing, and query/recovery cases keep their assertions in `make release-check`;
-the daily runtime target is under three minutes. Output is compact, tracebacks are
-short, and the run stops after five failures. Runtime and release cases use
-separate entrypoints.
+the daily runtime target is under three minutes. The Make target defaults to 12
+pytest-xdist workers; use `PYTEST_WORKERS=<count> make test` to override. A single
+selected node runs serially. Output is compact, tracebacks are short, and the run
+stops after five failures. Runtime and release cases use separate entrypoints.
 `make typecheck` also uses compact output; all commands preserve check failures
 and exit status. `make check` and `make check-agent` combine the local suite,
 static checks, and API documentation checks. Ordinary commits keep their

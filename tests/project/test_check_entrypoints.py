@@ -20,6 +20,7 @@ def _run_make(
     *,
     format_failure: bool = False,
     tests: str = "",
+    pytest_workers: int | None = None,
     runtime_workers: int | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
     directory.mkdir(parents=True, exist_ok=True)
@@ -55,6 +56,8 @@ def _run_make(
         MARIVO_CHECK_FORMAT_FAILURE=str(int(format_failure)),
     )
     arguments = ["make", "--no-print-directory", target, f"TESTS={tests}"]
+    if pytest_workers is not None:
+        arguments.append(f"PYTEST_WORKERS={pytest_workers}")
     if runtime_workers is not None:
         arguments.append(f"RUNTIME_WORKERS={runtime_workers}")
     result = subprocess.run(
@@ -76,7 +79,7 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
         assert result.returncode == 0, result.stderr
         pytest_commands = [command for command in commands if command[0] == "pytest"]
         assert len(pytest_commands) == 1
-        assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5"]
+        assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "12"]
         assert "-m" not in pytest_commands[0]
         mypy_command = next(command for command in commands if command[0] == "mypy")
         assert mypy_command[1:4] == [
@@ -107,7 +110,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 3
-    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
+    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "12"]
     assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
     assert pytest_commands[2] == [
         "pytest",
@@ -182,6 +185,28 @@ def test_default_test_runs_slow_cases_without_marker_narrowing(tmp_path: Path) -
     result, commands = _run_make(tmp_path, "test", tests=selected)
     assert result.returncode == 0, result.stderr
     assert commands == [["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "0", selected]]
+
+
+def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
+    for workers in (None, 8):
+        result, commands = _run_make(
+            tmp_path / str(workers),
+            "test",
+            tests="tests/focused.py",
+            pytest_workers=workers,
+        )
+        assert result.returncode == 0, result.stderr
+        assert commands == [
+            [
+                "pytest",
+                "-q",
+                "--tb=short",
+                "--maxfail=5",
+                "-n",
+                str(12 if workers is None else workers),
+                "tests/focused.py",
+            ]
+        ]
 
 
 def test_default_pytest_config_includes_slow_and_excludes_external_suites() -> None:

@@ -20,6 +20,7 @@ MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
 RUNTIME_WORKERS ?= 2
+PYTEST_WORKERS ?= 12
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
 MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
@@ -29,7 +30,7 @@ PYPI_DIST_DIR := dist/pypi
 
 test:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)
 
 runtime-test:
 	@./scripts/require-venv.sh pytest
