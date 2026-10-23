@@ -104,9 +104,7 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert investigation.method_facts == ()
 
 
-@pytest.mark.parametrize("language", ("docs", "zh-cn/docs"))
 def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
-    language: str,
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -117,9 +115,6 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert Path(marivo.__file__).resolve() == root / "marivo/__init__.py"
     monkeypatch.setenv("PYTHONPATH", str(root))
     monkeypatch.chdir(tmp_path)
-    guides = root / "site/src/content/docs" / language / "latest"
-    tutorial = (guides / "start/python.mdx").read_text() + (guides / "analysis/dsl.mdx").read_text()
-    guide = (guides / "analysis/dsl.mdx").read_text()
 
     def block(source: str, marker: str) -> str:
         match = re.search(
@@ -130,36 +125,56 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         assert match is not None, marker
         return match.group(1)
 
-    namespace: dict[str, object] = {}
-    exec(compile(block(tutorial, "demo-seed"), "<tutorial-seed>", "exec"), namespace)
-    semantic_project_factory(
-        {
-            "datasources/warehouse.py": block(tutorial, "demo-datasource"),
-            "sales/_domain.py": block(tutorial, "demo-model"),
-        },
-        load=False,
-    )
-    exec(compile(block(tutorial, "demo-analysis"), "<tutorial-analysis>", "exec"), namespace)
-    for marker in (
+    tutorial_markers = ("demo-seed", "demo-datasource", "demo-model", "demo-analysis")
+    guide_markers = (
         "compare-query",
         "aligned-absolute-only",
         "attribute-default-investigation",
         "attribute-contribution-facts",
         "attribute-explicit-default-after-refusal",
-    ):
-        exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
-    for marker in (
         "comparison-endpoint-followup",
         "broadcast-reference",
         "source-and-result-filters",
-    ):
-        exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
-    time_guide = (guides / "analysis/time-series.mdx").read_text()
-    for marker in ("period-comparison-query", "shifted-period-comparison-query"):
-        exec(compile(block(time_guide, marker), "<time-" + marker + ">", "exec"), namespace)
-    statistics = (guides / "analysis/statistics.mdx").read_text()
-    for marker in ("frame-partition-share", "pandas-paired-statistics"):
-        exec(compile(block(statistics, marker), "<statistics-" + marker + ">", "exec"), namespace)
+    )
+    time_markers = ("period-comparison-query", "shifted-period-comparison-query")
+    statistics_markers = ("frame-partition-share", "pandas-paired-statistics")
+    examples_by_language: dict[str, dict[str, str]] = {}
+    for language in ("docs", "zh-cn/docs"):
+        guides = root / "site/src/content/docs" / language / "latest"
+        tutorial = (guides / "start/python.mdx").read_text() + (
+            guides / "analysis/dsl.mdx"
+        ).read_text()
+        sources = {
+            **dict.fromkeys(tutorial_markers, tutorial),
+            **dict.fromkeys(guide_markers, (guides / "analysis/dsl.mdx").read_text()),
+            **dict.fromkeys(time_markers, (guides / "analysis/time-series.mdx").read_text()),
+            **dict.fromkeys(
+                statistics_markers,
+                (guides / "analysis/statistics.mdx").read_text(),
+            ),
+        }
+        examples_by_language[language] = {
+            marker: block(source, marker) for marker, source in sources.items()
+        }
+    assert examples_by_language["docs"] == examples_by_language["zh-cn/docs"]
+    examples = examples_by_language["docs"]
+
+    namespace: dict[str, object] = {}
+    exec(compile(examples["demo-seed"], "<tutorial-seed>", "exec"), namespace)
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": examples["demo-datasource"],
+            "sales/_domain.py": examples["demo-model"],
+        },
+        load=False,
+    )
+    exec(compile(examples["demo-analysis"], "<tutorial-analysis>", "exec"), namespace)
+    for marker in guide_markers:
+        exec(compile(examples[marker], "<guide-" + marker + ">", "exec"), namespace)
+    for marker in time_markers:
+        exec(compile(examples[marker], "<time-" + marker + ">", "exec"), namespace)
+    for marker in statistics_markers:
+        exec(compile(examples[marker], "<statistics-" + marker + ">", "exec"), namespace)
     east_total = namespace["east_total"]
     assert isinstance(east_total, mv.AnalysisFrame)
     assert east_total.to_pandas()[("value", "revenue")].tolist() == [500]
