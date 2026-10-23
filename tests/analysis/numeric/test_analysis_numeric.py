@@ -469,9 +469,9 @@ def test_duration_matrix(
     members = session.members(session.catalog.entities.get("sales.customer"))
     channel = session.catalog.fields.get("sales.order.channel")
     customer_id = session.catalog.fields.get("sales.order.customer_id")
+    expressions: dict[str, Deferred] = {}
     for kind in kinds:
-        coordinates = kind in ("weighted", "linear")
-        expression = (
+        expressions[kind] = (
             value.weighted_mean(weight=weight, time=time)
             if kind == "weighted"
             else base / base
@@ -488,15 +488,45 @@ def test_duration_matrix(
             if kind == "count_distinct"
             else base
         )
-        logical = session.observe(
-            {"value": expression},
-            by=(customer_id, channel) if coordinates else members,
-            where=mv.in_population(members) if coordinates else None,
+    member_kinds = tuple(kind for kind in kinds if kind not in ("weighted", "linear"))
+    coordinate_kinds = tuple(kind for kind in kinds if kind in ("weighted", "linear"))
+    member_fine = (
+        session.observe({kind: expressions[kind] for kind in member_kinds}, by=members)
+        .compute()
+        .to_pandas()
+        if member_kinds
+        else None
+    )
+    coordinate_fine = (
+        session.observe(
+            {kind: expressions[kind] for kind in coordinate_kinds},
+            by=(customer_id, channel),
+            where=mv.in_population(members),
         )
-        fine = logical.compute().to_pandas()
+        .compute()
+        .to_pandas()
+        if coordinate_kinds
+        else None
+    )
+    overall_kinds = tuple(kind for kind in kinds if kind != "count_distinct")
+    overall = (
+        session.observe(
+            {kind: expressions[kind] for kind in overall_kinds},
+            where=mv.in_population(members),
+        )
+        .compute()
+        .to_pandas()
+        if overall_kinds
+        else None
+    )
+    for kind in kinds:
+        coordinates = kind in ("weighted", "linear")
+        fine = coordinate_fine if coordinates else member_fine
+        assert fine is not None
         if kind == "count_distinct":
-            assert fine[("value", "value")].tolist() == [2, 2, 0, 0]
+            assert fine[("value", kind)].tolist() == [2, 2, 0, 0]
         else:
+            assert overall is not None
             expected = {
                 "sum": 7,
                 "min": 0,
@@ -506,21 +536,16 @@ def test_duration_matrix(
                 "ratio": 1.0,
                 "linear": 14,
             }[kind]
-            results = [
-                session.observe({"value": expression}, where=mv.in_population(members)).compute()
-            ]
-            for result in results:
-                frame = result.to_pandas()
-                if kind == "ratio":
-                    assert frame[("value", "value")].tolist() == [expected]
-                else:
-                    actual = (
-                        pa.array(frame[("value", "value")])
-                        .cast(pa.duration(unit))
-                        .cast(pa.int64())
-                        .to_pylist()
-                    )
-                    assert actual == [expected]
+            if kind == "ratio":
+                assert overall[("value", kind)].tolist() == [expected]
+            else:
+                actual = (
+                    pa.array(overall[("value", kind)])
+                    .cast(pa.duration(unit))
+                    .cast(pa.int64())
+                    .to_pylist()
+                )
+                assert actual == [expected]
         assert len(fine) == (5 if coordinates else 4)
 
 

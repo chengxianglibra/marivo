@@ -1059,8 +1059,7 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
 
 
 @pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear", "count"))
-@pytest.mark.parametrize("mode", ("level", "absolute", "relative"))
-def test_captured_rule_families(session: Session, kind: str, mode: str) -> None:
+def test_captured_rule_families(session: Session, kind: str) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
 
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -1078,33 +1077,42 @@ def test_captured_rule_families(session: Session, kind: str, mode: str) -> None:
     else:
         metric = amount.sum() - 2 * amount.sum()
     current = session.observe({"q": metric}, where=phase == "current")
-    if mode == "level":
-        selected = current.compute()
-        expected = [-160, -80] if kind == "linear" else [1, 1] if kind == "count" else [80, 40]
-    else:
-        baseline = session.observe({"q": metric}, where=phase == "base")
-        compared = current.compare(
-            {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
-        )
-        selected = compared.select({"q": compared[f"base.{mode}.q"]}).compute()
-        expected = [-60, 20] if kind == "linear" else [0, 0] if kind == "count" else [30, -10]
-        if mode == "relative":
-            expected = [
-                value / (200 if kind == "linear" else 2 if kind == "count" else 100)
-                for value in expected
-            ]
-    report = attribute(selected, by=(channel,)).compute()
-    rows = report.to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == expected
-    if mode == "level" and kind in ("ratio", "mean", "weighted"):
-        assert rows[("value", "detail.value.q")].tolist() == [160, 80]
-        assert rows[("value", "total.q")].tolist() == [120, 120]
+    current_frame = current.compute()
+    baseline = session.observe({"q": metric}, where=phase == "base").compute()
+    comparison = current_frame.compare(
+        {"base": baseline},
+        on={"base": tuple(zip(current_frame.axes, baseline.axes, strict=True))},
+    ).compute()
+    selected_by_mode = (
+        ("level", current_frame),
+        (
+            "absolute",
+            comparison.select({"q": comparison["base.absolute.q"]}).compute(),
+        ),
+        (
+            "relative",
+            comparison.select({"q": comparison["base.relative.q"]}).compute(),
+        ),
+    )
+    for mode, selected in selected_by_mode:
+        expected: list[int | float]
+        if mode == "level":
+            expected = [-160, -80] if kind == "linear" else [1, 1] if kind == "count" else [80, 40]
+        else:
+            expected = [-60, 20] if kind == "linear" else [0, 0] if kind == "count" else [30, -10]
+            if mode == "relative":
+                expected = [
+                    value / (200 if kind == "linear" else 2 if kind == "count" else 100)
+                    for value in expected
+                ]
+        rows = attribute(selected, by=(channel,)).compute().to_pandas()
+        assert rows[("value", "contribution.q")].tolist() == expected
+        if mode == "level" and kind in ("ratio", "mean", "weighted"):
+            assert rows[("value", "detail.value.q")].tolist() == [160, 80]
+            assert rows[("value", "total.q")].tolist() == [120, 120]
 
 
-@pytest.mark.parametrize("prune", ("direct", "select", "where", "top0"))
-def test_captured_original_fine_formula_checks_survive_pruning(
-    session: Session, prune: str
-) -> None:
+def test_captured_original_fine_formula_checks_survive_pruning(session: Session) -> None:
     from marivo.analysis.materialization.errors import MaterializationError
 
     with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
@@ -1116,19 +1124,20 @@ def test_captured_original_fine_formula_checks_survive_pruning(
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     source = session.observe({"q": amount.sum() * 2}, where=phase == "current").compute()
-    report = source.attribute(by=(channel,))
-    if prune == "select":
-        report = report.select({"kept": report["contribution.q"]})
-    elif prune == "where":
-        report = report.where(report.coord(report.axes[0]) != "B")
-    elif prune == "top0":
-        report = report.top(0, by=report["contribution.q"])
-    with pytest.raises(MaterializationError) as caught:
-        report.compute()
-    assert caught.value.stage == "numeric_value"
-    assert caught.value.attribute_context is not None
-    assert isinstance(caught.value.attribute_context.fiber, AttributeFineFiber)
-    assert caught.value.attribute_context.fiber.fine[0][1] == "B"
+    for prune in ("direct", "select", "where", "top0"):
+        report = source.attribute(by=(channel,))
+        if prune == "select":
+            report = report.select({"kept": report["contribution.q"]})
+        elif prune == "where":
+            report = report.where(report.coord(report.axes[0]) != "B")
+        elif prune == "top0":
+            report = report.top(0, by=report["contribution.q"])
+        with pytest.raises(MaterializationError) as caught:
+            report.compute()
+        assert caught.value.stage == "numeric_value"
+        assert caught.value.attribute_context is not None
+        assert isinstance(caught.value.attribute_context.fiber, AttributeFineFiber)
+        assert caught.value.attribute_context.fiber.fine[0][1] == "B"
 
 
 @pytest.mark.parametrize("kind", ("mean", "weighted", "ratio"))
