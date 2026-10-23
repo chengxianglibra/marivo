@@ -121,36 +121,34 @@ def test_additive_exact_values_and_independent_role_reads(
     assert result[("value", "detail.absolute.q")].tolist() == [60, -20]
 
 
-@pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear"))
-def test_rule_families(session: Session, kind: str) -> None:
+def test_rule_families(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    if kind == "ratio":
-        metric = amount.sum() / weight.sum()
-    elif kind == "mean":
-        metric = amount.mean()
-    elif kind == "weighted":
-        metric = amount.weighted_mean(weight=weight)
-    else:
-        metric = amount.sum() - 2 * amount.sum()
+    metrics = {
+        "ratio": amount.sum() / weight.sum(),
+        "mean": amount.mean(),
+        "weighted": amount.weighted_mean(weight=weight),
+        "linear": amount.sum() - 2 * amount.sum(),
+    }
     result = (
         _contribution(
-            session.observe({"q": metric}, where=phase == "current"),
-            session.observe({"q": metric}, where=phase == "base"),
+            session.observe(metrics, where=phase == "current"),
+            session.observe(metrics, where=phase == "base"),
             by=(channel,),
         )
         .compute()
         .to_pandas()
     )
-    assert result[("value", "contribution.q")].tolist() == (
-        [-60, 20] if kind == "linear" else [30, -10]
-    )
-    assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
-    if kind != "linear":
-        assert result[("value", "component.current.numerator.q")].tolist() == [160, 80]
-        assert result[("value", "component.current.denominator.q")].tolist() == [1, 1]
+    for kind in metrics:
+        assert result[("value", f"contribution.{kind}")].tolist() == (
+            [-60, 20] if kind == "linear" else [30, -10]
+        )
+        assert result[("value", f"contribution_share.{kind}")].tolist() == [1.5, -0.5]
+        if kind != "linear":
+            assert result[("value", f"component.current.numerator.{kind}")].tolist() == [160, 80]
+            assert result[("value", f"component.current.denominator.{kind}")].tolist() == [1, 1]
 
 
 def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: Path) -> None:
