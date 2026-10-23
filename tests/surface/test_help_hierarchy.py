@@ -38,9 +38,8 @@ def test_global_roots_offer_only_the_owning_task_choices() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "target",
-    (
+def test_retired_task_topics_fail_without_aliases() -> None:
+    for target in (
         "datasource.authoring",
         "semantic.authoring",
         "semantic.builders",
@@ -70,16 +69,13 @@ def test_global_roots_offer_only_the_owning_task_choices() -> None:
         "analysis.runtime.values",
         "analysis.session.namespace",
         "analysis.windows",
-    ),
-)
-def test_retired_task_topics_fail_without_aliases(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        route_help_target(target)
+    ):
+        with pytest.raises(MarivoHelpTargetError):
+            route_help_target(target)
 
 
-@pytest.mark.parametrize(
-    "path",
-    (
+def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -> None:
+    for path in (
         ("analysis", "analysis.source", "analysis.population.count"),
         ("analysis", "analysis.inputs", "semantic.expressions", "semantic.metric"),
         ("authoring", "semantic", "semantic.expressions", "semantic.rescale"),
@@ -118,22 +114,17 @@ def test_retired_task_topics_fail_without_aliases(target: str) -> None:
             "analysis.results.evidence",
             "analysis.analysis_frame.persist",
         ),
-    ),
-)
-def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads(
-    path: tuple[str, ...],
-) -> None:
-    assert len(path) <= 4
-    for current, following in pairwise(path):
-        assert following in _links(current), (current, following)
-    route = route_help_target(path[-1])
-    assert isinstance(route, NativeHelpRoute)
-    assert render_help_text(path[-1])[0].startswith(f"Target: {path[-1]}\n")
+    ):
+        assert len(path) <= 4
+        for current, following in pairwise(path):
+            assert following in _links(current), (current, following)
+        route = route_help_target(path[-1])
+        assert isinstance(route, NativeHelpRoute)
+        assert render_help_text(path[-1])[0].startswith(f"Target: {path[-1]}\n")
 
 
-@pytest.mark.parametrize(
-    ("page", "required"),
-    (
+def test_required_secondary_routes_keep_their_real_native_owners() -> None:
+    for page, required in (
         ("analysis.inputs", ("semantic.expressions",)),
         (
             "analysis.inputs.catalog",
@@ -160,23 +151,18 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads(
         ),
         ("analysis.results.evidence", ("analysis.analysis_frame.persist",)),
         ("analysis.sessions", ("analysis.frame", "analysis.source")),
-    ),
-)
-def test_required_secondary_routes_keep_their_real_native_owners(
-    page: str,
-    required: tuple[str, ...],
-) -> None:
-    links = _links(page)
-    for target in required:
-        assert links.count(target) == 1
-        route_help_target(target)
-    if page in ("analysis.inputs", "analysis.source"):
-        assert "analysis.expressions" not in links
-        assert "semantic.metric.define" not in links
-        assert (
-            "without publishing" in render_help_text(page)[0]
-            or "no new published Metric" in render_help_text(page)[0]
-        )
+    ):
+        links = _links(page)
+        for target in required:
+            assert links.count(target) == 1
+            route_help_target(target)
+        if page in ("analysis.inputs", "analysis.source"):
+            assert "analysis.expressions" not in links
+            assert "semantic.metric.define" not in links
+            assert (
+                "without publishing" in render_help_text(page)[0]
+                or "no new published Metric" in render_help_text(page)[0]
+            )
 
 
 @pytest.mark.parametrize("page", ("analysis.source", "analysis.frame.statistics"))

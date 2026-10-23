@@ -70,42 +70,41 @@ def test_native_factories_preserve_private_identity_and_expression_protocol() ->
         ms.ref.domain("sales.orders")
 
 
-@pytest.mark.parametrize(
-    "bad",
-    (
-        ms.ref.measure("sales.orders.amount").summ(),
-        ms.ref.entity("sales.orders").amount,
-        ms.ref.measure("sales.orders.amount").ref.path,
-        ms.ref.measure("sales.orders.amount").sum(3),
-        ms.ref.measure("sales.orders.amount").sum(unknown="ignore"),
-        ms.ref.measure("sales.orders.amount").sum(where={"mutable": True}),
-        ms.ref.domain("sales") + 1,
-        ms.ref.entity("sales.orders") + 1,
-        ms.ref.measure("sales.orders.amount").sum(q=0.5),
-        ms.ref.measure("sales.orders.amount").quantile(),
-        ms.ref.measure("sales.orders.amount").quantile(True),
-        ms.ref.measure("sales.orders.amount").clip(1, 2, 3),
-        ms.ref.measure("sales.orders.amount").round(digits=[]),
-        ms.ref.measure("sales.orders.amount").sum(nulls="skip"),
-        ms.ref.time_dimension("sales.orders.paid_at").via((ms.ref.entity("sales.orders"),)),
-        ms.ref.measure("sales.orders.amount").sum(time=ms.ref.measure("sales.orders.cost")),
-        ms.ref.measure("sales.orders.amount").sum().per(ms.ref.metric("sales.revenue")).mean(),
-        ms.ref.measure("sales.orders.amount").round(1, digits=2),
-        ms.ref.measure("sales.orders.amount").clip(1, lower=2),
-        ms.ref.measure("sales.orders.amount").log(2, base=3),
-        ms.ref.measure("sales.orders.amount").sum().per(ms.ref.measure("sales.orders.cost")).mean(),
-        ms.ref.measure("sales.orders.amount").sum().per(()).mean(),
-        ms.ref.measure("sales.orders.amount").weighted_mean(weight=ms.ref.entity("sales.orders")),
-        ms.ref.time_dimension("sales.orders.paid_at").at("2026-01-01"),
-        ms.ref.time_dimension("sales.orders.paid_at").within("2026-01-01"),
-        ms.ref.measure("sales.orders.amount").sum().window("all_history"),
-    ),
+_BAD_RECIPES: tuple[Deferred, ...] = (
+    ms.ref.measure("sales.orders.amount").summ(),
+    ms.ref.entity("sales.orders").amount,
+    ms.ref.measure("sales.orders.amount").ref.path,
+    ms.ref.measure("sales.orders.amount").sum(3),
+    ms.ref.measure("sales.orders.amount").sum(unknown="ignore"),
+    ms.ref.measure("sales.orders.amount").sum(where={"mutable": True}),
+    ms.ref.domain("sales") + 1,
+    ms.ref.entity("sales.orders") + 1,
+    ms.ref.measure("sales.orders.amount").sum(q=0.5),
+    ms.ref.measure("sales.orders.amount").quantile(),
+    ms.ref.measure("sales.orders.amount").quantile(True),
+    ms.ref.measure("sales.orders.amount").clip(1, 2, 3),
+    ms.ref.measure("sales.orders.amount").round(digits=[]),
+    ms.ref.measure("sales.orders.amount").sum(nulls="skip"),
+    ms.ref.time_dimension("sales.orders.paid_at").via((ms.ref.entity("sales.orders"),)),
+    ms.ref.measure("sales.orders.amount").sum(time=ms.ref.measure("sales.orders.cost")),
+    ms.ref.measure("sales.orders.amount").sum().per(ms.ref.metric("sales.revenue")).mean(),
+    ms.ref.measure("sales.orders.amount").round(1, digits=2),
+    ms.ref.measure("sales.orders.amount").clip(1, lower=2),
+    ms.ref.measure("sales.orders.amount").log(2, base=3),
+    ms.ref.measure("sales.orders.amount").sum().per(ms.ref.measure("sales.orders.cost")).mean(),
+    ms.ref.measure("sales.orders.amount").sum().per(()).mean(),
+    ms.ref.measure("sales.orders.amount").weighted_mean(weight=ms.ref.entity("sales.orders")),
+    ms.ref.time_dimension("sales.orders.paid_at").at("2026-01-01"),
+    ms.ref.time_dimension("sales.orders.paid_at").within("2026-01-01"),
+    ms.ref.measure("sales.orders.amount").sum().window("all_history"),
 )
-def test_invalid_complete_recipes_fail_at_declaration_capture(bad: Deferred) -> None:
+
+
+def _assert_invalid_recipe_fails_at_declaration_capture(bad: Deferred) -> None:
     with pytest.raises(SemanticExpressionError) as failure:
 
         @ms.metric(domain=ms.ref.domain("sales"))
-        def invalid_recipe():
+        def invalid_recipe() -> Deferred:
             return bad
 
     error = failure.value
@@ -113,6 +112,11 @@ def test_invalid_complete_recipes_fail_at_declaration_capture(bad: Deferred) -> 
     assert "invalid_recipe" in error.message
     assert error.expected and error.received and error.repair is not None
     assert error.location is not None
+
+
+def test_invalid_complete_recipes_fail_at_declaration_capture() -> None:
+    for bad in _BAD_RECIPES:
+        _assert_invalid_recipe_fails_at_declaration_capture(bad)
 
 
 def test_forward_fields_named_dependencies_and_late_default_time_bind_once(
@@ -149,31 +153,29 @@ paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_a
     assert not inspect_deferred(catalog.metrics.get("sales.margin_per_order")).symbols
 
 
-@pytest.mark.parametrize(
-    ("expression", "name", "kind"),
-    (
+def test_complete_lookup_graph_rejects_missing_wrong_kind_and_self_cycles(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    cases = (
         ('ms.ref.metric("sales.missing") + 1', "consumer", ErrorKind.NOT_FOUND),
         ('ms.ref.metric("sales.loop") + 1', "loop", ErrorKind.DEFINITION_CYCLE),
         ('ms.ref.dimension("sales.orders.amount").count()', "consumer", ErrorKind.INVALID_REF),
-    ),
-)
-def test_complete_lookup_graph_rejects_missing_wrong_kind_and_self_cycles(
-    semantic_project_factory: ProjectFactory, expression: str, name: str, kind: ErrorKind
-) -> None:
-    source = (
-        _PHYSICAL
-        + f"""
+    )
+    for expression, name, kind in cases:
+        source = (
+            _PHYSICAL
+            + f"""
 recipe = {expression}
 @ms.metric()
 def {name}():
     return recipe
 """
-    )
-    project = _project(semantic_project_factory, source)
-    assert project._status == "errored"
-    assert project._compiled_state is None
-    assert project.errors()[0].kind == kind.value
-    assert project.errors()[0].expected and project.errors()[0].received
+        )
+        project = _project(semantic_project_factory, source)
+        assert project._status == "errored"
+        assert project._compiled_state is None
+        assert project.errors()[0].kind == kind.value
+        assert project.errors()[0].expected and project.errors()[0].received
 
 
 def _physical_scope(unit: str, declarations: tuple[Deferred, ...]) -> SemanticCatalog:
@@ -390,22 +392,22 @@ ms.dimension_column(name="region", entity=orders, column="region")
     assert not inspect_deferred(catalog.metrics.get("sales.selected_median")).symbols
 
 
-@pytest.mark.parametrize(
-    "case_call",
-    (
-        "ibis.cases(amount.sum())",
-        "ibis.cases((amount > 0,))",
-        "ibis.cases((amount > 0, amount, 0))",
-        "ibis.cases(branch=(amount > 0,))",
-    ),
+_MALFORMED_CASE_CALLS = (
+    "ibis.cases(amount.sum())",
+    "ibis.cases((amount > 0,))",
+    "ibis.cases((amount > 0, amount, 0))",
+    "ibis.cases(branch=(amount > 0,))",
 )
+
+
 def test_top_cases_malformed_pairs_stop_public_model_at_capture(
-    semantic_project_factory: ProjectFactory, tmp_path: Path, case_call: str
+    semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    marker = tmp_path / "after-cases-decorator"
-    source = (
-        _PHYSICAL
-        + f"""
+    for index, case_call in enumerate(_MALFORMED_CASE_CALLS):
+        marker = tmp_path / f"after-cases-decorator-{index}"
+        source = (
+            _PHYSICAL
+            + f"""
 import ibis
 recipe = {case_call}
 @ms.metric()
@@ -414,39 +416,39 @@ def malformed_cases():
 from pathlib import Path
 Path({str(marker)!r}).write_text("unexpected")
 """
-    )
-    project = _project(semantic_project_factory, source)
-    assert not marker.exists()
-    assert project._compiled_state is None
-    error = project.errors()[0]
-    assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
-    assert "malformed_cases" in error.message
-    assert "branch pairs" in error.received
+        )
+        project = _project(semantic_project_factory, source)
+        assert not marker.exists()
+        assert project._compiled_state is None
+        error = project.errors()[0]
+        assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
+        assert "malformed_cases" in error.message
+        assert "branch pairs" in error.received
 
 
-@pytest.mark.parametrize(
-    "top_call",
-    (
-        "ibis.ifelse(amount > 0, amount)",
-        "ibis.ifelse(amount > 0, amount, 0, 1)",
-        "ibis.ifelse(amount > 0, amount, false_expr=0)",
-        "ibis.coalesce(arg=amount)",
-        "ibis.least(amount, unknown=1)",
-        "ibis.greatest()",
-        "ibis.cases(branch=(amount > 0, amount), unknown=1)",
-        "ibis.literal(1, 'int64', type='float64') + amount",
-        "ibis.literal(value=1, unknown=amount) + amount",
-        "ibis.literal(amount)",
-        "ibis.literal('invalid-int', type='int64') + amount",
-    ),
+_MALFORMED_TOP_CALLS = (
+    "ibis.ifelse(amount > 0, amount)",
+    "ibis.ifelse(amount > 0, amount, 0, 1)",
+    "ibis.ifelse(amount > 0, amount, false_expr=0)",
+    "ibis.coalesce(arg=amount)",
+    "ibis.least(amount, unknown=1)",
+    "ibis.greatest()",
+    "ibis.cases(branch=(amount > 0, amount), unknown=1)",
+    "ibis.literal(1, 'int64', type='float64') + amount",
+    "ibis.literal(value=1, unknown=amount) + amount",
+    "ibis.literal(amount)",
+    "ibis.literal('invalid-int', type='int64') + amount",
 )
+
+
 def test_top_constructor_signature_errors_are_owned_by_public_capture(
-    semantic_project_factory: ProjectFactory, tmp_path: Path, top_call: str
+    semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    marker = tmp_path / "after-top-decorator"
-    source = (
-        _PHYSICAL
-        + f"""
+    for index, top_call in enumerate(_MALFORMED_TOP_CALLS):
+        marker = tmp_path / f"after-top-decorator-{index}"
+        source = (
+            _PHYSICAL
+            + f"""
 import ibis
 @ms.measure()
 def malformed_top():
@@ -454,16 +456,16 @@ def malformed_top():
 from pathlib import Path
 Path({str(marker)!r}).write_text("unexpected")
 """
-    )
-    project = _project(semantic_project_factory, source)
-    assert not marker.exists()
-    assert project._compiled_state is None
-    assert len(project.errors()) == 1
-    error = project.errors()[0]
-    assert isinstance(error, SemanticExpressionError)
-    assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
-    assert "malformed_top" in error.message or error.semantic_refs == ("malformed_top",)
-    assert error.expected and error.received and error.repair is not None
+        )
+        project = _project(semantic_project_factory, source)
+        assert not marker.exists()
+        assert project._compiled_state is None
+        assert len(project.errors()) == 1
+        error = project.errors()[0]
+        assert isinstance(error, SemanticExpressionError)
+        assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
+        assert "malformed_top" in error.message or error.semantic_refs == ("malformed_top",)
+        assert error.expected and error.received and error.repair is not None
 
 
 def test_all_admitted_top_constructors_keep_valid_native_spellings(

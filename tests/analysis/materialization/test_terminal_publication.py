@@ -1383,8 +1383,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
         _ = saved.method_facts
 
 
-@pytest.mark.parametrize("damage", ("entry", "kind", "record", "digest", "counts"))
-def test_owned_method_codec_rejects_exact_table_damage(session: Session, damage: str) -> None:
+def test_owned_method_codec_rejects_exact_table_damage(session: Session) -> None:
     from marivo.analysis.materialization.frame_method_facts import (
         decode_method_payload,
         method_payload,
@@ -1393,23 +1392,26 @@ def test_owned_method_codec_rejects_exact_table_damage(session: Session, damage:
     result = method_result()
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     descriptor = committed(saved).method_facts[0]
-    rows = method_payload(result.method_facts[0]).rows.copy()
-    if damage == "entry":
-        rows.loc[0, "entry"] = 1
-    elif damage == "kind":
-        rows.loc[0, "kind"] = "coordinate"
-    elif damage == "record":
-        wire = json.loads(str(rows.loc[0, "record"]))
-        wire["value"]["fields"]["unknown"] = None
-        from marivo.analysis.materialization.contracts import canonical_json
+    original_rows = method_payload(result.method_facts[0]).rows
+    for damage in ("entry", "kind", "record", "digest", "counts"):
+        damaged_descriptor = descriptor
+        rows = original_rows.copy()
+        if damage == "entry":
+            rows.loc[0, "entry"] = 1
+        elif damage == "kind":
+            rows.loc[0, "kind"] = "coordinate"
+        elif damage == "record":
+            wire = json.loads(str(rows.loc[0, "record"]))
+            wire["value"]["fields"]["unknown"] = None
+            from marivo.analysis.materialization.contracts import canonical_json
 
-        rows.loc[0, "record"] = canonical_json(wire)
-    elif damage == "digest":
-        descriptor = replace(descriptor, facts_digest="0" * 64)
-    else:
-        rows = rows.iloc[:0]
-    with pytest.raises(IntegrityError):
-        decode_method_payload(descriptor, rows)
+            rows.loc[0, "record"] = canonical_json(wire)
+        elif damage == "digest":
+            damaged_descriptor = replace(descriptor, facts_digest="0" * 64)
+        else:
+            rows = rows.iloc[:0]
+        with pytest.raises(IntegrityError):
+            decode_method_payload(damaged_descriptor, rows)
 
 
 def test_malformed_method_numeric_facts_fail_before_admission(session: Session) -> None:

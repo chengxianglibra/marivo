@@ -497,36 +497,36 @@ def test_json_http_headers_returns_empty_without_credentials() -> None:
     assert json_http_headers(backend, "https://api.example.com/v1/orders") == {}
 
 
-@pytest.mark.parametrize("value", [True, 0, -1, 4294967296, "50", "50; KILL QUERY 1"])
-def test_mysql_certification_deadline_rejects_untrusted_integer(value: object) -> None:
+def test_mysql_certification_deadline_rejects_untrusted_integer() -> None:
     profile = ENGINE_PROFILES["mysql"]
     statement = provider_statement("mysql", "mysql.authoring.install_select_deadline")
-    with pytest.raises(ValueError, match="requires timeout_ms"):
-        render_provider_statement(statement, profile, values={"timeout_ms": value})
+    for value in (True, 0, -1, 4294967296, "50", "50; KILL QUERY 1"):
+        with pytest.raises(ValueError, match="requires timeout_ms"):
+            render_provider_statement(statement, profile, values={"timeout_ms": value})
 
 
-@pytest.mark.parametrize("value", [1, 30000, 4294967295])
-def test_mysql_certification_deadline_renders_only_bounded_integer(value: int) -> None:
+def test_mysql_certification_deadline_renders_only_bounded_integer() -> None:
     profile = ENGINE_PROFILES["mysql"]
     statement = provider_statement("mysql", "mysql.authoring.install_select_deadline")
-    assert (
-        render_provider_statement(statement, profile, values={"timeout_ms": value})
-        == f"SET SESSION max_execution_time = {value}"
-    )
+    for value in (1, 30000, 4294967295):
+        assert (
+            render_provider_statement(statement, profile, values={"timeout_ms": value})
+            == f"SET SESSION max_execution_time = {value}"
+        ), value
 
 
-@pytest.mark.parametrize(
-    "statement_id",
-    ["mysql.authoring.install_select_deadline", "mysql.authoring.read_select_deadline"],
-)
-def test_mysql_certification_statements_reject_other_purposes(statement_id: str) -> None:
-    backend = _RecordingBackend()
-    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
-        execute_provider_statement(
-            backend, ENGINE_PROFILES["mysql"], statement_id, purpose="analysis.execute"
-        )
-    assert backend.queries == []
-    assert provider_statement_log(backend) == ()
+def test_mysql_certification_statements_reject_other_purposes() -> None:
+    for statement_id in (
+        "mysql.authoring.install_select_deadline",
+        "mysql.authoring.read_select_deadline",
+    ):
+        backend = _RecordingBackend()
+        with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
+            execute_provider_statement(
+                backend, ENGINE_PROFILES["mysql"], statement_id, purpose="analysis.execute"
+            )
+        assert backend.queries == [], statement_id
+        assert provider_statement_log(backend) == (), statement_id
 
 
 @pytest.mark.parametrize("server", ["mysql", "mariadb"])
@@ -629,7 +629,7 @@ def test_parameterized_credential_failure_logs_template_without_bound_values(
     assert secret not in str([submitted, completed])
 
 
-@pytest.mark.parametrize("backend", ("mysql", "clickhouse"))
-def test_query_kill_is_not_a_registered_capability(backend: str) -> None:
-    with pytest.raises(DatasourceSourceCapabilityError, match="no registered statement"):
-        provider_statement(backend, backend + ".analysis.cancel_owned_query")
+def test_query_kill_is_not_a_registered_capability() -> None:
+    for backend in ("mysql", "clickhouse"):
+        with pytest.raises(DatasourceSourceCapabilityError, match="no registered statement"):
+            provider_statement(backend, backend + ".analysis.cancel_owned_query")

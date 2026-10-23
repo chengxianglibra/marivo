@@ -62,9 +62,8 @@ def test_connection_test_result_rejects_inconsistent_success_failure_state(
         )
 
 
-@pytest.mark.parametrize(
-    ("code", "kind", "canonical_id", "preserves_evidence"),
-    [
+def test_authoring_repair_mapping_is_exact() -> None:
+    for code, kind, canonical_id, preserves_evidence in [
         ("datasource_missing", "register", "register", False),
         ("source_mismatch", "configure", "inspect", False),
         ("selected_columns_required", "inspect", "inspect", True),
@@ -80,19 +79,12 @@ def test_connection_test_result_rejects_inconsistent_success_failure_state(
         ("cache_stale", "reacquire", "source_inspection.sample", False),
         ("schema_stale", "reacquire", "source_inspection.sample", False),
         ("fingerprint_stale", "reacquire", "source_inspection.sample", False),
-    ],
-)
-def test_authoring_repair_mapping_is_exact(
-    code: str,
-    kind: str,
-    canonical_id: str,
-    preserves_evidence: bool,
-) -> None:
-    result = repair_for_authoring_code(code)
+    ]:
+        result = repair_for_authoring_code(code)
 
-    assert result.kind == kind
-    assert result.help_target.canonical_id == canonical_id
-    assert result.preserves_evidence is preserves_evidence
+        assert result.kind == kind
+        assert result.help_target.canonical_id == canonical_id
+        assert result.preserves_evidence is preserves_evidence
 
 
 def test_execution_failure_repair_has_deterministic_stop_boundary() -> None:

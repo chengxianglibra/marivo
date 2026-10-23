@@ -119,48 +119,53 @@ def test_raw_local_ranges_follow_explicit_wall_meaning(
         ("!=", operator.ne),
     ],
 )
-@pytest.mark.parametrize(
-    "instant",
-    ["2026-03-08 07:00", "2026-03-08 07:00:00.000001", "2026-11-01 05:30", "2026-11-01 06:00"],
-)
 def test_gap_plateau_and_fold_strict_comparisons_are_nullable(
-    comparison: TimeComparison, compare: Callable[[datetime, datetime], bool], instant: str
+    comparison: TimeComparison, compare: Callable[[datetime, datetime], bool]
 ) -> None:
-    gap = "03-08" in instant
-    day = "2026-03-08" if gap else "2026-11-01"
-    clocks = (
-        ("01:59", "02:00", "02:30", "03:00", "03:01")
-        if gap
-        else ("00:59", "01:00", "01:30", "02:00")
-    )
-    meanings = (
-        ("06:59", "07:00", "07:00", "07:00", "07:01")
-        if gap
-        else ("04:59", "06:00", "06:30", "07:00")
-    )
-    table = ibis.memtable(
-        {
-            "id": range(len(clocks) + 1),
-            "point": [*(datetime.fromisoformat(f"{day} {clock}") for clock in clocks), None],
-        },
-        schema={"id": "int64", "point": "timestamp"},
-    )
-    field = replace(axis("%Y%m%d%H%M"), parse=TimestampParse(timezone="America/New_York"))
-    _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
-    )
-    bound = _instant(day, instant)
-    predicate = source_time_comparison(
-        table.point, field, authority, bound=bound, comparison=comparison
-    )
-    assert predicate is not None
     backend = ibis.duckdb.connect()
     try:
-        expected = [
-            i for i, meaning in enumerate(meanings) if compare(_instant(day, meaning), bound)
-        ]
-        assert backend.execute(table.filter(predicate)).id.tolist() == expected
-        assert pd.isna(backend.execute(table.select(test=predicate)).test.iloc[-1])
+        for instant in (
+            "2026-03-08 07:00",
+            "2026-03-08 07:00:00.000001",
+            "2026-11-01 05:30",
+            "2026-11-01 06:00",
+        ):
+            gap = "03-08" in instant
+            day = "2026-03-08" if gap else "2026-11-01"
+            clocks = (
+                ("01:59", "02:00", "02:30", "03:00", "03:01")
+                if gap
+                else ("00:59", "01:00", "01:30", "02:00")
+            )
+            meanings = (
+                ("06:59", "07:00", "07:00", "07:00", "07:01")
+                if gap
+                else ("04:59", "06:00", "06:30", "07:00")
+            )
+            table = ibis.memtable(
+                {
+                    "id": range(len(clocks) + 1),
+                    "point": [
+                        *(datetime.fromisoformat(f"{day} {clock}") for clock in clocks),
+                        None,
+                    ],
+                },
+                schema={"id": "int64", "point": "timestamp"},
+            )
+            field = replace(axis("%Y%m%d%H%M"), parse=TimestampParse(timezone="America/New_York"))
+            _, authority = source_time(
+                table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+            )
+            bound = _instant(day, instant)
+            predicate = source_time_comparison(
+                table.point, field, authority, bound=bound, comparison=comparison
+            )
+            assert predicate is not None
+            expected = [
+                i for i, meaning in enumerate(meanings) if compare(_instant(day, meaning), bound)
+            ]
+            assert backend.execute(table.filter(predicate)).id.tolist() == expected
+            assert pd.isna(backend.execute(table.select(test=predicate)).test.iloc[-1])
     finally:
         backend.disconnect()
 

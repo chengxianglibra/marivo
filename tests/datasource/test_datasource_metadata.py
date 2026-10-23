@@ -2360,21 +2360,21 @@ def _make_table_metadata(**overrides: object) -> TableMetadata:
     return TableMetadata(**defaults)
 
 
-def test_table_metadata_repr_is_bounded() -> None:
+def test_table_metadata_default_inspection_contract() -> None:
+    from marivo.render import AgentResult
+
     metadata = _make_table_metadata()
     r = repr(metadata)
     assert r.startswith("<TableMetadata ref=")
     assert "call .show() to inspect>" in r
-
-
-def test_table_metadata_render_includes_column_table() -> None:
-    metadata = _make_table_metadata()
     rendered = metadata.render()
     assert rendered.startswith("TableMetadata ref=wh.orders backend=duckdb columns=3")
     assert "order_id" in rendered
     assert "int64" in rendered
     assert "float64" in rendered
     assert "available:" in rendered
+    assert "status:" not in rendered
+    assert isinstance(metadata, AgentResult)
 
 
 def test_table_metadata_render_uses_shared_output_cap() -> None:
@@ -2398,8 +2398,6 @@ def test_table_metadata_render_uses_shared_output_cap() -> None:
     assert "amount | float64 | Y | " in rendered
     assert "output truncated" not in rendered
 
-
-def test_table_metadata_long_comment_default_render_is_bounded() -> None:
     metadata = _make_table_metadata(comment="x" * (_DEFAULT_MAX_OUTPUT_BYTES * 2))
 
     rendered = metadata.render()
@@ -2409,53 +2407,47 @@ def test_table_metadata_long_comment_default_render_is_bounded() -> None:
     assert "available:" in rendered
 
 
-def test_table_metadata_render_shows_comment_and_view() -> None:
-    metadata = _make_table_metadata(
-        comment="One row per order",
-        is_view=True,
-        view_definition="SELECT * FROM raw_orders",
+def test_table_metadata_render_optional_details_and_partition_guidance() -> None:
+    partition = PartitionMetadata(name="dt", type="date", transform="identity", comment=None)
+    cases = (
+        (
+            "view",
+            _make_table_metadata(
+                comment="One row per order",
+                is_view=True,
+                view_definition="SELECT * FROM raw_orders",
+            ),
+            ("comment: One row per order", "view=yes"),
+            (),
+        ),
+        (
+            "partitions_and_warnings",
+            _make_table_metadata(
+                partitions=(partition,),
+                warnings=(MetadataWarning(kind="comments_unavailable", message="no comments"),),
+            ),
+            ("partitions=1", "warnings=1"),
+            (),
+        ),
+        (
+            "partition_guidance",
+            _make_table_metadata(partitions=(partition,)),
+            ("md.inspect(", ".partitions().show()", "md.partition(", "dt"),
+            (),
+        ),
+        (
+            "no_partitions",
+            _make_table_metadata(partitions=()),
+            (),
+            (".partitions().show()", "md.partition("),
+        ),
     )
-    rendered = metadata.render()
-    assert "comment: One row per order" in rendered
-    assert "view=yes" in rendered
-
-
-def test_table_metadata_render_shows_partitions_and_warnings() -> None:
-    metadata = _make_table_metadata(
-        partitions=(PartitionMetadata(name="dt", type="date", transform="identity", comment=None),),
-        warnings=(MetadataWarning(kind="comments_unavailable", message="no comments"),),
-    )
-    rendered = metadata.render()
-    assert "partitions=1" in rendered
-    assert "warnings=1" in rendered
-
-
-def test_table_metadata_render_with_partitions_suggests_partition_calls() -> None:
-    metadata = _make_table_metadata(
-        partitions=(PartitionMetadata(name="dt", type="date", transform="identity", comment=None),),
-    )
-
-    rendered = metadata.render()
-
-    assert "md.inspect(" in rendered
-    assert ".partitions().show()" in rendered
-    assert "md.partition(" in rendered
-    assert "dt" in rendered
-
-
-def test_table_metadata_render_without_partitions_omits_partition_calls() -> None:
-    metadata = _make_table_metadata(partitions=())
-
-    rendered = metadata.render()
-
-    assert ".partitions().show()" not in rendered
-    assert "md.partition(" not in rendered
-
-
-def test_table_metadata_render_no_status_when_sparse() -> None:
-    metadata = _make_table_metadata()
-    rendered = metadata.render()
-    assert "status:" not in rendered
+    for case, metadata, expected, absent in cases:
+        rendered = metadata.render()
+        for text in expected:
+            assert text in rendered, (case, text)
+        for text in absent:
+            assert text not in rendered, (case, text)
 
 
 def test_table_metadata_show_prints(capsys: pytest.CaptureFixture[str]) -> None:
@@ -2463,13 +2455,6 @@ def test_table_metadata_show_prints(capsys: pytest.CaptureFixture[str]) -> None:
     metadata.show()
     captured = capsys.readouterr()
     assert captured.out.startswith("TableMetadata ref=wh.orders")
-
-
-def test_table_metadata_satisfies_agent_result_protocol() -> None:
-    from marivo.render import AgentResult
-
-    metadata = _make_table_metadata()
-    assert isinstance(metadata, AgentResult)
 
 
 def _create_duckdb_with_constraints(path: Path) -> None:

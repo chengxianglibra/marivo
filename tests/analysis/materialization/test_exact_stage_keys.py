@@ -66,61 +66,61 @@ def _temporal(
 
 
 @pytest.mark.parametrize("dtype", _TEMPORAL_TYPES)
-@pytest.mark.parametrize("shape", ("single", "composite", "joint"))
 def test_exact_temporal_complete_keys_preserve_validity_ticks_and_sequence(
-    dtype: TimestampDataType | DurationDataType, shape: str
+    dtype: TimestampDataType | DurationDataType,
 ) -> None:
-    key = DataColumn("key", "key", dtype, True)
-    axes: tuple[DataAxis, ...] = (DataAxis("time", (key,), name="time"),)
-    ticks = _TICKS if shape == "single" else _TICKS * 2
-    rows = pd.DataFrame({"key": _temporal(dtype, ticks)})
-    if shape != "single":
-        part = DataColumn("part", "part", ScalarDataType("string"), False)
-        axes = (
-            (DataAxis("time", (key, part), name="time"),)
-            if shape == "composite"
-            else (*axes, DataAxis("part", (part,), name="part"))
+    for shape in ("single", "composite", "joint"):
+        key = DataColumn("key", "key", dtype, True)
+        axes: tuple[DataAxis, ...] = (DataAxis("time", (key,), name="time"),)
+        ticks = _TICKS if shape == "single" else _TICKS * 2
+        rows = pd.DataFrame({"key": _temporal(dtype, ticks)})
+        if shape != "single":
+            part = DataColumn("part", "part", ScalarDataType("string"), False)
+            axes = (
+                (DataAxis("time", (key, part), name="time"),)
+                if shape == "composite"
+                else (*axes, DataAxis("part", (part,), name="part"))
+            )
+            rows["part"] = pd.Series(
+                pd.arrays.ArrowExtensionArray(pa.array(["x"] * 4 + ["y"] * 4, type=pa.string()))
+            )
+        rows["value"] = pd.Series(
+            ([2**63 - 1, None, _MINIMUM, 0] * 2)[: len(ticks)], dtype="int64[pyarrow]"
         )
-        rows["part"] = pd.Series(
-            pd.arrays.ArrowExtensionArray(pa.array(["x"] * 4 + ["y"] * 4, type=pa.string()))
+        rows["present"] = pd.Series(([True, False] * 4)[: len(ticks)], dtype="bool[pyarrow]")
+        schema = DataSchema(
+            axes,
+            (DataColumn("value", "value", ScalarDataType("int64"), True),),
+            (DataColumn("present", "present", ScalarDataType("boolean"), False),),
+            value_paths=(("value",),),
+            presence_paths=(("present",),),
         )
-    rows["value"] = pd.Series(
-        ([2**63 - 1, None, _MINIMUM, 0] * 2)[: len(ticks)], dtype="int64[pyarrow]"
-    )
-    rows["present"] = pd.Series(([True, False] * 4)[: len(ticks)], dtype="bool[pyarrow]")
-    schema = DataSchema(
-        axes,
-        (DataColumn("value", "value", ScalarDataType("int64"), True),),
-        (DataColumn("present", "present", ScalarDataType("boolean"), False),),
-        value_paths=(("value",),),
-        presence_paths=(("present",),),
-    )
-    for actual in (
-        StageOutput.from_frame(rows, schema.columns, schema.key_fields).table,
-        CompletedFrameData(schema, rows).copy_rows(),
-    ):
-        assert tuple(actual.columns) == tuple(rows.columns)
-        for name in rows.columns:
-            assert pa.array(actual[name]).equals(pa.array(rows[name]))
-        keys = pa.array(actual["key"])
-        assert keys.is_valid().to_pylist() == [tick is not None for tick in ticks]
-        assert keys.cast(pa.int64()).to_pylist() == list(ticks)
+        for actual in (
+            StageOutput.from_frame(rows, schema.columns, schema.key_fields).table,
+            CompletedFrameData(schema, rows).copy_rows(),
+        ):
+            assert tuple(actual.columns) == tuple(rows.columns)
+            for name in rows.columns:
+                assert pa.array(actual[name]).equals(pa.array(rows[name]))
+            keys = pa.array(actual["key"])
+            assert keys.is_valid().to_pylist() == [tick is not None for tick in ticks]
+            assert keys.cast(pa.int64()).to_pylist() == list(ticks)
 
 
 @pytest.mark.parametrize("dtype", _TEMPORAL_CARRIERS)
-@pytest.mark.parametrize("duplicate", (_MINIMUM, None, _MINIMUM + 1, 0))
-@pytest.mark.parametrize("composite", (False, True))
 def test_true_temporal_complete_key_duplicates_retain_typed_stage_error(
-    dtype: TimestampDataType | DurationDataType, duplicate: int | None, composite: bool
+    dtype: TimestampDataType | DurationDataType,
 ) -> None:
-    columns: tuple[DataColumn, ...] = (DataColumn("key", "key", dtype, True),)
-    rows = pd.DataFrame({"key": _temporal(dtype, (duplicate, duplicate))})
-    if composite:
-        columns += (DataColumn("part", "part", ScalarDataType("string"), False),)
-        rows["part"] = pd.Series(["same", "same"], dtype="string[pyarrow]")
-    with pytest.raises(MaterializationError, match="complete unique stage key") as caught:
-        StageOutput.from_frame(rows, columns, tuple(column.slot_id for column in columns))
-    assert caught.value.stage == "stage_output"
+    for duplicate in (_MINIMUM, None, _MINIMUM + 1, 0):
+        for composite in (False, True):
+            columns: tuple[DataColumn, ...] = (DataColumn("key", "key", dtype, True),)
+            rows = pd.DataFrame({"key": _temporal(dtype, (duplicate, duplicate))})
+            if composite:
+                columns += (DataColumn("part", "part", ScalarDataType("string"), False),)
+                rows["part"] = pd.Series(["same", "same"], dtype="string[pyarrow]")
+            with pytest.raises(MaterializationError, match="complete unique stage key") as caught:
+                StageOutput.from_frame(rows, columns, tuple(column.slot_id for column in columns))
+            assert caught.value.stage == "stage_output"
 
 
 @pytest.mark.parametrize("dtype", _TEMPORAL_CARRIERS)

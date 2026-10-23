@@ -616,16 +616,7 @@ def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices
     assert len(saved.to_pandas().attrs["frozen_coordinates"]) == 3
 
 
-@pytest.mark.parametrize(
-    "dtype",
-    [
-        TimestampDataType(unit, "UTC") if timestamp else DurationDataType(unit)
-        for timestamp in (True, False)
-        for unit in ("s", "ms", "us", "ns")
-    ],
-)
-@pytest.mark.parametrize("composite", [False, True])
-def test_valid_minimum_temporal_ticks_survive_export_and_restore(
+def _assert_valid_minimum_temporal_ticks_survive_export_and_restore(
     local: LocalFrameServices, dtype: TimestampDataType | DurationDataType, composite: bool
 ) -> None:
     arrow = (
@@ -677,6 +668,21 @@ def test_valid_minimum_temporal_ticks_survive_export_and_restore(
         assert values.null_count == 1
         assert values.cast(pa.int64()).to_pylist() == [-(2**63), None]
         frame.show(n=2)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        TimestampDataType(unit, "UTC") if timestamp else DurationDataType(unit)
+        for timestamp in (True, False)
+        for unit in ("s", "ms", "us", "ns")
+    ],
+)
+def test_valid_minimum_temporal_ticks_survive_export_and_restore(
+    local: LocalFrameServices, dtype: TimestampDataType | DurationDataType
+) -> None:
+    for composite in (False, True):
+        _assert_valid_minimum_temporal_ticks_survive_export_and_restore(local, dtype, composite)
 
 
 @pytest.mark.parametrize(

@@ -88,8 +88,18 @@ TEMPORAL_TYPES: tuple[tuple[DataType, pa.DataType], ...] = (
     (ScalarDataType("date"), pa.date32()),
 )
 
+# Full-range comparisons run on one high-resolution member of each timezone-aware
+# family; all-unit extrema, literal conversion, and cold-storage coverage remain separate.
+COMPARISON_TYPES: tuple[tuple[DataType, pa.DataType], ...] = (
+    (DurationDataType("ns"), pa.duration("ns")),
+    (TimestampDataType("ns", None), pa.timestamp("ns")),
+    (TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC")),
+    (TimestampDataType("ns", "Asia/Shanghai"), pa.timestamp("ns", "Asia/Shanghai")),
+    (ScalarDataType("date"), pa.date32()),
+)
 
-@pytest.mark.parametrize("dtype,physical", TEMPORAL_TYPES)
+
+@pytest.mark.parametrize("dtype,physical", COMPARISON_TYPES)
 @pytest.mark.parametrize("nullable", [False, True])
 def test_temporal_comparisons_keep_full_range_and_null_masks(
     session: Session, dtype: DataType, physical: pa.DataType, nullable: bool

@@ -527,20 +527,7 @@ def _compute(
         return _run(prepared, graph)
 
 
-@pytest.mark.parametrize(
-    "reducer,expected",
-    [
-        ("sum", 60),
-        ("count", 3),
-        ("count_distinct", 3),
-        ("mean", 20),
-        ("min", 10),
-        ("max", 30),
-        ("median", 20),
-        ("quantile", 15),
-    ],
-)
-def test_source_numeric_reducers(warehouse_session: Session, reducer: str, expected: float) -> None:
+def test_source_numeric_reducers(warehouse_session: Session) -> None:
     amount, _ = _numeric_inputs(warehouse_session)
     reducers = {
         "sum": amount.sum(),
@@ -552,8 +539,19 @@ def test_source_numeric_reducers(warehouse_session: Session, reducer: str, expec
         "median": amount.median(),
         "quantile": amount.quantile(0.25),
     }
-    output = _compute(warehouse_session, {"value": reducers[reducer]})
-    assert output.table["value.0"].iloc[0] == pytest.approx(expected)
+    output = _compute(warehouse_session, reducers)
+    expected = {
+        "sum": 60,
+        "count": 3,
+        "count_distinct": 3,
+        "mean": 20,
+        "min": 10,
+        "max": 30,
+        "median": 20,
+        "quantile": 15,
+    }
+    for index, (reducer, value) in enumerate(expected.items()):
+        assert output.table[f"value.{index}"].iloc[0] == pytest.approx(value), reducer
     assert output.keys == ()
 
 

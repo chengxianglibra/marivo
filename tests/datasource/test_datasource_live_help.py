@@ -96,9 +96,8 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
     assert "datasource.inspect" in exc_info.value.candidates
 
 
-@pytest.mark.parametrize(
-    "target",
-    (
+def test_removed_conveniences_have_no_help_redirect() -> None:
+    for target in (
         "datasource.list",
         "datasource.describe",
         "datasource.test",
@@ -107,11 +106,9 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
         "datasource.datasource_summary.semantic_id",
         "datasource.raw_sql_result.row_count",
         "semantic.period_calendar_details.date",
-    ),
-)
-def test_removed_conveniences_have_no_help_redirect(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        marivo.help(target)
+    ):
+        with pytest.raises(MarivoHelpTargetError):
+            marivo.help(target)
 
 
 @pytest.mark.parametrize("name", ("list", "describe", "test"))

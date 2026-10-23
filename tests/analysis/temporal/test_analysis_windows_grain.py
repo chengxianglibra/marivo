@@ -52,13 +52,13 @@ def test_count_must_be_positive():
         grain("minute", count=0)
 
 
-@pytest.mark.parametrize("operator", ["lt", "le", "gt", "ge"])
-@pytest.mark.parametrize("units", [("minute", "hour"), ("week", "month"), ("day", "day")])
-def test_grains_have_no_ordering(operator, units):
+def test_grains_have_no_ordering() -> None:
     import operator as comparisons
 
-    with pytest.raises(TypeError):
-        getattr(comparisons, operator)(grain(units[0]), grain(units[1]))
+    for comparison in ("lt", "le", "gt", "ge"):
+        for units in (("minute", "hour"), ("week", "month"), ("day", "day")):
+            with pytest.raises(TypeError):
+                getattr(comparisons, comparison)(grain(units[0]), grain(units[1]))
 
 
 @pytest.mark.parametrize(

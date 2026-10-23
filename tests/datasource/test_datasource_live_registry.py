@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 import marivo.datasource as md
 from marivo._authoring.model import AuthoringEffects
 from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
@@ -154,11 +152,9 @@ def test_every_discoverable_capability_belongs_to_one_root_group() -> None:
     assert set(REGISTRY.discovery_ids()) <= grouped_ids
 
 
-@pytest.mark.parametrize(("canonical_id", "expected"), EXPECTED_EFFECTS.items())
-def test_registry_effects_match_callable_contracts(
-    canonical_id: str, expected: AuthoringEffects
-) -> None:
-    assert REGISTRY.by_canonical_id(canonical_id).effects == expected
+def test_registry_effects_match_callable_contracts() -> None:
+    for canonical_id, expected in EXPECTED_EFFECTS.items():
+        assert REGISTRY.by_canonical_id(canonical_id).effects == expected
 
 
 def test_registry_input_contracts_match_required_datasource_arguments() -> None:

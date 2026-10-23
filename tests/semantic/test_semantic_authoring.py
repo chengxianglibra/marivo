@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from datetime import date
-from typing import get_type_hints
+from typing import Literal, get_type_hints
 
 import ibis.expr.types as ibis_ir
 import pytest
@@ -251,16 +251,17 @@ def test_model_requires_owner_keyword() -> None:
         _exit_ctx()
 
 
-@pytest.mark.parametrize("owner", [42, None, "", "   "])
-def test_model_owner_must_be_non_empty_string(owner: object) -> None:
-    _enter_ctx()
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.domain(name="sales", owner=owner)  # type: ignore[arg-type]
-        assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
-        assert "owner must be a non-empty string" in str(exc_info.value)
-    finally:
-        _exit_ctx()
+def test_model_owner_must_be_non_empty_string() -> None:
+    owner: object
+    for owner in [42, None, "", "   "]:
+        _enter_ctx()
+        try:
+            with pytest.raises(SemanticDecoratorError) as exc_info:
+                ms.domain(name="sales", owner=owner)  # type: ignore[arg-type]
+            assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
+            assert "owner must be a non-empty string" in str(exc_info.value)
+        finally:
+            _exit_ctx()
 
 
 def test_field_accepts_model_ref() -> None:
@@ -1060,21 +1061,27 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context() 
         _exit_ctx()
 
 
-@pytest.mark.parametrize("cadence", [(7, "minute"), (60, "minute"), (24, "hour"), (0, "hour")])
-def test_time_dimensions_reject_invalid_or_duplicate_cadence(cadence) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as error:
-            ms.time_dimension_column(
-                name="sample_ts",
-                entity=ms.ref.entity("sales.samples"),
-                column="ts",
-                sample_interval=cadence,
-                parse=ms.timestamp(),
-            )
-        assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-    finally:
-        _exit_ctx()
+def test_time_dimensions_reject_invalid_or_duplicate_cadence() -> None:
+    cadences: list[tuple[int, Literal["minute", "hour"]]] = [
+        (7, "minute"),
+        (60, "minute"),
+        (24, "hour"),
+        (0, "hour"),
+    ]
+    for cadence in cadences:
+        _enter_ctx(default_domain="sales")
+        try:
+            with pytest.raises(SemanticDecoratorError) as error:
+                ms.time_dimension_column(
+                    name="sample_ts",
+                    entity=ms.ref.entity("sales.samples"),
+                    column="ts",
+                    sample_interval=cadence,
+                    parse=ms.timestamp(),
+                )
+            assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        finally:
+            _exit_ctx()
 
 
 def test_hour_prefix_accepts_sample_interval() -> None:
@@ -1365,25 +1372,30 @@ def test_retired_fold_aliases_are_not_public() -> None:
     assert "AggregateFoldValue" not in ms.__all__
 
 
-@pytest.mark.parametrize(
-    "fold",
-    ["auto", "sum", ("percentile", 0.0), ("percentile", 1.0), ("other", 0.5), ("percentile",)],
-)
-def test_aggregate_rejects_values_outside_shared_fold_alias(fold: object) -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.aggregate(
-                name="inventory",
-                measure=ms.ref.measure("sales.inventory.quantity"),
-                agg="sum",
-                fold=fold,
-            )
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "per(" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
+def test_aggregate_rejects_values_outside_shared_fold_alias() -> None:
+    fold: object
+    for fold in [
+        "auto",
+        "sum",
+        ("percentile", 0.0),
+        ("percentile", 1.0),
+        ("other", 0.5),
+        ("percentile",),
+    ]:
+        ctx = _enter_ctx(default_domain="sales")
+        try:
+            with pytest.raises(SemanticExpressionError) as caught:
+                ms.aggregate(
+                    name="inventory",
+                    measure=ms.ref.measure("sales.inventory.quantity"),
+                    agg="sum",
+                    fold=fold,
+                )
+            assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+            assert caught.value.repair is not None and "per(" in caught.value.repair.action
+            assert ctx.pending_definitions == []
+        finally:
+            _exit_ctx()
 
 
 def test_status_time_can_be_declared_without_fold() -> None:
@@ -1505,41 +1517,38 @@ def test_count_predicate_retains_exact_field() -> None:
         _exit_ctx()
 
 
-@pytest.mark.parametrize("membership", [(2, 4), [2, 4]])
-def test_explicit_membership_comparisons_normalize_inputs(
-    membership: tuple[int, ...] | list[int],
-) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        orders_ref = ms.entity(
-            name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders")
-        )
-        kind_ref = ms.dimension_column(name="type", entity=orders_ref, column="type")
-        finalized = captured_catalog()
-        orders = resolve(finalized, orders_ref)
-        kind = resolve(finalized, kind_ref)
-        predicate = (kind == membership[0]) | (kind == membership[1])
-        value = orders.count().where(predicate)
-        assert isinstance(consume_metric(value).node, ContributionFilter)
-        assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
-        assert (
-            consume_metric(value).node.predicate
-            == consume_predicate((kind == 2) | (kind == 4)).node
-        )
+def test_explicit_membership_comparisons_normalize_inputs() -> None:
+    memberships: list[tuple[int, ...] | list[int]] = [(2, 4), [2, 4]]
+    for membership in memberships:
+        _enter_ctx(default_domain="sales")
+        try:
+            orders_ref = ms.entity(
+                name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders")
+            )
+            kind_ref = ms.dimension_column(name="type", entity=orders_ref, column="type")
+            finalized = captured_catalog()
+            orders = resolve(finalized, orders_ref)
+            kind = resolve(finalized, kind_ref)
+            predicate = (kind == membership[0]) | (kind == membership[1])
+            value = orders.count().where(predicate)
+            assert isinstance(consume_metric(value).node, ContributionFilter)
+            assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
+            assert (
+                consume_metric(value).node.predicate
+                == consume_predicate((kind == 2) | (kind == 4)).node
+            )
 
-    finally:
-        _exit_ctx()
+        finally:
+            _exit_ctx()
 
 
-@pytest.mark.parametrize(
-    "bad_value",
-    [None, (), [], {2, 4}, {"op": "in", "value": [2, 4]}, (2, object())],
-)
-def test_where_rejects_invalid_condition_values(bad_value: object) -> None:
-    with pytest.raises(SemanticExpressionError) as caught:
-        ms.where(**{"type": bad_value})
-    assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert caught.value.repair is not None and "Metric.where" in caught.value.repair.action
+def test_where_rejects_invalid_condition_values() -> None:
+    bad_value: object
+    for bad_value in [None, (), [], {2, 4}, {"op": "in", "value": [2, 4]}, (2, object())]:
+        with pytest.raises(SemanticExpressionError) as caught:
+            ms.where(**{"type": bad_value})
+        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert caught.value.repair is not None and "Metric.where" in caught.value.repair.action
 
 
 def test_where_rejects_qualified_dimension_keys() -> None:
@@ -1549,25 +1558,26 @@ def test_where_rejects_qualified_dimension_keys() -> None:
     assert caught.value.repair is not None and "Metric.where" in caught.value.repair.action
 
 
-@pytest.mark.parametrize("bad_filter", [{"state": "FAILED"}, [("state", "FAILED")], "FAILED"])
-def test_count_rejects_non_where_filter(bad_filter: object) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        orders_ref = ms.entity(
-            name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders")
-        )
-        finalized = captured_catalog()
-        orders = resolve(finalized, orders_ref)
-        with pytest.raises(SemanticExpressionError) as caught:
-            consume_metric(orders.count().where(bad_filter))  # type: ignore[arg-type]  # intentional rejection input
-        assert caught.value.kind == (
-            ErrorKind.INVALID_EXPRESSION_VALUE
-            if isinstance(bad_filter, dict)
-            else ErrorKind.INVALID_EXPRESSION_STAGE
-        )
-        assert caught.value.repair is not None
-    finally:
-        _exit_ctx()
+def test_count_rejects_non_where_filter() -> None:
+    bad_filter: object
+    for bad_filter in [{"state": "FAILED"}, [("state", "FAILED")], "FAILED"]:
+        _enter_ctx(default_domain="sales")
+        try:
+            orders_ref = ms.entity(
+                name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders")
+            )
+            finalized = captured_catalog()
+            orders = resolve(finalized, orders_ref)
+            with pytest.raises(SemanticExpressionError) as caught:
+                consume_metric(orders.count().where(bad_filter))  # type: ignore[arg-type]  # intentional rejection input
+            assert caught.value.kind == (
+                ErrorKind.INVALID_EXPRESSION_VALUE
+                if isinstance(bad_filter, dict)
+                else ErrorKind.INVALID_EXPRESSION_STAGE
+            )
+            assert caught.value.repair is not None
+        finally:
+            _exit_ctx()
 
 
 def test_aggregate_rejects_non_where_filter() -> None:
@@ -1764,9 +1774,10 @@ def test_relationship_rejects_non_join_key_entries() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("call", "expected"),
-    [
+def test_authoring_reference_parameters_reject_naked_strings() -> None:
+    call: Callable[[], object]
+    expected: str
+    for call, expected in [
         (lambda: ms.aggregate(name="revenue", measure="sales.orders.amount", agg="sum"), "measure"),
         (
             lambda: ms.ratio(
@@ -1821,33 +1832,35 @@ def test_relationship_rejects_non_join_key_entries() -> None:
             ),
             "valid_from",
         ),
-    ],
-)
-def test_authoring_reference_parameters_reject_naked_strings(
-    call: Callable[[], object], expected: str
-) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        retired = set(call.__code__.co_names) & {"aggregate", "ratio", "weighted_mean", "linear"}
-        if retired:
-            with pytest.raises(SemanticExpressionError) as caught:
-                call()
-            assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-            assert caught.value.expected and caught.value.received and caught.value.repair
-            assert expected in str(caught.value.received)
-        else:
-            with pytest.raises(SemanticDecoratorError) as invalid:
-                call()
-            assert invalid.value.kind == ErrorKind.INVALID_REF
-            assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
-            assert expected in str(invalid.value)
-    finally:
-        _exit_ctx()
+    ]:
+        _enter_ctx(default_domain="sales")
+        try:
+            retired = set(call.__code__.co_names) & {
+                "aggregate",
+                "ratio",
+                "weighted_mean",
+                "linear",
+            }
+            if retired:
+                with pytest.raises(SemanticExpressionError) as caught:
+                    call()
+                assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+                assert caught.value.expected and caught.value.received and caught.value.repair
+                assert expected in str(caught.value.received)
+            else:
+                with pytest.raises(SemanticDecoratorError) as invalid:
+                    call()
+                assert invalid.value.kind == ErrorKind.INVALID_REF
+                assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
+                assert expected in str(invalid.value)
+        finally:
+            _exit_ctx()
 
 
-@pytest.mark.parametrize(
-    ("call", "expected"),
-    [
+def test_authoring_reference_parameters_reject_wrong_ref_kind() -> None:
+    call: Callable[[], object]
+    expected: str
+    for call, expected in [
         (
             lambda: ms.aggregate(name="revenue", measure=ms.ref.metric("sales.revenue"), agg="sum"),
             "native measure symbol",
@@ -1889,29 +1902,30 @@ def test_authoring_reference_parameters_reject_naked_strings(
             ),
             "native time_dimension symbol",
         ),
-    ],
-)
-def test_authoring_reference_parameters_reject_wrong_ref_kind(
-    call: Callable[[], object], expected: str
-) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        retired = set(call.__code__.co_names) & {"aggregate", "ratio", "weighted_mean", "linear"}
-        if retired:
-            with pytest.raises(SemanticExpressionError) as caught:
-                call()
-            assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-            assert caught.value.expected and caught.value.received and caught.value.repair
-            assert "Ref[" in str(caught.value.received)
-            assert next(iter(retired)) in str(caught.value.received)
-        else:
-            with pytest.raises(SemanticDecoratorError) as invalid:
-                call()
-            assert invalid.value.kind == ErrorKind.INVALID_REF
-            assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
-            assert expected in str(invalid.value)
-    finally:
-        _exit_ctx()
+    ]:
+        _enter_ctx(default_domain="sales")
+        try:
+            retired = set(call.__code__.co_names) & {
+                "aggregate",
+                "ratio",
+                "weighted_mean",
+                "linear",
+            }
+            if retired:
+                with pytest.raises(SemanticExpressionError) as caught:
+                    call()
+                assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+                assert caught.value.expected and caught.value.received and caught.value.repair
+                assert "Ref[" in str(caught.value.received)
+                assert next(iter(retired)) in str(caught.value.received)
+            else:
+                with pytest.raises(SemanticDecoratorError) as invalid:
+                    call()
+                assert invalid.value.kind == ErrorKind.INVALID_REF
+                assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
+                assert expected in str(invalid.value)
+        finally:
+            _exit_ctx()
 
 
 # ---------------------------------------------------------------------------
@@ -2044,14 +2058,12 @@ def test_metric_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "key",
-    ("summary", "synonyms", "examples", "instructions", "owner_notes"),
-)
-def test_ai_context_invalid_key_raises_type_error(key: str) -> None:
+def test_ai_context_invalid_key_raises_type_error() -> None:
     """ms.ai_context() rejects unsupported metadata keys."""
-    with pytest.raises(TypeError, match="ai_context"):
-        ms.ai_context(**{key: "oops"})
+    key: str
+    for key in ("summary", "synonyms", "examples", "instructions", "owner_notes"):
+        with pytest.raises(TypeError, match="ai_context"):
+            ms.ai_context(**{key: "oops"})
 
 
 def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
@@ -2218,12 +2230,13 @@ def test_metric_division_derives_dimensionless_unit() -> None:
         _exit_ctx()
 
 
-@pytest.mark.parametrize("bad", ("", "C N Y", "CNY\t", "µs"))
-def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
-    with pytest.raises(SemanticExpressionError) as caught:
-        ms.metric(unit=bad)  # type: ignore[call-arg]  # intentional rejection input
-    assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert "unit" in str(caught.value.received)
+def test_metric_unit_rejects_whitespace_and_empty() -> None:
+    bad: str
+    for bad in ("", "C N Y", "CNY\t", "µs"):
+        with pytest.raises(SemanticExpressionError) as caught:
+            ms.metric(unit=bad)  # type: ignore[call-arg]  # intentional rejection input
+        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert "unit" in str(caught.value.received)
 
 
 def test_date_only_strptime_rejects_timezone() -> None:
@@ -2234,17 +2247,18 @@ def test_date_only_strptime_rejects_timezone() -> None:
     assert "date-only" in exc_info.value.message
 
 
-@pytest.mark.parametrize("bad", ("", "C N Y"))
-def test_ratio_unit_rejects_whitespace_and_empty(bad: str) -> None:
-    with pytest.raises(SemanticExpressionError) as caught:
-        ms.ratio(
-            name="ratio",
-            numerator=ms.ref.metric("sales.revenue"),
-            denominator=ms.ref.metric("sales.cost"),
-            unit=bad,
-        )
-    assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert "unit" in str(caught.value.received)
+def test_ratio_unit_rejects_whitespace_and_empty() -> None:
+    bad: str
+    for bad in ("", "C N Y"):
+        with pytest.raises(SemanticExpressionError) as caught:
+            ms.ratio(
+                name="ratio",
+                numerator=ms.ref.metric("sales.revenue"),
+                denominator=ms.ref.metric("sales.cost"),
+                unit=bad,
+            )
+        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert "unit" in str(caught.value.received)
 
 
 # ---------------------------------------------------------------------------
@@ -2278,19 +2292,20 @@ def test_period_calendar_authoring_pushes_typed_declaration() -> None:
     assert pending.definition.levels == (("week", "sales.calendar.fiscal_week"),)
 
 
-@pytest.mark.parametrize("fmt", ["%Y-%m-%d %M", "%Y-%m-%d %S"])
-def test_sampled_encoding_requires_an_hour_component(fmt: str) -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as error:
-            ms.time_dimension_column(
-                name="sample_ts",
-                entity=ms.ref.entity("sales.samples"),
-                column="point",
-                parse=ms.strptime(fmt),
-                sample_interval=(1, "hour"),
-            )
-        assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-        assert "hour-bearing" in error.value.message
-    finally:
-        _exit_ctx()
+def test_sampled_encoding_requires_an_hour_component() -> None:
+    fmt: str
+    for fmt in ["%Y-%m-%d %M", "%Y-%m-%d %S"]:
+        _enter_ctx(default_domain="sales")
+        try:
+            with pytest.raises(SemanticDecoratorError) as error:
+                ms.time_dimension_column(
+                    name="sample_ts",
+                    entity=ms.ref.entity("sales.samples"),
+                    column="point",
+                    parse=ms.strptime(fmt),
+                    sample_interval=(1, "hour"),
+                )
+            assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+            assert "hour-bearing" in error.value.message
+        finally:
+            _exit_ctx()

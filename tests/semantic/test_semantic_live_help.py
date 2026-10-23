@@ -857,9 +857,8 @@ def test_expression_navigation_serves_closed_question_scoped_composition() -> No
     assert "Decimal" in render_help_text("semantic.row")[0]
 
 
-@pytest.mark.parametrize(
-    "target",
-    (
+def test_retired_semantic_topics_have_no_alias() -> None:
+    for target in (
         "authoring",
         "objects",
         "builders",
@@ -873,11 +872,9 @@ def test_expression_navigation_serves_closed_question_scoped_composition() -> No
         "model.metrics",
         "validation.health",
         "validation.preview",
-    ),
-)
-def test_retired_semantic_topics_have_no_alias(target: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        marivo.help(f"semantic.{target}")
+    ):
+        with pytest.raises(MarivoHelpTargetError):
+            marivo.help(f"semantic.{target}")
 
 
 def test_ontology_authoring_remains_the_exact_load_callable() -> None:

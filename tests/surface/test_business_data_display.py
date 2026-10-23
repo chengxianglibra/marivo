@@ -62,16 +62,16 @@ def test_all_small_result_rows_and_query_limits_are_independent(
     assert text == result.render() + "\n"
 
 
-@pytest.mark.parametrize("n", (0, 1, 7, 12, 100))
-def test_row_count_controls_only_display(result: PreviewResult | RawSqlResult, n: int) -> None:
-    text = result.render(n=n, max_output_bytes=None)
-    assert f"12 total; {min(n, 12)} shown" in text
-    assert len(result.rows) == 12
-    if n < 12:
-        assert f"Omitted: {12 - n} rows; reason=row_limit" in text
-        assert ".show(n=None, max_output_bytes=None)" in text
-    else:
-        assert "Omitted:" not in text
+def test_row_count_controls_only_display(result: PreviewResult | RawSqlResult) -> None:
+    for n in (0, 1, 7, 12, 100):
+        text = result.render(n=n, max_output_bytes=None)
+        assert f"12 total; {min(n, 12)} shown" in text
+        assert len(result.rows) == 12
+        if n < 12:
+            assert f"Omitted: {12 - n} rows; reason=row_limit" in text
+            assert ".show(n=None, max_output_bytes=None)" in text
+        else:
+            assert "Omitted:" not in text
 
 
 def test_exact_fit_and_one_byte_less_keep_whole_rows(
@@ -104,14 +104,13 @@ def test_empty_result_retains_columns_and_source_boundary(
     assert "Omitted:" not in text
 
 
-@pytest.mark.parametrize("argument", ("n", "max_output_bytes"))
-@pytest.mark.parametrize("value", (-1, True, 1.5, "2"))
-def test_invalid_controls_reject_before_reading(
-    result: PreviewResult | RawSqlResult, argument: str, value: object
-) -> None:
-    with pytest.raises(ValueError, match=argument):
-        # Runtime invalid inputs deliberately bypass static signatures.
-        result.show(**{argument: value})
+def test_invalid_controls_reject_before_reading(result: PreviewResult | RawSqlResult) -> None:
+    invalid_values: tuple[object, ...] = (-1, True, 1.5, "2")
+    for argument in ("n", "max_output_bytes"):
+        for value in invalid_values:
+            with pytest.raises(ValueError, match=argument):
+                # Runtime invalid inputs deliberately bypass static signatures.
+                result.show(**{argument: value})
 
 
 def test_byte_budget_must_be_positive(result: PreviewResult | RawSqlResult) -> None:

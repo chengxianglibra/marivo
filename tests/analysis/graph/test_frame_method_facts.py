@@ -207,9 +207,8 @@ def facts() -> FrameMethodFacts:
     )
 
 
-@pytest.mark.parametrize(
-    ("dtype", "value"),
-    [
+def test_exact_scalars_are_preserved() -> None:
+    cases: tuple[tuple[DataType, bool | int | float | str | date | Decimal], ...] = (
         (ScalarDataType("boolean"), True),
         (ScalarDataType("string"), "x"),
         (ScalarDataType("int64"), 2**63 - 1),
@@ -220,19 +219,15 @@ def facts() -> FrameMethodFacts:
         (TimestampDataType("ns", "UTC"), 1760000000000000001),
         (TimestampDataType("ns", None), -(2**63)),
         (DurationDataType("ns"), 1),
-    ],
-)
-def test_exact_scalars_are_preserved(
-    dtype: DataType, value: bool | int | float | str | date | Decimal
-) -> None:
-    record = FrameMethodValue(column("value", dtype, unit=None), value)
-    assert record.value is value
-    assert FrameMethodValue(record.column, None).value is None
+    )
+    for dtype, value in cases:
+        record = FrameMethodValue(column("value", dtype, unit=None), value)
+        assert record.value is value
+        assert FrameMethodValue(record.column, None).value is None
 
 
-@pytest.mark.parametrize(
-    ("dtype", "value"),
-    [
+def test_wrong_scalar_carriers_are_rejected() -> None:
+    cases: tuple[tuple[DataType, object], ...] = (
         (ScalarDataType("int64"), True),
         (ScalarDataType("float64"), 1),
         (ScalarDataType("boolean"), 1),
@@ -249,11 +244,10 @@ def test_exact_scalars_are_preserved(
         (TimestampDataType("ns", "UTC"), datetime.now(timezone.utc)),
         (DurationDataType("ns"), timedelta(microseconds=1)),
         (DurationDataType("ns"), True),
-    ],
-)
-def test_wrong_scalar_carriers_are_rejected(dtype: DataType, value: object) -> None:
-    with pytest.raises(CoreRuleError, match="exact finite scalar"):
-        FrameMethodValue(column("value", dtype), value)  # Test malformed runtime input.
+    )
+    for dtype, value in cases:
+        with pytest.raises(CoreRuleError, match="exact finite scalar"):
+            FrameMethodValue(column("value", dtype), value)  # Test malformed runtime input.
 
 
 def test_null_decimal_and_ticks_boundaries() -> None:

@@ -186,8 +186,7 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
     assert output.presence_names == ("current.present", "reference.present")
 
 
-@pytest.mark.parametrize("explicit", [False, True])
-def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices, explicit: bool) -> None:
+def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices) -> None:
     schema = DataSchema(
         (), (DataColumn("v", "amount", ScalarDataType("int64"), True),), value_paths=(("amount",),)
     )
@@ -200,15 +199,17 @@ def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices, explic
     class CompareOptions(TypedDict, total=False):
         on: dict[str, tuple[tuple[FrameAxis, FrameAxis], ...]]
 
-    align_options: AlignOptions = {"on": ()} if explicit else {}
-    assert len(empty.align(empty, **align_options).compute().to_pandas()) == 0
-    compare_options: CompareOptions = {"on": {"reference": ()}} if explicit else {}
-    result = singleton.compare({"reference": empty}, **compare_options).compute()
-    assert _values(result, "amount") == [8]
-    assert _values(result, "reference.absolute.amount") == [pd.NA]
-    assert (
-        singleton.compare({"reference": singleton}, **compare_options).compute()._schema.axes == ()
-    )
+    for explicit in (False, True):
+        align_options: AlignOptions = {"on": ()} if explicit else {}
+        assert len(empty.align(empty, **align_options).compute().to_pandas()) == 0
+        compare_options: CompareOptions = {"on": {"reference": ()}} if explicit else {}
+        result = singleton.compare({"reference": empty}, **compare_options).compute()
+        assert _values(result, "amount") == [8]
+        assert _values(result, "reference.absolute.amount") == [pd.NA]
+        assert (
+            singleton.compare({"reference": singleton}, **compare_options).compute()._schema.axes
+            == ()
+        )
 
 
 def test_no_ordinary_inference_and_complete_mapping_before_values(
@@ -237,38 +238,40 @@ def test_ownership_precedes_axis_mapping(local: LocalFrameServices, tmp_path: Pa
         left.compare({"reference": right}, on={"reference": ()})
 
 
-@pytest.mark.parametrize("change", ["role", "key_type", "at", "unit", "value_type"])
-def test_key_role_time_and_value_compatibility(local: LocalFrameServices, change: str) -> None:
+def test_key_role_time_and_value_compatibility(local: LocalFrameServices) -> None:
     left = _memory(local, ["A"], [1])
     schema = _complete_schema(left)
-    axis, value = schema.axes[0], schema.values[0]
-    assert isinstance(axis, DataAxis)
-    key: object = "A"
-    amount: object = 2
-    if change == "role":
-        axis = replace(axis, kind="member", columns=(replace(axis.columns[0], nullable=False),))
-    elif change == "key_type":
-        axis = replace(axis, columns=(replace(axis.columns[0], dtype=ScalarDataType("int64")),))
-        key = 1
-    elif change == "at":
-        axis = replace(axis, at=datetime(2026, 1, 1, tzinfo=timezone.utc))
-    elif change == "unit":
-        value = replace(value, unit="CNY")
-    else:
-        value = replace(value, dtype=ScalarDataType("boolean"))
-        amount = True
-    right = _data_frame(
-        local,
-        DataSchema((axis,), (value,), value_paths=(("amount",),)),
-        {"key": [key], "amount": [amount]},
-    )
-    with pytest.raises(AnalysisError):
-        left.compare({"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)})
-    if change in ("unit", "value_type"):
-        assert left.align(right, on=((left.axes[0], right.axes[0]),)).compute().output_names == (
-            "left.amount",
-            "right.amount",
+    for change in ("role", "key_type", "at", "unit", "value_type"):
+        axis, value = schema.axes[0], schema.values[0]
+        assert isinstance(axis, DataAxis)
+        key: object = "A"
+        amount: object = 2
+        if change == "role":
+            axis = replace(axis, kind="member", columns=(replace(axis.columns[0], nullable=False),))
+        elif change == "key_type":
+            axis = replace(axis, columns=(replace(axis.columns[0], dtype=ScalarDataType("int64")),))
+            key = 1
+        elif change == "at":
+            axis = replace(axis, at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        elif change == "unit":
+            value = replace(value, unit="CNY")
+        else:
+            value = replace(value, dtype=ScalarDataType("boolean"))
+            amount = True
+        right = _data_frame(
+            local,
+            DataSchema((axis,), (value,), value_paths=(("amount",),)),
+            {"key": [key], "amount": [amount]},
         )
+        with pytest.raises(AnalysisError):
+            left.compare({"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)})
+        if change in ("unit", "value_type"):
+            assert left.align(
+                right, on=((left.axes[0], right.axes[0]),)
+            ).compute().output_names == (
+                "left.amount",
+                "right.amount",
+            )
 
 
 def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFrameServices) -> None:
@@ -341,17 +344,16 @@ def test_required_compare_checks_survive_downstream_pruning(
         tail.compute()
 
 
-@pytest.mark.parametrize("left_value,right_value", [(None, 0), (1, None), (None, None)])
-def test_na_precedes_zero_error(
-    local: LocalFrameServices, left_value: int | None, right_value: int | None
-) -> None:
-    left, right = _memory(local, ["A"], [left_value]), _memory(local, ["A"], [right_value])
+def test_na_precedes_zero_error(local: LocalFrameServices) -> None:
+    keys: list[str | None] = ["left_null", "right_null", "both_null"]
+    left = _memory(local, keys, [None, 1, None])
+    right = _memory(local, keys, [0, None, None])
     output = left.compare(
         {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
     ).compute()
-    assert _values(output, "reference.absolute.amount") == [pd.NA]
-    assert _values(output, "reference.relative.amount") == [pd.NA]
-    assert output.to_pandas()[("presence", "reference.present")].tolist() == [True]
+    assert _values(output, "reference.absolute.amount") == [pd.NA] * 3
+    assert _values(output, "reference.relative.amount") == [pd.NA] * 3
+    assert output.to_pandas()[("presence", "reference.present")].tolist() == [True] * 3
 
 
 @pytest.mark.parametrize(

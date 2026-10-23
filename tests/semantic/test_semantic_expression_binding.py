@@ -503,9 +503,8 @@ def test_single_return_preserves_pre_o5_identity() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "statements",
-    [
+def test_local_syntax_boundaries() -> None:
+    for statements in [
         "value = later * 2\nlater = rows.amount\nreturn value",
         "value = missing\nreturn value",
         "rows = rows.amount\nreturn rows",
@@ -524,19 +523,17 @@ def test_single_return_preserves_pre_o5_identity() -> None:
         "value = rows.sql('SELECT 1')\nreturn value",
         "value = rows.amount\nreturn",
         "value = yield rows.amount\nreturn value",
-    ],
-)
-def test_local_syntax_boundaries(statements: str) -> None:
-    import ast
-    import textwrap
+    ]:
+        import ast
+        import textwrap
 
-    from marivo.semantic.validator import validate_metric_body_ast
+        from marivo.semantic.validator import validate_metric_body_ast
 
-    tree = ast.parse("def expression(rows):\n" + textwrap.indent(statements, "    "))
-    function = tree.body[0]
-    assert isinstance(function, ast.FunctionDef)
-    with pytest.raises(SemanticLoadError):
-        validate_metric_body_ast(_local_amount, "base", _function=function)
+        tree = ast.parse("def expression(rows):\n" + textwrap.indent(statements, "    "))
+        function = tree.body[0]
+        assert isinstance(function, ast.FunctionDef)
+        with pytest.raises(SemanticLoadError):
+            validate_metric_body_ast(_local_amount, "base", _function=function)
 
 
 @pytest.mark.parametrize(

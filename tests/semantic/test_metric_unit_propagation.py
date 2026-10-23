@@ -76,29 +76,26 @@ def test_measure_unit_is_stored_on_physical_definition() -> None:
         assert result.registry.measures["test.orders.amount"].unit == "CNY"
 
 
-@pytest.mark.parametrize(
-    ("name", "unit"),
-    (
-        ("revenue", "CNY"),
-        ("average", None),
-        ("order_count", "1"),
-        ("entity_count", "1"),
-        ("distinct_count", "1"),
-        ("margin", "1"),
-        ("count_share", "1"),
-        ("arpu", "CNY"),
-        ("net", "CNY"),
-        ("cny_per_request", "CNY/{request}"),
-        ("seconds_per_request", "s/{request}"),
-        ("cny_per_second", "CNY/s"),
-        ("opaque_total", "CNY/(request)"),
-        ("unknown_parent", None),
-    ),
-)
-def test_published_metric_infers_unit_from_its_expression(name: str, unit: str | None) -> None:
+def test_published_metric_infers_unit_from_its_expression() -> None:
     with load_inline_semantic(_FIELDS + _METRICS) as result:
         assert result.registry is not None, result.errors
-        assert consume_metric(result.registry.declared_metrics[f"test.{name}"]).unit == unit
+        for name, unit in (
+            ("revenue", "CNY"),
+            ("average", None),
+            ("order_count", "1"),
+            ("entity_count", "1"),
+            ("distinct_count", "1"),
+            ("margin", "1"),
+            ("count_share", "1"),
+            ("arpu", "CNY"),
+            ("net", "CNY"),
+            ("cny_per_request", "CNY/{request}"),
+            ("seconds_per_request", "s/{request}"),
+            ("cny_per_second", "CNY/s"),
+            ("opaque_total", "CNY/(request)"),
+            ("unknown_parent", None),
+        ):
+            assert consume_metric(result.registry.declared_metrics[f"test.{name}"]).unit == unit
 
 
 @pytest.mark.parametrize("unit", ("USD", "%", "{order}"))

@@ -260,38 +260,40 @@ def _version(state: SemanticCatalog, ref: Ref[SemanticKindTag]) -> str:
 
 
 @pytest.mark.parametrize(("family", "selected"), _CASES)
-@pytest.mark.parametrize("mode", ("same", "updated", "lookup_forward"))
 def test_constructed_inputs_validate_at_the_complete_consumer(
-    family: str, selected: str, mode: str, helper_copy: str | None = None
+    family: str, selected: str, helper_copy: str | None = None
 ) -> None:
     with loader_context(_context()):
         _dependencies()
         old = captured_catalog()
-    ctx = _context()
-    with loader_context(ctx):
-        target = _consume(
-            family, selected, old, lookup=mode == "lookup_forward", helper_copy=helper_copy
+    for mode in ("same", "updated", "lookup_forward"):
+        ctx = _context()
+        with loader_context(ctx):
+            target = _consume(
+                family, selected, old, lookup=mode == "lookup_forward", helper_copy=helper_copy
+            )
+            # All referenced declarations arrive after the consumer, including helper-record inputs.
+            skip = (
+                "snapshot_orders"
+                if family == "snapshot"
+                else "validity_orders"
+                if family.startswith("validity_")
+                else None
+            )
+            _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
+            state = captured_catalog()
+        assert as_ref(target) in state._state.definitions
+        # A matching constructed input and explicit lookup produce the same definition identity.
+        with loader_context(_context()):
+            lookup_target = _consume(family, selected, old, lookup=True)
+            _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
+            lookup_state = captured_catalog()
+        assert _version(state, target) == _version(lookup_state, lookup_target)
+        selected_ref = next(ref for ref in state._state.definitions if ref.path == selected)
+        assert (_version(state, selected_ref) == _version(old, selected_ref)) is (mode == "same")
+        assert (
+            state._state.definitions[selected_ref] == lookup_state._state.definitions[selected_ref]
         )
-        # All referenced declarations arrive after the consumer, including helper-record inputs.
-        skip = (
-            "snapshot_orders"
-            if family == "snapshot"
-            else "validity_orders"
-            if family.startswith("validity_")
-            else None
-        )
-        _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
-        state = captured_catalog()
-    assert as_ref(target) in state._state.definitions
-    # A matching constructed input and explicit lookup produce the same definition identity.
-    with loader_context(_context()):
-        lookup_target = _consume(family, selected, old, lookup=True)
-        _dependencies(changed=selected if mode != "same" else None, skip_entity=skip)
-        lookup_state = captured_catalog()
-    assert _version(state, target) == _version(lookup_state, lookup_target)
-    selected_ref = next(ref for ref in state._state.definitions if ref.path == selected)
-    assert (_version(state, selected_ref) == _version(old, selected_ref)) is (mode == "same")
-    assert state._state.definitions[selected_ref] == lookup_state._state.definitions[selected_ref]
 
 
 def test_capture_helpers_are_frozen_computational_records() -> None:
@@ -309,10 +311,7 @@ def test_capture_helpers_are_frozen_computational_records() -> None:
 
 @pytest.mark.parametrize("policy_kind", ("over", "except"))
 @pytest.mark.parametrize("mode", ("same", "updated", "lookup"))
-@pytest.mark.parametrize("helper_copy", (None, "copy", "deepcopy"))
-def test_pure_measure_additivity_uses_its_frozen_row_scope(
-    policy_kind: str, mode: str, helper_copy: str | None
-) -> None:
+def test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind: str, mode: str) -> None:
     with loader_context(_context()):
         _dependencies()
         old = resolve(captured_catalog(), ms.ref.dimension("sales.orders.region"))
@@ -329,24 +328,25 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(
         amount = resolve(state, amount_ref)
         region = resolve(state, ms.ref.dimension("sales.orders.region"))
     axis = ms.ref.dimension("sales.orders.region") if mode == "lookup" else old
-    policy = (
-        ms.additive(over=(axis,)) if policy_kind == "over" else ms.additive_all(except_=(axis,))
-    )
-    policy = _copy_helper(policy, helper_copy)
+    for helper_copy in (None, "copy", "deepcopy"):
+        policy = (
+            ms.additive(over=(axis,)) if policy_kind == "over" else ms.additive_all(except_=(axis,))
+        )
+        policy = _copy_helper(policy, helper_copy)
 
-    @ms.measure(additivity=policy)
-    def granted() -> Measure:
-        return amount
+        @ms.measure(additivity=policy)
+        def granted() -> Measure:
+            return amount
 
-    assert isinstance(
-        consume_row(granted).permission, SumAxes if policy_kind == "over" else SumAllExcept
-    )
-    assert consume_row(granted).permission.axes == (consume_field(region).reference,)
-    assert (consume_field(region).reference == consume_field(old).reference) is (mode == "same")
-    assert (
-        consume_row(granted).root == consume_row(amount).root
-        and consume_row(granted).default_time == consume_row(amount).default_time
-    )
+        assert isinstance(
+            consume_row(granted).permission, SumAxes if policy_kind == "over" else SumAllExcept
+        )
+        assert consume_row(granted).permission.axes == (consume_field(region).reference,)
+        assert (consume_field(region).reference == consume_field(old).reference) is (mode == "same")
+        assert (
+            consume_row(granted).root == consume_row(amount).root
+            and consume_row(granted).default_time == consume_row(amount).default_time
+        )
 
 
 @pytest.mark.parametrize(
