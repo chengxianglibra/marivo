@@ -338,6 +338,7 @@ def test_timestamp_comparison_preserves_timezone_awareness_distinction(
                     current.select({"ordered": expression}).compute()
 
 
+@pytest.mark.release
 def test_temporal_cold_continuation_uses_fixed_data_without_publication(session: Session) -> None:
     artifacts = [
         _frame(

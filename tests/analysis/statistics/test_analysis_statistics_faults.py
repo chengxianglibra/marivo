@@ -44,6 +44,7 @@ def test_three_quantity_search_and_forecast_views(
     assert run_ids(session) == before
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_large_export_does_not_truncate_pandas_forecast_rows(
     analysis_dsl_case_factory: DslCaseFactory,

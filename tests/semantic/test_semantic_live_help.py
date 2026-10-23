@@ -594,6 +594,7 @@ def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> N
             assert string_route.resolved == route.resolved
 
 
+@pytest.mark.release
 def test_type_method_navigation_uses_the_actual_documentation_owner(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

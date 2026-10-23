@@ -81,6 +81,7 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
     return compared.select({"q": compared["base.absolute.q"]}).compute()
 
 
+@pytest.mark.release
 def test_plain_calendar_complete_parent_order_independent_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -114,6 +115,7 @@ def test_plain_calendar_complete_parent_order_independent_reads(
     assert result[("presence", "detail.baseline.present.q")].all()
 
 
+@pytest.mark.release
 def test_cross_period_paired_calendar_parent(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -152,6 +154,7 @@ def test_cross_period_paired_calendar_parent(
     assert rows[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
 
 
+@pytest.mark.release
 def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -252,6 +255,7 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     )
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("missing", (False, True))
 def test_window_partition_context_is_scoped_before_classification(
     session: Session,
@@ -384,6 +388,7 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     assert isinstance(actual.value.attribute_context.witness, AttributeAggregateWitness)
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("weighted", (False, True))
 def test_calendar_native_ratio_keeps_common_valid_mask(
     session: Session,
@@ -582,6 +587,7 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
         assert len(root.parent) == 2
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("failure", ("native", "partition"))
 def test_paired_source_failure_retains_original_full_parent(
     session: Session,
@@ -907,6 +913,7 @@ def test_interval_parent_builds_without_source_read(
     pending.show(n=0)
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("shape", ("compare", "paired", "right_level"))
 def test_captured_interval_parent_keeps_original_endpoint_scopes(
     session: Session, shape: str

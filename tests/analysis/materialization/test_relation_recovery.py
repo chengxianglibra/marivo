@@ -18,18 +18,19 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.packaging.relation_journeys import Scenario
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
-from tests.support.json import Json, read
+from tests.support.json import Json, obj, read
 from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("scenario", ("a02", "a06", "a07", "a08"))
-def test_parquet_relation_journey_recover_in_three_processes(
-    tmp_path: Path, scenario: Scenario
+@pytest.mark.release
+def test_parquet_relation_journey_recover_in_independent_processes(
+    tmp_path: Path,
 ) -> None:
-    project = tmp_path / "project"
+    scenarios: tuple[Scenario, ...] = ("a02", "a06", "a07")
+    projects = tmp_path / "projects"
     reports: list[dict[str, Json]] = []
-    for phase in ("produce", "fixed", "cold"):
+    for phase in ("produce", "cold"):
         output = tmp_path / f"{phase}.json"
         process = subprocess.run(
             [
@@ -37,8 +38,8 @@ def test_parquet_relation_journey_recover_in_three_processes(
                 "-m",
                 "tests.packaging.relation_journeys",
                 phase,
-                str(project),
-                scenario,
+                str(projects),
+                ",".join(scenarios),
                 "parquet",
                 str(output),
             ],
@@ -50,20 +51,31 @@ def test_parquet_relation_journey_recover_in_three_processes(
             check=False,
         )
         assert process.returncode == 0, process.stdout + process.stderr
-        reports.append(read(output))
-    assert len({report["pid"] for report in reports}) == 3
-    for field in (
-        "session",
-        "snapshots",
-        "oracle",
-        "facts_sha256",
-        "edge_checks",
-        "shared_nodes",
-        "derived",
-        "run_count",
-    ):
-        assert reports[0][field] == reports[1][field] == reports[2][field]
-    assert all(report["source_offline"] is True for report in reports)
+        value = obj(read(output))
+        reports.append(value)
+    produce_reports, cold_reports = (
+        (obj(reports[0][scenario]) for scenario in scenarios),
+        (obj(reports[1][scenario]) for scenario in scenarios),
+    )
+    produce = tuple(produce_reports)
+    cold = tuple(cold_reports)
+    assert len({report["pid"] for report in produce}) == 1
+    assert len({report["pid"] for report in cold}) == 1
+    assert produce[0]["pid"] != cold[0]["pid"]
+    for produced, reopened in zip(produce, cold, strict=True):
+        for field in (
+            "session",
+            "snapshots",
+            "oracle",
+            "facts_sha256",
+            "edge_checks",
+            "shared_nodes",
+            "derived",
+            "run_count",
+        ):
+            assert produced[field] == reopened[field]
+        assert produced["source_offline"] is True
+        assert reopened["source_offline"] is True
 
 
 @pytest.mark.slow

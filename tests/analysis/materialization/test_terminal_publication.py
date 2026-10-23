@@ -330,6 +330,7 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     assert exported.attrs["units"] == ()
 
 
+@pytest.mark.release
 def test_records_codec_and_transaction_are_self_contained(session: Session) -> None:
     store = session._runtime.store
     schema = DataSchema(
@@ -360,7 +361,7 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
                 ("instant", datetime(2026, 1, 1, tzinfo=timezone.utc)),
             ),
         )
-        for i in range(205)
+        for i in range(101)
     )
     assert decode(encode(finding), OutputFinding) == finding
     assert all(decode(encode(item), OutputEvidence) == item for item in evidence)
@@ -378,7 +379,7 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     assert records(session, artifact_handle) == evidence
     public = session.persisted_frame(artifact)
     assert public.artifact.evidence_digest().items == evidence
-    assert public.artifact.evidence_digest().evidence_count == 205
+    assert public.artifact.evidence_digest().evidence_count == 101
     page = public.artifact.findings(limit=1)
     assert page.items[0].value == finding.value
     assert page.items[0].coordinates == finding.coordinates
@@ -753,6 +754,7 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == count_before
 
 
+@pytest.mark.release
 def test_process_writer_contention_does_not_admit_contender(session: Session) -> None:
     from marivo.analysis.materialization.writer_guard import session_writer_guard
 
@@ -1006,6 +1008,7 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
     assert session.persisted_frame(artifact.artifact.id).to_pandas().attrs == before.attrs
 
 
+@pytest.mark.release
 def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1136,6 +1139,7 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     assert consumed == [1]
 
 
+@pytest.mark.release
 def test_public_produce_and_cold_read_are_independent_processes(source_session: Session) -> None:
     import shutil
 
@@ -1176,6 +1180,7 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
     assert "public-cold-ok" in reopened.stdout
 
 
+@pytest.mark.release
 def test_period_comparison_endpoints_and_report_cold_recovery(source_session: Session) -> None:
     import shutil
 

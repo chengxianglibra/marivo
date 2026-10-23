@@ -23,6 +23,7 @@ from tests.support.source_trace import capture_source
 
 @pytest.mark.parametrize("physical", ["float", "decimal"])
 @pytest.mark.slow
+@pytest.mark.release
 def test_named_distribution_carriers_recover_independently(
     analysis_dsl_case_factory: DslCaseFactory,
     physical: str,

@@ -548,6 +548,7 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     assert rows[("value", "contribution.q")].tolist() == [0, 0]
 
 
+@pytest.mark.release
 def test_linear_ratio_children_and_original_scalar_order(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     weight = session.catalog.fields.get("sales.facts.weight")
@@ -614,6 +615,7 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
 
 
 @pytest.mark.parametrize("kind", ("additive", "ratio_component", "linear"))
+@pytest.mark.release
 def test_payload_satisfies_existing_fact_model(
     session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
@@ -662,6 +664,7 @@ def test_payload_satisfies_existing_fact_model(
     assert facts.parents[0].metrics[0].method.kind == kind
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("shape", ("scalar", "pending", "fixed"))
 def test_new_attribute_uses_only_its_own_live_components(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
@@ -838,6 +841,7 @@ def test_new_attribute_uses_only_its_own_live_components(
 
 @pytest.mark.parametrize("mean", [True, False])
 @pytest.mark.parametrize("lexical", ["0.5", "0.500"])
+@pytest.mark.release
 def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mean: bool, lexical: str
 ) -> None:
@@ -1399,6 +1403,7 @@ def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
     assert attribute_reads == []
 
 
+@pytest.mark.release
 def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")

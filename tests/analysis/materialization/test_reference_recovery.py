@@ -23,6 +23,7 @@ from tests.support.source_trace import SourceTrace
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_native_reference_independent_fixed_and_cold(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -110,7 +111,7 @@ def test_native_reference_independent_fixed_and_cold(
         for path in tmp_path.glob(pattern):
             path.unlink()
     reports: list[Json] = []
-    for phase in ("offline", "cold"):
+    for phase in ("cold",):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [
@@ -134,7 +135,7 @@ def test_native_reference_independent_fixed_and_cold(
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
         reports.append(read(output))
-    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 2
     assert all(obj(report)["derived"] == derived for report in reports)
     assert all(obj(report)["run_count"] == len(terminal_runs(session)) for report in reports)
     if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):

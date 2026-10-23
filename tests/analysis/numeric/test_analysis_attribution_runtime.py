@@ -155,6 +155,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
 
 
 @pytest.mark.slow
+@pytest.mark.release
 @pytest.mark.parametrize(
     "family,parquet", [("int64", False), ("float64", False), ("decimal", False), ("duration", True)]
 )
@@ -292,6 +293,7 @@ def test_common_other_mapping_each_parent_and_resolution(
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)

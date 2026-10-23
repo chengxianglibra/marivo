@@ -193,8 +193,9 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert captured.value.repair.help_target.display == "analysis.analysis_frame.attribute"
 
 
+@pytest.mark.release
 def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path) -> None:
-    """Public files must also work in fresh processes, including source-free reopen."""
+    """Public examples run in isolated groups, including a source-free cold reopen."""
     import os
     import subprocess
     import sys
@@ -228,16 +229,34 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source)
 
-    def run(project: Path, script: str) -> None:
+    def run(project: Path, script: str, *, timeout: int = 60) -> None:
         completed = subprocess.run(
             [sys.executable, script],
             cwd=project,
             env={**os.environ, "PYTHONPATH": str(root)},
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
+
+    def run_group(project: Path, scripts: tuple[str, ...]) -> None:
+        runner = project / "run_examples.py"
+        runner.write_text(
+            "import os, runpy, sys\n"
+            f"scripts = {scripts!r}\n"
+            "environment = os.environ.copy()\n"
+            "directory = os.getcwd()\n"
+            "for script in scripts:\n"
+            "    os.environ.clear()\n"
+            "    os.environ.update(environment)\n"
+            "    os.chdir(directory)\n"
+            "    sys.argv = [script]\n"
+            "    runpy.run_path(script, run_name='__main__')\n"
+        )
+        # A grouped process runs several examples, so its timeout must cover
+        # the combined batch rather than one old per-script cap.
+        run(project, "run_examples.py", timeout=180)
 
     for filename, marker in (
         ("seed.py", "demo-seed"),
@@ -246,9 +265,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         ("analysis.py", "demo-analysis"),
     ):
         write(tmp_path, filename, named(marker))
-    run(tmp_path, "seed.py")
     write(tmp_path, "quick.py", named("quick-analysis"))
-    run(tmp_path, "quick.py")
     for page, filename in (
         ("analysis/dsl.mdx", "dsl_examples.py"),
         ("analysis/population.mdx", "population_examples.py"),
@@ -263,13 +280,23 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
                 'assert month_to_date.to_pandas()[("value", "revenue")].iloc[14] == 200\n'
             )
         write(tmp_path, filename, source)
-        run(tmp_path, filename)
     write(
         tmp_path,
         "model_checks.py",
         "\n".join(named(marker) for marker in ("readiness-3", "readiness-1", "readiness-2")),
     )
-    run(tmp_path, "model_checks.py")
+    run_group(
+        tmp_path,
+        (
+            "seed.py",
+            "quick.py",
+            "dsl_examples.py",
+            "population_examples.py",
+            "time_examples.py",
+            "statistics_examples.py",
+            "model_checks.py",
+        ),
+    )
 
     extended = tmp_path / "extended-model"
     write(extended, "seed.py", named("demo-seed"))
@@ -292,9 +319,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         'assert result[("value", "average_order_value")].iloc[0] == 300\n'
         'assert abs(result[("value", "gross_margin_rate")].iloc[0] - 0.4) < 1e-12\n',
     )
-    run(extended, "seed.py")
-    run(extended, "add_cost.py")
-    run(extended, "check_metrics.py")
+    run_group(extended, ("seed.py", "add_cost.py", "check_metrics.py"))
     for filename, source in zip(
         ("save_ids.py", "reopen.py"), snippets("analysis/results.mdx"), strict=True
     ):
@@ -322,5 +347,4 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         strict=True,
     ):
         write(calendar, filename, source)
-    run(calendar, "seed_calendar.py")
-    run(calendar, "check_calendar.py")
+    run_group(calendar, ("seed_calendar.py", "check_calendar.py"))

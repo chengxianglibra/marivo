@@ -1,4 +1,4 @@
-.PHONY: test slow-test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
+.PHONY: test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
 	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -31,10 +31,6 @@ test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
-slow-test:
-	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m "slow and not release and not runtime" $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
-
 runtime-test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
@@ -56,7 +52,57 @@ release-test: pypi-build pypi-check
 		tests/packaging/test_installer.py \
 		tests/packaging/test_installer_uv.py \
 		tests/packaging/test_wheel.py \
-		tests/packaging/test_installed_journeys.py
+		tests/packaging/test_installed_journeys.py \
+		tests/surface/test_disclosure_documentation.py \
+		tests/semantic/test_semantic_live_help.py \
+		tests/surface/test_analysis_disclosure_content.py \
+		tests/analysis/materialization/test_frame_storage.py \
+		tests/analysis/materialization/test_frame_attribute_contribution.py \
+		tests/analysis/materialization/test_terminal_publication.py \
+		tests/surface/test_analysis_typing.py \
+		tests/analysis/materialization/test_relation_recovery.py \
+		tests/analysis/statistics/test_analysis_deviation_domains.py \
+		tests/analysis/statistics/test_deviation_contributions.py \
+		tests/analysis/materialization/test_versioned_recovery.py \
+		tests/analysis/statistics/test_analysis_deviation_display.py \
+		tests/analysis/statistics/test_analysis_runs.py \
+		tests/analysis/statistics/test_analysis_deviation.py \
+		tests/analysis/numeric/test_analysis_attribution_runtime.py \
+		tests/analysis/graph/test_distribution_carriers.py \
+		tests/analysis/temporal/test_analysis_temporal.py \
+		tests/analysis/materialization/test_reference_recovery.py \
+		tests/analysis/graph/test_capability_consumers.py \
+		tests/analysis/graph/test_computation_rollup_runtime.py \
+		tests/analysis/graph/test_count_rollup_backends.py \
+		tests/analysis/graph/test_observation_grain.py \
+		tests/analysis/graph/test_premise_verification.py \
+		tests/analysis/graph/test_public_composition.py \
+		tests/analysis/graph/test_relationship_binding.py \
+		tests/analysis/graph/test_runtime_concurrency.py \
+		tests/analysis/materialization/test_attribute_contribution_oracles.py \
+		tests/analysis/materialization/test_attribute_inputs.py \
+		tests/analysis/materialization/test_attribute_temporal_inputs.py \
+		tests/analysis/materialization/test_comparison_recovery.py \
+		tests/analysis/materialization/test_distribution_recovery.py \
+		tests/analysis/materialization/test_frame_attribute.py \
+		tests/analysis/materialization/test_frame_attribute_journeys.py \
+		tests/analysis/materialization/test_frame_temporal_expressions.py \
+		tests/analysis/materialization/test_mean_recovery.py \
+		tests/analysis/materialization/test_multiroot_recovery.py \
+		tests/analysis/materialization/test_named_calendar_windows.py \
+		tests/analysis/materialization/test_numeric_recovery.py \
+		tests/analysis/materialization/test_round1_api_fixes.py \
+		tests/analysis/numeric/test_analysis_cohort.py \
+		tests/analysis/numeric/test_analysis_comparison_runtime.py \
+		tests/analysis/numeric/test_analysis_display.py \
+		tests/analysis/numeric/test_analysis_members.py \
+		tests/analysis/numeric/test_analysis_numeric.py \
+		tests/analysis/numeric/test_analysis_predicates.py \
+		tests/analysis/numeric/test_analysis_references.py \
+		tests/analysis/numeric/test_members_consumers.py \
+		tests/analysis/statistics/test_analysis_statistics_faults.py \
+		tests/analysis/temporal/test_temporal_recovery.py \
+		tests/analysis/temporal/test_timezone_observation.py
 
 typecheck:
 	@./scripts/require-venv.sh mypy
@@ -93,7 +139,7 @@ check: lint typecheck test docs-api
 check-agent: lint-agent typecheck test docs-api-agent
 
 release-check:
-	@$(MAKE) check slow-test runtime-test release-test TESTS=
+	@$(MAKE) check runtime-test release-test TESTS=
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build

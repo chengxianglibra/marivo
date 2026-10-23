@@ -84,6 +84,7 @@ def test_public_multi_input_source_and_exported_pandas(
     assert set(matched[ordinary_columns(matched)[0]]) == expected
 
 
+@pytest.mark.release
 def test_nullable_selection_keeps_positive_values_and_offline_export(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

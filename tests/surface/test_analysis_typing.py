@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
+import hashlib
 from pathlib import Path
 
-from tests.support.paths import PROJECT_ROOT
+import pytest
+
+from tests.support.typing import check
 
 
-def test_public_dsl_rejects_wrong_kinds_and_methods(tmp_path: Path) -> None:
-    source = tmp_path / "bad_public_analysis.py"
+@pytest.mark.slow
+@pytest.mark.release
+def test_public_analysis_and_deviation_typing_contracts(tmp_path: Path) -> None:
+    probe_id = hashlib.sha256(str(tmp_path).encode()).hexdigest()[:12]
+    source = tmp_path / f"bad_public_analysis_{probe_id}.py"
     program = """
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -95,35 +99,9 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     population.observe({'value': metric})  # invalid: duplicate observation entry
 """
     source.write_text(program)
-    root = PROJECT_ROOT
-    completed = subprocess.run(
-        [
-            str(root / ".venv/bin/mypy"),
-            "--no-pretty",
-            "--no-color-output",
-            "--cache-dir",
-            str(tmp_path / "mypy-cache"),
-            "--python-version",
-            "3.10",
-            str(source),
-        ],
-        cwd=root,
-        env={**os.environ, "PYTHONPATH": str(root)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed.returncode != 0
-    for line, text in enumerate(program.splitlines(), 1):
-        if "# invalid:" in text:
-            assert f"{source}:{line}: error:" in completed.stdout, (
-                text + "\n" + completed.stdout + completed.stderr
-            )
 
-
-def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path: Path) -> None:
-    source = tmp_path / "valid_observation.py"
-    source.write_text(
+    valid_source = tmp_path / f"valid_observation_{probe_id}.py"
+    valid_source.write_text(
         """
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -164,21 +142,77 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """
     )
-    root = PROJECT_ROOT
-    completed = subprocess.run(
-        [
-            str(root / ".venv/bin/mypy"),
-            "--no-pretty",
-            "--cache-dir",
-            str(tmp_path / "mypy-cache"),
-            "--python-version",
-            "3.10",
-            str(source),
-        ],
-        cwd=root,
-        env={**os.environ, "PYTHONPATH": str(root)},
-        capture_output=True,
-        text=True,
-        check=False,
+
+    statistics_source = tmp_path / f"statistics_contracts_{probe_id}.py"
+    statistics_body = """import marivo.analysis as mv
+import pandas as pd
+from ibis.common.deferred import Deferred
+from typing_extensions import assert_type
+
+def positive(session: mv.Session, members: mv.Population, field: Deferred, other: mv.AnalysisFrame, artifact: mv.Artifact) -> None:
+    query = session.observe({"value": field.mean()}, by=members)
+    assert_type(query, mv.AnalysisFrame)
+    assert_type(query["value"], mv.Column)
+    assert_type(query.where(query["value"] > 0), mv.AnalysisFrame)
+    assert_type(query.select({"centered": query["value"] - 10}), mv.AnalysisFrame)
+    assert_type(query.top(3, by=query["value"]), mv.AnalysisFrame)
+    assert_type(query.reduce({"mean": query["value"].mean(), "sum": query["value"].sum(), "rows": mv.row_count()}), mv.AnalysisFrame)
+    assert_type(query.compare({'reference': other}), mv.AnalysisFrame)
+    assert_type(query.align(other), mv.AnalysisFrame)
+    assert_type(query.compute(), mv.AnalysisFrame)
+    assert_type(query.persist().artifact, mv.Artifact)
+    frame = session.persisted_frame(artifact.id).to_pandas()
+    assert_type(frame, pd.DataFrame)
+    assert_type(frame.corr(method="pearson", numeric_only=True), pd.DataFrame)
+    assert_type(frame.corr(method="spearman", numeric_only=True), pd.DataFrame)
+    assert_type(frame.corr(method="kendall", numeric_only=True), pd.DataFrame)
+    assert_type(frame.describe(), pd.DataFrame)
+
+def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred) -> None:
+"""
+    calls = (
+        "query.deviation(method='zscore')",
+        "query.deviation(method='mad', partition_by=(field,))",
+        "query.runs(where=query['value'] > 0)",
+        "query.correlate(query['value'], other, method='pearson')",
+        "query.forecast(horizon=2)",
+        "artifact.execute()",
+        "artifact.where(query['value'] > 0)",
+        "artifact.reduce({'value': query['value'].mean()})",
+        "artifact.forecast(horizon=2)",
+        "query.reduce({'value': query['value']})",
+        "query.reduce({'value': query['value'].mean()}, by=[field])",
+        "query.reduce({'value': query['value'].mean()}, by=(query['value'],))",
+        "query.where(pd.Series([True]))",
+        "query.select({'value': artifact})",
+        "query.top(1, by='value')",
+        "session.observe({'value': query.compute().to_pandas()}, by=members)",
+        "mv.broadcast(query['value'], to=query)",
+        "artifact.to_pandas()",
     )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+    statistics_body += "".join(f"    {call}\n" for call in calls)
+    statistics_source.write_text(statistics_body)
+
+    # Run all public typing probes in one mypy process so xdist workers do not
+    # repeat the same dependency analysis with separate cold caches.
+    completed = check(source, valid_source, statistics_source)
+    assert completed.returncode != 0
+    output = completed.stdout + completed.stderr
+    for line, text in enumerate(program.splitlines(), 1):
+        if "# invalid:" in text:
+            assert f"{source}:{line}: error:" in output, text + "\n" + output
+    assert not any(
+        f"{valid_source}:" in line and ": error:" in line for line in output.splitlines()
+    )
+    statistics_errors = [
+        line
+        for line in output.splitlines()
+        if f"{statistics_source}:" in line and ": error:" in line
+    ]
+    error_locations = {line.split(": error:", maxsplit=1)[0] for line in statistics_errors}
+    expected = {
+        f"{statistics_source}:{statistics_body.splitlines().index('    ' + call) + 1}"
+        for call in calls
+    }
+    assert error_locations == expected, output
+    assert len(statistics_errors) == len(calls), output

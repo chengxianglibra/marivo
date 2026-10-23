@@ -304,6 +304,7 @@ def test_identity_observation_has_no_inferred_relationship(
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) -> None:
     import json
     import os
@@ -784,6 +785,7 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -977,6 +979,7 @@ with ExitStack() as guards:
     assert read(case.root / "non-key-copied.json")
 
 
+@pytest.mark.release
 @pytest.mark.slow
 @pytest.mark.parametrize("rule_name", ["periods", "years"])
 def test_calendar_rules_keep_captured_facts_across_carriers(
@@ -1014,20 +1017,30 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     left_memory, right_memory = left.compute(), right.compute()
     left_saved, right_saved = left_memory.persist(), right_memory.persist()
     for first, second in ((left, right), (left_memory, right_memory), (left_saved, right_saved)):
-        inferred = first.compare({"reference": second}, match={"reference": rule}).compute()
-        explicit = first.compare(
-            {"reference": second},
-            on={"reference": ((first.axes[0], second.axes[0]),)},
-            match={"reference": rule},
+        combined = first.compare(
+            {"inferred": second, "explicit": second},
+            on={"explicit": ((first.axes[0], second.axes[0]),)},
+            match={"inferred": rule, "explicit": rule},
         ).compute()
-        actual = inferred.to_pandas()
-        pd.testing.assert_frame_equal(actual, explicit.to_pandas())
+        actual = combined.to_pandas()
+        for field in ("baseline.value", "absolute.value", "relative.value"):
+            pd.testing.assert_series_equal(
+                actual[("value", f"inferred.{field}")],
+                actual[("value", f"explicit.{field}")],
+                check_names=False,
+            )
+        pd.testing.assert_series_equal(
+            actual[("presence", "inferred.present")],
+            actual[("presence", "explicit.present")],
+            check_names=False,
+        )
         assert actual[("value", "value")].tolist() == [1000]
-        assert actual[("value", "reference.baseline.value")].tolist() == [expected_right]
-        assert actual[("value", "reference.absolute.value")].tolist() == [1000 - expected_right]
+        assert actual[("value", "inferred.baseline.value")].tolist() == [expected_right]
+        assert actual[("value", "inferred.absolute.value")].tolist() == [1000 - expected_right]
         assert actual[("presence", "current.present")].tolist() == [True]
-        assert actual[("presence", "reference.present")].tolist() == [True]
-        assert len(actual.attrs["frozen_coordinates"]) == 3
+        assert actual[("presence", "inferred.present")].tolist() == [True]
+        assert actual[("presence", "explicit.present")].tolist() == [True]
+        assert len(actual.attrs["frozen_coordinates"]) == 5
         assert actual.attrs["axes"][0]["role"] == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
     with pytest.raises(AnalysisError, match="ordinal"):

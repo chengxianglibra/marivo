@@ -8,9 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
@@ -62,9 +64,12 @@ def run(root: Path, phase: str, output: Path) -> None:
             outputs[method] = result.to_json(orient="split", date_format="iso", double_precision=15)
         assert outputs == obj(state["recipe_outputs"])
         assert len(terminal_runs(session)) == before
-        assert all(
-            not hasattr(value, "attribute") and not hasattr(value, "drill") for value in inputs
-        )
+        for value in inputs:
+            with pytest.raises(AnalysisError) as caught:
+                value.attribute(by=(ms.ref.dimension("sales.order.channel"),))
+            assert caught.value.expected == "a retained source declaration on this Frame instance"
+            assert not hasattr(value, "drill")
+        assert len(terminal_runs(session)) == before
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase, "outputs": outputs}))
 
 

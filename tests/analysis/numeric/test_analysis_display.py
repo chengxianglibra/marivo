@@ -341,6 +341,7 @@ def test_static_display_errors_are_zero_read(
     assert len(terminal_runs(case.session)) == before
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_cold_display_continuations(
     analysis_dsl_case_factory: DslCaseFactory,

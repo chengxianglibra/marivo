@@ -534,6 +534,7 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
         assert root.parent.loc[0, component.slot_id] == Decimal(3 * (2**63 - 1))
 
 
+@pytest.mark.release
 def test_additional_root_has_two_independent_roles_without_fact_fanout(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -654,6 +655,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     }
 
 
+@pytest.mark.release
 def test_complete_compound_identity_parent_mapping(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
@@ -871,6 +873,7 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
             assert pd.isna([fine["east", "B"]])[0]
 
 
+@pytest.mark.release
 def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
     session: Session,
 ) -> None:
@@ -1078,6 +1081,7 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
     assert "coordinates=" in actual.value.received
 
 
+@pytest.mark.release
 def test_preparation_check_domain_respects_genuine_parent_scope(
     session: Session, tmp_path: Path
 ) -> None:
@@ -1108,6 +1112,7 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
         assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
 
 
+@pytest.mark.release
 def test_known_empty_weighted_parent_retains_na_original_total(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     weight = session.catalog.fields.get("sales.facts.weight")
@@ -1351,6 +1356,7 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
         assert all(receipt.stage_id == root.stage_id for receipt in root.receipts)
 
 
+@pytest.mark.release
 def test_known_empty_parent_native_formula_has_defined_original_zero(session: Session) -> None:
     value = session.catalog.fields.get("sales.facts.value")
     region = session.catalog.fields.get("sales.facts.region")

@@ -8,12 +8,13 @@ from marivo._temporal import (
     certify_period_calendar_rows,
     period_calendar_definition_digest,
 )
+from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
 
 def publish_calendar(catalog: ms.SemanticCatalog, zone: str, *, baseline: bool = False) -> None:
-    ref = ms.ref.period_calendar("sales.unequal")
-    calendar = catalog._require_ready().period_calendars[ref.path]
+    ref = ref_factory.period_calendar("sales.unequal")
+    calendar = catalog._require_ready().period_calendars["sales.unequal"]
     snapshot = certify_period_calendar_rows(
         calendar_ref=ref,
         boundary_timezone=zone,

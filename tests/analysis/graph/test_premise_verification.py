@@ -165,6 +165,7 @@ def test_outer_alignment_has_one_public_correspondence_contract() -> None:
     assert "verification" not in signature(mv.AnalysisFrame.compare).parameters
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_checked_pairing_survives_source_offline_cold_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -190,13 +191,11 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
         assert scalar.to_pandas()[("value", "count")].tolist() == [expected]
         (tmp_path / "models").rename(tmp_path / "models.offline")
         env = dict(os.environ, PYTHONPATH=str(PROJECT_ROOT))
-        reports = []
-        for _ in range(2):
-            worker = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    """
+        worker = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
 import json, os, sys
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
@@ -219,18 +218,18 @@ assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','count')].tolis
 assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'rows':len(frame)}))
 """,
-                    session.id,
-                    saved.artifact.id,
-                    scalar.artifact.id,
-                    str(expected),
-                ],
-                cwd=tmp_path,
-                env=env,
-                text=True,
-                capture_output=True,
-                timeout=60,
-            )
-            assert worker.returncode == 0, worker.stdout + worker.stderr
-            reports.append(json.loads(worker.stdout.strip().splitlines()[-1]))
-        assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
-        assert all(report["rows"] == expected for report in reports)
+                session.id,
+                saved.artifact.id,
+                scalar.artifact.id,
+                str(expected),
+            ],
+            cwd=tmp_path,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        assert worker.returncode == 0, worker.stdout + worker.stderr
+        report = json.loads(worker.stdout.strip().splitlines()[-1])
+        assert report["pid"] != os.getpid()
+        assert report["rows"] == expected

@@ -116,6 +116,7 @@ def spending_amount():
     assert frame.set_index(frame.columns[1])[("value", "value")].to_dict() == {"A": 100, "C": 300}
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import os

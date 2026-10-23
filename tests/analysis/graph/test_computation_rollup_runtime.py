@@ -28,6 +28,7 @@ def _run(mode: str, project: Path) -> dict[str, Json]:
     return obj(checked(json.loads(process.stdout)))
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None:
     produced = _run("produce", tmp_path)

@@ -101,6 +101,7 @@ def productions(monkeypatch: pytest.MonkeyPatch) -> list[AttributeMethodProducti
     return captured
 
 
+@pytest.mark.release
 def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     session: Session, tmp_path: Path, productions: list[AttributeMethodProduction]
 ) -> None:

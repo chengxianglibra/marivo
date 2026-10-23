@@ -216,6 +216,7 @@ def test_public_numeric_difference_source_and_fixed(
         )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -253,6 +254,7 @@ assert _plain(saved[1]).key_0.tolist() == ['A', 'B']""",
     )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_nested_difference_keeps_independent_captures(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -338,6 +340,7 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     )
 
 
+@pytest.mark.release
 def test_cohort_group_metric_empty_preserves_metric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -480,6 +483,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         ].tolist() == [12]
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_relative_and_ratio_cold_fixed_composition(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -646,6 +650,7 @@ def test_comparison_of_float_original_expression_operands(
     )
 
 
+@pytest.mark.release
 def test_union_keeps_present_nondefined_cell_separate_from_absence(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

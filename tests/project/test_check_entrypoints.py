@@ -98,25 +98,6 @@ def test_format_failure_stops_before_expensive_checks(tmp_path: Path) -> None:
         assert commands == [["ruff", "format", "--check", "."]]
 
 
-def test_slow_test_selects_extended_cases_and_runs_a_node_serially(tmp_path: Path) -> None:
-    selected = "tests/focused.py::test_one"
-    result, commands = _run_make(tmp_path, "slow-test", tests=selected)
-    assert result.returncode == 0, result.stderr
-    assert commands == [
-        [
-            "pytest",
-            "-q",
-            "--tb=short",
-            "--maxfail=5",
-            "-m",
-            "slow and not release and not runtime",
-            "-n",
-            "0",
-            selected,
-        ]
-    ]
-
-
 def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) -> None:
     result, commands = _run_make(
         tmp_path,
@@ -125,18 +106,10 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     )
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
-    assert len(pytest_commands) == 4
+    assert len(pytest_commands) == 3
     assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
-    assert pytest_commands[1] == [
-        "pytest",
-        "-q",
-        "--tb=short",
-        "--maxfail=5",
-        "-m",
-        "slow and not release and not runtime",
-    ]
-    assert pytest_commands[2] == ["pytest", "-m", "runtime", "-n", "2"]
-    assert pytest_commands[3] == [
+    assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
+    assert pytest_commands[2] == [
         "pytest",
         "-n",
         "0",
@@ -146,9 +119,75 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
         "tests/packaging/test_installer_uv.py",
         "tests/packaging/test_wheel.py",
         "tests/packaging/test_installed_journeys.py",
+        "tests/surface/test_disclosure_documentation.py",
+        "tests/semantic/test_semantic_live_help.py",
+        "tests/surface/test_analysis_disclosure_content.py",
+        "tests/analysis/materialization/test_frame_storage.py",
+        "tests/analysis/materialization/test_frame_attribute_contribution.py",
+        "tests/analysis/materialization/test_terminal_publication.py",
+        "tests/surface/test_analysis_typing.py",
+        "tests/analysis/materialization/test_relation_recovery.py",
+        "tests/analysis/statistics/test_analysis_deviation_domains.py",
+        "tests/analysis/statistics/test_deviation_contributions.py",
+        "tests/analysis/materialization/test_versioned_recovery.py",
+        "tests/analysis/statistics/test_analysis_deviation_display.py",
+        "tests/analysis/statistics/test_analysis_runs.py",
+        "tests/analysis/statistics/test_analysis_deviation.py",
+        "tests/analysis/numeric/test_analysis_attribution_runtime.py",
+        "tests/analysis/graph/test_distribution_carriers.py",
+        "tests/analysis/temporal/test_analysis_temporal.py",
+        "tests/analysis/materialization/test_reference_recovery.py",
+        "tests/analysis/graph/test_capability_consumers.py",
+        "tests/analysis/graph/test_computation_rollup_runtime.py",
+        "tests/analysis/graph/test_count_rollup_backends.py",
+        "tests/analysis/graph/test_observation_grain.py",
+        "tests/analysis/graph/test_premise_verification.py",
+        "tests/analysis/graph/test_public_composition.py",
+        "tests/analysis/graph/test_relationship_binding.py",
+        "tests/analysis/graph/test_runtime_concurrency.py",
+        "tests/analysis/materialization/test_attribute_contribution_oracles.py",
+        "tests/analysis/materialization/test_attribute_inputs.py",
+        "tests/analysis/materialization/test_attribute_temporal_inputs.py",
+        "tests/analysis/materialization/test_comparison_recovery.py",
+        "tests/analysis/materialization/test_distribution_recovery.py",
+        "tests/analysis/materialization/test_frame_attribute.py",
+        "tests/analysis/materialization/test_frame_attribute_journeys.py",
+        "tests/analysis/materialization/test_frame_temporal_expressions.py",
+        "tests/analysis/materialization/test_mean_recovery.py",
+        "tests/analysis/materialization/test_multiroot_recovery.py",
+        "tests/analysis/materialization/test_named_calendar_windows.py",
+        "tests/analysis/materialization/test_numeric_recovery.py",
+        "tests/analysis/materialization/test_round1_api_fixes.py",
+        "tests/analysis/numeric/test_analysis_cohort.py",
+        "tests/analysis/numeric/test_analysis_comparison_runtime.py",
+        "tests/analysis/numeric/test_analysis_display.py",
+        "tests/analysis/numeric/test_analysis_members.py",
+        "tests/analysis/numeric/test_analysis_numeric.py",
+        "tests/analysis/numeric/test_analysis_predicates.py",
+        "tests/analysis/numeric/test_analysis_references.py",
+        "tests/analysis/numeric/test_members_consumers.py",
+        "tests/analysis/statistics/test_analysis_statistics_faults.py",
+        "tests/analysis/temporal/test_temporal_recovery.py",
+        "tests/analysis/temporal/test_timezone_observation.py",
     ]
     assert ["python", "-m", "build", "--outdir", "dist/pypi"] in commands
     assert any(command[:2] == ["twine", "check"] for command in commands)
+
+
+def test_default_test_runs_slow_cases_without_marker_narrowing(tmp_path: Path) -> None:
+    selected = (
+        "tests/analysis/graph/test_capability_consumers.py::"
+        "test_source_coordinates_statistics_and_original_state"
+    )
+    result, commands = _run_make(tmp_path, "test", tests=selected)
+    assert result.returncode == 0, result.stderr
+    assert commands == [["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "0", selected]]
+
+
+def test_default_pytest_config_includes_slow_and_excludes_external_suites() -> None:
+    configuration = (_ROOT / "pytest.ini").read_text()
+    assert 'addopts = -n auto --dist=worksteal -m "not release and not runtime"' in configuration
+    assert "not slow" not in configuration
 
 
 def test_runtime_debugging_keeps_the_requested_test(tmp_path: Path) -> None:

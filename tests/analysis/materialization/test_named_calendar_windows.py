@@ -140,6 +140,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
     assert data[("value", "total")].tolist() == [120, 0, 0, 7]
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("bucketed", [False, True])
 def test_explicit_grain_rejects_a_different_certified_snapshot(
     calendar_window_project: SemanticCatalog,

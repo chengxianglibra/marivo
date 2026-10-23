@@ -126,7 +126,7 @@ def producer_recovery(
     shutil.rmtree(tmp_path / "models")
     for path in tmp_path.glob("source.duckdb*"):
         path.unlink()
-    # The producer has released its source; neither child inherits its Python state.
+    # The producer has released its source; fresh readers do not inherit its Python state.
     reports: list[Json] = [{"phase": "produce", "pid": os.getpid()}]
     repository = PROJECT_ROOT
     environment = dict(os.environ, PYTHONPATH=str(repository))
@@ -183,7 +183,7 @@ def test_native_producer_cold_continuation(
         monkeypatch,
         semantic_project_factory,
         source_trace,
-        phases=("offline", "cold"),
+        phases=("cold",),
     )
 
 

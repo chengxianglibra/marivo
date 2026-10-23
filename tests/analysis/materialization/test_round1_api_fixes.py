@@ -29,6 +29,7 @@ from tests.shared_fixtures import DslCaseFactory, run_ids
 from tests.support.paths import PROJECT_ROOT
 
 
+@pytest.mark.release
 def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

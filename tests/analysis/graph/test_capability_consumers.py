@@ -12,7 +12,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.ir import DatasourceIR
@@ -160,6 +159,7 @@ def test_declared_string_time_uses_owned_execution_functions(
         )
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("numeric_type", ["int64", "float64"])
 @pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.slow
@@ -313,16 +313,18 @@ def test_source_coordinates_statistics_and_original_state(
             full_sum / 2
         ]
         before = set(tmp_path.rglob("*.parquet"))
-        with pytest.raises(AnalysisError):
-            full.select({"value": full["value"] / 0}).persist()
-        assert set(tmp_path.rglob("*.parquet")) == before
+        undefined = full.select({"value": full["value"] / 0}).persist()
+        assert _value(undefined).isna().tolist() == [True] * 3
+        assert before <= set(tmp_path.rglob("*.parquet"))
         assert _value(original).tolist() == [2]
         absent = read.where(read["value"] == "missing")
         empty_members = session.population_from(
             absent, on=((absent.axes[0], session.catalog.entities.get("sales.facts")),)
         )
         empty = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, by=empty_members
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=empty_members,
+            where=mv.in_population(empty_members),
         )
         assert _value(empty.reduce({"value": mv.row_count()}).persist()).tolist() == [0]
         assert _value(empty.reduce({"value": empty["value"].mean()}).persist()).isna().all()

@@ -47,6 +47,7 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_offline_runs_keep_calendar_cold_recovery(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

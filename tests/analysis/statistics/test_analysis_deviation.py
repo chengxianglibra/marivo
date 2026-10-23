@@ -250,6 +250,7 @@ def test_export_phase_failure_is_atomic(
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_scalar_export_recovers_in_independent_processes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

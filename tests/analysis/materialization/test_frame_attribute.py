@@ -402,6 +402,7 @@ def test_public_parent_key_bridge_checks_physical_types_before_top_zero(session:
         invalid.top(0, by=invalid["q"]).compute()
 
 
+@pytest.mark.release
 def test_window_parent_calendar_keeps_original_history_scope(session: Session) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     day = session.catalog.fields.get("sales.facts.day")

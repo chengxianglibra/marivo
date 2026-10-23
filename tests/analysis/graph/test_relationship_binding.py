@@ -291,6 +291,7 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     assert session._runtime.store.resources(session.id) == ()
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")

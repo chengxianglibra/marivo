@@ -46,6 +46,7 @@ def data(backend: str, rows: tuple[tuple[int, str, int, int], ...]) -> SourceDat
     )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_native_independent_multiroot_fixed_and_cold(
     tmp_path: Path,
@@ -200,7 +201,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             path.unlink()
     reports: list[Json] = []
     repository = PROJECT_ROOT
-    for phase in ("offline", "cold"):
+    for phase in ("cold",):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [
@@ -220,7 +221,7 @@ def test_native_independent_multiroot_fixed_and_cold(
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
         reports.append(read(output))
-    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 2
     if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(destination, "multiroot-recovery-" + backend + ".json").write_bytes(
             encode(

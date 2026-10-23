@@ -28,6 +28,7 @@ from tests.analysis.statistics.deviation_time_worker import publish_calendar
 from tests.analysis.statistics.journeys import create
 from tests.analysis.statistics.pandas_workflows import deviation, forecast, plain
 from tests.shared_fixtures import DslCase, run_ids
+from tests.support.json import arr, checked, obj
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -213,6 +214,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             following = session.observe(
                 {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-07"), selected),
+                where=mv.in_population(selected),
             ).persist()
             followup = plain(following)
             assert followup.key_1.tolist() == [("c", 13)]
@@ -254,6 +256,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
     return {
         "accepted": phase,
         "pid": os.getpid(),
+        "root": str(root),
         "mode": mode,
         "source_offline": phase != "produce",
     }
@@ -284,7 +287,52 @@ def subprocess_phases(case: DslCase, mode: str) -> None:
     assert len({report["pid"] for report in reports}) == 3
 
 
+def subprocess_grouped_phases(cases: tuple[tuple[DslCase, str], ...]) -> None:
+    """Visit independent projects in one interpreter per recovery phase."""
+    targets = json.dumps([[str(case.root), mode] for case, mode in cases])
+    # `run()` removes source and semantic files after production, so offline
+    # and cold visits exercise the same source-free reopen path here.
+    for phase in ("produce", "cold"):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.analysis.statistics.recovery_worker",
+                "--group",
+                phase,
+                targets,
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=dict(os.environ, MARIVO_TELEMETRY="off", PYTHONPATH=str(PROJECT_ROOT)),
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports = arr(checked(json.loads(completed.stdout.strip().splitlines()[-1])))
+        assert len(reports) == len(cases)
+        pids: set[int] = set()
+        for (case, mode), item in zip(cases, reports, strict=True):
+            report = obj(item)
+            assert report["accepted"] == phase
+            assert report["root"] == str(case.root)
+            assert report["mode"] == mode
+            assert report["source_offline"] is (phase != "produce")
+            pid = report["pid"]
+            assert isinstance(pid, int) and pid != os.getpid()
+            pids.add(pid)
+        assert len(pids) == 1
+
+
 if __name__ == "__main__":
-    target = Path(sys.argv[1])
-    target.mkdir(parents=True, exist_ok=True)
-    print(json.dumps(run(target, sys.argv[2], sys.argv[3])))
+    if sys.argv[1] == "--group":
+        reports = []
+        for item in arr(checked(json.loads(sys.argv[3]))):
+            root, mode = arr(item)
+            assert isinstance(root, str) and isinstance(mode, str)
+            reports.append(run(Path(root), sys.argv[2], mode))
+        print(json.dumps(reports))
+    else:
+        target = Path(sys.argv[1])
+        target.mkdir(parents=True, exist_ok=True)
+        print(json.dumps(run(target, sys.argv[2], sys.argv[3])))

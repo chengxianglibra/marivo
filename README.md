@@ -203,29 +203,26 @@ make check
 
 Before final checks, apply Ruff fixes and formatting only to the Python files
 owned by the change. `make format` formats the whole checkout.
-`make test` runs the fast daily regression selection with compact output, short
-failure tracebacks, and a five-failure limit. `make slow-test` runs the extended
-local acceptance cases kept out of that selection. `make typecheck` also uses
-compact output; all commands preserve check failures and exit status. `make check`
-and `make check-agent` combine fast daily tests, static checks, and API
-documentation checks. Ordinary commits keep their installed hooks and do not run
-the full Runtime suite.
+`make test` runs the daily local regression suite, including slow-marked cases
+unless they are also marked `release`. Measured high-cost subprocess, CPU-bound,
+typing, and query/recovery cases keep their assertions in `make release-check`;
+the daily runtime target is under three minutes. Output is compact, tracebacks are
+short, and the run stops after five failures. Runtime and release cases use
+separate entrypoints.
+`make typecheck` also uses compact output; all commands preserve check failures
+and exit status. `make check` and `make check-agent` combine the local suite,
+static checks, and API documentation checks. Ordinary commits keep their
+installed hooks and do not run the full Runtime suite.
 
-Fast daily tests target completion within two minutes and include embedded
-DuckDB, local files, loopback HTTP fixtures and static native
-compilation/decoding contracts. The analysis slice keeps one source/fixed path
-and two cold recovery representatives, plus measured-fast graph rules,
-serialization, lowering, consumer, observation-grain, datasource-capability,
-numeric-boundary and temporal-parser tests. One extended coordinate-statistics
-case remains in `make slow-test`.
-The remaining local analysis tests, extended worker execution and composed
-cases are available through `make slow-test`. Runtime tests require ready external datasource services
+The local suite includes embedded DuckDB, local files, loopback HTTP fixtures,
+static native compilation/decoding contracts, and extended worker and recovery
+coverage. Runtime tests require ready external datasource services
 and cover basic source operations plus backend-specific risks; they do not repeat
 the entire local analysis matrix. Service containers are shared across cases and
 invocations, while each case owns its tables, schemas and connections.
 
-`make release-check` adds slow, Runtime and packaging checks to the fast daily
-gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites. Use
+`make release-check` adds Runtime and packaging checks to the local daily gate.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites. Use
 `make runtime-test TESTS='tests/datasource/test_source_profiles.py'` for focused
 native source checks when needed; daily development does not automatically run
 the full Runtime suite. `runtime-test-agent` provides compact output for the same

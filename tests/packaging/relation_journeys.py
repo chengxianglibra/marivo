@@ -249,6 +249,7 @@ def _produce(
             "next": session.observe(
                 {"value": metric},
                 by=mv.product(session.time_scope(start="2026-09-01", end="2026-10-01"), selected),
+                where=mv.in_population(selected),
             ),
             "current": current,
             "baseline": baseline,
@@ -1043,5 +1044,13 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
 
 
 if __name__ == "__main__":
-    result = journey(sys.argv[1], Path(sys.argv[2]), sys.argv[3], sys.argv[4])
-    Path(sys.argv[5]).write_bytes(encode(checked(result)))
+    phase, root, scenario_names, source, output = sys.argv[1:]
+    scenario_values = tuple(scenario_names.split(","))
+    if len(scenario_values) == 1:
+        result = journey(phase, Path(root), scenario_values[0], source)
+    else:
+        result = {
+            scenario: journey(phase, Path(root) / scenario, scenario, source)
+            for scenario in scenario_values
+        }
+    Path(output).write_bytes(encode(checked(result)))

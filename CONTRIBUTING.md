@@ -124,11 +124,11 @@ cd site && npm run build
 
 ### 运行测试
 ```bash
-# 运行两分钟内的快速日常回归测试（并行）
+# 运行本地回归测试（并行，目标三分钟内完成）
 make test
 
-# Run extended local process recovery
-make slow-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
+# Run a focused local recovery file, including cases marked slow
+make test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 
 # Run focused checks against already-running external services
 make runtime-test TESTS='tests/datasource/test_source_profiles.py'
@@ -159,15 +159,14 @@ datasource services. Use `RUNTIME_WORKERS=<count>` to override the
 per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
 containing `::` run serially. Account for other concurrent test tasks on the host.
 
-`make test` 目标是在两分钟内完成，运行快速本地 DuckDB、文件、loopback HTTP
-和 SQL 编译契约，并包含测量过的快速图规则、序列化、lowering、消费者、观测粒度、
-数据源能力、数值边界和时间解析用例。较长的坐标统计、worker、独立进程恢复和组合场景由 `make slow-test` 执行；完整的本地验收
-可通过 `make test` 与 `make slow-test` 两个入口运行。`runtime` 仅标记需要已启动
-外部数据源服务的用例，覆盖基本数据源能力和后端特有风险。相同数据源共享服务
-容器，每个用例独立管理自己的表、schema 和连接；pytest 不启停服务。
+`make test` 运行日常本地回归，包括未标记为 `release` 的 `slow` 坐标统计、worker、
+独立进程恢复和组合场景。经测量较重的子进程、CPU 密集型、类型检查及查询/恢复用例保留原断言，
+由 `make release-check` 执行；日常测试目标为三分钟内完成。`runtime` 仅标记需要已启动外部数据源服务的用例，
+覆盖基本数据源能力和后端特有风险。相同数据源共享服务容器，每个用例独立管理
+自己的表、schema 和连接；pytest 不启停服务。
 
-`make check` 和 `make check-agent` 执行快速日常检查。发布准备与发布 CI 通过
-`make release-check` 加上 slow、Runtime、安装和打包检查。Runtime 不重复全部日常
+`make check` 和 `make check-agent` 执行完整本地检查。发布准备与发布 CI 通过
+`make release-check` 加上 Runtime、安装和打包检查。Runtime 不重复全部本地
 分析验收矩阵。Runtime coverage notes and local acceptance records are kept in the local-only `docs/testing/` directory.
 
 For test performance investigations, measure the same suite with

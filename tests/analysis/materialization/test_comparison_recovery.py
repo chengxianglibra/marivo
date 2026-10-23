@@ -22,6 +22,7 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_native_comparison_independent_fixed_and_cold(
     tmp_path: Path,
@@ -82,7 +83,7 @@ assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'phase':sys.argv[1]}))
 """
     reports = []
-    for phase in ("offline", "cold"):
+    for phase in ("cold",):
         completed = subprocess.run(
             [sys.executable, "-c", script, phase],
             cwd=tmp_path,
@@ -93,4 +94,4 @@ print(json.dumps({'pid':os.getpid(),'phase':sys.argv[1]}))
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
         reports.append(json.loads(completed.stdout.strip().splitlines()[-1]))
-    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
+    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 2

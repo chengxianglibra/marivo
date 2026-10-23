@@ -52,6 +52,7 @@ def test_simplified_policies_have_one_public_route() -> None:
     assert "(rule, customer, channel)" in membership and "(R,S,b,d)" in membership
 
 
+@pytest.mark.release
 def test_every_advertised_native_member_has_exact_help() -> None:
     registry = prepare()
     for descriptor in registry.descriptors:

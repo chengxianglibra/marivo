@@ -9,6 +9,7 @@ from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
+@pytest.mark.release
 def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -77,6 +78,7 @@ def test_unsupported_quantile_continues_through_explicit_parent_key_bridge(
     assert detail.output_names == ("median",)
 
 
+@pytest.mark.release
 def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],

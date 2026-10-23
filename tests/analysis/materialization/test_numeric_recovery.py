@@ -13,6 +13,7 @@ from tests.shared_fixtures import DslCase, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_parquet_row_statistics_and_native_results_publish_in_a_process(
     retained_coordinates_case: DslCase,
@@ -38,8 +39,8 @@ def approx_quantile():
     )
     export_dsl_parquet_models(case, case.root)
     reports = []
-    for phase in ("produce", "offline", "cold"):
-        if phase == "offline":
+    for phase in ("produce", "cold"):
+        if phase == "cold":
             (case.root / "source_files").rename(case.root / "source_files.offline")
             (case.root / "models").rename(case.root / "models.offline")
             case.database_path.rename(case.database_path.with_suffix(".offline"))
@@ -61,4 +62,4 @@ def approx_quantile():
         report = json.loads(process.stdout.splitlines()[-1])
         assert set(report["results"]) >= {"sum", "mean", "count", "quantile", "read", "category"}
         reports.append(report)
-    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 4
+    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3

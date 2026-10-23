@@ -8,6 +8,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_captured_contributions_followup_profiles(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

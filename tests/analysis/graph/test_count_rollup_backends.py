@@ -84,6 +84,7 @@ with patch.object(ms,'load',forbidden), patch.object(SourceSession,'__enter__',f
     assert outcome.returncode == 0, outcome.stdout + outcome.stderr
 
 
+@pytest.mark.release
 @pytest.mark.parametrize(
     ("backend", "profile", "key_type"), [("duckdb", "table", "int64"), ("duckdb", "view", "string")]
 )

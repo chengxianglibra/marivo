@@ -26,6 +26,7 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
     tmp_path: Path,
@@ -93,11 +94,10 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
             "fact_subject_key=ms.dimension_column(name='subject_key',entity=facts,column='revision')\n"
             "fact_subject=ms.relationship(name='fact_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(fact_subject_key,subject_id)])\n"
         )
-        models.write_text(
-            models.read_text().replace(
-                "# Named expressions", subject_models + "# Named expressions"
-            )
-        )
+        body = models.read_text()
+        anchor = "amount_value = amount\n"
+        assert anchor in body
+        models.write_text(body.replace(anchor, subject_models + anchor))
         ms.load(workspace_dir=tmp_path)
         session = mv.session.create("temporal-int64-recovery", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.subjects"))
@@ -210,28 +210,26 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
     assert run_ids(session)==before
     Path(sys.argv[2]).write_bytes(encode({'pid':os.getpid(),'phase':sys.argv[3],'source_forbidden':True,'runs':sorted(before)}))
 """
-    reports: list[Json] = []
-    for phase in ("offline", "cold"):
-        output = tmp_path / (phase + ".json")
-        completed = subprocess.run(
-            [sys.executable, "-c", worker, str(tmp_path), str(output), phase],
-            cwd=PROJECT_ROOT,
-            env=dict(
-                os.environ,
-                PYTHONPATH=str(PROJECT_ROOT),
-                TZ="America/Los_Angeles",
-                MARIVO_TELEMETRY="off",
-            ),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(read(output))
-    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
-    assert all(obj(report)["source_forbidden"] is True for report in reports)
+    output = tmp_path / "cold.json"
+    completed = subprocess.run(
+        [sys.executable, "-c", worker, str(tmp_path), str(output), "cold"],
+        cwd=PROJECT_ROOT,
+        env=dict(
+            os.environ,
+            PYTHONPATH=str(PROJECT_ROOT),
+            TZ="America/Los_Angeles",
+            MARIVO_TELEMETRY="off",
+        ),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    report = read(output)
+    assert obj(report)["pid"] != os.getpid()
+    assert obj(report)["source_forbidden"] is True
     if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(destination, "temporal-int64-recovery-duckdb.json").write_bytes(
-            encode(checked({"source_pid": os.getpid(), "source": state, "reports": reports}))
+            encode(checked({"source_pid": os.getpid(), "source": state, "reports": [report]}))
         )

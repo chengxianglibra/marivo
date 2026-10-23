@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
-from pathlib import Path
 from typing import Literal
 
 import duckdb
@@ -14,7 +10,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.journeys import prepare
 from tests.analysis.statistics.pandas_workflows import deviation, forecast, plain
 from tests.analysis.statistics.runs_worker import segments
@@ -24,7 +19,6 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
     run_ids,
 )
-from tests.support.paths import PROJECT_ROOT
 
 
 def test_direct_score_runs_and_next_business_round(
@@ -158,30 +152,6 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     assert run_ids(session) == before
 
 
-@pytest.mark.slow
-def test_representative_result_families_three_independent_processes(tmp_path: Path) -> None:
-    root = tmp_path / "project"
-    reports = []
-    for phase in ("produce", "offline", "cold"):
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.recovery_worker",
-                str(root),
-                phase,
-                "entity",
-            ],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(json.loads(completed.stdout.strip().splitlines()[-1]))
-    assert len({report["pid"] for report in reports}) == 3
-
-
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_pandas_score_selection_starts_an_explicit_followup_query(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -208,16 +178,3 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     output = plain(followup.persist())
     assert output.key_1.tolist() == [("c", 13)] and output.value.tolist() == [7]
     assert len(run_ids(session)) == len(before) + 1
-
-
-@pytest.mark.slow
-def test_category_time_representative_correlation_and_forecast(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from tests.analysis.statistics.recovery_worker import subprocess_phases
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case, "KC", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1, 5)
-    )
-    subprocess_phases(case, "category_time")

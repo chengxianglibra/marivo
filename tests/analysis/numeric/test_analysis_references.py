@@ -228,6 +228,7 @@ def test_public_share_numeric_matrix(
         assert all(value >= 0 for value in weights["value.share"])
 
 
+@pytest.mark.release
 @pytest.mark.slow
 @pytest.mark.parametrize("physical", ["DOUBLE", "DECIMAL(30,6)"])
 def test_original_metric_standardization_matrix(
@@ -349,6 +350,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_standardized_cold_selection_preserves_reference(
     analysis_dsl_case_factory: DslCaseFactory,

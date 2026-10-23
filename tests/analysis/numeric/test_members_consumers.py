@@ -18,6 +18,7 @@ from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("kind", ["snapshot", "duplicate", "null_tenant"])
 def test_complete_versioned_members(
     kind: str,

@@ -382,6 +382,7 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
     ].tolist() == [50.5]
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -507,6 +508,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
         assert session.persisted_frame(saved.artifact.id).to_pandas().equals(frame)
 
 
+@pytest.mark.release
 def test_member_groups_preserve_live_and_fixed_comparisons(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

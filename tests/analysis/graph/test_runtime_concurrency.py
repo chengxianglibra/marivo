@@ -48,6 +48,7 @@ def _evidence(name: str, value: dict[str, object]) -> None:
         )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 @pytest.mark.parametrize(
     ("key", "mode"),

@@ -67,12 +67,15 @@ def test_source_and_retained(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         models = tmp_path / "models/semantic/sales/models.py"
+        body = models.read_text()
+        anchor = "amount_value = amount\n"
+        assert anchor in body
         models.write_text(
-            models.read_text().replace(
-                "# Named expressions",
+            body.replace(
+                anchor,
                 "region = ms.dimension_column(name='region', entity=facts, column='region')\n"
                 "null_region = ms.dimension_column(name='null_region', entity=facts, column='null_region')\n"
-                "# Named expressions",
+                + anchor,
             )
         )
         session = mv.session.create("r93-attribution", timezone="UTC")

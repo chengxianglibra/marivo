@@ -110,6 +110,7 @@ def test_saved_result_order_and_primary_receipt_are_required_for_preview(
 
 
 @pytest.mark.slow
+@pytest.mark.release
 def test_display_export_recovers_in_fresh_processes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

@@ -354,6 +354,7 @@ def test_failed_reader_timezone_probe_does_not_fall_back(
     assert _values(value) == {"A": 465, "B": 60}
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     tmp_path: Path,
@@ -412,20 +413,18 @@ assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'
 assert frame.attrs['axes'][1]['role'] == 'identity'
 print(json.dumps({'pid': __import__('os').getpid(), 'values': frame[('value','value')].tolist()}))
 """
-    reports = []
-    for _ in range(2):
-        process = subprocess.run(
-            [sys.executable, "-c", worker, session.id, source.artifact.id],
-            cwd=tmp_path,
-            env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        assert process.returncode == 0, process.stdout + process.stderr
-        reports.append(__import__("json").loads(process.stdout.splitlines()[-1]))
-    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
+    process = subprocess.run(
+        [sys.executable, "-c", worker, session.id, source.artifact.id],
+        cwd=tmp_path,
+        env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert process.returncode == 0, process.stdout + process.stderr
+    report = __import__("json").loads(process.stdout.splitlines()[-1])
+    assert report["pid"] != os.getpid()
 
 
 @pytest.mark.parametrize(

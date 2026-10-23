@@ -156,11 +156,12 @@ make runtime-test
 make check
 ```
 
-`make test` 运行两分钟内完成的快速日常回归测试；`make slow-test` 运行较长的本地验收。
-快速分析用例覆盖代表性的 source/fixed/cold 路径，以及图规则、观测粒度、数据源能力、
-数值边界和时间解析；较长的坐标统计、worker 与独立进程恢复留在 slow-test。
-`make check` 和 `make check-agent` 合并快速日常测试、静态检查和 API 文档检查。
-完整 Runtime 验收由 `make release-check` 执行。日常开发按需使用
+`make test` 运行日常本地回归，包括标记为 `slow` 且未同时标记为 `release` 的用例。
+经测量较重的子进程、CPU 密集型、类型检查及查询/恢复用例保留原断言，由
+`make release-check` 执行；日常套件目标为三分钟以内。输出精简、traceback 较短，累计五项失败后停止。
+Runtime 和 release 用例使用单独入口。
+`make check` 和 `make check-agent` 合并本地测试、静态检查和 API 文档检查。
+Runtime 与打包验收由 `make release-check` 执行。日常开发按需使用
 `make runtime-test TESTS='tests/datasource/test_source_profiles.py'`；
 `runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
 worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个

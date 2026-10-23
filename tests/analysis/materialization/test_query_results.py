@@ -648,7 +648,9 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
 
     monkeypatch.setattr(SourceSession, "execute", record)
     sizes = []
-    for count in (1_000, 10_000, 100_000):
+    # Exact identities above 2**53 and bounded SQL shape are covered at both
+    # sizes; the 100k source query added routine cost without a new contract.
+    for count in (1_000, 10_000):
         with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
             connection.execute("DELETE FROM orders")
             connection.execute(

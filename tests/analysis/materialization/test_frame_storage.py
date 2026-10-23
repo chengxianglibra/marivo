@@ -1492,6 +1492,7 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
     assert counts(local) == (1, 1)
 
 
+@pytest.mark.release
 @pytest.mark.parametrize("kind", ["ordinary", "calendar", "named_calendar"])
 def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     local: LocalFrameServices,
@@ -2275,6 +2276,7 @@ def attribute_request(
     return attribute(selected, by=(session.catalog.fields.get("sales.facts." + axis),))
 
 
+@pytest.mark.release
 def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     attribute_session: Session,
 ) -> None:
@@ -2327,6 +2329,7 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     assert len(shared.method_facts) == 1
 
 
+@pytest.mark.release
 def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     attribute_session: Session,
 ) -> None:

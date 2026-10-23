@@ -491,6 +491,7 @@ def test_wrong_role_and_many_mapping_reject_before_io(
     ]
 
 
+@pytest.mark.release
 def test_grid_attribute_point_is_independent_of_member_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)

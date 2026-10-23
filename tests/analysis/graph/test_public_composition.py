@@ -213,6 +213,7 @@ def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
     )
 
 
+@pytest.mark.release
 @pytest.mark.slow
 def test_public_exact_cold_output_after_source_and_models_are_deleted(
     analysis_dsl_case_factory: DslCaseFactory,
