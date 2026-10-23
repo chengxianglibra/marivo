@@ -75,6 +75,7 @@ class SourceSchema:
     binding_id: str = ""
     coverage: tuple[SampleCoverage, ...] = ()
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
+    provider: str = "duckdb"
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -653,6 +654,7 @@ def _plan_query(
         contribution = replace(contribution, coverage=schema.coverage)
         reduction = replace(
             reduction,
+            provider=schema.provider,
             coverage=schema.coverage,
             preserve_sample_presence=bool(schema.coverage)
             or (

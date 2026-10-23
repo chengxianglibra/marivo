@@ -338,23 +338,16 @@ def test_public_native_numeric_methods(
             }
             | {
                 "row_zero": (amount / 0).mean(),
+                "integer_zero": (weight / 0).mean(),
+                "floating_zero": ((amount / 1) / 0.0).mean(),
+                "empty_ratio": (amount / 0).mean().where(amount > 100),
+                "row_ratio": (amount / 2).mean(),
                 "metric_zero": amount.sum() / 0,
                 "zero_over_zero": (amount.sum() - amount.sum()) / 0,
                 "zero_weight": amount.weighted_mean(weight=weight - weight),
                 "cancelled_weight": amount.weighted_mean(weight=weight - 2),
             }
         )
-        native_table = case.session.bind(
-            case.source, source_identity="numeric-method-oracle"
-        ).relation
-        pair = native_table.amount.notnull() & native_table.weight.notnull()
-        native = case.session._backend.execute(
-            native_table.aggregate(
-                weighted=(native_table.amount * native_table.weight).sum()
-                / native_table.weight.sum(where=pair)
-            )
-        )
-        assert isinstance(native, pd.DataFrame)
         from marivo.datasource.adapters import CompiledRead, SourceSession
 
         statements: list[str] = []
@@ -367,13 +360,18 @@ def test_public_native_numeric_methods(
         monkeypatch.setattr(SourceSession, "execute", record)
         frame = query.compute().to_pandas()
         assert float(frame[("value", "average")].iloc[0]) == pytest.approx(2.0)
-        assert float(frame[("value", "weighted")].iloc[0]) == float(native.weighted.iloc[0])
+        assert frame[("value", "row_ratio")].tolist() == [1.0]
+        # Only the two non-NULL value/weight pairs contribute: (1.25 + 2.75*3)/4.
+        assert frame[("value", "weighted")].tolist() == [2.375]
         if backend == "clickhouse":
             assert "uniqExact(" in "\n".join(statements)
             assert "uniq(" not in "\n".join(statements)
         assert frame[("value", "distinct")].tolist() == [2]
         for name in (
             "row_zero",
+            "integer_zero",
+            "floating_zero",
+            "empty_ratio",
             "metric_zero",
             "zero_over_zero",
             "zero_weight",
@@ -381,15 +379,205 @@ def test_public_native_numeric_methods(
         ):
             assert frame[("value", name)].isna().tolist() == [True]
         quantile = session.observe({"q": session.catalog.metrics.get("sales.quantile")})
-        if backend not in ("duckdb", "postgres"):
-            from marivo.analysis.errors import AnalysisStageUnavailableError
+        assert float(quantile.compute().to_pandas()[("value", "q")].iloc[0]) == 2.0
 
-            before = terminal_runs(session)
-            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
-                quantile.compute()
-            assert terminal_runs(session) == before
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_public_native_quantile_algorithms(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    data = replace(
+        DATA,
+        values=DATA.values.replace("1.25", "0.00").replace("2.75", "10.00"),
+        rows=[
+            dict(
+                row,
+                amount=Decimal("0")
+                if row["id"] == 1
+                else Decimal("10")
+                if row["id"] == 2
+                else None,
+            )
+            for row in DATA.rows
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("native_quantiles", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        category = session.catalog.fields.get("sales.facts.category")
+        statements: list[str] = []
+        sizes: list[int] = []
+        original_execute = SourceSession.execute
+
+        def record(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+            result = original_execute(owner, issued)
+            statements.append(issued.sql.lower())
+            sizes.append(len(result))
+            return result
+
+        monkeypatch.setattr(SourceSession, "execute", record)
+        result = (
+            session.observe(
+                {
+                    "q0": amount.quantile(0),
+                    "q95": amount.quantile(0.95),
+                    "q1": amount.quantile(1),
+                    "median": amount.median(),
+                    "floating": (amount / 1).quantile(0.95),
+                    "integer": session.catalog.fields.get("sales.facts.weight").quantile(0.5),
+                    "empty": amount.quantile(0.95).where(amount > 100),
+                    "null": amount.quantile(0.95).where(amount.isnull()),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        for name, expected in (
+            ("q0", 0),
+            ("q95", 9.5),
+            ("q1", 10),
+            ("median", 5),
+            ("floating", 9.5),
+            ("integer", 3),
+        ):
+            assert float(result[("value", name)].iloc[0]) == expected
+        assert isinstance(result[("value", "q95")].iloc[0], Decimal)
+        assert result[("value", "empty")].isna().all()
+        assert result[("value", "null")].isna().all()
+        assert sizes and max(sizes) == 1
+        grouped = (
+            session.observe({"q": amount.quantile(0.95)}, by=(category,)).compute().to_pandas()
+        )
+        assert sorted(float(v) for v in grouped[("value", "q")].dropna()) == [9.5]
+        folded = (
+            session.observe({"q": amount.quantile(0.95).per(category).mean()}).compute().to_pandas()
+        )
+        assert float(folded[("value", "q")].iloc[0]) == 9.5
+        samples = mv.coordinates(by=(category,), keys=(("x",), ("missing",)))
+        sampled = session.observe({"q": amount.quantile(0.95).per(samples).mean()})
+        assert float(sampled.compute().to_pandas()[("value", "q")].iloc[0]) == 9.5
+        approximate = session.observe(
+            {
+                "q": amount.approx_quantile(0.95),
+                "median": amount.approx_median(),
+                "empty": amount.approx_quantile(0.95).where(amount > 100),
+                "null": amount.approx_quantile(0.95).where(amount.isnull()),
+            }
+        )
+        if backend in ("postgres", "mysql"):
+            before = len(statements)
+            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": approx_quantile"):
+                approximate.compute()
+            assert len(statements) == before
         else:
-            assert float(quantile.compute().to_pandas()[("value", "q")].iloc[0]) == 2.0
+            import ibis
+
+            before = len(statements)
+            frame = approximate.compute().to_pandas()
+            assert 0 <= float(frame[("value", "q")].iloc[0]) <= 10
+            native_table = case.session.bind(
+                case.source, source_identity="quantile-oracle"
+            ).relation
+            input_sql = ibis.to_sql(native_table.select("amount"), dialect=backend)
+            native_median = {
+                "duckdb": "approx_quantile(CAST(amount AS DOUBLE), 0.5)",
+                "trino": "approx_percentile(CAST(amount AS DOUBLE), 0.5)",
+                "clickhouse": "quantileTDigest(0.5)(CAST(amount AS Nullable(Float64)))",
+            }[backend]
+            oracle = case.session._backend.sql(
+                f"SELECT {native_median} AS v FROM ({input_sql}) AS sampled",
+                schema={"v": "float64"},
+            ).execute()
+            assert isinstance(oracle, pd.DataFrame)
+            assert float(frame[("value", "median")].iloc[0]) == float(oracle.v.iloc[0])
+            assert isinstance(frame[("value", "q")].iloc[0], Decimal)
+            assert frame[("value", "empty")].isna().all()
+            assert frame[("value", "null")].isna().all()
+            sql = "\n".join(statements[before:])
+            assert {
+                "duckdb": "approx_quantile",
+                "trino": "approx_percentile",
+                "clickhouse": "quantiletdigest",
+            }[backend] in sql
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_native_quantile_edge_groups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    samples = [
+        ("single", 7),
+        ("ties", 7),
+        ("ties", 7),
+        ("negative", -10),
+        ("negative", 0),
+        ("negative", 10),
+        ("large", 9007199254740993),
+        ("large", 9007199254740995),
+        ("null", None),
+    ]
+    rows: list[dict[str, object]] = [
+        {
+            "id": i,
+            "tenant": "a",
+            "category": group,
+            "amount": Decimal(value) if value is not None else None,
+            "big": value,
+            "weight": 1,
+            "day": date(2026, 7, 1),
+        }
+        for i, (group, value) in enumerate(samples)
+    ]
+    values = ",".join(
+        f"({i},'a','{group}',{value if value is not None else 'NULL'},{value if value is not None else 'NULL'},1,DATE '2026-07-01')"
+        for i, (group, value) in enumerate(samples)
+    )
+    data = SourceData(DATA.columns, values, DATA.clickhouse_columns, rows)
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("quantile_edges", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        big = session.catalog.fields.get("sales.facts.big")
+        category = session.catalog.fields.get("sales.facts.category")
+        frame = (
+            session.observe(
+                {
+                    "q": amount.quantile(0.95),
+                    "tiny": amount.quantile(5e-324),
+                    "integer": big.quantile(0.5),
+                },
+                by=(category,),
+            )
+            .compute()
+            .to_pandas()
+        )
+        frame = frame.set_index(frame.columns[0])
+        for group, expected in (
+            ("single", "7.00"),
+            ("ties", "7.00"),
+            ("negative", "9.00"),
+            ("large", "9007199254740994.90"),
+        ):
+            assert frame.loc[group, ("value", "q")] == Decimal(expected)
+        assert frame.loc["negative", ("value", "tiny")] == Decimal("-10.00")
+        assert frame.loc["large", ("value", "integer")] == 9007199254740994.0
+        assert frame.loc["null"].isna().all()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

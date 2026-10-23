@@ -15,13 +15,13 @@ Choose a connection and an analytical method separately. Driver installation and
 | --- | --- | --- |
 | DuckDB | `duckdb` | Local tutorial needs no server; contribution requires qualified physical tables |
 | PostgreSQL | `postgres` | Requires libpq and access; exact median/quantile depend on supported physical types |
-| MySQL | `mysql` | Native client/build prerequisites; exact median/quantile unsupported |
-| Trino | `trino` | Catalog/schema and access; exact median/quantile unsupported |
-| ClickHouse | `clickhouse` | Ordinary qualified grouped aggregation; Distributed keyed join routes have restrictions; exact median/quantile unsupported |
+| MySQL | `mysql` | Native client/build prerequisites; exact ranked quantiles; no approximate source quantiles |
+| Trino | `trino` | Catalog/schema and access; exact ranked quantiles or explicit approximate quantiles |
+| ClickHouse | `clickhouse` | Ordinary qualified grouped aggregation; Distributed keyed join routes have restrictions; exact ranked quantiles or explicit TDigest approximation |
 
 ## Check source form and method
 
-Table, file and HTTP discovery have different execution conditions. Parameterized HTTP JSON can be declared and previewed but is not an admitted numerical Frame source. Exact source median/quantile currently use DuckDB or PostgreSQL. Ordinary count, distinct count, sum, min, max, mean and weighted mean still depend on actual types and expressions.
+Table, file and HTTP discovery have different execution conditions. Parameterized HTTP JSON can be declared and previewed but is not an admitted numerical Frame source. Exact numeric source median/quantile supports all five backends. MySQL, Trino and ClickHouse extract ranked bounds on the source and interpolate locally; DuckDB and PostgreSQL retain their qualified exact paths. Approximate quantiles are explicitly authored and supported on DuckDB, Trino and ClickHouse, with backend-specific algorithms. PostgreSQL and MySQL reject approximate source methods. Ordinary count, distinct count, sum, min, max, mean and weighted mean still depend on actual types and expressions.
 
 Contribution requires qualified physical tables and retained source declarations. DuckDB, PostgreSQL, MySQL, Trino and ClickHouse use their native execution paths, subject to actual method, type, key and source restrictions. Parent and fine reads are independent and have no shared-snapshot guarantee. Original formula, identity and classification checks remain required; only requested final targets must close within their numeric precision policy. Use explicit observe and compare to investigate unsupported contribution targets without claiming a decomposition.
 

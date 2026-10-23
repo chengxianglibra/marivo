@@ -825,6 +825,7 @@ def prepare_query_sources(
                 binding_id=binding_id,
                 coverage=prepared.coverage,
                 time_authorities=prepared.time_authorities,
+                provider=owners[root].provider.name,
                 original_identity=tuple(
                     _admitted(schema, name, name)
                     for name in normalize_target_entity(registry, root).version_row_key
@@ -1178,6 +1179,7 @@ def _qualify_clickhouse_joins(
 
 def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
+    from marivo._quantiles import source_quantile_algorithm
 
     if source.provider.name == "duckdb":
         return
@@ -1199,7 +1201,13 @@ def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: Lowere
             "max",
             "mean",
         ):
-            if source.provider.name == "postgres" and node.reducer in ("median", "quantile"):
+            if (
+                node.reducer in ("median", "quantile", "approx_median", "approx_quantile")
+                and source_quantile_algorithm(
+                    source.provider.name, approximate=node.reducer.startswith("approx_")
+                )
+                is not None
+            ):
                 continue
             _route_gap(
                 "a qualified native algorithm for this source reduction",
@@ -1652,6 +1660,7 @@ def _complete_source_frame(
                 finished, dtype="int64[pyarrow]", index=frame.index
             )
     if reduction is not None and "__quantile_count" in frame.columns:
+        import math
         from decimal import Decimal
 
         from marivo.analysis.methods.numeric_state import finish_division
@@ -1662,34 +1671,38 @@ def _complete_source_frame(
         dtype = next(
             column.dtype for column in stage.columns if column.slot_id == reduction.value_slot
         )
-        assert isinstance(dtype, DecimalDataType)
         q = 0.5 if node.reducer == "median" else node.q
         assert q is not None
-        decimal_values: list[int | float | Decimal | None] = []
+        quantile_values: list[int | float | Decimal | None] = []
         for row in frame.to_dict("records"):
             count = int(row["__quantile_count"])
             if count == 0:
-                decimal_values.append(None)
+                quantile_values.append(None)
                 continue
             position = Fraction(str(q)) * (count - 1)
             fraction = position - (position.numerator // position.denominator)
-            lower = row[reduction.value_slot]
+            lower = row["__quantile_lower"]
             upper = row["__quantile_upper"]
-            if isinstance(lower, float) or isinstance(upper, float):
-                decimal_values.append(
-                    float(lower) + float(fraction) * (float(upper) - float(lower))
-                )
+            assert isinstance(lower, (int, float, Decimal))
+            assert isinstance(upper, (int, float, Decimal))
+            if any(
+                isinstance(bound, float) and not math.isfinite(bound) for bound in (lower, upper)
+            ):
+                # A retained source check belongs to the outer formula's
+                # demanded branch. Do not raise in interpolation before it.
+                quantile_values.append(None)
                 continue
-            assert isinstance(lower, Decimal) and isinstance(upper, Decimal)
             exact = Fraction(lower) + fraction * (Fraction(upper) - Fraction(lower))
-            decimal_values.append(
+            quantile_values.append(
                 finish_division(
                     exact.numerator,
                     exact.denominator,
                     DecimalType(dtype.precision, dtype.scale),
                 )
+                if isinstance(dtype, DecimalDataType)
+                else float(exact)
             )
-        frame[reduction.value_slot] = pd.Series(decimal_values, dtype=object, index=frame.index)
+        frame[reduction.value_slot] = pd.Series(quantile_values, dtype=object, index=frame.index)
     if (
         reduction is not None
         and reduction.duration is not None

@@ -104,7 +104,7 @@ assert not report.blockers
 @pytest.mark.parametrize(
     ("backend", "aggregate", "unsupported"),
     (
-        ("trino", ("percentile", 0.95), True),
+        ("trino", ("percentile", 0.95), False),
         ("trino", ("approx_percentile", 0.95), False),
         ("duckdb", ("percentile", 0.95), False),
         ("clickhouse", "count_distinct", True),

@@ -225,8 +225,12 @@ checks on both; multiplication by zero and coalesce do not catch strict failures
 Exact and approximate reductions are distinct authored operations. An unavailable
 route fails instead of substituting the other. Exact quantiles use the native
 qualified arithmetic and precision; they do not promise arbitrary-precision
-interpolation. Trino's source route requires explicit approximate quantiles when
-appropriate. Backend translation, load and readiness do not qualify a method.
+interpolation. DuckDB and PostgreSQL retain their qualified native exact routes;
+MySQL, Trino and ClickHouse use source-ranked bounds and typed local interpolation.
+Explicit approximate quantiles use DuckDB `approx_quantile`, Trino
+`approx_percentile` and ClickHouse TDigest. Approximate median uses the same
+algorithm at q=0.5. PostgreSQL and MySQL reject approximation instead of using an
+exact replacement. Backend translation, load and readiness do not qualify a method.
 Detailed current-value and native-carrier policies belong to
 [Operators and Frames](../analysis/operators-and-frames.md).
 

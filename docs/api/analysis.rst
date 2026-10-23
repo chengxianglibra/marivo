@@ -165,8 +165,14 @@ Numerical source routes qualify the actual backend, expression, physical type
 and method. Native Ibis/provider precision loss is accepted at source handoff;
 keys, units, time and null correctness remain strict. Native sum/mean/weighted
 and ratio routes include PostgreSQL, MySQL, Trino and ClickHouse; this code scope
-does not establish a new provider Runtime qualification. Exact source quantiles
-remain specifically qualified; exact and approximate algorithms never substitute.
+does not establish a new provider Runtime qualification. Exact numeric source
+quantiles support those four backends and DuckDB. MySQL, Trino and ClickHouse
+extract ranked bounds on the source before typed linear interpolation; DuckDB
+and PostgreSQL retain their qualified exact routes. Explicit approximate
+quantiles use DuckDB approx_quantile, Trino approx_percentile or ClickHouse
+TDigest. PostgreSQL and MySQL reject approximate source methods. Exact and
+approximate algorithms never substitute; actual type and source restrictions
+still apply.
 
 ``show(n=0)`` and Artifact audit read metadata only. Positive show decodes the
 saved prefix plus needed frozen coordinate records, without full export/head.

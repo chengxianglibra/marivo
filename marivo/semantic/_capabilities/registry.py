@@ -2628,6 +2628,21 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "TimeField must be inferable. Time keys must uniquely order the samples. "
                     "include_null defaults to False (skip NA); True retains the selected sample's NA."
                 )
+            elif prefix == "row" and method in {
+                "median",
+                "quantile",
+                "approx_median",
+                "approx_quantile",
+            }:
+                summary += (
+                    "Exact median/quantile uses linear interpolation h=(n-1)q on DuckDB, PostgreSQL, "
+                    "MySQL, Trino and ClickHouse. Explicit approximate methods use DuckDB approx_quantile, "
+                    "Trino approx_percentile or ClickHouse TDigest; PostgreSQL/MySQL reject approximation. "
+                    "Median uses q=0.5. Empty/all-NULL inputs return NA; nulls='error' rejects NULL inputs. "
+                    "Nonfinite inputs fail. Integer/float results are float64; Decimal retains its declared "
+                    "precision and scale. Algorithms may differ by backend; no cross-backend error bound "
+                    "or automatic exact/approximate substitution is promised."
+                )
             else:
                 summary += (
                     "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "

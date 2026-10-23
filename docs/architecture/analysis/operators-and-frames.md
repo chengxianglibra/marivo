@@ -28,7 +28,10 @@ Checks cover its demanded sample/contribution domain. A later where, select, zer
 multiplier or empty output cannot suppress a required error.
 
 Division uses `/` and masks zero before dividing; both 0/0 and nonzero/0
-return NA. Weighted means return NA when valid paired weights sum to zero,
+return NA. Its explicit float64 result cast survives native compilation, even
+when Ibis already infers float64. This also prevents ClickHouse aggregate
+arithmetic optimization from extracting a NULL divisor from `AVG(x / NULL)`.
+Weighted means return NA when valid paired weights sum to zero,
 including signed cancellation. Nonfinite results and invalid domains are errors,
 never missing states
 or a reason to retry another algorithm. Ordinary source integer and Decimal
@@ -93,6 +96,24 @@ Exact median/quantile uses linear interpolation h=(n-1)q; [0,10] at q=.95 gives
 9.5. Native approximate reductions require an explicit approximate definition,
 qualified actual type/backend and algorithm identity. An unavailable exact route
 never falls back to approximation, and the reverse is also prohibited.
+
+Source quantile and median execute on DuckDB, PostgreSQL, MySQL, Trino and
+ClickHouse. MySQL, Trino and ClickHouse sort and extract the two interpolation
+bounds and valid count on the source; only that bounded summary crosses the
+source boundary. Decimal paths retain their declared precision/scale through
+the shared interpolation finisher. Integer and floating quantiles return
+float64. Empty and all-NULL inputs return NA; strict NULL and nonfinite checks
+remain attached to the complete demanded input. Bounds must complete before
+downstream numeric fusion consumes their values.
+
+Explicit source approximation uses DuckDB `approx_quantile`, Trino
+`approx_percentile`, or ClickHouse `quantileTDigest`; approximate median uses
+q=0.5 on that same algorithm. Sketches consume floating inputs and Decimal
+results explicitly converge to the declared Decimal carrier. PostgreSQL and
+MySQL have no admitted approximate source route. Algorithms and results may
+differ across backends; no universal error bound is promised. This source
+matrix does not expand Duration, original-input attribution or physical join
+topology qualification.
 
 Ordered first/last uses a unique declared time order after completing each child
 sample. It must not substitute an unordered backend first/last. include_null and

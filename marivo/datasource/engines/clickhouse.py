@@ -937,7 +937,7 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="utc_naive_instant",
-    quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
+    quantile=QuantileCapability(mode="approximate", method="tdigest"),
     percentile_uses_approx_quantile=False,
     exact_count_distinct=False,
     native_query_timeout=native_query_timeout,

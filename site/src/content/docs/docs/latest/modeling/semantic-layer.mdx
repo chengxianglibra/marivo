@@ -146,6 +146,31 @@ def average_order_value():
 
 Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
 
+### Exact and approximate quantiles
+
+Use the same expression names across backends and choose accuracy explicitly:
+
+```python
+@ms.metric()
+def exact_p95():
+    return amount.quantile(0.95, time=order_date)
+
+
+@ms.metric()
+def approximate_p95():
+    return amount.approx_quantile(0.95, time=order_date)
+```
+
+`median()` and `approx_median()` are the corresponding q=0.5 operations. Exact
+quantiles use linear interpolation: `[0, 10]` at q=0.95 gives 9.5. DuckDB,
+PostgreSQL, MySQL, Trino and ClickHouse support exact numeric quantiles. Explicit
+approximation uses DuckDB `approx_quantile`, Trino `approx_percentile`, or
+ClickHouse TDigest; PostgreSQL and MySQL reject approximate source methods.
+Approximate values can differ across backends and from older ClickHouse reservoir
+results. No algorithm is silently substituted. Empty/all-null inputs return NA;
+`nulls="error"` rejects null contributions. `metric.per(time).mean()` still means
+an equal-weight mean of time-key results, not a quantile over the whole window.
+
 ### Explicit scaling: `ms.rescale`
 
 Use `ms.rescale` to divide a numeric Row or completed Metric by a constant and explicitly declare the target unit. It preserves stage, source roots, time restrictions and sum permissions. The source unit must be known after binding.

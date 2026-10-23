@@ -79,6 +79,7 @@ class ReductionInput:
     retain_quantile_bounds: bool = False
     native_quantile_value: bool = False
     coverage: tuple[SampleCoverage, ...] = ()
+    provider: str = "duckdb"
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,7 +281,10 @@ def lower_observation(
     if window_slot is not None:
         fields[window_slot] = filtered[window_slot]
     axes = output_axes(fields)
-    item = lower_source_reduction(prepared.node, filtered, fields)
+    from marivo.analysis.compiler.quantiles import quantile_bounds
+
+    bounds = quantile_bounds(prepared, fields)
+    item = lower_source_reduction(prepared.node, filtered, fields, quantile_bounds=bounds)
     metrics = {
         prepared.value_slot: item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},
@@ -308,11 +312,7 @@ def lower_observation(
     ):
         node = prepared.node
         value = lower_row(node.operand, fields).value
-        if (
-            prepared.duration is not None
-            or (value.type().is_decimal() and not prepared.native_quantile_value)
-            or prepared.retain_quantile_bounds
-        ):
+        if bounds:
             q = 0.5 if node.reducer == "median" else node.q
             assert q is not None
             probability = Fraction(str(q))
@@ -334,7 +334,7 @@ def lower_observation(
             if probability.denominator >= 10**38:
                 # Every positive such probability has h < 1 for int64 counts.
                 lower = rank == 0
-                upper = rank >= (filtered["__quantile_n"] > 1).cast("int64")
+                upper = rank >= (filtered["__quantile_n"] > 1).ifelse(1, 0)
             else:
                 # Clamp multiplication to a proven int64-count upper bound for
                 # h. This keeps even tiny decimal probabilities within Decimal38
@@ -348,7 +348,13 @@ def lower_observation(
                 ) * probability.numerator
                 lower = (rank <= bound) & (scaled <= position)
                 upper = (rank > bound) | (scaled >= position)
-            metrics[prepared.value_slot] = value.max(where=lower)
+            metrics[prepared.value_slot] = (
+                value.max(where=lower)
+                if prepared.duration is not None
+                else ibis.null().cast(item.value.type())
+            )
+            if prepared.duration is None:
+                metrics[f"{prefix}_lower"] = value.max(where=lower)
             metrics[f"{prefix}_upper"] = value.min(where=upper)
             metrics[f"{prefix}_count"] = filtered["__quantile_n"].max().fill_null(0)
             axes = {name: filtered[name] for name in axes}

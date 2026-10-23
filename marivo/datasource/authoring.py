@@ -766,11 +766,12 @@ def trino(
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
         Marivo never infers credential environment-variable names.
-        Marivo's Trino source-native route does not support exact median or
-        percentile. Explicit ``approx_median`` or ``("approx_percentile", q)``
-        declarations permit approximation. Scoped semantic readiness blocks
-        known incompatibilities without connecting; execution never substitutes
-        an aggregate definition.
+        Exact ``median()`` and ``quantile(q)`` use source-ranked bounds and
+        linear interpolation. Explicit ``approx_median()`` and
+        ``approx_quantile(q)`` use native ``approx_percentile``. Analysis
+        preparation qualifies the actual input types; semantic readiness does
+        not qualify execution. Exact and approximate algorithms are never
+        substituted for one another.
     """
     spec = TrinoSpec(
         name=name,

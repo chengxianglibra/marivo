@@ -41,7 +41,7 @@ def test_bound_result_type(operation: str, left: str, right: str, expected: str)
     if operation == "subtract" and right == "int64":
         assert "DECIMAL(19, 0)" in sql
     if operation == "divide" and left.startswith("decimal"):
-        assert sql.count("AS DOUBLE") == 2
+        assert sql.count("AS DOUBLE") == 3
 
 
 def test_explicit_decimal_product_reaches_native_arrow_reader() -> None:
@@ -103,7 +103,7 @@ def test_local_recipe_checks_integer_child_before_cancellation() -> None:
         evaluate_numeric(
             expression.op(), {"x": pd.Series([2**63 - 1], dtype=object)}, pd.RangeIndex(1)
         )
-    assert "overflow" in error.value.received
+    assert error.value.received is not None and "overflow" in error.value.received
 
 
 def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(

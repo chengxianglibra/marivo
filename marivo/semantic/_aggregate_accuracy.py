@@ -5,6 +5,7 @@ from __future__ import annotations
 import ibis
 from ibis.common.exceptions import OperationNotDefinedError, UnsupportedOperationError
 
+from marivo._quantiles import source_quantile_algorithm
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.semantic.ir import DIRECT_ONLY_AGGREGATES, AggKind
 
@@ -21,7 +22,7 @@ def approximate_definition(agg: AggKind) -> AggKind | None:
 
 
 def aggregate_repair(agg: AggKind, backend: str) -> str | None:
-    """Check installed Ibis translation and provider accuracy without reading rows."""
+    """Check source algorithm availability without qualifying actual input types."""
     name = agg[0] if isinstance(agg, tuple) else agg
     if name not in DIRECT_ONLY_AGGREGATES:
         return None
@@ -32,8 +33,11 @@ def aggregate_repair(agg: AggKind, backend: str) -> str | None:
         operation = kind[0] if isinstance(kind, tuple) else kind
         if operation == "count_distinct" and not profile.exact_count_distinct:
             return False
-        if operation in ("median", "percentile") and not profile.exact_quantile:
-            return False
+        if operation in ("median", "percentile", "approx_median", "approx_percentile"):
+            return (
+                source_quantile_algorithm(backend, approximate=operation.startswith("approx_"))
+                is not None
+            )
         q = kind[1] if isinstance(kind, tuple) else 0.5
         expression = (
             column.nunique()

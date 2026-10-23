@@ -815,9 +815,13 @@ def native_query_relation(
                         reduction.node.reducer.startswith("approx_")
                         or (
                             reduction.node.reducer in ("median", "quantile")
-                            and any(
-                                isinstance(column.dtype, DecimalDataType)
-                                for column in stage.columns
+                            and (
+                                reduction.provider in ("mysql", "trino", "clickhouse")
+                                or reduction.retain_quantile_bounds
+                                or any(
+                                    isinstance(column.dtype, DecimalDataType)
+                                    for column in stage.columns
+                                )
                             )
                         )
                     )
@@ -1509,9 +1513,16 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
                 )
                 and (
                     node.reducer in ("median", "quantile")
-                    and any(
-                        isinstance(column.dtype, DecimalDataType)
-                        for column in lowered.plan.source_read(read.stage_id).columns
+                    and (
+                        require_reduction(lowered.plan.source_read(read.stage_id)).provider
+                        in ("mysql", "trino", "clickhouse")
+                        or require_reduction(
+                            lowered.plan.source_read(read.stage_id)
+                        ).retain_quantile_bounds
+                        or any(
+                            isinstance(column.dtype, DecimalDataType)
+                            for column in lowered.plan.source_read(read.stage_id).columns
+                        )
                     )
                 )
             )

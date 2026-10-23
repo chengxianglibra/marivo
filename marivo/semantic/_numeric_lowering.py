@@ -89,7 +89,10 @@ def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> N
         safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
         if a.type().is_decimal() or safe.type().is_decimal():
             a, safe = a.cast("float64"), safe.cast("float64")
-        value = a / safe
+        # Preserve the float64 result boundary in SQL. In particular, ClickHouse
+        # can rewrite AVG(x / NULL) and fail while extracting the NULL constant;
+        # AVG(CAST(x / NULL AS Float64)) keeps the nullable division intact.
+        value = force_cast(a / safe, dt.float64)
     elif operation == "add":
         value = add_numeric(a, b)
     elif operation == "subtract":
@@ -191,6 +194,8 @@ def lower_source_reduction(
     node: SourceAggregate | SourceWeightedMean | EntityCount,
     table: ir.Table,
     fields: Mapping[str, ir.Value],
+    *,
+    quantile_bounds: bool = False,
 ) -> NumericValue:
     """Reduce one contribution. Checks returned here are scalar aggregates."""
     if isinstance(node, EntityCount):
@@ -250,13 +255,18 @@ def lower_source_reduction(
         )
     elif node.reducer == "approx_nunique":
         result = value.approx_nunique()
-    elif node.reducer == "approx_median":
-        result = value.approx_median()
-    elif node.reducer == "approx_quantile":
-        numeric_failure(
-            "a qualified approximate quantile route",
-            "Ibis 12 has no approximate quantile operation",
-        )
+    elif node.reducer in ("approx_median", "approx_quantile"):
+        q = 0.5 if node.reducer == "approx_median" else node.q
+        assert q is not None
+        # Native sketches consume floating values. Retain the declared Decimal
+        # carrier explicitly rather than relying on Ibis's inferred SQL type.
+        result = value.cast("float64").approx_quantile(q)
+        if value.type().is_decimal():
+            result = force_cast(result, value.type())
+    elif quantile_bounds and node.reducer in ("median", "quantile"):
+        # Only the declared result type and source checks are needed here. The
+        # observation compiler supplies bounds without a native quantile call.
+        result = value.min().cast(value.quantile(0.5).type())
     elif node.reducer == "mean":
         result = value.mean()
         if result.type().is_decimal():

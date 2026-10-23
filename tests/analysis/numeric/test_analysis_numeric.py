@@ -75,16 +75,6 @@ def test_direct_distribution(
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     observed = _distribution(case, agg)
-    if isinstance(agg, tuple) and agg[0] == "approx_percentile":
-        with pytest.raises(ms.errors.SemanticExpressionError) as caught:
-            observed.compute()
-        assert caught.value.expected == "a qualified approximate quantile route"
-        assert caught.value.received == "Ibis 12 has no approximate quantile operation"
-        assert caught.value.repair is not None
-        assert terminal_runs(case.session) == ()
-        # Choose the supported exact algorithm explicitly on the same input rows.
-        agg = ("percentile", agg[1])
-        observed = _distribution(case, agg)
     fixed = observed.compute()
     frame = fixed.to_pandas()
     rows = frame.set_index(ordinary_columns(frame)[0])[("value", "value")]

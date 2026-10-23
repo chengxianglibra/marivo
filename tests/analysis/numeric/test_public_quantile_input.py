@@ -39,6 +39,8 @@ def test_defined_quantiles_survive_source_offline_recovery(
         + "    return amount_value.median(time=time_value)\n"
         + "\n@ms.metric()\ndef approximate_median_amount():\n"
         + "    return amount_value.approx_median(time=time_value)\n"
+        + "\n@ms.metric()\ndef approximate_p95_amount():\n"
+        + "    return amount_value.approx_quantile(0.95, time=time_value)\n"
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -46,6 +48,7 @@ def test_defined_quantiles_survive_source_offline_recovery(
         {
             "median": session.catalog.metrics.get("sales.median_amount"),
             "approximate_median": session.catalog.metrics.get("sales.approximate_median_amount"),
+            "approximate_p95": session.catalog.metrics.get("sales.approximate_p95_amount"),
         },
         by=session.members(session.catalog.entities.get("sales.customer")),
     )
@@ -55,6 +58,7 @@ def test_defined_quantiles_survive_source_offline_recovery(
     for name in ("median", "approximate_median"):
         assert frame.loc["A", ("value", name)] == 187.875
         assert frame.loc[["B", "C", "D"], ("value", name)].isna().all()
+    assert frame.loc["A", ("value", "approximate_p95")] == 250.5
     # The algorithm belongs to the definition and actual source statement.
     submitted = [
         str(record["sql"]).upper()
@@ -101,6 +105,7 @@ for name in ('median', 'approximate_median'):
     assert frame.loc['A', ('value', name)] == 187.875
     assert frame.loc[['B', 'C', 'D'], ('value', name)].isna().all()
 assert len(frame) == 4
+assert frame.loc['A', ('value', 'approximate_p95')] == 250.5
 assert run_ids(session) == before
 """
     result = subprocess.run(
