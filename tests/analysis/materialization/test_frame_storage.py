@@ -81,6 +81,15 @@ from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
 
+# Keep operation-specific extrema/order/reduce/selection checks on one native
+# timestamp unit, one duration unit, and date32. All temporal units still have
+# dedicated minimum/null cold-read and export/restore coverage below.
+_EXTREME_TYPED_KEY_DTYPES = (
+    TimestampDataType("ns", "UTC"),
+    DurationDataType("ns"),
+    ScalarDataType("date"),
+)
+
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
@@ -1232,9 +1241,7 @@ def test_zero_column_preview_preserves_empty_vs_singleton(
 
 @pytest.mark.parametrize(
     "dtype",
-    [TimestampDataType(unit, "UTC") for unit in ("s", "ms", "us", "ns")]
-    + [DurationDataType(unit) for unit in ("s", "ms", "us", "ns")]
-    + [ScalarDataType("date")],
+    _EXTREME_TYPED_KEY_DTYPES,
 )
 @pytest.mark.parametrize("composite", [False, True])
 def test_reduce_retains_exact_extreme_and_null_complete_keys(
@@ -1326,9 +1333,7 @@ assert pa.array(rows[values[1].slot_id]).to_pylist() == [None, 10]
 
 @pytest.mark.parametrize(
     "dtype",
-    [TimestampDataType(unit, "UTC") for unit in ("s", "ms", "us", "ns")]
-    + [DurationDataType(unit) for unit in ("s", "ms", "us", "ns")]
-    + [ScalarDataType("date")],
+    _EXTREME_TYPED_KEY_DTYPES,
 )
 def test_top_orders_exact_extreme_null_composite_keys_and_scores(
     local: LocalFrameServices,
@@ -1929,9 +1934,7 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
 
 @pytest.mark.parametrize(
     "dtype",
-    [TimestampDataType(unit, "UTC") for unit in ("s", "ms", "us", "ns")]
-    + [DurationDataType(unit) for unit in ("s", "ms", "us", "ns")]
-    + [ScalarDataType("date")],
+    _EXTREME_TYPED_KEY_DTYPES,
 )
 def test_arrow_attachment_selection_keeps_exact_nullable_composite_keys(
     local: LocalFrameServices,
