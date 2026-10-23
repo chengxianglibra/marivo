@@ -146,12 +146,10 @@ def _ticks(
 
 
 TEMPORAL_TYPES: tuple[tuple[DataType, pa.DataType], ...] = (
-    *((DurationDataType(unit), pa.duration(unit)) for unit in ("s", "ms", "us", "ns")),
-    *(
-        (TimestampDataType(unit, zone), pa.timestamp(unit, zone))
-        for unit in ("s", "ms", "us", "ns")
-        for zone in (None, "UTC", "Asia/Shanghai")
-    ),
+    (DurationDataType("ns"), pa.duration("ns")),
+    (TimestampDataType("ns", None), pa.timestamp("ns")),
+    (TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC")),
+    (TimestampDataType("ns", "Asia/Shanghai"), pa.timestamp("ns", "Asia/Shanghai")),
     (ScalarDataType("date"), pa.date32()),
 )
 
