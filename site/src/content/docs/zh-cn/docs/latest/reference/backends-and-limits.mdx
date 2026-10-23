@@ -31,6 +31,20 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 
 本地操作可能在内存保留全部所需向量。展示行数限制不是计算或扫描限制。超时遵循驱动原生含义，部分设置可能不受支持；没有整个计算图的期限，也不会静默切换执行器。
 
+`md.raw_sql()` 默认请求 600 秒的原生查询超时，可通过 `timeout_seconds` 覆盖；
+Trino 将其用于 `query_max_run_time`。连接获取使用独立的原生 30 秒设置。
+查询超时不代表整个调用或结果获取的总时限。
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.raw_sql(
+    ms.ref.datasource("default"), "SELECT 1 AS ok",
+    reason="check query path", timeout_seconds=600,
+)
+```
+
 来源精度和溢出遵循合格后端。转换无法修复已丢失的精度或来源已经回绕的值；本地算术有自己的检查规则。不同来源之间没有统一 Decimal 精度保证。
 
 本地教程只演示其 DuckDB 路线。配置见[接入数据](/zh-cn/docs/latest/modeling/semantic-layer/#连接与检查)，具体失败见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。

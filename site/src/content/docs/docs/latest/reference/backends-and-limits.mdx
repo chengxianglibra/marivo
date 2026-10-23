@@ -31,6 +31,21 @@ Remote contribution retains direct physically nonnull integer or string identiti
 
 Local data operations can retain full required vectors in memory. A display limit is not a computation or scan limit. Timeouts retain the driver's native meaning and may be unsupported; there is no whole-graph deadline or silent switch to another executor.
 
+`md.raw_sql()` requests a 600-second native query timeout by default. Override it with
+`timeout_seconds`; Trino receives it as `query_max_run_time`. Connection acquisition
+uses separate native 30-second settings. The query timeout is not a complete-call
+or fetching deadline.
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.raw_sql(
+    ms.ref.datasource("default"), "SELECT 1 AS ok",
+    reason="check query path", timeout_seconds=600,
+)
+```
+
 Source precision and overflow follow the qualified backend. Conversion cannot repair precision already lost or a value already wrapped by the source. Local arithmetic has its own checked rules. No universal Decimal precision guarantee applies across all sources.
 
 The local tutorial demonstrates its DuckDB route only. [Connect data](/docs/latest/modeling/semantic-layer/) for setup and [troubleshoot](/docs/latest/reference/troubleshooting/) for concrete failures.

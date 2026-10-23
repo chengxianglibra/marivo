@@ -328,12 +328,15 @@ source connections; connection closure alone never proves remote query
 termination. Failed reads do not publish or replace a certified snapshot.
 
 `md.raw_sql(datasource: DatasourceSymbol, sql: str, *, reason: str,
-timeout_seconds: int = 30, include_types: bool = True,
+timeout_seconds: int = 600, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
 terminal SQL escape hatch for questions outside its governed Analysis capability.
 `md.raw_sql` is the sole public raw SQL terminal entry.
 It submits SQL text verbatim with a required nonempty reason, positive
-requested native timeout; unsupported query timeouts are skipped. The input is not parsed to classify
+requested native timeout (600 seconds by default); unsupported query timeouts are skipped.
+Connection acquisition retains separate native 30-second settings. Explicit
+`timeout_seconds` values override the query default; Trino receives this value
+as its `query_max_run_time` session property. The input is not parsed to classify
 SQL as a diagnostic. Read-only protection relies on connection and backend permissions
 and is best effort where the backend cannot guarantee it.
 The result retains all rows returned by the query, plus columns, types and

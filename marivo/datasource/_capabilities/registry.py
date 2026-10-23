@@ -456,7 +456,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "a row or byte cap. Control query size with filters, partition predicates, aggregation, "
             "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials: "
             "Trino relies on database-side permissions, not Marivo write prevention. "
-            "Native query and connection timeout requests remain; unsupported query timeouts are skipped. "
+            "Native query timeout defaults to 600 seconds; connection settings remain 30 seconds. "
+            "Unsupported query timeouts are skipped. "
             "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
             output="RawSqlResult",
             inputs=_inputs(

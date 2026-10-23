@@ -628,7 +628,7 @@ def raw_sql(
     sql: str,
     *,
     reason: str,
-    timeout_seconds: int = 30,
+    timeout_seconds: int = 600,
     include_types: bool = True,
     project_root: Path | None = None,
 ) -> RawSqlResult:
@@ -640,7 +640,8 @@ def raw_sql(
             The statement executes verbatim, without parsing, rewriting, or an injected row limit.
         reason: Required exploration reason shown in the result. Name the
             physical or semantic question and disclose inferred assumptions.
-        timeout_seconds: Requested native query timeout; skipped when unsupported.
+        timeout_seconds: Requested native query timeout, defaulting to 600 seconds;
+            skipped when unsupported.
             Connection acquisition requests separate native 30-second settings.
             This value does not bound the complete call or fetching.
         include_types: Whether to include returned column type labels when available.
