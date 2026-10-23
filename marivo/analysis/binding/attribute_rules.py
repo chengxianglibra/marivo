@@ -85,6 +85,7 @@ class AttributeRuleError(CoreRuleError):
                 "or investigate explicitly with population_from, in_population and a finer observe/compare."
             ),
             location="frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
 
 

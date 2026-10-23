@@ -249,6 +249,7 @@ class AttributeInputError(CoreRuleError):
             received=received,
             repair=repairs[reason],
             location="frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
 
 
@@ -358,6 +359,7 @@ def attribute_schema(
             repr((left.value_paths, right.value_paths)),
             "Provide the same named Metrics on both endpoints.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     fine = tuple(axis for i, axis in enumerate(left.axes) if i not in operation.left_parents)
     right_fine = tuple(
@@ -369,6 +371,7 @@ def attribute_schema(
             repr((fine, right_fine)),
             "Use one shared by declaration.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     for left_axis, right_axis in zip(fine, right_fine, strict=True):
         if axis_role(left_axis) != axis_role(right_axis) or len(left_axis.columns) != len(
@@ -379,6 +382,7 @@ def attribute_schema(
                 repr((left_axis, right_axis)),
                 "Provide compatible shared classifications.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         for x, y in zip(left_axis.columns, right_axis.columns, strict=True):
             if isinstance(x, DataColumn) and isinstance(y, DataColumn) and x.dtype != y.dtype:
@@ -387,6 +391,7 @@ def attribute_schema(
                     repr((x.dtype, y.dtype)),
                     "Use compatible classifications on both endpoints.",
                     "frame.attribute",
+                    canonical_id="analysis_frame.attribute",
                 )
     pending = any(isinstance(schema, PendingDataSchema) for schema in (left, right, parent))
     axes: list[PendingFrameAxis | DataAxis] = []
@@ -430,6 +435,7 @@ def attribute_schema(
                 repr((a, b)),
                 "Provide compatible named endpoint Metrics.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         dtype = (
             _compare_type(a.dtype, b.dtype)
@@ -834,6 +840,7 @@ def _common_report_type(columns: tuple[DataColumn, ...]) -> DataType:
         repr(dtypes),
         "Use source methods whose historical, parent and fine values retain a compatible exact numeric or Duration carrier.",
         "frame.attribute",
+        canonical_id="analysis_frame.attribute",
     )
 
 

@@ -10,9 +10,11 @@ from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from os import getpid
 from pathlib import Path
+from platform import python_version
 from time import monotonic
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, TypedDict
 from uuid import uuid4
 
 from marivo import _jsonl
@@ -21,6 +23,16 @@ from marivo.project import resolve_project_root
 
 LogValue: TypeAlias = str | int | float | bool | None
 QueryState: TypeAlias = Literal["succeeded", "failed"]
+
+
+class _RuntimeIdentity(TypedDict):
+    marivo_version: str
+    python_version: str
+    python_executable: str
+    package_path: str
+    process_id: int
+
+
 _MAX_FILE_BYTES = 128 * 1024 * 1024
 _MAX_HISTORICAL_BYTES = 1024 * 1024 * 1024
 _RETENTION_DAYS = 14
@@ -28,6 +40,7 @@ _LOCK = threading.Lock()
 _DROPPED: dict[Path, int] = {}
 _WARNED: set[tuple[Path, str]] = set()
 _LAST_PRUNED: dict[Path, date] = {}
+_RUNTIME_IDENTITY: _RuntimeIdentity | None = None
 _logger = logging.getLogger("marivo.execution")
 
 
@@ -78,6 +91,24 @@ def _warn(root: Path, kind: str, error: Exception) -> None:
             _logger.warning("Execution log %s failed (error_type=%s)", kind, type(error).__name__)
 
 
+def _runtime_identity() -> _RuntimeIdentity:
+    global _RUNTIME_IDENTITY
+
+    process_id = getpid()
+    if _RUNTIME_IDENTITY is None or _RUNTIME_IDENTITY["process_id"] != process_id:
+        from marivo.introspection.live.model import EnvironmentFingerprint
+
+        fingerprint = EnvironmentFingerprint.current()
+        _RUNTIME_IDENTITY = _RuntimeIdentity(
+            marivo_version=fingerprint.marivo_version,
+            python_version=python_version(),
+            python_executable=fingerprint.python_executable,
+            package_path=fingerprint.package_path,
+            process_id=process_id,
+        )
+    return _RUNTIME_IDENTITY
+
+
 def emit(
     event: str,
     *,
@@ -91,14 +122,15 @@ def emit(
     with _LOCK:
         try:
             now = datetime.now(UTC)
-            entry = {
-                "schema_version": 1,
+            entry: dict[str, LogValue | _RuntimeIdentity] = {
                 "timestamp": now.isoformat(),
                 "severity": severity,
                 "event": event,
                 **selected.fields,
                 **(fields or {}),
                 **facts,
+                "schema_version": 2,
+                "runtime": _runtime_identity(),
             }
             dropped = _DROPPED.get(root, 0)
             if dropped:

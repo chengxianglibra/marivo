@@ -18,6 +18,11 @@ description: 查找本地日志，设置遥测并检查待分享的记录。
 
 通过 query ID 对应一次 SQL 的提交和完成。
 
+新执行记录使用 `schema_version: 2`。每条事件都带有 `runtime` 对象，包含 `marivo_version`、`python_version`、`python_executable`、`package_path` 和 `process_id`；从轮转文件或日志尾部截取记录也能读到身份。这些字段由日志器拥有，调用方上下文不能覆盖。
+
+该身份描述产生事件时的运行环境，不证明包内容或数据快照；相同开发版本与路径可能包含不同代码。Doctor 报告当前环境。旧记录保持原样，缺少 runtime 表示历史身份未知。同一文件可以包含多个 schema 版本，应逐行解释。使用遥测保留自己的 schema，本次不变。
+
+
 ## 选择采集模式
 
 | 模式 | 行为 |

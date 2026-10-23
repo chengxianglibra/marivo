@@ -242,6 +242,7 @@ class AnalysisFrame:
                 repr(name),
                 f"Choose an explicit handle from frame.axes: {tuple((a.token, a.name) for a in self.axes)!r}.",
                 "frame.axis",
+                canonical_id="analysis_frame.axis",
             )
         return matches[0]
 
@@ -275,9 +276,16 @@ class AnalysisFrame:
             repr(name),
             f"Choose from {(*self.output_names, *self.presence_names)!r}; use frame.coord for coordinates.",
             "frame.__getitem__",
+            canonical_id="analysis_frame.__getitem__",
         )
 
-    def _axis_index(self, axis: FrameAxis) -> int:
+    def _axis_index(
+        self,
+        axis: FrameAxis,
+        *,
+        location: str = "frame.axis",
+        canonical_id: str | None = None,
+    ) -> int:
         if not isinstance(axis, FrameAxis) or (
             axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
         ):
@@ -285,7 +293,8 @@ class AnalysisFrame:
                 "an axis from this exact Frame input",
                 repr(axis),
                 "Acquire the axis from this Frame's axes.",
-                "frame.axis",
+                location,
+                canonical_id=canonical_id,
             )
         for index, current in enumerate(self.axes):
             if (current.token, current.name, current.role, current.key_names) == (
@@ -299,7 +308,8 @@ class AnalysisFrame:
             "a complete current axis handle",
             repr(axis),
             "Acquire the axis from this Frame's axes.",
-            "frame.axis",
+            location,
+            canonical_id=canonical_id,
         )
 
     def coord(self, axis: FrameAxis) -> Column:
@@ -310,7 +320,7 @@ class AnalysisFrame:
         Example: ``key = frame.coord(frame.axes[0])``.
         Constraints: Composite axes remain legal by/on inputs but cannot be split by coord.
         """
-        index = self._axis_index(axis)
+        index = self._axis_index(axis, location="frame.coord", canonical_id="analysis_frame.coord")
         columns = self._schema.axes[index].columns
         if len(columns) != 1:
             reject(
@@ -318,6 +328,7 @@ class AnalysisFrame:
                 repr(axis.key_names),
                 "Use the complete axis in by/on; do not split a composite identity.",
                 "frame.coord",
+                canonical_id="analysis_frame.coord",
             )
         column = columns[0]
         return Column(
@@ -329,7 +340,13 @@ class AnalysisFrame:
             _name=axis.name,
         )
 
-    def _require_column(self, column: Column) -> None:
+    def _require_column(
+        self,
+        column: Column,
+        *,
+        location: str = "frame.column",
+        canonical_id: str | None = None,
+    ) -> None:
         if not isinstance(column, Column) or (
             column._input_id != self._input_id
             or column._frame is None
@@ -339,16 +356,24 @@ class AnalysisFrame:
                 "a Column from this exact Store/Session/Frame input",
                 repr(column),
                 "Locate the Column on this Frame, or align the two Frames first.",
-                "frame.column",
+                location,
+                canonical_id=canonical_id,
             )
 
-    def _bind_statistic(self, statistic: _Statistic) -> _Statistic:
+    def _bind_statistic(
+        self,
+        statistic: _Statistic,
+        *,
+        location: str = "frame.reduce",
+        canonical_id: str | None = None,
+    ) -> _Statistic:
         if not isinstance(statistic, _Statistic):
             reject(
                 "an unfinished Column statistic or row_count()",
                 type(statistic).__name__,
                 "Construct the statistic from this Frame.",
-                "frame.reduce",
+                location,
+                canonical_id=canonical_id,
             )
         if (
             statistic._input_id is None
@@ -366,7 +391,8 @@ class AnalysisFrame:
                 "a statistic from this exact Frame input",
                 repr(statistic._input_id),
                 "Reacquire the Column on this Frame before constructing the statistic.",
-                "frame.reduce",
+                location,
+                canonical_id=canonical_id,
             )
         return statistic
 
@@ -384,13 +410,14 @@ class AnalysisFrame:
         Example: ``positive = frame.where(frame['revenue'] > 0)``.
         Constraints: Keeps True, excludes False and NA, and preserves relative row order.
         """
-        self._require_column(predicate)
+        self._require_column(predicate, location="frame.where", canonical_id="analysis_frame.where")
         if predicate._kind != "boolean":
             reject(
                 "a boolean Column",
                 predicate._kind,
                 "Compare current values to construct a predicate.",
                 "frame.where",
+                canonical_id="analysis_frame.where",
             )
         return self._derive(FilterValues(predicate._expression))
 
@@ -408,14 +435,17 @@ class AnalysisFrame:
                 type(values).__name__,
                 "Pass select({'name': column}).",
                 "frame.select",
+                canonical_id="analysis_frame.select",
             )
         expressions: list[tuple[str, ValueExpression]] = []
         from marivo.analysis.core.frame_structure import value_name
 
         for name, value in values.items():
-            value_name(name, location="frame.select")
+            value_name(name, location="frame.select", canonical_id="analysis_frame.select")
             if isinstance(value, Column):
-                self._require_column(value)
+                self._require_column(
+                    value, location="frame.select", canonical_id="analysis_frame.select"
+                )
                 expression = value._expression
             else:
                 try:
@@ -426,6 +456,7 @@ class AnalysisFrame:
                         str(error),
                         "Select a current Column or finite typed literal.",
                         "frame.select",
+                        canonical_id="analysis_frame.select",
                     )
                 if literal is None:
                     reject(
@@ -433,6 +464,7 @@ class AnalysisFrame:
                         "None",
                         "Select a nullable Column or derive NA with a typed operation.",
                         "frame.select",
+                        canonical_id="analysis_frame.select",
                     )
                 if isinstance(literal, datetime):
                     if literal.utcoffset() is None:
@@ -441,6 +473,7 @@ class AnalysisFrame:
                             repr(literal),
                             "Use an aware datetime or a date value.",
                             "frame.select",
+                            canonical_id="analysis_frame.select",
                         )
                     literal = literal.astimezone(timezone.utc)
                 expression = ValueLiteral(literal)
@@ -469,8 +502,9 @@ class AnalysisFrame:
                 repr((n, descending)),
                 "Choose a finite global Top-N selection.",
                 "frame.top",
+                canonical_id="analysis_frame.top",
             )
-        self._require_column(by)
+        self._require_column(by, location="frame.top", canonical_id="analysis_frame.top")
         return self._derive(TopValues(n, by._expression, descending))
 
     def reduce(
@@ -500,21 +534,29 @@ class AnalysisFrame:
                 type(values).__name__,
                 "Pass reduce({'rows': row_count()}, by=(frame.axes[0],)).",
                 "frame.reduce",
+                canonical_id="analysis_frame.reduce",
             )
-        positions = tuple(self._axis_index(axis) for axis in by)
+        positions = tuple(
+            self._axis_index(axis, location="frame.reduce", canonical_id="analysis_frame.reduce")
+            for axis in by
+        )
         if len(set(positions)) != len(positions):
             reject(
                 "distinct complete current axes",
                 repr(positions),
                 "Use each complete axis once.",
                 "frame.reduce",
+                canonical_id="analysis_frame.reduce",
             )
         from marivo.analysis.core.frame_structure import value_name
 
         statistics = []
         for name, value in values.items():
-            value_name(name, location="frame.reduce")
-            statistics.append((name, self._bind_statistic(value)._definition))
+            value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
+            bound = self._bind_statistic(
+                value, location="frame.reduce", canonical_id="analysis_frame.reduce"
+            )
+            statistics.append((name, bound._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
     def attribute(self, *, by: tuple[Deferred | Grouping, ...] | Population) -> AnalysisFrame:
@@ -565,17 +607,24 @@ class AnalysisFrame:
                 type(by).__name__,
                 "Pass over(statistic, by=(frame.axes[0],)).",
                 "frame.over",
+                canonical_id="analysis_frame.over",
             )
-        requested = tuple(self._axis_index(axis) for axis in by)
+        requested = tuple(
+            self._axis_index(axis, location="frame.over", canonical_id="analysis_frame.over")
+            for axis in by
+        )
         if len(set(requested)) != len(requested):
             reject(
                 "distinct complete current axes",
                 repr(requested),
                 "Use each complete axis once.",
                 "frame.over",
+                canonical_id="analysis_frame.over",
             )
         positions = tuple(index for index in range(len(self.axes)) if index in requested)
-        bound = self._bind_statistic(statistic)
+        bound = self._bind_statistic(
+            statistic, location="frame.over", canonical_id="analysis_frame.over"
+        )
         schema = infer_frame_schema(
             self._schema, ReduceValues((("statistic", bound._definition),), positions)
         )
@@ -622,6 +671,7 @@ class AnalysisFrame:
                 repr(method),
                 "Choose an explicit supported correlation method.",
                 "frame.correlate",
+                canonical_id="analysis_frame.correlate",
             )
         for label, column in (("x", x), ("y", y)):
             if not isinstance(column, Column) or (
@@ -634,6 +684,7 @@ class AnalysisFrame:
                     repr(column),
                     "Acquire both Columns on this Frame; align independent Frames first.",
                     "frame.correlate",
+                    canonical_id="analysis_frame.correlate",
                 )
         if type(by) is not tuple:
             reject(
@@ -641,6 +692,7 @@ class AnalysisFrame:
                 repr(by),
                 "Use by=() or by=(frame.axes[0],).",
                 "frame.correlate",
+                canonical_id="analysis_frame.correlate",
             )
         for axis in by:
             if not isinstance(axis, FrameAxis) or (
@@ -651,17 +703,28 @@ class AnalysisFrame:
                     repr(axis),
                     "Acquire by axes from this Frame.",
                     "frame.correlate",
+                    canonical_id="analysis_frame.correlate",
                 )
-        positions = tuple(self._axis_index(axis) for axis in by)
+        positions = tuple(
+            self._axis_index(
+                axis, location="frame.correlate", canonical_id="analysis_frame.correlate"
+            )
+            for axis in by
+        )
         if len(set(positions)) != len(positions):
             reject(
                 "distinct complete current axes",
                 repr(positions),
                 "Use each complete axis once.",
                 "frame.correlate",
+                canonical_id="analysis_frame.correlate",
             )
-        coefficient = x._pair_statistic(y, method, location="frame.correlate")
-        count = x._pair_statistic(y, "pair_count", location="frame.correlate")
+        coefficient = x._pair_statistic(
+            y, method, location="frame.correlate", canonical_id="analysis_frame.correlate"
+        )
+        count = x._pair_statistic(
+            y, "pair_count", location="frame.correlate", canonical_id="analysis_frame.correlate"
+        )
         return self._derive(
             ReduceValues(
                 (("coefficient", coefficient._definition), ("n_pairs", count._definition)),
@@ -675,6 +738,8 @@ class AnalysisFrame:
         *,
         on: tuple[tuple[FrameAxis, FrameAxis], ...] | None,
         match: CalendarCorrespondence | None,
+        location: str,
+        canonical_id: str,
     ) -> tuple[tuple[int, int], ...]:
         if (match is not None and not isinstance(match, CalendarCorrespondence)) or (
             on is not None
@@ -692,14 +757,16 @@ class AnalysisFrame:
                 "closed binary policies and a tuple of FrameAxis pairs",
                 repr((on, match)),
                 "Use complete FrameAxis pairs and exact/outer, null/error policies.",
-                "frame.combine",
+                location,
+                canonical_id=canonical_id,
             )
         if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:
             reject(
                 "Frame inputs from the same Store and Session",
                 repr(other),
                 "Use two inputs owned by the same Session.",
-                "frame.combine",
+                location,
+                canonical_id=canonical_id,
             )
         left_axes, right_axes = self.axes, other.axes
         if any(axis.role == "paired" for axis in (*left_axes, *right_axes)):
@@ -707,14 +774,16 @@ class AnalysisFrame:
                 "inputs without paired axes",
                 repr((left_axes, right_axes)),
                 "Reduce away paired axes or construct new source inputs.",
-                "frame.combine",
+                location,
+                canonical_id=canonical_id,
             )
         if len(left_axes) != len(right_axes):
             reject(
                 "equal complete axis counts",
                 repr((len(left_axes), len(right_axes))),
                 "Reduce or reconstruct inputs with compatible axes.",
-                "frame.combine",
+                location,
+                canonical_id=canonical_id,
             )
         if on is None:
             if (
@@ -728,7 +797,8 @@ class AnalysisFrame:
                     "a complete explicit axis bijection",
                     repr((left_axes, right_axes)),
                     "Pass on with every complete axis exactly once; only zero axes or a sole calendar axis on each side can be inferred.",
-                    "frame.combine",
+                    location,
+                    canonical_id=canonical_id,
                 )
             else:
                 on = ()
@@ -741,9 +811,16 @@ class AnalysisFrame:
                 "a complete explicit axis bijection",
                 repr(on),
                 f"Bind each complete axis once from {left_axes!r} to {right_axes!r}.",
-                "frame.combine",
+                location,
+                canonical_id=canonical_id,
             )
-        return tuple((self._axis_index(a), other._axis_index(b)) for a, b in on)
+        return tuple(
+            (
+                self._axis_index(a, location=location, canonical_id=canonical_id),
+                other._axis_index(b, location=location, canonical_id=canonical_id),
+            )
+            for a, b in on
+        )
 
     def align(
         self,
@@ -769,7 +846,13 @@ class AnalysisFrame:
         require explicit mapping. This declares caller business correspondence; validation
         does not check original Entity/Field equality. Paired inputs reject. No Catalog or row reads.
         """
-        pairs = self._axis_pairs(other, on=on, match=match)
+        pairs = self._axis_pairs(
+            other,
+            on=on,
+            match=match,
+            location="frame.align",
+            canonical_id="analysis_frame.align",
+        )
         operation = AlignFrameValues(pairs, match)
         schema = infer_frame_combine_schema(self._schema, other._schema, operation)
         return self._from_expression(
@@ -810,15 +893,21 @@ class AnalysisFrame:
                 repr(baselines),
                 "Pass compare({'reference': baseline}) even for one baseline.",
                 "frame.compare",
+                canonical_id="analysis_frame.compare",
             )
         names = tuple(baselines)
-        validate_paths(tuple((name,) for name in names), location="frame.compare.aliases")
+        validate_paths(
+            tuple((name,) for name in names),
+            location="frame.compare.aliases",
+            canonical_id="analysis_frame.compare",
+        )
         if "current" in names:
             reject(
                 "baseline aliases other than current",
                 repr(names),
                 "Rename the baseline alias.",
                 "frame.compare",
+                canonical_id="analysis_frame.compare",
             )
         for mapping in (on, match):
             if mapping is not None and (
@@ -829,6 +918,7 @@ class AnalysisFrame:
                     repr(mapping),
                     f"Use the actual baseline aliases {names!r}.",
                     "frame.compare",
+                    canonical_id="analysis_frame.compare",
                 )
         if on is not None and any(type(pairs) is not tuple for pairs in on.values()):
             reject(
@@ -836,6 +926,7 @@ class AnalysisFrame:
                 repr(on),
                 "Omit an alias to request inference, or supply its complete axis-pair tuple.",
                 "frame.compare",
+                canonical_id="analysis_frame.compare",
             )
         if match is not None and any(
             type(rule) is not CalendarCorrespondence for rule in match.values()
@@ -845,6 +936,7 @@ class AnalysisFrame:
                 repr(match),
                 "Omit an alias for direct inference or equality, or supply ordinal/offset.",
                 "frame.compare",
+                canonical_id="analysis_frame.compare",
             )
         bindings = tuple(
             NamedFrameComparison(
@@ -853,6 +945,8 @@ class AnalysisFrame:
                     baseline,
                     on=None if on is None else on.get(name),
                     match=None if match is None else match.get(name),
+                    location="frame.compare",
+                    canonical_id="analysis_frame.compare",
                 ),
                 None if match is None else match.get(name),
             )
@@ -916,6 +1010,7 @@ class AnalysisFrame:
                 "pending expression",
                 "Call compute() or persist() before reading method_facts.",
                 "frame.method_facts",
+                canonical_id="analysis_frame.method_facts",
             )
         if isinstance(self._backing, MemoryFrameBacking):
             return self._backing.method_facts
@@ -940,6 +1035,7 @@ class AnalysisFrame:
                     self._backing.artifact_id,
                     "Preserve the selected Artifact metadata.",
                     "frame.persist",
+                    canonical_id="analysis_frame.persist",
                 )
             return self
         completed = self.compute()
@@ -968,6 +1064,7 @@ class AnalysisFrame:
                 type(self._backing).__name__,
                 "Call persist() and use the returned Frame's artifact.",
                 "frame.artifact",
+                canonical_id="analysis_frame.artifact",
             )
         selected = self._local.open_frame(self._backing.artifact_id)
         if selected != self._backing:
@@ -976,16 +1073,34 @@ class AnalysisFrame:
                 self._backing.artifact_id,
                 "Preserve the selected Artifact metadata.",
                 "frame.artifact",
+                canonical_id="analysis_frame.artifact",
             )
         return self._local.artifact(self._backing.artifact_id)
 
     def to_pandas(self) -> pd.DataFrame:
         """Export all fixed data as isolated typed arrays and inert attrs.
 
-        Args: None.
-        Returns: A complete pandas DataFrame with raw coordinate MultiIndex columns.
-        Example: ``rows = saved.to_pandas()``.
-        Constraints: Pending expressions require compute/persist; saved reads fully validate.
+        This method accepts no parameters.
+
+        Returns:
+            A complete pandas DataFrame with two-level MultiIndex columns named
+            kind/name. coordinate uses axis tokens (complete tuples for composite
+            keys); value uses full output names; presence uses independent nonnullable
+            booleans, distinct from value NA and zero. Coordinate and presence groups
+            may be absent. attrs['axes'] maps token/name/role/key_names/at; units,
+            comparisons and frozen_coordinates retain inert interpretation.
+
+        Example:
+            ``rows = frame.compute().to_pandas()``; read a known output with
+            ``rows[("value", "amount")]`` and discover axes through ``rows.attrs["axes"]``.
+
+        Constraints:
+            Pending expressions require compute/persist, including derivatives of
+            fixed data; use the returned Frame. Saved reads fully validate current
+            data. Numeric, missing and temporal carriers retain their physical types;
+            do not infer float conversion from column names or roles. Data and attrs
+            are isolated copies without semantic definitions or computation authority;
+            internal descriptors are not a stable deserialization contract.
         """
         from marivo.analysis.materialization.pandas_export import export_frame
 
@@ -995,6 +1110,7 @@ class AnalysisFrame:
                 "expression",
                 "Call compute() or persist() before exporting.",
                 "frame.to_pandas",
+                canonical_id="analysis_frame.to_pandas",
             )
         data = (
             self._local.read_data(self._backing)
@@ -1026,6 +1142,7 @@ class AnalysisFrame:
                 repr(n),
                 "Use n=0 for metadata only.",
                 "frame.show",
+                canonical_id="analysis_frame.show",
             )
         from marivo.render import Card
 
@@ -1135,6 +1252,7 @@ class AnalysisFrame:
                         self._backing.artifact_id,
                         "Preserve the selected Artifact metadata.",
                         "frame.show",
+                        canonical_id="analysis_frame.show",
                     )
                 total = self._backing.data.rows.receipt.realized_row_count
             card.field("result_id", self._backing.metadata.result_id)

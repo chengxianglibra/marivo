@@ -50,12 +50,19 @@ _MethodScalar: TypeAlias = bool | int | float | str | date | Decimal | None
 _Method: TypeAlias = "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod"
 
 
-def _fail(expected: str, received: str, location: str = "frame.method_facts") -> NoReturn:
+def _fail(
+    expected: str,
+    received: str,
+    location: str = "frame.method_facts",
+    *,
+    canonical_id: str = "analysis_frame.method_facts",
+) -> NoReturn:
     reject(
         expected,
         received,
         "Retain the exact closed facts from the completed Attribute result.",
         location,
+        canonical_id=canonical_id,
     )
 
 
@@ -166,7 +173,12 @@ class _FactRecord:
         Constraints: Reads only these immutable records; performs no source or file I/O.
         """
         if type(n) is not int or n < 0:
-            _fail("a nonnegative integer preview count", repr(n), "frame.method_facts.show")
+            _fail(
+                "a nonnegative integer preview count",
+                repr(n),
+                "frame.method_facts.show",
+                canonical_id="frame_method_facts.show",
+            )
         print(f"{type(self).__name__}: {_short(self._summary(), 180)}")
         assert is_dataclass(self)
         print("Fields: " + ", ".join(field.name for field in fields(self)))

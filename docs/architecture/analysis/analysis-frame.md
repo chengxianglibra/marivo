@@ -38,6 +38,28 @@ compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢�
 已完成的 where/top 选择由完整父键、旧值和冻结时间对应固定；后续 attribute 不重跑历史筛选。
 保留声明不改变当前数据操作的读取基础，原值与本次新读父值分别通过 observed_total 与 total 展示。
 
+## 完整 pandas 导出
+
+`to_pandas()` 只接受完整内存或持久 Frame，返回隔离副本；表达式须先显式
+`compute()` 或 `persist()` 并使用返回对象。固定数据上的派生运算同样保持惰性。
+
+列为两级 MultiIndex，级名是 `kind` 和 `name`：
+
+| kind | name 与单元格含义 |
+| --- | --- |
+| `coordinate` | 当前轴 token；复合轴每个单元格保留完整键 tuple |
+| `value` | 完整输出名称，可通过 `frame.output_names` 查询 |
+| `presence` | 独立非空布尔值，与数值 NA 和合法零分开 |
+
+零轴或没有 presence 的 Frame 可不含相应列组。`df.attrs["axes"]` 中的
+`token/name/role/key_names/at` 描述轴；使用 token 对应 coordinate 列，不依赖固定
+轴位置。`units`、`comparisons` 和 `frozen_coordinates` 保留单位、比较及冻结坐标说明。
+内部 descriptor 是静态说明数据，不承诺稳定的反序列化或重新导入协议。
+
+导出保留物理数值、缺失和时间载体；列名或角色不能证明应转成 float，不统一强制数值转换
+或以零填 NA。修改导出数据和 attrs 不改变 Frame，也不能恢复语义定义、执行图或新的计算
+权限。呈现可以命名、排序和格式化；后续 typed 运算仍从保留的 Frame 继续。
+
 ## 值、轴与句柄
 
 Column 表示某个精确 Frame 输入上的值表达式。frame[name] 按完整值或 presence 名查找；

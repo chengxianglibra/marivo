@@ -84,6 +84,7 @@ class Column:
             "add", "sub", "mul", "div", "eq", "ne", "lt", "le", "gt", "ge", "and", "or"
         ],
         *,
+        canonical_id: str,
         reverse: bool = False,
     ) -> Column:
         if isinstance(other, Column):
@@ -93,6 +94,7 @@ class Column:
                     "different Frame inputs",
                     "Align the Frames before combining their Columns.",
                     "Column",
+                    canonical_id=canonical_id,
                 )
             expression, unit, kind = other._expression, other._unit, other._kind
         else:
@@ -104,6 +106,7 @@ class Column:
                     str(error),
                     "Pass a finite typed literal or use is_null().",
                     "Column",
+                    canonical_id=canonical_id,
                 )
             if value is None:
                 reject(
@@ -111,6 +114,7 @@ class Column:
                     "None",
                     "Use Column.is_null() for missing values.",
                     "Column",
+                    canonical_id=canonical_id,
                 )
             if isinstance(value, datetime) and (value.tzinfo is None or value.utcoffset() is None):
                 reject(
@@ -118,6 +122,7 @@ class Column:
                     repr(value),
                     "Pass an aware datetime; use date for date-valued Columns.",
                     "Column",
+                    canonical_id=canonical_id,
                 )
             expression, unit, kind = ValueLiteral(value), None, literal_kind(value)
         comparison = operation in ("eq", "ne", "lt", "le", "gt", "ge")
@@ -128,6 +133,7 @@ class Column:
                     f"{self._kind}, {kind}",
                     "Combine predicates with & or |.",
                     "Column",
+                    canonical_id=canonical_id,
                 )
         elif not comparison and (
             self._kind not in ("numeric", "duration", "unresolved")
@@ -138,6 +144,7 @@ class Column:
                 f"{self._kind}, {kind}",
                 "Select a numeric value for arithmetic.",
                 "Column",
+                canonical_id=canonical_id,
             )
         if comparison and self._kind != kind and "unresolved" not in (self._kind, kind):
             reject(
@@ -145,6 +152,7 @@ class Column:
                 f"{self._kind}, {kind}",
                 "Compare compatible values.",
                 "Column",
+                canonical_id=canonical_id,
             )
         if operation in ("add", "sub", "eq", "ne", "lt", "le", "gt", "ge"):
             if isinstance(other, Column) and self._unit != unit:
@@ -153,6 +161,7 @@ class Column:
                     f"{self._unit!r}, {unit!r}",
                     "Use Columns with the same declared unit.",
                     "Column",
+                    canonical_id=canonical_id,
                 )
             result_unit = self._unit
         elif operation == "mul":
@@ -207,7 +216,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column + 1``.
         Constraints: Compatible units are required. Construction performs no I/O.
         """
-        return self._binary(other, "add")
+        return self._binary(other, "add", canonical_id="column.__add__")
 
     def __radd__(self, other: LiteralValue) -> Column:
         """Add a literal to each nullable value.
@@ -216,7 +225,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``1 + column``.
         Constraints: Compatible units are required. Construction performs no I/O.
         """
-        return self._binary(other, "add", reverse=True)
+        return self._binary(other, "add", canonical_id="column.__radd__", reverse=True)
 
     def __sub__(self, other: Column | LiteralValue) -> Column:
         """Subtract two nullable values pointwise.
@@ -225,7 +234,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column - 1``.
         Constraints: Compatible units are required. Construction performs no I/O.
         """
-        return self._binary(other, "sub")
+        return self._binary(other, "sub", canonical_id="column.__sub__")
 
     def __rsub__(self, other: LiteralValue) -> Column:
         """Subtract each nullable value from a literal.
@@ -234,7 +243,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``1 - column``.
         Constraints: Compatible units are required. Construction performs no I/O.
         """
-        return self._binary(other, "sub", reverse=True)
+        return self._binary(other, "sub", canonical_id="column.__rsub__", reverse=True)
 
     def __mul__(self, other: Column | LiteralValue) -> Column:
         """Multiply nullable values pointwise.
@@ -243,7 +252,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column * 2``.
         Constraints: Units follow numeric multiplication. Construction performs no I/O.
         """
-        return self._binary(other, "mul")
+        return self._binary(other, "mul", canonical_id="column.__mul__")
 
     def __rmul__(self, other: LiteralValue) -> Column:
         """Multiply a literal by nullable values.
@@ -252,7 +261,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``2 * column``.
         Constraints: Units follow numeric multiplication. Construction performs no I/O.
         """
-        return self._binary(other, "mul", reverse=True)
+        return self._binary(other, "mul", canonical_id="column.__rmul__", reverse=True)
 
     def __truediv__(self, other: Column | LiteralValue) -> Column:
         """Divide nullable values with null at a zero denominator.
@@ -261,7 +270,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column / 2``.
         Constraints: NA values propagate. Construction performs no I/O.
         """
-        return self._binary(other, "div")
+        return self._binary(other, "div", canonical_id="column.__truediv__")
 
     def __rtruediv__(self, other: LiteralValue) -> Column:
         """Divide a literal by nullable values, with null at zero.
@@ -270,7 +279,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``2 / column``.
         Constraints: NA values propagate. Construction performs no I/O.
         """
-        return self._binary(other, "div", reverse=True)
+        return self._binary(other, "div", canonical_id="column.__rtruediv__", reverse=True)
 
     def __neg__(self) -> Column:
         """Negate nullable numeric values pointwise.
@@ -294,7 +303,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column == 1``.
         Constraints: Use is_null to test missing values. Construction performs no I/O.
         """
-        return self._compare(other, "eq")
+        return self._compare(other, "eq", canonical_id="column.__eq__")
 
     def __ne__(self, other: object) -> Column:  # type: ignore[override]
         """Compare compatible values for inequality.
@@ -303,10 +312,14 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column != 1``.
         Constraints: Use is_null to test missing values. Construction performs no I/O.
         """
-        return self._compare(other, "ne")
+        return self._compare(other, "ne", canonical_id="column.__ne__")
 
     def _compare(
-        self, other: object, operation: Literal["eq", "ne", "lt", "le", "gt", "ge"]
+        self,
+        other: object,
+        operation: Literal["eq", "ne", "lt", "le", "gt", "ge"],
+        *,
+        canonical_id: str,
     ) -> Column:
         if (
             not isinstance(other, (Column, str, int, float, Decimal, date, timedelta))
@@ -317,8 +330,9 @@ class Column:
                 type(other).__name__,
                 "Compare a compatible value.",
                 "Column",
+                canonical_id=canonical_id,
             )
-        return self._binary(other, operation)
+        return self._binary(other, operation, canonical_id=canonical_id)
 
     def __lt__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in ascending order.
@@ -327,7 +341,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column < 1``.
         Constraints: Value kinds and units must agree. Construction performs no I/O.
         """
-        return self._binary(other, "lt")
+        return self._binary(other, "lt", canonical_id="column.__lt__")
 
     def __le__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in ascending order, including equality.
@@ -336,7 +350,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column <= 1``.
         Constraints: Value kinds and units must agree. Construction performs no I/O.
         """
-        return self._binary(other, "le")
+        return self._binary(other, "le", canonical_id="column.__le__")
 
     def __gt__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in descending order.
@@ -345,7 +359,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column > 1``.
         Constraints: Value kinds and units must agree. Construction performs no I/O.
         """
-        return self._binary(other, "gt")
+        return self._binary(other, "gt", canonical_id="column.__gt__")
 
     def __ge__(self, other: Column | LiteralValue) -> Column:
         """Compare compatible values in descending order, including equality.
@@ -354,7 +368,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``column >= 1``.
         Constraints: Value kinds and units must agree. Construction performs no I/O.
         """
-        return self._binary(other, "ge")
+        return self._binary(other, "ge", canonical_id="column.__ge__")
 
     def __and__(self, other: Column) -> Column:
         """Combine two nullable boolean predicates.
@@ -363,7 +377,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``predicate & other``.
         Constraints: Both operands must be boolean Columns. Construction performs no I/O.
         """
-        return self._binary(other, "and")
+        return self._binary(other, "and", canonical_id="column.__and__")
 
     def __or__(self, other: Column) -> Column:
         """Combine two nullable boolean alternatives.
@@ -372,7 +386,7 @@ class Column:
         Returns: A lazy Column over this exact input. Example: ``predicate | other``.
         Constraints: Both operands must be boolean Columns. Construction performs no I/O.
         """
-        return self._binary(other, "or")
+        return self._binary(other, "or", canonical_id="column.__or__")
 
     def __invert__(self) -> Column:
         """Negate a nullable boolean predicate.
@@ -381,7 +395,13 @@ class Column:
         Example: ``~predicate``. Constraints: The operand must be a boolean Column. No I/O occurs.
         """
         if self._kind != "boolean":
-            reject("a boolean Column", self._kind, "Negate a predicate with ~.", "Column")
+            reject(
+                "a boolean Column",
+                self._kind,
+                "Negate a predicate with ~.",
+                "Column",
+                canonical_id="column.__invert__",
+            )
         return Column(
             self._input_id,
             ValueUnary("not", self._expression),
@@ -427,18 +447,23 @@ class Column:
                 repr(along),
                 "Acquire the Column and axes from one Frame; use / for a scalar ratio.",
                 "Column.share",
+                canonical_id="column.share",
             )
-        frame._require_column(self)
-        positions = tuple(frame._axis_index(axis) for axis in along)
+        frame._require_column(self, location="Column.share", canonical_id="column.share")
+        positions = tuple(
+            frame._axis_index(axis, location="Column.share", canonical_id="column.share")
+            for axis in along
+        )
         if len(set(positions)) != len(positions):
             reject(
                 "distinct complete current axes",
                 repr(positions),
                 "Use each complete axis once.",
                 "Column.share",
+                canonical_id="column.share",
             )
         partitions = tuple(axis for index, axis in enumerate(frame.axes) if index not in positions)
-        denominator = frame.over(self.sum(), by=partitions)
+        denominator = frame.over(self._statistic("sum", canonical_id="column.share"), by=partitions)
         result = self / denominator
         from marivo._definition.query import SelectValues
         from marivo.analysis.core.frame_expression import infer_frame_schema
@@ -459,7 +484,7 @@ class Column:
 
         Example: ``q.reduce({'total': q['value'].sum()})``.
         """
-        return self._statistic("sum")
+        return self._statistic("sum", canonical_id="column.sum")
 
     def mean(self) -> _Statistic:
         """Request an ignore-NA mean, completed by AnalysisFrame.reduce or over.
@@ -468,7 +493,7 @@ class Column:
         Constraints: Numeric or Duration values; reduce aggregates and over broadcasts.
         Example: ``q.reduce({'average': q['value'].mean()})``.
         """
-        return self._statistic("mean")
+        return self._statistic("mean", canonical_id="column.mean")
 
     def corr(self, other: Column, *, method: Literal["pearson", "spearman"]) -> _Statistic:
         """Request one paired correlation coefficient, completed by Frame.reduce or over.
@@ -491,8 +516,11 @@ class Column:
                 repr(method),
                 "Choose an explicit supported correlation method.",
                 "Column.corr",
+                canonical_id="column.corr",
             )
-        return self._pair_statistic(other, method, location="Column.corr")
+        return self._pair_statistic(
+            other, method, location="Column.corr", canonical_id="column.corr"
+        )
 
     def pair_count(self, other: Column) -> _Statistic:
         """Count common non-NA endpoint values, completed by Frame.reduce or over.
@@ -506,7 +534,9 @@ class Column:
         does not compute ranks or a coefficient. Frame.correlate includes this
         count, which is a row count rather than an independent sample size.
         """
-        return self._pair_statistic(other, "pair_count", location="Column.pair_count")
+        return self._pair_statistic(
+            other, "pair_count", location="Column.pair_count", canonical_id="column.pair_count"
+        )
 
     def _pair_statistic(
         self,
@@ -514,6 +544,7 @@ class Column:
         method: Literal["pearson", "spearman", "pair_count"],
         *,
         location: str,
+        canonical_id: str,
     ) -> _Statistic:
         if method not in ("pearson", "spearman", "pair_count"):
             reject(
@@ -521,6 +552,7 @@ class Column:
                 repr(method),
                 "Choose a supported paired statistic.",
                 location,
+                canonical_id=canonical_id,
             )
         if not isinstance(other, Column):
             reject(
@@ -528,6 +560,7 @@ class Column:
                 f"right endpoint: {type(other).__name__}",
                 "Acquire both numeric Columns from the same Frame, or align Frames first.",
                 location,
+                canonical_id=canonical_id,
             )
         if (
             self._input_id != other._input_id
@@ -540,6 +573,7 @@ class Column:
                 "left and right endpoints from different Frame inputs",
                 "Acquire both numeric Columns from the same Frame, or align Frames first.",
                 location,
+                canonical_id=canonical_id,
             )
         for side, column in (("left", self), ("right", other)):
             if column._kind not in ("numeric", "unresolved"):
@@ -557,6 +591,7 @@ class Column:
                     f"{side} endpoint: {received}",
                     "Construct a source expression with an explicit numeric unit, or use external computation.",
                     location,
+                    canonical_id=canonical_id,
                 )
         return _Statistic(
             self._input_id,
@@ -565,9 +600,15 @@ class Column:
             self._frame,
         )
 
-    def _statistic(self, method: Literal["sum", "mean"]) -> _Statistic:
+    def _statistic(self, method: Literal["sum", "mean"], *, canonical_id: str) -> _Statistic:
         if self._kind not in ("numeric", "duration", "unresolved"):
-            reject("a numeric Column", self._kind, "Reduce a numeric value.", "Column")
+            reject(
+                "a numeric Column",
+                self._kind,
+                "Reduce a numeric value.",
+                "Column",
+                canonical_id=canonical_id,
+            )
         return _Statistic(
             self._input_id, Statistic(method, self._expression), self._unit, self._frame
         )
@@ -578,6 +619,7 @@ class Column:
             "Python truth conversion",
             "Use & / | and frame.where; call compute explicitly.",
             "Column",
+            canonical_id="column",
         )
 
 

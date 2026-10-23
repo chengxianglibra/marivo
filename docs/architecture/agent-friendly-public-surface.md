@@ -41,6 +41,12 @@ and calculations over represented rows. Execution fixes or saves values;
 results inspects data and audit; sessions establishes or recovers exact context.
 Known APIs and objects can enter their exact reference directly.
 
+Exact callable pages use one short example with declared inputs. Examples may
+compose operations to show exact-input handles, lazy derivation from fixed data,
+statistic consumption or export access. They remain static text: rendering Help
+does not execute examples, create Sessions or read project/source data. Task
+pages link to the owning callable instead of maintaining another example set.
+
 Authoring routes datasource work through connections, sources, inspection and
 the semantic handoff. Semantic work selects model definitions, expression roles,
 time meaning, catalog lookup or validation according to the missing decision.
@@ -77,6 +83,12 @@ next decision. Related routes are navigation, rather than a mandatory checklist.
 Errors do not invent names, choose a different business meaning, silently widen
 a scope or retry on another execution target. Public result repr is bounded,
 single-line and points to show rather than dumping dataclass fields.
+
+Analysis validation call sites explicitly supply the canonical Help identity of
+the public operation they own. Shared validators receive the actual consumer,
+so a rejected statistic consumed by over links to over, not reduce. Diagnostic
+location text is not a routing key. Internal failures without an explicit owner
+retain surface guidance; more specific underlying errors keep their own repairs.
 
 ## Computation and inspection
 

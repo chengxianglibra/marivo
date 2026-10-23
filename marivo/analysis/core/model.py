@@ -18,7 +18,15 @@ if TYPE_CHECKING:
 class CoreRuleError(AnalysisError):
     """A private analysis structure has invalid input or lacks a premise."""
 
-    def __init__(self, *, expected: str, received: str, repair: str, location: str) -> None:
+    def __init__(
+        self,
+        *,
+        expected: str,
+        received: str,
+        repair: str,
+        location: str,
+        canonical_id: str | None = None,
+    ) -> None:
         super().__init__(
             message="Analysis core rule validation failed.",
             expected=expected,
@@ -29,18 +37,27 @@ class CoreRuleError(AnalysisError):
                 action=repair,
                 help_target=LiveHelpTarget(
                     surface="analysis",
-                    canonical_id={
-                        "frame.attribute": "analysis_frame.attribute",
-                        "frame.method_facts": "analysis_frame.method_facts",
-                        "frame.method_facts.show": "frame_method_facts.show",
-                    }.get(location),
+                    canonical_id=canonical_id,
                 ),
             ),
         )
 
 
-def reject(expected: str, received: str, repair: str, location: str) -> NoReturn:
-    raise CoreRuleError(expected=expected, received=received, repair=repair, location=location)
+def reject(
+    expected: str,
+    received: str,
+    repair: str,
+    location: str,
+    *,
+    canonical_id: str | None = None,
+) -> NoReturn:
+    raise CoreRuleError(
+        expected=expected,
+        received=received,
+        repair=repair,
+        location=location,
+        canonical_id=canonical_id,
+    )
 
 
 def _nonempty(value: str, location: str) -> None:

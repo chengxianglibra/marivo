@@ -369,12 +369,14 @@ def provider() -> DisclosureProvider:
             "compute",
             (),
             "AnalysisFrame",
-            "Evaluate an expression or fully load a stored root into an independent memory Frame; a memory root returns itself.",
-            "result = frame.compute()",
+            "Return complete independent memory; memory roots return themselves.",
+            "fixed = frame.compute()\n"
+            "derived = fixed.select({'scaled': fixed['value'] * 2})\n"
+            "result = derived.compute()",
             ("frame",),
             "execution",
             (
-                "No Artifact is created. Stored loading validates current data and all owned method facts; use handles from the returned Frame. Explicit source leaves may read changing sources.",
+                "Example needs numeric frame['value']. No Artifact is created. Load/validate all stored data/method facts; use returned handles. Fixed derivations: lazy, no source reread. Explicit sources may change.",
             ),
         ),
         (
@@ -411,12 +413,18 @@ def provider() -> DisclosureProvider:
             "to_pandas",
             (),
             "pandas.DataFrame",
-            "Read the complete fixed result as isolated values and frozen coordinate metadata.",
-            "result = frame.compute().to_pandas()",
+            "Export all fixed data without evaluation.",
+            "fixed = frame.compute()\n"
+            "result = fixed.to_pandas()\n"
+            "values = result[('value', 'value')]\n"
+            "axis_labels = result.attrs['axes']",
             ("frame",),
             "results.inspect",
             (
-                "Pending expressions must first compute or persist; this method never executes them. Stored export reads current rows/coordinates, not method payloads, and needs no model, Catalog or source. Exported values and attrs are isolated; pandas attrs cannot be imported as computation authority.",
+                "Example needs frame['value']. compute/persist first. No model/Catalog/source/method-payload reads.",
+                "Two-level MultiIndex(kind,name): coordinate=axis token (complete composite tuples); value=full output_names; presence=nonnullable bool, distinct from NA/zero. coordinate/presence optional.",
+                "attrs: axes(token/name/role/key_names/at), units/comparisons/frozen_coordinates. Match tokens, not positions. Internal descriptors have no stable reload contract. Keep numeric/NA/time carriers; names/roles do not imply float.",
+                "Isolated values/attrs grant no semantic definitions/graph/computation authority. Name/order/format here; continue supported analysis from Frame.",
             ),
         ),
         (
@@ -548,6 +556,8 @@ def provider() -> DisclosureProvider:
                 failures=(
                     "ValueError: use a supported exact calendar domain and an offset rule; target civil clocks must be unique."
                     if owner is CalendarAxis and name == "shift"
+                    else "AnalysisError: follow its repair."
+                    if owner is AnalysisFrame and name in ("compute", "to_pandas")
                     else "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),

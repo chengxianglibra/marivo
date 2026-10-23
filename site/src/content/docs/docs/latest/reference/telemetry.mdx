@@ -18,6 +18,11 @@ Execution logs record queries and their outcomes; usage telemetry records operat
 
 Use the query ID to match a SQL submission with its completion.
 
+New execution records use `schema_version: 2`. Each event carries a `runtime` object with `marivo_version`, `python_version`, `python_executable`, `package_path` and `process_id`, including records read from a rotated file or a log tail. These fields belong to the logger and cannot be replaced by caller context.
+
+This identity describes the environment that emitted the event. It does not prove package contents or a data snapshot; equal development versions and paths can contain different code. Doctor reports the current environment. Older records are unchanged, and missing runtime means the historical identity is unknown. One file can contain multiple schema versions; interpret each line separately. Usage telemetry has its own schema and is unchanged.
+
+
 ## Choose capture mode
 
 | Mode | Behavior |

@@ -9,7 +9,7 @@ description: Diagnose common errors and find API usage in Live Help.
 <span id="contribution-targets-and-full-explanation-reads"></span>
 <span id="exact-data-recovery-and-resubmission"></span>
 
-Use the symptom to choose a repair. Keep the original error and the interpreter, package version and project root from Doctor.
+Use the symptom to choose a repair. Keep the original error and the interpreter, package version and project root from Doctor. For historical execution, inspect the event's runtime identity in [execution logs](/docs/latest/reference/telemetry/); Doctor only identifies the current environment.
 
 | Symptom | Confirm | Repair |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ Resume the owning Session to reconcile its original transaction before submittin
 
 Do not delete `.marivo/` or force initialization as a general repair. Older state is not automatically migrated. Preserve it and read/export with a compatible environment; use a fresh project for incompatible current work.
 
-[Find Help](#query-the-installed-version) for the error's exact repair target. Include a minimal reproduction with credentials and private data removed when asking for assistance.
+[Find Help](#query-the-installed-version) for the error's exact repair target. Frame/Column validation points to the public operation that rejected the input. For example, an old statistic passed to `over` links to `analysis.analysis_frame.over`; reconstruct it from the receiving Frame. Pending export links to `analysis.analysis_frame.to_pandas`; compute first and export the returned Frame. Internal errors without a unique public owner can still point to broader Help. Include a minimal reproduction with credentials and private data removed when asking for assistance.
 
 ## Find APIs
 

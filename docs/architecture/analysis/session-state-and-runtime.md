@@ -224,6 +224,23 @@ persistence SQL are outside coverage. Local pandas stages record timing/counts
 without inventing SQL. Operation/project context propagates into connectivity
 workers; Run admission adds the actual Run ID.
 
+Each newly emitted record has `schema_version: 2` and a sink-owned `runtime`
+object: `marivo_version`, `python_version`, `python_executable`, `package_path`
+and `process_id`. Version, executable and package path share the facts used by
+the current environment fingerprint. Identity is captured lazily and cached per
+PID; a child process refreshes it. Every event carries the complete identity,
+including query and local-stage events, so reading a tail or rotated segment
+does not require locating a startup event. Caller context cannot override runtime
+or schema version. Identity capture remains inside logging failure isolation.
+
+These fields identify the declared software version, interpreter, package path
+and process, not the package's content hash, a data snapshot or build attestation.
+Equal development versions and paths do not establish equal code. No Git scan,
+subprocess, environment dump or installation-directory hashing is performed.
+Doctor describes the current environment, not historical events. Existing lines
+are not rewritten; missing runtime means unknown historical identity. A file can
+contain both old and new records, interpreted by each line's schema version.
+
 Diagnostics do not admit operations, prove remote termination or authorize
 publication. Independently configurable usage telemetry excludes SQL text and
 exception messages; disabling it does not disable execution diagnostics. Bound

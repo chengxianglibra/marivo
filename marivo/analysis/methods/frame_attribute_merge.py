@@ -28,6 +28,7 @@ def merge_attribute_data(
             "duplicate target report keys",
             "Preserve each complete parent and fine key once.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     domain = tuple(dict.fromkeys(key for group in keys for key in group))
     columns = tuple(column for axis in program.output_schema.axes for column in axis.columns)
@@ -60,6 +61,7 @@ def merge_attribute_data(
                     attachment.name,
                     "Retain the original complete parent correspondence for every target.",
                     "frame.attribute",
+                    canonical_id="analysis_frame.attribute",
                 )
             attachments.setdefault(attachment.name, attachment)
     return result.loc[:, [column.slot_id for column in program.output_schema.columns]], tuple(

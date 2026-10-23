@@ -172,6 +172,7 @@ def _closure(
             total.column.name,
             "Inspect unknown source components before attribution.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     expected = total.value
     assert isinstance(expected, (int, float, Decimal))
@@ -302,6 +303,7 @@ def report_attribute(
             ".".join(target.path),
             "Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
     output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))

@@ -61,6 +61,7 @@ def infer_attribute_merge_schema(
                 repr(schema.axes),
                 "Build every target from the same selected parent and fine classifications.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
     if all(isinstance(schema, DataSchema) for schema in schemas):
         for schema in schemas[1:]:
@@ -75,6 +76,7 @@ def infer_attribute_merge_schema(
                         repr((a, b)),
                         "Use the same captured parent coordinates and classifications for every target.",
                         "frame.attribute",
+                        canonical_id="analysis_frame.attribute",
                     )
     paths = tuple(path for schema in schemas for path in schema.value_paths)
     presence_paths = tuple(path for schema in schemas for path in schema.presence_paths)
@@ -84,6 +86,7 @@ def infer_attribute_merge_schema(
             repr(paths),
             "Select distinct target names before attribute.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     values = tuple(
         replace(column, slot_id=f"attribute.merge.value.{i}", nullable=True)

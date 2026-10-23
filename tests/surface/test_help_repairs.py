@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,28 @@ from marivo.analysis.errors import (
     SessionNotFoundError,
 )
 from marivo.analysis.materialization.errors import StorageAccessError
+from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.cli import main
+from tests.shared_fixtures import DslCaseFactory
+
+
+@pytest.fixture
+def literal_frame(analysis_dsl_case_factory: DslCaseFactory) -> mv.AnalysisFrame:
+    session = analysis_dsl_case_factory("j1").session
+    region = session.catalog.fields.get("sales.customer.region")
+    return session.values(
+        by=(region,),
+        columns={"value": None},
+        rows=((("east",), {"value": 1}), (("west",), {"value": 3})),
+    ).compute()
+
+
+def _assert_repair(error: AnalysisError, target: str) -> None:
+    assert error.expected and error.received
+    assert error.repair is not None
+    assert error.repair.action
+    assert error.repair.help_target.display == target
+    assert render_help_text(target)[0].startswith(f"Target: {target}\n")
 
 
 def _cli_facts(text: str) -> str:
@@ -105,6 +127,218 @@ def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root
         expected="a valid value", received="invalid", repair="Repair it.", location="frame.show"
     )
     assert unrelated.repair.help_target.display == "analysis"
+
+
+def test_pending_export_repairs_with_the_returned_complete_frame(
+    literal_frame: mv.AnalysisFrame,
+) -> None:
+    pending = literal_frame.select({"renamed": literal_frame["value"]})
+    with pytest.raises(CoreRuleError) as captured:
+        pending.to_pandas()
+    _assert_repair(captured.value, "analysis.analysis_frame.to_pandas")
+    assert captured.value.received == "expression"
+    assert "compute() or persist()" in captured.value.repair.action
+    assert pending.compute().to_pandas()[("value", "renamed")].tolist() == [1, 3]
+    with pytest.raises(CoreRuleError):
+        pending.to_pandas()
+
+
+@pytest.mark.parametrize("consumer", ("reduce", "over"))
+def test_stale_statistics_keep_the_actual_consumer_and_repair(
+    literal_frame: mv.AnalysisFrame, consumer: str
+) -> None:
+    selected = literal_frame.where(literal_frame["value"] > 1)
+    stale = literal_frame["value"].sum()
+    with pytest.raises(CoreRuleError) as captured:
+        if consumer == "reduce":
+            selected.reduce({"total": stale})
+        else:
+            selected.over(stale)
+    _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
+    assert captured.value.location == f"frame.{consumer}"
+    assert captured.value.expected == "a statistic from this exact Frame input"
+    assert "Reacquire the Column on this Frame" in captured.value.repair.action
+    current = selected["value"].sum()
+    repaired = (
+        selected.reduce({"total": current})
+        if consumer == "reduce"
+        else selected.select({"total": selected.over(current)})
+    )
+    assert repaired.compute().to_pandas()[("value", "total")].tolist() == [3]
+
+
+@pytest.mark.parametrize("consumer", ("where", "top", "select"))
+def test_stale_columns_keep_the_receiving_frame_operation(
+    literal_frame: mv.AnalysisFrame, consumer: str
+) -> None:
+    selected = literal_frame.select({"value": literal_frame["value"]})
+    with pytest.raises(CoreRuleError) as captured:
+        if consumer == "where":
+            selected.where(literal_frame["value"] > 1)
+        elif consumer == "top":
+            selected.top(1, by=literal_frame["value"])
+        else:
+            selected.select({"value": literal_frame["value"]})
+    _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
+    assert captured.value.expected == "a Column from this exact Store/Session/Frame input"
+    assert captured.value.location == f"frame.{consumer}"
+    if consumer == "where":
+        repaired = selected.where(selected["value"] > 1)
+    elif consumer == "top":
+        repaired = selected.top(1, by=selected["value"])
+    else:
+        repaired = selected.select({"value": selected["value"]})
+    expected = [1, 3] if consumer == "select" else [3]
+    assert repaired.compute().to_pandas()[("value", "value")].tolist() == expected
+
+
+def test_share_foreign_axis_repairs_on_the_columns_own_frame(
+    literal_frame: mv.AnalysisFrame,
+) -> None:
+    selected = literal_frame.select({"value": literal_frame["value"]})
+    with pytest.raises(CoreRuleError) as captured:
+        selected["value"].share(along=literal_frame.axes)
+    _assert_repair(captured.value, "analysis.column.share")
+    assert captured.value.location == "Column.share"
+    assert captured.value.expected == "an axis from this exact Frame input"
+    shares = selected["value"].share(along=selected.axes)
+    result = selected.select({"share": shares}).compute().to_pandas()
+    assert result[("value", "share")].tolist() == [Decimal("0.25"), Decimal("0.75")]
+
+
+@pytest.mark.parametrize("consumer", ("align", "compare"))
+def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
+    literal_frame: mv.AnalysisFrame, consumer: str
+) -> None:
+    other = literal_frame.select({"value": literal_frame["value"]})
+    with pytest.raises(CoreRuleError) as captured:
+        if consumer == "align":
+            literal_frame.align(other)
+        else:
+            literal_frame.compare({"reference": other})
+    _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
+    assert captured.value.location == f"frame.{consumer}"
+    assert captured.value.expected == "a complete explicit axis bijection"
+    pairs = ((literal_frame.axes[0], other.axes[0]),)
+    repaired = (
+        literal_frame.align(other, on=pairs)
+        if consumer == "align"
+        else literal_frame.compare({"reference": other}, on={"reference": pairs})
+    )
+    rows = repaired.compute().to_pandas()
+    path = ("value", "left.value") if consumer == "align" else ("value", "value")
+    assert rows[path].tolist() == [1, 3]
+
+
+def test_real_show_failure_has_a_precise_owner_and_executable_repair(
+    literal_frame: mv.AnalysisFrame, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(CoreRuleError) as captured:
+        literal_frame.show(n=-1)
+    _assert_repair(captured.value, "analysis.analysis_frame.show")
+    assert captured.value.expected == "a nonnegative integer preview count"
+    assert captured.value.received == "-1"
+    literal_frame.show(n=0)
+    assert "AnalysisFrame" in capsys.readouterr().out
+
+
+def test_correlate_shared_pair_validation_keeps_the_frame_owner(
+    literal_frame: mv.AnalysisFrame,
+) -> None:
+    labels = literal_frame.coord(literal_frame.axes[0])
+    with pytest.raises(CoreRuleError) as captured:
+        literal_frame.correlate(labels, literal_frame["value"], method="pearson")
+    _assert_repair(captured.value, "analysis.analysis_frame.correlate")
+    assert captured.value.expected == "a numeric Column (int64, float64 or Decimal)"
+    result = (
+        literal_frame.correlate(literal_frame["value"], literal_frame["value"], method="pearson")
+        .compute()
+        .to_pandas()
+    )
+    assert result[("value", "coefficient")].tolist() == pytest.approx([1])
+    assert result[("value", "n_pairs")].tolist() == [2]
+
+
+def test_reverse_operator_failure_routes_to_its_existing_operator_page(
+    literal_frame: mv.AnalysisFrame,
+) -> None:
+    with pytest.raises(CoreRuleError) as captured:
+        _ = "invalid" - literal_frame["value"]
+    _assert_repair(captured.value, "analysis.column.__rsub__")
+    assert captured.value.expected == "numeric Columns"
+    repaired = literal_frame.select({"remaining": 10 - literal_frame["value"]})
+    assert repaired.compute().to_pandas()[("value", "remaining")].tolist() == [9, 7]
+
+
+@pytest.mark.parametrize("consumer", ("sum", "share"))
+def test_column_statistic_validation_keeps_the_public_consumer(
+    literal_frame: mv.AnalysisFrame, consumer: str
+) -> None:
+    labels = literal_frame.coord(literal_frame.axes[0])
+    with pytest.raises(CoreRuleError) as captured:
+        if consumer == "sum":
+            labels.sum()
+        else:
+            labels.share(along=literal_frame.axes)
+    _assert_repair(captured.value, f"analysis.column.{consumer}")
+    assert captured.value.expected == "a numeric Column"
+    expected: list[int | Decimal]
+    if consumer == "sum":
+        result = literal_frame.reduce({"result": literal_frame["value"].sum()})
+        expected = [4]
+    else:
+        result = literal_frame.select(
+            {"result": literal_frame["value"].share(along=literal_frame.axes)}
+        )
+        expected = [Decimal("0.25"), Decimal("0.75")]
+    assert result.compute().to_pandas()[("value", "result")].tolist() == expected
+
+
+def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
+    literal_frame: mv.AnalysisFrame,
+) -> None:
+    with pytest.raises(CoreRuleError) as captured:
+        literal_frame.select({"invalid.name": literal_frame["value"]})
+    _assert_repair(captured.value, "analysis.analysis_frame.select")
+    assert captured.value.received == "'invalid.name'"
+    repaired = literal_frame.select({"renamed": literal_frame["value"]})
+    assert repaired.compute().to_pandas()[("value", "renamed")].tolist() == [1, 3]
+
+
+@pytest.mark.parametrize(
+    ("consumer", "read_boundary"),
+    (
+        ("compute", "read_complete"),
+        ("to_pandas", "read_data"),
+        ("persist", "open_frame"),
+        ("artifact", "open_frame"),
+        ("method_facts", "read_method_facts"),
+        ("show", "preview"),
+    ),
+)
+def test_frame_consumers_preserve_the_specialized_storage_failure(
+    literal_frame: mv.AnalysisFrame,
+    monkeypatch: pytest.MonkeyPatch,
+    consumer: str,
+    read_boundary: str,
+) -> None:
+    saved = literal_frame.persist()
+    failure = StorageAccessError("unauthorized")
+
+    def unavailable(*args: object, **kwargs: object) -> None:
+        raise failure
+
+    with monkeypatch.context() as fault:
+        fault.setattr(LocalFrameServices, read_boundary, unavailable)
+        with pytest.raises(StorageAccessError) as captured:
+            if consumer in ("artifact", "method_facts"):
+                _ = getattr(saved, consumer)
+            else:
+                getattr(saved, consumer)()
+    assert captured.value is failure
+    assert captured.value.storage_status == "unauthorized"
+    _assert_repair(captured.value, "analysis.session.persisted_frame")
+    assert saved.to_pandas()[("value", "value")].tolist() == [1, 3]
 
 
 def test_cli_cross_surface_repair_can_be_followed(capsys: pytest.CaptureFixture[str]) -> None:

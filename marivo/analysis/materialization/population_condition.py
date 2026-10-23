@@ -75,6 +75,7 @@ def prepare_condition_memberships(
                             repr(contribution.root),
                             "Provide time-bound endpoint Metrics.",
                             "frame.attribute",
+                            canonical_id="analysis_frame.attribute",
                         )
                     read = FieldRead(
                         contribution.time.field,

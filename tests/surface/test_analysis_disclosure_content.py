@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from inspect import signature
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,7 @@ from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
+from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -33,6 +35,8 @@ from marivo.analysis.core.frame_method_facts import (
 )
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
+from marivo.cli import main
+from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -227,6 +231,85 @@ def test_partition_and_share_help_examples_return_composable_same_input_columns(
         assert isinstance(column, mv.Column)
         result = frame.select({"result": column}).compute()
         assert result.to_pandas()[("value", "result")].tolist() == expected
+        if target == "analysis_frame.over":
+            selected = namespace["selected"]
+            assert isinstance(selected, mv.AnalysisFrame)
+            rows = selected.to_pandas()
+            assert rows[("value", "value")].tolist() == [1, 3]
+            assert rows[("value", "total")].tolist() == expected
+
+
+@pytest.mark.parametrize("selection", ("where", "top"))
+def test_selected_frame_statistics_reacquire_exact_input_handles(
+    analysis_dsl_case_factory: DslCaseFactory, selection: str
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    region = case.catalog.fields.get("sales.customer.region")
+    frame = case.session.values(
+        by=(region,),
+        columns={"amount": None},
+        rows=(
+            (("east",), {"amount": -2}),
+            (("north",), {"amount": 1}),
+            (("west",), {"amount": 4}),
+        ),
+    ).compute()
+    selected = (
+        frame.where(frame["amount"] > 0)
+        if selection == "where"
+        else frame.top(1, by=frame["amount"])
+    )
+    with pytest.raises(AnalysisError, match="exact Frame input"):
+        selected.reduce({"total": frame["amount"].sum()})
+    total = selected.reduce({"total": selected["amount"].sum()}).compute()
+    assert total.to_pandas()[("value", "total")].tolist() == [5 if selection == "where" else 4]
+    column = selected.over(selected["amount"].sum(), by=selected.axes)
+    broadcast = selected.select({"total": column}).compute()
+    assert broadcast.to_pandas()[("value", "total")].tolist() == (
+        [1, 4] if selection == "where" else [4]
+    )
+
+
+@pytest.mark.parametrize("method", ("compute", "reduce", "over", "to_pandas"))
+def test_composition_help_is_static_bounded_and_matches_cli(
+    method: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    descriptor = prepare().by_canonical_id("analysis_frame." + method)
+    assert isinstance(descriptor, CallableInput)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Static Help executed an example or opened a source")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mv.session, "create", forbidden)
+    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    for name in ("compute", "reduce", "over", "to_pandas"):
+        monkeypatch.setattr(mv.AnalysisFrame, name, forbidden)
+    target = "analysis.analysis_frame." + method
+    text = render_help_text(target)[0]
+    assert text == render_help_text(target)[0]
+    assert descriptor.example.requires == ("frame",)
+    assert descriptor.example.code in text
+    assert "Example needs" in text or "Example input: frame has a" in text
+    assert text.count("\nExample:\n") == 1
+    budget = ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"]
+    assert len(text.splitlines()) <= budget.max_lines + 4
+    assert len(text) <= budget.max_codepoints + 100
+    main(["help", target])
+    cli = capsys.readouterr()
+    assert cli.err == ""
+    expected = re.sub(
+        r"marivo\.help\(([\"'])([a-z_][a-z0-9_.]*)\1\)",
+        lambda match: "marivo help " + match.group(2),
+        text,
+    )
+    assert cli.out.rstrip() == expected.rstrip()
+    assert not (tmp_path / ".marivo").exists()
 
 
 def test_correlation_help_contract_and_executable_examples(

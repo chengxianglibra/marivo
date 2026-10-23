@@ -9,7 +9,7 @@ description: 诊断常见错误，通过 Live Help 查询 API 用法。
 <span id="贡献目标与完整解释读取"></span>
 <span id="精确数据恢复与重新提交"></span>
 
-按现象选择修复。保留原错误，以及 Doctor 报告的解释器、包版本和项目根。
+按现象选择修复。保留原错误，以及 Doctor 报告的解释器、包版本和项目根。 排查历史执行时，读取[执行日志](/zh-cn/docs/latest/reference/telemetry/)中的事件 runtime 身份；Doctor 只说明当前环境。
 
 | 现象 | 如何确认 | 修复 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ description: 诊断常见错误，通过 Live Help 查询 API 用法。
 
 不要把删除 `.marivo/` 或强制初始化作为通用修复。旧状态不会自动迁移；保留它并用兼容环境读取导出，不兼容的新工作使用新项目。
 
-通过 [Help](#查询已安装版本)查询错误的精确修复目标。求助时附上去掉凭据和私有数据的最小复现。
+通过 [Help](#查询已安装版本)查询错误的精确修复目标。 Frame/Column 校验指向拒绝输入的公共操作。例如，向 `over` 传入旧统计量会指向 `analysis.analysis_frame.over`，修复时应从接收 Frame 重建统计量；pending 导出指向 `analysis.analysis_frame.to_pandas`，应先求值再导出返回的 Frame。没有唯一公共所有者的内部错误仍可指向较宽的 Help。求助时附上去掉凭据和私有数据的最小复现。
 
 ## 查询 API
 

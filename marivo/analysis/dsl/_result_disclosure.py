@@ -231,13 +231,14 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "values",
-                    "Named Column sum/mean/corr/pair_count or row_count requests; each outputs one column using its independent NA mask. Names never infer pair relationships; use correlate for a matching coefficient/count.",
+                    "Named sum/mean/corr/pair_count/row_count; separate NA masks, one column each. Names do not infer pairs; correlate supplies coefficient/count.",
                 ),
-                P("by", "Existing retained grouping axes; empty produces one scalar coordinate."),
+                P("by", "Retained complete axes; () gives one scalar coordinate."),
             ),
             "AnalysisFrame",
-            "Compute current-value statistics with independent NA masks; remove presence and retain only the selected complete axes.",
-            "result = frame.reduce({'mean': frame['value'].mean()})",
+            "Reduce current-value rows; keep selected complete axes and drop presence.",
+            "selected = frame.where(frame['value'] > 0)\n"
+            "result = selected.reduce({'total': selected['value'].sum()}).compute()",
             ("frame",),
             "frame.statistics",
         ),
@@ -256,7 +257,10 @@ def provider() -> DisclosureProvider:
             ),
             "Column",
             "Reduce each current-data partition and broadcast its statistic to the original rows as a same-input Column.",
-            "result = frame.over(frame['value'].sum())",
+            "statistic = frame['value'].sum()\n"
+            "result = frame.over(statistic)\n"
+            "selected = frame.select({'value': frame['value'], 'total': result}).compute()\n"
+            "selected.show()",
             ("frame",),
             "frame.statistics",
         ),
@@ -424,17 +428,23 @@ def provider() -> DisclosureProvider:
                     if name == "correlate"
                     else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce or analysis.analysis_frame.over to finish; analysis.analysis_frame.correlate supplies the matched two-column result."
                     if name in ("corr", "pair_count")
-                    else "Use reduce's statistic types, independent NA masks, units and numeric policies. Preserve exact input identity, complete keys, row count and row order; empty input stays empty. row_count counts every coordinate and binds without mutating its reusable request. Existing ordinary, interval, calendar and paired axes use frozen keys without rematching. Nested over evaluates dependencies in order; repeated broadcast totals remain repeated samples. In where/top, partitions are evaluated before selection. No source reread, Metric decomposition or new method facts."
+                    else "Example input: frame has a summable numeric value column named 'value'. Use reduce's statistic types, independent NA masks, units and numeric policies. Preserve exact input identity, complete keys, row count and row order; empty input stays empty. row_count counts every coordinate and binds without mutating its reusable request. Existing ordinary, interval, calendar and paired axes use frozen keys without rematching. Nested over evaluates dependencies in order; repeated broadcast totals remain repeated samples. In where/top, partitions are evaluated before selection. No source reread, Metric decomposition or new method facts."
                     if name == "over"
                     else "Equivalent to this Column divided by over(this Column.sum(), by=the complementary axes), with zero totals masked before division. Axis order normalizes to input order; empty along and zero-axis inputs reject. Numeric and legal Duration sum/divide types follow their existing kernels; boolean/string/date reject. NA propagates; zero totals give NA, including cancelling signed values. Ratios are not percentages and may lie outside [0,1]. Unit is '1' when known equal units cancel, otherwise None for unknown units. Filtering before share changes the denominator; filtering afterward preserves it. Current-value normalization does not certify source Metric additivity or contribution; it creates no method facts."
                     if name == "share"
-                    else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Summed inventory or ratios remain current-row statistics, not monthly inventory or an overall ratio."
+                    else "Example needs numeric frame['value']. Reacquire exact-input Columns/axes/statistics after where/top/select or carrier changes. No Artifact input. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Inventory/ratio sums remain row statistics."
                     if name == "reduce"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
-                effects="Capture a lazy result operation; no source or schema read.",
+                effects=(
+                    "Lazy; no source/schema reads."
+                    if name == "reduce"
+                    else "Capture a lazy result operation; no source or schema read."
+                ),
                 failures=(
-                    "AnalysisError: follow the concrete expected/received facts and repair.",
+                    "AnalysisError: follow its repair."
+                    if name == "reduce"
+                    else "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
                 related=("value_statistic",) if output == "_Statistic" else (),

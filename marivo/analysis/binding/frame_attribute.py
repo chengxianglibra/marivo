@@ -109,6 +109,7 @@ def source_inputs(
             repr(fine_axes),
             "Pass new semantic fields or one complete Population.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     endpoint_metrics = (
         (target.target.current,)
@@ -140,6 +141,7 @@ def source_inputs(
                 repr(metric.axis_positions),
                 "Retain each original parent axis.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         ordinary = tuple(
             (i, axis) for i, axis in enumerate(source_axes) if isinstance(axis, AxisBinding)
@@ -158,6 +160,7 @@ def source_inputs(
                 repr(fine_axes),
                 "Remove parent axes from by.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         bindings = tuple(
             FrameKeyAxis(
@@ -421,6 +424,7 @@ def attribute(
             repr(by),
             "Pass by=(field,) or one complete Population.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     if isinstance(by, Population):
         from marivo.analysis.dsl.population import _owner
@@ -431,6 +435,7 @@ def attribute(
                 repr(_owner(by._definition)),
                 "Build the fine Population in the receiver's owning Session.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
     declaration = parent._derivation
     if declaration is None:
@@ -446,6 +451,7 @@ def attribute(
             + repr(ordinary_axes)
             + " with session.population_from(saved_frame, on=...) and in_population before observe/compare. Reconstruct temporal periods and their original correspondence explicitly from saved coordinate facts.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     failed = tuple(
         (path, dict(declaration.rejections).get(path, "unsupported source recipe"))
@@ -458,6 +464,7 @@ def attribute(
             repr(failed),
             "Select direct supported source outputs, or investigate these targets explicitly with population_from, in_population and a finer observe/compare.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     cache: dict[SourceGroupKey, AnalysisFrame] = {}
     groups = collect_source_groups(declaration)

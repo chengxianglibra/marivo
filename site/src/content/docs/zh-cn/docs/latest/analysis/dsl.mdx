@@ -54,6 +54,12 @@ change = current.compare(
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
+assert table.columns.names == ["kind", "name"]
+coordinates = {
+    axis["token"]: table[("coordinate", axis["token"])]
+    for axis in table.attrs["axes"]
+}
+presence = table["presence"] if "presence" in table.columns.get_level_values("kind") else None
 assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
 assert table[("presence", "current.present")].all()
 assert table[("presence", "reference.present")].all()
@@ -91,6 +97,19 @@ assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
 读取单条记录时，向 `session.read` 提供完整实体身份与命名字段。[对象选择指南](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)提供可运行的订单示例。
 
 `show()` 展示有界视图，`to_pandas()` 返回完整独立副本。列和轴属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
+
+导出要求已完成的 Frame。即使 `fixed` 已完成，`fixed.select(...)` 等派生仍然惰性：应对派生结果调用 `compute()` 并使用返回对象。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
+
+导出列采用两级 MultiIndex，级名为 `kind` 和 `name`：
+
+| kind | 第二级与内容 |
+| --- | --- |
+| `coordinate` | 当前轴 token；复合轴每个单元格保留完整键 tuple |
+| `value` | 完整输出名称，可通过 `frame.output_names` 查询 |
+| `presence` | 独立非空布尔值，与数值 NA 和合法零不同 |
+
+通过 `table.attrs["axes"]` 将 `token` 对应到 `name`、`role`、`key_names` 和 `at`，不假定固定轴位置。coordinate 和 presence 列组可以不存在。`units`、`comparisons`、`frozen_coordinates` 说明导出值；内部 descriptor 不承诺稳定的重新导入协议。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。数据和 attrs 是隔离的静态副本；后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
+
 
 接下来[比较时期](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/latest/analysis/results/)。
 

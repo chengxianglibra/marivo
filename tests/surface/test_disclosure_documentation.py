@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -76,6 +77,81 @@ def test_public_attribute_help_example_uses_real_source(
     assert isinstance(pending, mv.AnalysisFrame)
     level = pending.compute()
     assert level.to_pandas()[("value", "contribution.revenue")].tolist() == [610, 50, 0]
+
+
+def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    region = case.catalog.fields.get("sales.customer.region")
+    frame = case.session.values(
+        by=(region,),
+        columns={"value": None},
+        rows=(
+            (("east",), {"value": -1}),
+            (("north",), {"value": 0}),
+            (("west",), {"value": 3}),
+        ),
+    ).compute()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Fixed-data Help examples must not reopen sources")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
+    )
+    for method in ("compute", "reduce", "over", "to_pandas"):
+        descriptor = REGISTRY.by_canonical_id("analysis_frame." + method)
+        assert isinstance(descriptor, CallableInput)
+        namespace: dict[str, object] = {"frame": frame}
+        exec(compile(descriptor.example.code, "<" + method + "-help-example>", "exec"), namespace)
+        result = namespace["result"]
+        if method == "compute":
+            derived = namespace["derived"]
+            assert isinstance(derived, mv.AnalysisFrame)
+            with pytest.raises(AnalysisError, match="compute"):
+                derived.to_pandas()
+            assert isinstance(result, mv.AnalysisFrame)
+            assert result.to_pandas()[("value", "scaled")].tolist() == [-2, 0, 6]
+        elif method == "reduce":
+            assert isinstance(result, mv.AnalysisFrame)
+            assert result.axes == ()
+            data = result.to_pandas()
+            assert data[("value", "total")].tolist() == [3]
+            assert set(data.columns.get_level_values("kind")) == {"value"}
+            assert data.attrs["axes"] == ()
+        elif method == "over":
+            assert isinstance(result, mv.Column)
+            selected = namespace["selected"]
+            assert isinstance(selected, mv.AnalysisFrame)
+            data = selected.to_pandas()
+            assert data[("value", "value")].tolist() == [-1, 0, 3]
+            assert data[("value", "total")].tolist() == [2, 2, 2]
+        else:
+            assert isinstance(result, pd.DataFrame)
+            assert result.columns.names == ["kind", "name"]
+            assert list(result["value"].columns) == list(frame.output_names)
+            values = namespace["values"]
+            assert isinstance(values, pd.Series)
+            assert values.tolist() == [-1, 0, 3]
+            assert namespace["axis_labels"] == result.attrs["axes"]
+            axis = result.attrs["axes"][0]
+            assert (axis["token"], axis["name"], axis["key_names"]) == (
+                frame.axes[0].token,
+                "sales.customer.region",
+                ("sales.customer.region",),
+            )
+            assert axis["role"] == "field" and axis["at"] is None
+            assert result.attrs["units"] == (("value", None),)
+            assert result.attrs["comparisons"] == ()
+            assert result.attrs["frozen_coordinates"] == ()
+            assert result[("coordinate", frame.axes[0].token)].tolist() == [
+                "east",
+                "north",
+                "west",
+            ]
+            assert "presence" not in result.columns.get_level_values("kind")
 
 
 def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(

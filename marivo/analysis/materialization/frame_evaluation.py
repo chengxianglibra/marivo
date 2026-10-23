@@ -189,6 +189,7 @@ def _fold_method_facts(
                         facts.origin_result_id,
                         "Preserve the exact original method facts on every explicit input.",
                         "frame.method_facts",
+                        canonical_id="analysis_frame.method_facts",
                     )
                 merged.setdefault(facts.origin_result_id, facts)
             result = tuple(merged.values())

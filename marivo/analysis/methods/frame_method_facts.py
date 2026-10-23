@@ -47,6 +47,7 @@ def _equal(actual: _Value, expected: FrameMethodValue) -> None:
             expected.column.name,
             "Preserve the exact completed method totals and their numeric carriers.",
             "frame.method_facts",
+            canonical_id="analysis_frame.method_facts",
         )
 
 
@@ -113,6 +114,7 @@ def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) 
                 str(len(method.terms)),
                 "Retain each original ordered linear operation without rewriting its terms.",
                 "frame.method_facts",
+                canonical_id="analysis_frame.method_facts",
             )
 
 
@@ -159,6 +161,7 @@ def _level(
                 str(len(method.terms)),
                 "Preserve original ordered linear operations.",
                 "frame.method_facts",
+                canonical_id="analysis_frame.method_facts",
             )
 
 
@@ -192,6 +195,7 @@ def validate_method_facts(facts: FrameMethodFacts) -> None:
             type(facts).__name__,
             "Use the completed immutable method facts.",
             "frame.method_facts",
+            canonical_id="analysis_frame.method_facts",
         )
     try:
         for parent in facts.parents:
@@ -209,4 +213,5 @@ def validate_method_facts(facts: FrameMethodFacts) -> None:
             f"{type(error).__name__}: {error}",
             "Preserve the exact completed totals; do not alter or recompute saved method records.",
             "frame.method_facts",
+            canonical_id="analysis_frame.method_facts",
         )

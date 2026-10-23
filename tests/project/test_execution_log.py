@@ -1,5 +1,7 @@
 """Always-on diagnostics, context isolation, retention and failure behavior."""
 
+import os
+import platform
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -8,9 +10,11 @@ from subprocess import run
 
 import pytest
 
+import marivo
 from marivo import _execution_log as log
 from marivo import _jsonl
 from marivo._compat import UTC
+from marivo.introspection.live.model import EnvironmentFingerprint
 from tests.support.execution_logs import execution_records
 
 
@@ -21,10 +25,28 @@ def test_sql_is_complete_and_independent_of_telemetry(
     sql = "SELECT 'quoted\\nvalue' AS marker\n" + "-- diagnostic\n" * 1000
     with (
         log.scope(tmp_path, operation_id="operation", session_id="session", run_id="run"),
+        log.stage("test.stage"),
         log.QueryLog(sql, backend="duckdb", purpose="test.rows") as query,
     ):
         query.rows = 2
-    submitted, completed = execution_records(tmp_path)
+    records = execution_records(tmp_path)
+    started, submitted, completed, finished = records
+    assert [record["event"] for record in records] == [
+        "stage.started",
+        "query.submitted",
+        "query.completed",
+        "stage.completed",
+    ]
+    runtime = {
+        "marivo_version": marivo.__version__,
+        "python_version": platform.python_version(),
+        "python_executable": sys.executable,
+        "package_path": str(Path(marivo.__file__).resolve()),
+        "process_id": os.getpid(),
+    }
+    assert all(record["schema_version"] == 2 for record in records)
+    assert all(record["runtime"] == runtime for record in records)
+    assert started["stage"] == finished["stage"] == "test.stage"
     assert submitted["sql"] == sql
     assert submitted["query_id"] == completed["query_id"]
     assert submitted["operation_id"] == completed["operation_id"] == "operation"
@@ -97,6 +119,91 @@ with log.scope(Path(sys.argv[1])):
     records = execution_records(tmp_path)
     assert len(records) == 120
     assert len({record["query_id"] for record in records}) == 60
+    runtimes = [record["runtime"] for record in records]
+    assert all(isinstance(runtime, dict) for runtime in runtimes)
+    assert len({runtime["process_id"] for runtime in runtimes if isinstance(runtime, dict)}) == 3
+
+
+@pytest.mark.parametrize("source", ["scope", "fields", "facts"])
+def test_runtime_identity_and_schema_cannot_be_overridden(tmp_path: Path, source: str) -> None:
+    spoofed: dict[str, log.LogValue] = {"schema_version": 99, "runtime": "caller-supplied"}
+    with log.scope(tmp_path, **(spoofed if source == "scope" else {})):
+        log.emit(
+            "owned-identity",
+            fields=spoofed if source == "fields" else {},
+            **(spoofed if source == "facts" else {}),
+        )
+    record = execution_records(tmp_path)[0]
+    assert record["schema_version"] == 2
+    runtime = record["runtime"]
+    assert isinstance(runtime, dict)
+    assert runtime["process_id"] == os.getpid()
+
+
+def test_runtime_identity_is_lazy_and_cached_until_pid_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process_id = 101
+    captured_pids: list[int] = []
+
+    def capture(cls: type[EnvironmentFingerprint]) -> EnvironmentFingerprint:
+        del cls
+        captured_pids.append(process_id)
+        return EnvironmentFingerprint(
+            marivo_version=f"version-{process_id}",
+            python_executable=f"/python/{process_id}",
+            package_path=f"/package/{process_id}",
+        )
+
+    monkeypatch.setattr(log, "_RUNTIME_IDENTITY", None)
+    monkeypatch.setattr(log, "getpid", lambda: process_id)
+    monkeypatch.setattr(EnvironmentFingerprint, "current", classmethod(capture))
+    with log.scope(tmp_path):
+        assert captured_pids == []
+        log.emit("first")
+        log.emit("same-process")
+        process_id = 202
+        log.emit("different-process")
+    first, same_process, different_process = execution_records(tmp_path)
+    assert captured_pids == [101, 202]
+    assert first["runtime"] == same_process["runtime"]
+    for record, pid in ((first, 101), (different_process, 202)):
+        assert record["runtime"] == {
+            "marivo_version": f"version-{pid}",
+            "python_version": platform.python_version(),
+            "python_executable": f"/python/{pid}",
+            "package_path": f"/package/{pid}",
+            "process_id": pid,
+        }
+
+
+def test_runtime_capture_failures_preserve_query_results_and_original_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail(cls: type[EnvironmentFingerprint]) -> EnvironmentFingerprint:
+        del cls
+        raise OSError("canary-secret")
+
+    monkeypatch.setattr(log, "_RUNTIME_IDENTITY", None)
+    failure = RuntimeError("business failure")
+    with monkeypatch.context() as capture_patch:
+        capture_patch.setattr(EnvironmentFingerprint, "current", classmethod(fail))
+        with log.scope(tmp_path):
+            with log.QueryLog("SELECT 1", backend="duckdb", purpose="test.capture") as query:
+                query.rows = 2
+            assert query.rows == 2 and query.finished
+            with (
+                pytest.raises(RuntimeError) as raised,
+                log.QueryLog("SELECT 2", backend="duckdb", purpose="test.capture"),
+            ):
+                raise failure
+            assert raised.value is failure
+    assert execution_records(tmp_path) == []
+    assert len(caplog.records) == 1
+    assert "canary-secret" not in caplog.text
+    with log.scope(tmp_path):
+        log.emit("recovered")
+    assert execution_records(tmp_path)[0]["dropped_since_last_write"] == 4
 
 
 def _set_time(monkeypatch: pytest.MonkeyPatch, instant: datetime) -> None:
@@ -125,6 +232,23 @@ def test_date_and_size_rolling_preserve_whole_records(
         "execution-2026-10-08.000.jsonl",
     ]
     assert execution_records(tmp_path)[0]["sql"] == "SELECT 1" * 1000
+
+
+def test_new_events_append_without_rewriting_historical_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / ".marivo" / "logs"
+    directory.mkdir(parents=True)
+    path = directory / "execution-2026-10-08.000.jsonl"
+    historical = b'{"schema_version":1,"event":"historical"}\n'
+    path.write_bytes(historical)
+    _set_time(monkeypatch, datetime(2026, 10, 8, tzinfo=UTC))
+    with log.scope(tmp_path):
+        log.emit("new")
+    assert path.read_bytes().startswith(historical)
+    old, new = execution_records(tmp_path)
+    assert old == {"schema_version": 1, "event": "historical"}
+    assert new["schema_version"] == 2 and "runtime" in new
 
 
 def test_retention_and_size_cleanup_preserve_current_and_unmanaged_files(

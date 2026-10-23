@@ -90,6 +90,7 @@ def _calendar_keys(
                 operation.comparison_alias,
                 "Retain the comparison's coordinate attachments and output declaration.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         binding = fact.binding
         assert isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding))
@@ -143,6 +144,7 @@ def _calendar_keys(
                 repr(endpoint),
                 "Retain the original interval bounds and consumed parent correspondence.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         canonical = {
             a.key: b.key
@@ -178,6 +180,7 @@ def _calendar_keys(
                 repr(target.axis),
                 "Retain the original finite bucket boundaries.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         if isinstance(axis, PairedDataAxis) or operation.comparison_alias is not None:
             require_matchable_calendar_directory(saved)
@@ -228,6 +231,7 @@ def _projected(
                         repr(key),
                         "Rebuild the original comparison or alignment with two structurally present endpoints, or inspect the missing side with an explicit finer observation.",
                         "frame.attribute",
+                        canonical_id="analysis_frame.attribute",
                     )
                 result.append((key, None))
                 continue
@@ -302,6 +306,7 @@ def _attribute_domain_data(
             repr(structural),
             "Rebuild the original comparison or alignment with two structurally present endpoints, or inspect the missing side with an explicit finer observation.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     parent_domains: list[set[FrozenKey]] = []
     fine_rows: list[dict[FrozenKey, int]] = []
@@ -335,6 +340,7 @@ def _attribute_domain_data(
             repr(parent_domains),
             "Retain the original complete endpoint domains, or rebuild the comparison or alignment before requesting attribution.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     keys = full_keys[0] + [k for k in full_keys[1] if k not in fine_rows[0]]
     output = program.output_schema
@@ -370,6 +376,7 @@ def _index(
             "duplicate complete keys",
             "Keep each complete parent or group key once.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     return keys, result
 
@@ -407,6 +414,7 @@ def attribute_parent_mapping(
             repr(source_parent_columns),
             "Retain the original parent axis order and complete projection groups.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     pairs = tuple(
         zip(
@@ -423,6 +431,7 @@ def attribute_parent_mapping(
                 repr((source, mapped[source], original)),
                 "Retain the exact checked complete parent projection without conflicting mappings.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         mapped[source] = original
     return tuple(mapped.items())
@@ -478,6 +487,7 @@ def attribute_source_values(
             repr(source.use),
             "Retain unique complete parent and fine source keys.",
             "frame.attribute",
+            canonical_id="analysis_frame.attribute",
         )
     result = frozen_key_table((*output_parent, *output_fine), keys)
     result[source.source] = _take(table, source.source, [i for i, _ in selected])
@@ -629,6 +639,7 @@ def attribute_input_frame_data(
                 repr(item.occurrence),
                 "Retain disjoint captured window fibers.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         by_key = {key: index for index, key in enumerate(actual_keys)}
         wanted = tuple(frozen_key_rows(rows, key_columns))
@@ -643,6 +654,7 @@ def attribute_input_frame_data(
                 repr(item.occurrence),
                 "Retain the complete parent mapping and checked empty-input policy.",
                 "frame.attribute",
+                canonical_id="analysis_frame.attribute",
             )
         values = _take(table, item.target.slot_id, indices)
         if item.scope == "fine" and item.role not in ("value", "native_value"):
