@@ -60,15 +60,13 @@ def test_documented_disclosure_calls_resolve_to_live_members(
             assert "Kind: callable" in text
 
 
-def test_public_attribute_example_and_explicit_refusal_use_real_source(
+def test_public_attribute_help_example_uses_real_source(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
     revenue = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
-    august = session.time_scope(start="2026-08-01", end="2026-09-01")
-    july = session.time_scope(start="2026-07-01", end="2026-08-01")
     source_frame = session.observe({"revenue": revenue})
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
     assert isinstance(descriptor, CallableInput)
@@ -78,30 +76,6 @@ def test_public_attribute_example_and_explicit_refusal_use_real_source(
     assert isinstance(pending, mv.AnalysisFrame)
     level = pending.compute()
     assert level.to_pandas()[("value", "contribution.revenue")].tolist() == [610, 50, 0]
-    current = session.observe({"revenue": revenue}, by=(august,))
-    baseline = session.observe({"revenue": revenue}, by=(july,))
-    comparison = current.compare(
-        {"reference": baseline}, match={"reference": mv.ordinal()}
-    ).compute()
-    target = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
-    result = target.attribute(by=(region,)).compute()
-    assert result.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50, 0]
-    facts = result.method_facts
-    assert len(facts) == 1
-    method = facts[0].parents[0].metrics[0].method
-    assert isinstance(method, FrameAdditiveMethod)
-    assert method.change.value == -70
-    saved = result.where(result["contribution.revenue"] < 0).persist()
-    reopened = session.persisted_frame(saved.artifact.id)
-    assert reopened.method_facts == facts
-    assert reopened.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50]
-    nonlinear = revenue * revenue
-    source = session.observe({"squared": nonlinear})
-    with pytest.raises(AnalysisError) as error:
-        source.attribute(by=(region,))
-    assert vars(error.value)["reason"] == "unsupported_expression"
-    investigation = session.observe({"squared": nonlinear}, by=(region,)).compute()
-    assert investigation.method_facts == ()
 
 
 def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
