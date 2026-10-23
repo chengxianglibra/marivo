@@ -1,0 +1,23 @@
+---
+slug: docs/v0.5/release-notes/0.5.8
+title: Marivo 0.5.8
+description: Release notes for Marivo 0.5.8.
+---
+
+Marivo 0.5.8 fixes time bucketing for date-only `strptime` time fields and pins SQLGlot to a DuckDB-compatible release.
+
+## Fixed
+
+- Time fields parsed with date-only `strptime` formats such as `%Y-%m` or `%Y%m%d` are now bucketed as civil dates without a timezone shift. Previously, when the requested grain differed from the field's day classification and the report timezone differed from the datasource read timezone, bucketing failed with `unsupported operand type(s) for +: 'DateColumn' and 'IntervalScalar'`.
+
+## Changed
+
+- The `sqlglot` dependency is pinned to `30.8.0`. SQLGlot `30.22.0` emits SQL that DuckDB rejects.
+
+## Installation
+
+~~~bash
+pip install --upgrade marivo==0.5.8
+~~~
+
+Marivo 0.5.8 requires Python 3.10 or newer.

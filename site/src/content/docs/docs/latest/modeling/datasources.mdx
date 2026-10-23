@@ -69,6 +69,9 @@ Exact reference: `marivo.help("datasource.postgres")`.
 
 ## MySQL — `md.mysql`
 
+MariaDB servers use the same constructor. Managed query limits use milliseconds
+on MySQL and seconds on MariaDB.
+
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |

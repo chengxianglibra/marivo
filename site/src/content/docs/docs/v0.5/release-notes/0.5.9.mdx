@@ -1,0 +1,19 @@
+---
+slug: docs/v0.5/release-notes/0.5.9
+title: Marivo 0.5.9
+description: Release notes for Marivo 0.5.9.
+---
+
+Marivo 0.5.9 fixes query timeouts for MariaDB servers connected through the `mysql` engine.
+
+## Fixed
+
+- Timeout-guarded queries against MariaDB servers, including `md.raw_sql`, catalog previews, and snapshot sampling, no longer fail with `Unknown system variable 'MAX_EXECUTION_TIME'`. The `mysql` engine now reads `VERSION()` and applies the timeout through `max_statement_time` (seconds) on MariaDB and `MAX_EXECUTION_TIME` (milliseconds) on MySQL. The read-only transaction and the restore of the previous session value are unchanged, and a server that exposes neither variable still fails closed.
+
+## Installation
+
+~~~bash
+pip install --upgrade marivo==0.5.9
+~~~
+
+Marivo 0.5.9 requires Python 3.10 or newer.

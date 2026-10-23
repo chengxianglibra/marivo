@@ -168,7 +168,12 @@ def test_mysql_unsupported_native_setting_is_distinct_from_permission_denial(
 ) -> None:
     backend = Mock(spec=BaseBackend)
     backend._marivo_terminal_timeout_seconds = 7
-    statement = Mock(side_effect=RuntimeError(code, "native configuration error"))
+    statement = Mock(
+        side_effect=[
+            RuntimeError(code, "native configuration error"),
+            ({"server_version": "8.0.36"},),
+        ]
+    )
     monkeypatch.setattr(mysql, "execute_provider_statement", statement)
     entered: list[bool] = []
     if code == 1193:
@@ -178,7 +183,7 @@ def test_mysql_unsupported_native_setting_is_distinct_from_permission_denial(
     else:
         with pytest.raises(DatasourceSourceCapabilityError), mysql.native_query_timeout(backend, 7):
             pytest.fail("Denied configuration must not enter the read")
-    assert statement.call_count == 1
+    assert statement.call_count == (2 if code == 1193 else 1)
 
 
 def test_connection_is_synchronous_and_has_no_elapsed_time_deadline(

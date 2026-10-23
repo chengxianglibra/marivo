@@ -34,7 +34,7 @@ used everywhere downstream.
 |---|---|---|---|
 | `md.duckdb(...)` | `DuckDBSpec` | `duckdb` | Local file / in-memory. Also the engine that reads parquet/csv/json file sources. |
 | `md.trino(...)` | `TrinoSpec` | `trino` | `catalog` is the connection target; `schema` is an optional default. |
-| `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. |
+| `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. Also connects to MariaDB; native query limits use MySQL milliseconds or MariaDB seconds. |
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 

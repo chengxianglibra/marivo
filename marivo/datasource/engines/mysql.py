@@ -96,6 +96,23 @@ register_provider_statements(
             template="SELECT @@session.max_execution_time",
             allowed_purposes=frozenset({"datasource.native_query_timeout"}),
         ),
+        "authoring.server_version": ProviderStatement(
+            statement_id="mysql.authoring.server_version",
+            template="SELECT VERSION() AS server_version",
+            allowed_purposes=frozenset({"datasource.native_query_timeout"}),
+        ),
+        "authoring.install_mariadb_deadline": ProviderStatement(
+            statement_id="mysql.authoring.install_mariadb_deadline",
+            template="SET SESSION max_statement_time = {timeout_seconds}",
+            literal_slots=frozenset({"timeout_seconds"}),
+            integer_ranges=(("timeout_seconds", 1, 4294967),),
+            allowed_purposes=frozenset({"datasource.native_query_timeout"}),
+        ),
+        "authoring.read_mariadb_deadline": ProviderStatement(
+            statement_id="mysql.authoring.read_mariadb_deadline",
+            template="SELECT @@session.max_statement_time",
+            allowed_purposes=frozenset({"datasource.native_query_timeout"}),
+        ),
         "tables.comment": ProviderStatement(
             statement_id="mysql.tables.comment",
             template=(
@@ -565,18 +582,47 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
         yield
         return
     purpose = "datasource.native_query_timeout"
+    read_statement = "mysql.authoring.read_select_deadline"
+    expected_rows = ({"@@session.max_execution_time": milliseconds},)
+    missing_variable: Exception | None = None
     try:
-        execute_provider_statement(
-            backend,
-            PROFILE,
-            "mysql.authoring.install_select_deadline",
-            values={"timeout_ms": milliseconds},
-            purpose=purpose,
-        )
+        try:
+            execute_provider_statement(
+                backend,
+                PROFILE,
+                "mysql.authoring.install_select_deadline",
+                values={"timeout_ms": milliseconds},
+                purpose=purpose,
+            )
+        except Exception as cause:
+            if not any(
+                getattr(candidate, "args", ())[:1] == (1193,)
+                for candidate in structured_exception_chain(cause)
+            ):
+                raise
+            missing_variable = cause
+        if missing_variable is not None:
+            versions = execute_provider_statement(
+                backend, PROFILE, "mysql.authoring.server_version", purpose=purpose
+            )
+            version = versions[0].get("server_version") if len(versions) == 1 else None
+            if not isinstance(version, str) or not version:
+                raise RuntimeError("MySQL did not expose VERSION()")
+            if "mariadb" not in version.lower():
+                raise missing_variable
+            execute_provider_statement(
+                backend,
+                PROFILE,
+                "mysql.authoring.install_mariadb_deadline",
+                values={"timeout_seconds": timeout_seconds},
+                purpose=purpose,
+            )
+            read_statement = "mysql.authoring.read_mariadb_deadline"
+            expected_rows = ({"@@session.max_statement_time": timeout_seconds},)
         rows = execute_provider_statement(
             backend,
             PROFILE,
-            "mysql.authoring.read_select_deadline",
+            read_statement,
             purpose=purpose,
         )
     except Exception as cause:
@@ -598,10 +644,10 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
                 action="Restore session-variable access for this reader and retry the read.",
             ),
         ) from cause
-    if rows != ({"@@session.max_execution_time": milliseconds},):
+    if rows != expected_rows:
         raise DatasourceSourceCapabilityError(
             message="MySQL did not confirm the requested native SELECT timeout.",
-            expected=str(milliseconds),
+            expected=str(expected_rows),
             received=str(rows),
             location="datasource.native_query_timeout",
             repair=repair(

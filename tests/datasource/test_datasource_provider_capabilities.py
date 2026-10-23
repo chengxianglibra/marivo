@@ -84,6 +84,18 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         ): "9abc2d9f258053bc5bca1f82f73cbada2fb81fc577fb2f4af2dc07f376a8fd6c",
         (
             "mysql",
+            "mysql.authoring.server_version",
+        ): "3d98a0dee5b4e1b80779fb966adf6482992d47cc66c58cb3dbe5488e5f985a4a",
+        (
+            "mysql",
+            "mysql.authoring.install_mariadb_deadline",
+        ): "71cbbb32c686383880da1a6036b948242f95d18541c12747c8acfa26d50db5c8",
+        (
+            "mysql",
+            "mysql.authoring.read_mariadb_deadline",
+        ): "d74c34325d9f69a91b730011a525f2c095e7c988b60796298c339e930b949c93",
+        (
+            "mysql",
             "mysql.timezone.verify",
         ): "a563dd67e3d1db41c72de1bcbec8abdb6ce5f5d8881bc4d3c826efb8952274f7",
         (
@@ -517,10 +529,12 @@ def test_mysql_certification_statements_reject_other_purposes(statement_id: str)
     assert provider_statement_log(backend) == ()
 
 
+@pytest.mark.parametrize("server", ["mysql", "mariadb"])
 @pytest.mark.parametrize("fault", ["denied", "mismatch", "empty", "correct"])
 def test_mysql_certification_guard_requires_confirmed_server_limit(
     monkeypatch: pytest.MonkeyPatch,
     fault: str,
+    server: str,
 ) -> None:
     from collections.abc import Mapping
 
@@ -544,13 +558,24 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
         assert purpose == "datasource.native_query_timeout"
         if statement_id.endswith("install_select_deadline"):
             assert values == {"timeout_ms": 30000}
+            if server == "mariadb":
+                raise RuntimeError(1193, "Unknown system variable 'max_execution_time'")
             if fault == "denied":
                 raise PermissionError("session setting denied")
             return ()
+        if statement_id.endswith("server_version"):
+            return ({"server_version": "10.11.6-MariaDB-0+deb12u1"},)
+        if statement_id.endswith("install_mariadb_deadline"):
+            assert values == {"timeout_seconds": 30}
+            if fault == "denied":
+                raise PermissionError("session setting denied")
+            return ()
+        variable = "max_statement_time" if server == "mariadb" else "max_execution_time"
+        limit = 30 if server == "mariadb" else 30000
         return (
             ()
             if fault == "empty"
-            else ({"@@session.max_execution_time": 0 if fault == "mismatch" else 30000},)
+            else ({f"@@session.{variable}": 0 if fault == "mismatch" else limit},)
         )
 
     monkeypatch.setattr(mysql, "execute_provider_statement", execute)
@@ -566,7 +591,7 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
         ):
             entered = True
     assert entered is (fault == "correct")
-    assert len(calls) == (1 if fault == "denied" else 2)
+    assert len(calls) == (1 if fault == "denied" else 2) + (2 if server == "mariadb" else 0)
 
 
 def test_parameterized_credential_failure_logs_template_without_bound_values(

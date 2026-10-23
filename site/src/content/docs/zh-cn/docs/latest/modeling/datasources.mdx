@@ -69,6 +69,9 @@ md.postgres(
 
 ## MySQL — `md.mysql`
 
+MariaDB 服务使用同一个构造函数。托管查询的超时限制在 MySQL 上使用毫秒，
+在 MariaDB 上使用秒。
+
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `name` | 是 | — | 项目内全局唯一的小写 snake_case 名称，用 `ms.ref.datasource(name)` 引用。 |
