@@ -49,7 +49,7 @@ def _run_make(
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL"}
+        if key not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "PYTEST_WORKERS", "RUNTIME_WORKERS"}
     }
     environment.update(
         MARIVO_CHECK_TEST_LOG=str(log),

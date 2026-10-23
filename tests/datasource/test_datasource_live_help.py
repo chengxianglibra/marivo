@@ -183,13 +183,17 @@ def test_advertised_datasource_members_resolve_through_public_help() -> None:
     from marivo.datasource._capabilities.registry import TYPE_CONTRACTS
     from marivo.introspection.live.targets import canonical_target
 
+    rendered_methods: dict[object, str] = {}
     for type_obj, contract in TYPE_CONTRACTS.items():
         for name in contract.public_methods:
             method = getattr(type_obj, name)
             # Shared retained-data display methods have no datasource-specific owner.
             if method.__module__ == "marivo._data_render":
                 continue
-            text, _, _ = render_help_text(method)
+            text = rendered_methods.get(method)
+            if text is None:
+                text, _, _ = render_help_text(method)
+                rendered_methods[method] = text
             assert text
             if method.__module__.startswith("marivo.datasource"):
                 assert (
