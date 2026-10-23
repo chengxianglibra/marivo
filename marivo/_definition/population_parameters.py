@@ -25,6 +25,7 @@ from marivo._definition.deferred import (
     PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
+    RescaleResolver,
     _FrozenResolver,
     _RelationshipValue,
     resolver_of,
@@ -249,7 +250,7 @@ def has_parameters(value: object) -> bool:
         return has_parameters(resolver_of(value))
     if isinstance(value, (SymbolResolver, ParameterResolver)):
         return True
-    if isinstance(value, DeclarationResolver):
+    if isinstance(value, (DeclarationResolver, RescaleResolver)):
         return has_parameters(value.recipe)
     if isinstance(value, (tuple, list)):
         return any(has_parameters(item) for item in value)

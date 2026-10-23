@@ -66,6 +66,15 @@ policies remain operator-local strings; declaration-wide
 empty/null/zero-denominator policies, old factories and default folds are
 rejected with a concrete reauthoring action.
 
+``ms.rescale(expr, divisor=..., unit=...)`` explicitly divides a numeric Row or
+completed Metric by a finite positive constant and declares its target unit.
+The source unit must be known after binding; stage, source roots, time restrictions
+and sum permissions are preserved. The author owns the factor and business meaning,
+including cross-dimension assertions and ``divisor=1``. No conversion is inferred.
+Ordinary scalar division retains the source unit, and a Measure unit assertion
+remains compatible with a known inferred unit. Fixed duration factors do not
+change with the analysis window. See ``marivo.help("semantic.rescale")``.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:
@@ -73,6 +82,7 @@ rejected with a concrete reauthoring action.
    additive
    additive_all
    non_additive
+   rescale
    snapshot
    validity
    join_on

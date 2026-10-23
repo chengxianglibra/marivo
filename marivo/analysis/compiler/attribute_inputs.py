@@ -193,6 +193,10 @@ def _row_unit(node: RowNode) -> str | None:
     inputs = tuple(_row_unit(item) for item in node.inputs)
 
     def visit(recipe: Resolver) -> tuple[str | None, bool]:
+        from marivo._definition.deferred import RescaleResolver
+
+        if isinstance(recipe, RescaleResolver):
+            return recipe.unit, False
         values: tuple[tuple[str | None, bool], ...]
         if isinstance(recipe, Variable):
             return inputs[int(recipe.name.removeprefix("slot_"))], False

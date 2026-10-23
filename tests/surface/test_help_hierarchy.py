@@ -82,6 +82,7 @@ def test_retired_task_topics_fail_without_aliases(target: str) -> None:
     (
         ("analysis", "analysis.source", "analysis.population.count"),
         ("analysis", "analysis.inputs", "semantic.expressions", "semantic.metric"),
+        ("authoring", "semantic", "semantic.expressions", "semantic.rescale"),
         ("analysis", "analysis.source", "semantic.predicate"),
         ("analysis", "analysis.source", "analysis.analysis_frame.attribute"),
         ("analysis", "analysis.frame", "analysis.session.values"),

@@ -70,6 +70,7 @@ from marivo.semantic._authoring_values import (
 from marivo.semantic._dsl_authoring import (
     non_additive,
 )
+from marivo.semantic._rescale import rescale
 
 
 class _RetiredPolicy:
@@ -123,6 +124,7 @@ __all__ = [
     "non_additive",
     "period_calendar",
     "relationship",
+    "rescale",
     "snapshot",
     "strptime",
     "temporal_set",

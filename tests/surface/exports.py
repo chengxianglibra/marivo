@@ -44,6 +44,7 @@ SEMANTIC_PUBLIC = {
     "period_calendar",
     "ref",
     "relationship",
+    "rescale",
     "snapshot",
     "source_check",
     "strptime",

@@ -22,6 +22,7 @@ from ibis.common.deferred import (
 
 from marivo._definition.deferred import (
     DeclarationResolver,
+    RescaleResolver,
     SemanticInput,
     SemanticResolver,
     inspect_capture,
@@ -68,7 +69,7 @@ def _view(registry: Registry, sidecar: CompiledExpressionSidecar) -> CompiledSem
 
 
 def _children(recipe: Resolver) -> tuple[Resolver, ...]:
-    if isinstance(recipe, DeclarationResolver):
+    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
         return (recipe.recipe,)
     if isinstance(recipe, BinaryOperator):
         return (recipe.left, recipe.right)
@@ -150,6 +151,8 @@ def bind_recipe(
             received=recipe.reference.kind.value,
             action="Use this identity only in its matching declaration parameter.",
         )
+    if isinstance(recipe, RescaleResolver):
+        return RescaleResolver(bind(recipe.recipe), recipe.divisor, recipe.unit)
     if isinstance(recipe, DeclarationResolver):
         if not root and id(recipe) in declarations:
             return resolver_of(declarations[id(recipe)])

@@ -118,7 +118,7 @@ This cost example uses the extra column created in the complete model below. Der
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `unit` | No | `None` | Unit assertion; `None` inherits the expression unit. |
+| `unit` | No | `None` | Compatible assertion for a known inferred unit, or declaration of a previously unspecified unit; `None` inherits the expression unit. |
 | `additivity` | No | `None` | Explicit compatible summation permission; `None` inherits expression facts. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
@@ -145,6 +145,30 @@ def average_order_value():
 ```
 
 Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
+
+### Explicit scaling: `ms.rescale`
+
+Use `ms.rescale` to divide a numeric Row or completed Metric by a constant and explicitly declare the target unit. It preserves stage, source roots, time restrictions and sum permissions. The source unit must be known after binding.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `expr` | Yes | — | Numeric Row or completed Metric Deferred expression with a known source unit. |
+| `divisor` | Yes | — | Keyword-only finite positive `int`, `float` or `Decimal` constant; booleans and dynamic expressions are rejected. |
+| `unit` | Yes | — | Keyword-only target unit string; existing factorable units are canonicalized and opaque units are retained. |
+
+Given an established byte-valued `total_bytes` Metric for a complete 86400-second interval and `hourly_p95_bytes`, the P95 of complete hourly byte totals:
+
+{/* example: semantic-rescale */}
+```python
+daily_bandwidth = ms.rescale(
+    total_bytes, divisor=86400 * 1024**3, unit="GiB/s",
+)
+p95_bandwidth = ms.rescale(
+    hourly_p95_bytes, divisor=3600 * 1024**3, unit="GiB/s",
+)
+```
+
+The author owns the scale factor and physical/business meaning, including cross-dimension assertions and `divisor=1`. Fixed duration factors do not change with the analysis window, and Marivo does not infer conversions. Ordinary scalar division retains the source unit; a Measure unit assertion remains compatible with a known inferred unit. Help: `semantic.rescale`.
 
 <a id="relationships-and-membership"></a>
 

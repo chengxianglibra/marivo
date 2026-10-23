@@ -94,13 +94,13 @@ def merge_frame_key_inputs(
 
 
 def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
-    from marivo._definition.deferred import PopulationCountResolver
+    from marivo._definition.deferred import PopulationCountResolver, RescaleResolver
     from marivo.analysis.dsl.population import Population
 
     if isinstance(recipe, (PopulationCountResolver, PopulationContainsResolver)):
         value = recipe.population
         return value._frame_inputs if isinstance(value, Population) else ()
-    if isinstance(recipe, DeclarationResolver):
+    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
         return _recipe_inputs(recipe.recipe)
     if isinstance(recipe, Just):
         value = recipe.value

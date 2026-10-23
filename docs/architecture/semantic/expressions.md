@@ -111,6 +111,40 @@ An assertion cannot erase fixed status-time constraints or refer to foreign axes
 Metric decorators accept domain/context metadata, without unit, time, fold or
 numeric-policy overrides.
 
+### Explicit scaling and target units
+
+`ms.rescale(expr, *, divisor, unit)` divides a numeric Row or completed Metric
+expression by an authored constant and explicitly declares its target unit.
+The source unit must be known after binding. `divisor` is a finite, strictly
+positive `int`, `float` or `Decimal`; booleans and dynamic expressions are invalid.
+The target follows the existing unit string validation and canonicalization,
+including opaque units. The operation preserves stage, source roots, time
+restrictions and sum permissions, and uses existing division and null rules.
+Its captured recipe identifies the divisor and target unit; completed results
+retain that target unit.
+
+For a byte-valued `total_bytes` Metric over a complete 86400-second interval,
+and an established P95 of complete hourly byte totals:
+
+```python
+@ms.metric()
+def daily_bandwidth():
+    return ms.rescale(total_bytes, divisor=86400 * 1024**3, unit="GiB/s")
+
+
+@ms.metric()
+def p95_bandwidth():
+    return ms.rescale(hourly_p95_bytes, divisor=3600 * 1024**3, unit="GiB/s")
+```
+
+The author is responsible for the scale factor and physical/business meaning.
+An explicit target may cross dimensions, and `divisor=1` is valid. Fixed duration
+factors do not follow an analysis window automatically. Marivo does not infer
+conversions or introduce a unit registry. Ordinary scalar division retains the
+source unit; a Measure unit assertion remains compatible-only when the inferred
+unit is known and may establish a previously unknown unit. Physical Measures
+declare source units. Help: `semantic.rescale`.
+
 ## Predicates and scalar paths
 
 Field comparisons and missing/membership tests produce Deferred boolean recipes.

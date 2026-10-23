@@ -118,7 +118,7 @@ def margin():
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `unit` | 否 | `None` | 单位声明；`None` 继承表达式单位。 |
+| `unit` | 否 | `None` | 对已知推导单位作兼容声明，或为此前未指定的单位作声明；`None` 继承表达式单位。 |
 | `additivity` | 否 | `None` | 显式兼容求和许可；`None` 继承表达式事实。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
 
@@ -145,6 +145,30 @@ def average_order_value():
 ```
 
 函数体可以包含新的局部表达式绑定和最终 return，但不能包含表参数、`ms.bind`、查询或任意 Python 调用。空样本求和为零，非空但全部为空的样本求和为未知；除以零产生 NA。`revenue.where(region == "east")` 限定贡献条件，`revenue.per(region).mean()` 计算地区收入的均值；它们与筛选或平均已完成 Frame 不同。已有闭合 Metric 可以直接组合用于本次问题，无需发布新定义。Help：`semantic.metric.define`、`semantic.expressions`。
+
+### 显式缩放：`ms.rescale`
+
+用 `ms.rescale` 将数值 Row 或已完成的 Metric 除以常量，并显式声明目标单位。它保留阶段、来源根、时间约束和求和许可。绑定后，来源单位必须已知。
+
+| 参数 | 必填 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `expr` | 是 | — | 来源单位已知的数值 Row 或已完成 Metric Deferred 表达式。 |
+| `divisor` | 是 | — | 仅限关键字的有限正 `int`、`float` 或 `Decimal` 常量；拒绝布尔值和动态表达式。 |
+| `unit` | 是 | — | 仅限关键字的目标单位字符串；现有可分解单位会规范化，不透明单位保持原样。 |
+
+假设已有单位为字节的 `total_bytes` Metric，表示完整 86400 秒区间的总量；`hourly_p95_bytes` 表示完整小时字节总量的 P95：
+
+{/* example: semantic-rescale */}
+```python
+daily_bandwidth = ms.rescale(
+    total_bytes, divisor=86400 * 1024**3, unit="GiB/s",
+)
+p95_bandwidth = ms.rescale(
+    hourly_p95_bytes, divisor=3600 * 1024**3, unit="GiB/s",
+)
+```
+
+作者负责缩放因子与物理及业务含义，包括跨量纲声明和 `divisor=1`。固定时长因子不会随分析窗口改变，Marivo 不会推断换算。普通标量除法保留来源单位；Measure 单位声明仍须与已知推导单位兼容。Help：`semantic.rescale`。
 
 <a id="关系与归属"></a>
 

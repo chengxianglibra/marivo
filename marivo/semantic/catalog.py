@@ -3200,7 +3200,11 @@ class SemanticCatalog(RenderableResult):
             The returned facts do not mutate or add attributes to native Deferred values.
         """
         from marivo._definition.graph import computation_fingerprint
-        from marivo.semantic._deferred_semantics import consume_metric, consume_row
+        from marivo.semantic._deferred_semantics import (
+            _rescale_disclosure,
+            consume_metric,
+            consume_row,
+        )
         from marivo.semantic.expressions import _Resolver
 
         target = _require_semantic_ref(ref, parameter="describe(ref)")
@@ -3245,7 +3249,7 @@ class SemanticCatalog(RenderableResult):
                 business_definition=context.business_definition if context else None,
                 guardrails=tuple(context.guardrails or ()) if context else (),
                 location=f"{location.path}:{location.line}" if location else None,
-                facts=(),
+                facts=_rescale_disclosure(value),
                 operations=(
                     "native Ibis numerical composition",
                     "sum/mean" if declaration.kind == "measure" else "where/per/window",

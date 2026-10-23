@@ -32,6 +32,7 @@ from marivo._definition.deferred import (
     PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
+    RescaleResolver,
     SemanticInput,
     SemanticResolver,
     attribute_name,
@@ -169,6 +170,8 @@ def _fail(
 
 
 def _rename_slots(recipe: Resolver, offset: int) -> Resolver:
+    if isinstance(recipe, RescaleResolver):
+        return RescaleResolver(_rename_slots(recipe.recipe, offset), recipe.divisor, recipe.unit)
     if isinstance(recipe, Variable):
         name = str(recipe.name)
         return Variable(f"slot_{int(name.removeprefix('slot_')) + offset}")
@@ -790,6 +793,38 @@ def _reduce(
 
 
 def _consume(recipe: Resolver) -> _Facts:
+    if isinstance(recipe, RescaleResolver):
+        value = _consume(recipe.recipe)
+        if (
+            not isinstance(value, (RowFacts, MetricFacts))
+            or value.boolean
+            or (isinstance(value, RowFacts) and not value.numeric)
+        ):
+            _fail(
+                "rescale requires a numeric Row or completed Metric expression.",
+                expected="a numeric Row or Metric expression",
+                received=type(value).__name__,
+                help_target="rescale",
+                action="Pass a Measure expression or a completed numeric reduction to ms.rescale.",
+            )
+        assert isinstance(value, (RowFacts, MetricFacts))
+        if value.unit is None:
+            _fail(
+                "rescale requires a known input unit after binding.",
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                expected="an expression with a known unit",
+                received="unknown input unit",
+                help_target="rescale",
+                action="Declare the source quantity's unit before applying ms.rescale.",
+            )
+        scaled = _compose(
+            recipe,
+            (value, _Scalar(Just(recipe.divisor), recipe.divisor)),
+            lambda parts: RescaleResolver(parts[0], recipe.divisor, recipe.unit),
+            operation="truediv",
+        )
+        assert isinstance(scaled, (RowFacts, MetricFacts))
+        return replace(scaled, unit=recipe.unit)
     if isinstance(recipe, PopulationContainsResolver):
         _fail(
             "Membership leaves require an admitted source predicate position.",
@@ -1208,6 +1243,23 @@ def consume_metric(value: Deferred) -> MetricFacts:
     return result
 
 
+def _rescale_disclosure(value: Deferred) -> tuple[tuple[str, str], ...]:
+    """Derive input/output units from each already-bound rescale occurrence."""
+    facts: list[tuple[str, str]] = []
+    for use in _inspect(value).operations:
+        if isinstance(use.recipe, RescaleResolver):
+            source = _consume(use.recipe.recipe)
+            assert isinstance(source, (RowFacts, MetricFacts))
+            facts.append(
+                (
+                    "rescale",
+                    f"input_unit={source.unit!r}, divisor={use.recipe.divisor!r}, "
+                    f"unit={use.recipe.unit!r}",
+                )
+            )
+    return tuple(facts)
+
+
 def consume_field(value: Deferred) -> SemanticInput:
     result = _consume(_inspect(value).recipe)
     if not isinstance(result, RowFacts) or result.field is None:
@@ -1223,7 +1275,7 @@ def consume_field(value: Deferred) -> SemanticInput:
 def _contains_population(recipe: Resolver) -> bool:
     if isinstance(recipe, PopulationContainsResolver):
         return True
-    if isinstance(recipe, DeclarationResolver):
+    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
         return _contains_population(recipe.recipe)
     if isinstance(recipe, BinaryOperator):
         return _contains_population(recipe.left) or _contains_population(recipe.right)
@@ -1331,6 +1383,8 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
     resolver = _Resolver(state)
 
     def bind(recipe: Resolver, active: frozenset[str]) -> Resolver:
+        if isinstance(recipe, RescaleResolver):
+            return RescaleResolver(bind(recipe.recipe, active), recipe.divisor, recipe.unit)
         if isinstance(recipe, DeclarationResolver):
             declaration = recipe.declaration
             if declaration.reference is not None:

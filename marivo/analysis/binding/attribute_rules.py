@@ -225,6 +225,10 @@ def _row_allows(node: RowNode, axis: ComparisonAxis) -> bool:
         )
 
     def visit(recipe: Resolver) -> bool | None:
+        from marivo._definition.deferred import RescaleResolver
+
+        if isinstance(recipe, RescaleResolver):
+            return visit(recipe.recipe)
         if type(recipe) is Variable:
             for index, item in enumerate(node.inputs):
                 if recipe.name == f"slot_{index}":
@@ -445,6 +449,10 @@ def build_attribute_rule(
             return RatioComponentRule(DirectRatio(left, right))
 
         def recipe(value: Resolver) -> _RecipeValue:
+            from marivo._definition.deferred import RescaleResolver
+
+            if isinstance(value, RescaleResolver):
+                return recipe(BinaryOperator(operator.truediv, value.recipe, Just(value.divisor)))
             if type(value) is Variable:
                 for index, operand in enumerate(item.operands):
                     if value.name == f"slot_{index}":

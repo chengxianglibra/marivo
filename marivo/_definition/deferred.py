@@ -227,6 +227,21 @@ class DeclarationResolver(_FrozenResolver):
         invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
 
 
+class RescaleResolver(_FrozenResolver):
+    """Explicit numeric division and target-unit assertion on one recipe."""
+
+    __slots__ = ("divisor", "recipe", "unit")
+    recipe: Resolver
+    divisor: int | float | Decimal
+    unit: str
+
+    def __init__(self, recipe: Resolver, divisor: int | float | Decimal, unit: str) -> None:
+        super().__init__(recipe=recipe, divisor=divisor, unit=unit)
+
+    def resolve(self, context: dict[str, object]) -> NoReturn:
+        invalid("Rescale expressions require Marivo semantic binding.")
+
+
 class PopulationCountResolver(_FrozenResolver):
     """A closed Metric carrying its explicit identity Population parameter."""
 
@@ -574,6 +589,12 @@ class _Inspector:
                 self.token("at", "" if read.at is None else read.at.isoformat())
             self.token("versioned", str(value.versioned))
             self.token("end_semantic")
+        elif type(recipe) is RescaleResolver:
+            self.operations.append(RecipeUse(path, "rescale", recipe))
+            self.token("rescale", recipe.unit)
+            self.literal(recipe.divisor, (*path, "divisor"))
+            self.visit(recipe.recipe, (*path, "rescale"))
+            self.token("end_rescale")
         elif type(recipe) is DeclarationResolver:
             declaration = recipe.declaration
             self.declarations.append(declaration)

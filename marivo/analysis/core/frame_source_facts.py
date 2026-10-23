@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, Sequence, UnaryOperator
 
-from marivo._definition.deferred import RelationshipParameter, canonical_recipe
+from marivo._definition.deferred import RelationshipParameter, RescaleResolver, canonical_recipe
 from marivo._definition.expressions import (
     MeasureAssertion,
     PredicateExpression,
@@ -93,6 +93,8 @@ _SPECIAL = (Grouping, MembershipBinding, PopulationParameter)
 
 
 def _special_scopes(recipe: Resolver) -> tuple[object, ...]:
+    if isinstance(recipe, RescaleResolver):
+        return _special_scopes(recipe.recipe)
     if isinstance(recipe, Just):
         return (_scope(recipe.value),) if isinstance(recipe.value, _SPECIAL) else ()
     if isinstance(recipe, BinaryOperator):

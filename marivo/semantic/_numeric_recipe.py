@@ -25,7 +25,7 @@ from ibis.common.deferred import (
     Variable,
 )
 
-from marivo._definition.deferred import attribute_name, canonical_recipe
+from marivo._definition.deferred import RescaleResolver, attribute_name, canonical_recipe
 from marivo._numeric_types import bind_numeric_literal
 
 if TYPE_CHECKING:
@@ -44,6 +44,11 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
     )
 
     def bind(item: Resolver) -> object:
+        if isinstance(item, RescaleResolver):
+            receiver = bind(item.recipe)
+            if not isinstance(receiver, ir.Value):
+                numeric_failure("a bound numeric rescale expression", type(receiver).__name__)
+            return receiver / item.divisor
         if type(item) is Variable:
             return table[item.name]
         if type(item) is Just:

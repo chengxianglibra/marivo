@@ -3056,6 +3056,25 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # Low-level expression builders (public authoring surface)
         # ------------------------------------------------------------------
         _capability(
+            "rescale",
+            "marivo.semantic._rescale.rescale",
+            "Divide a numeric Row or completed Metric by a finite, strictly positive int, float or Decimal constant and explicitly declare the target unit. A known source unit is required after binding. Boolean and dynamic divisors are rejected. Existing factorable units are canonicalized and opaque unit strings are retained. The result preserves stage, source roots, time restrictions and sum permissions. The author owns the factor and physical/business correctness, including cross-dimension assertions and divisor=1. No conversion is inferred; ordinary scalar division retains the source unit. Fixed duration factors do not follow an analysis window automatically.",
+            output="Deferred",
+            inputs=(
+                _parameter_input("subject", "Deferred", "expr"),
+                _parameter_input("dependency", "Number", "divisor"),
+                _parameter_input("dependency", "Text", "unit"),
+            ),
+            effects=_NONE,
+            example=(
+                "# total_bytes is a closed byte-valued Metric over 86400 seconds.\n"
+                "daily_bandwidth = ms.rescale(\n"
+                "    total_bytes, divisor=86400 * 1024**3, unit='GiB/s',\n"
+                ")"
+            ),
+            see_also=(_target("expressions"), _target("measure")),
+        ),
+        _capability(
             "bind",
             "marivo.semantic._authoring_values.bind",
             "Apply a constructed leaf field or native lookup symbol to a direct Entity table parameter inside a restricted Ibis Dimension/TimeDimension declaration. Loader binding checks kind and ownership in the completed consumer scope; lookup symbols allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.",
@@ -3562,6 +3581,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         _target("expressions.Metric"),
                         summary="Compose existing reduced values; publishing a new Metric is optional.",
                         owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "explicit scale and unit",
+                        _target("rescale"),
+                        summary="Divide a numeric Row or Metric by an authored constant and declare its target unit.",
                     ),
                     _navigation_route(
                         "internal samples",

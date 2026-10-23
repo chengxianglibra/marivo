@@ -7,6 +7,7 @@ import copy
 import hashlib
 import inspect
 import json
+import operator
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
@@ -477,8 +478,16 @@ class _DeclarationExpressionBuilder:
             trailing_duration,
             trailing_periods,
         )
+        from marivo.semantic._rescale import rescale
 
-        window_factories = (all_history, since, to_date, trailing_duration, trailing_periods)
+        semantic_factories = (
+            all_history,
+            since,
+            to_date,
+            trailing_duration,
+            trailing_periods,
+            rescale,
+        )
 
         value: object = None
         if isinstance(node, ast.Name):
@@ -487,12 +496,49 @@ class _DeclarationExpressionBuilder:
             module = self.symbols.get(node.value.id)
             if module is ibis:
                 value = vars(ibis).get(node.attr)
-            elif isinstance(module, ModuleType) and module.__name__ == "marivo.analysis":
+            elif isinstance(module, ModuleType) and module.__name__ in {
+                "marivo.analysis",
+                "marivo.semantic",
+            }:
                 value = vars(module).get(node.attr)
-        if admitted_function(value) or any(value is factory for factory in window_factories):
-            # Exact identity has been checked before admitting this Ibis constructor.
+        if admitted_function(value) or any(value is factory for factory in semantic_factories):
+            # Exact identity admits only controlled expression constructors.
             return cast("Callable[..., object]", value)
         return None
+
+    def _rescale_divisor(self, node: ast.expr) -> int | float | Decimal:
+        """Evaluate only closed numeric arithmetic in rescale's literal parameter."""
+        operations: dict[
+            type[ast.operator], Callable[[int | float | Decimal, int | float | Decimal], object]
+        ] = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.Pow: operator.pow,
+        }
+        try:
+            if isinstance(node, ast.BinOp) and type(node.op) in operations:
+                result = operations[type(node.op)](
+                    self._rescale_divisor(node.left), self._rescale_divisor(node.right)
+                )
+            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                operand = self._rescale_divisor(node.operand)
+                result = -operand if isinstance(node.op, ast.USub) else operand
+            elif isinstance(node, (ast.Name, ast.Constant)):
+                result = self.value(node)
+            else:
+                raise ValueError("only numeric constants and arithmetic are admitted")
+            if isinstance(result, (int, float, Decimal)) and not isinstance(result, bool):
+                return result
+            raise ValueError(f"received {type(result).__name__}")
+        except (TypeError, ValueError, ArithmeticError) as error:
+            self.fail(
+                node,
+                "closed numeric literal arithmetic for the rescale divisor",
+                str(error),
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            )
 
     def value(self, node: ast.expr) -> object:
         from marivo._definition.deferred import NATIVE_METHODS, SEMANTIC_METHODS
@@ -614,8 +660,12 @@ class _DeclarationExpressionBuilder:
                     ast.unparse(node.func),
                 )
             args = [self.value(arg) for arg in node.args]
+            from marivo.semantic._rescale import rescale
+
             kwargs = {
-                keyword.arg: self.value(keyword.value)
+                keyword.arg: self._rescale_divisor(keyword.value)
+                if method is rescale and keyword.arg == "divisor"
+                else self.value(keyword.value)
                 for keyword in node.keywords
                 if keyword.arg is not None
             }

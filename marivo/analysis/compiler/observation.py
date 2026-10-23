@@ -597,6 +597,8 @@ def _recipe_duration(
         Variable,
     )
 
+    from marivo._definition.deferred import RescaleResolver
+
     def combine(parts: tuple[DurationDataType | None, ...]) -> DurationDataType | None:
         present = tuple(part for part in parts if part is not None)
         if len(set(present)) > 1:
@@ -604,6 +606,8 @@ def _recipe_duration(
         return present[0] if present else None
 
     def visit(item: Resolver) -> DurationDataType | None:
+        if isinstance(item, RescaleResolver):
+            return arithmetic(True, False, visit(item.recipe), None)
         if type(item) is Variable:
             return inputs[int(item.name.removeprefix("slot_"))]
         if type(item) is Just:
