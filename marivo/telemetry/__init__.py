@@ -46,6 +46,9 @@ _LAST_PRUNED_DATE: dict[Path, date] = {}
 
 TelemetryMode = Literal["off", "on", "full"]
 CapturePolicy = Literal["none", "failure", "short", "long"]
+_LOAD_POLICY: ContextVar[tuple[Path, TelemetryMode] | None] = ContextVar(
+    "marivo_load_telemetry_policy", default=None
+)
 
 _SENSITIVE_PARAMETER_PARTS = (
     "credential",
@@ -178,6 +181,9 @@ def _mode(root: Path) -> TelemetryMode:
     env_value = _setting_mode(os.environ.get("MARIVO_TELEMETRY"))
     if env_value is not None:
         return env_value
+    load_policy = _LOAD_POLICY.get()
+    if load_policy is not None and load_policy[0] == root:
+        return load_policy[1]
     project_value = _project_setting(root)
     if project_value is not None:
         return project_value
@@ -781,6 +787,7 @@ class _Operation:
         self.mode = _mode(self.root) if self.mode is None else self.mode
         self.enabled = self.mode != "off" and (self.mode == "full" or self.capture != "none")
         if not self.enabled:
+            self._current_token = _CURRENT_OPERATION.set(self)
             return self
         stack = _ACTIVE_OPERATIONS.get()
         self.parent_id = next(
@@ -845,10 +852,10 @@ class _Operation:
     ) -> Literal[False]:
         if self._log_scope is not None:
             self._log_scope.__exit__(exc_type, exc, traceback)
-        if not self.enabled:
-            return False
         if self._current_token is not None:
             _CURRENT_OPERATION.reset(self._current_token)
+        if not self.enabled:
+            return False
         if self._stack_token is not None:
             _ACTIVE_OPERATIONS.reset(self._stack_token)
         decision = self._decision
@@ -975,6 +982,26 @@ def tracked_capability(
                     # The owning preflight must fail before telemetry creates project state.
                     return func(*args, **kwargs)
             mode = _mode(root)
+            if mode == "off":
+                # Execution diagnostics remain active independently of usage telemetry.
+                with _Operation(
+                    surface=surface,
+                    capability_id=capability_id,
+                    capability_kind=capability_kind,
+                    root=root,
+                    attributes=_session_attributes(arguments),
+                    mode=mode,
+                ):
+                    token = (
+                        _LOAD_POLICY.set((root, mode))
+                        if surface == "semantic" and capability_id == "load"
+                        else None
+                    )
+                    try:
+                        return func(*args, **kwargs)
+                    finally:
+                        if token is not None:
+                            _LOAD_POLICY.reset(token)
             capture = _capture_policy(
                 surface, capability_id, capability_kind, default_stage=default_stage
             )

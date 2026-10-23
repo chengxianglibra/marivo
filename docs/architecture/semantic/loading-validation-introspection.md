@@ -27,6 +27,14 @@ references and validates organization, kind, dependency cycles and expression
 contracts. It does not connect, inspect source schemas, prove key uniqueness or
 run business queries. Entity/Source and field Ibis bodies remain restricted;
 Measure/Metric declaration functions are captured without invocation.
+
+Compilation owns an incremental definition graph and resolution caches for one
+load. Physical definitions are assembled once; validated declarations append
+their facts and dependencies in publication order. Physical resolution can be
+reused within that load, while derived identities are refreshed as declarations
+are published. Failed loads discard this private state. Final publication copies
+and freezes the completed graph; caches never carry definitions across loads.
+
 Ordinary imported modules are not guaranteed to hot-reload. Restart Python after
 model edits/deletions or package changes when import state could be stale.
 

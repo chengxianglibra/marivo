@@ -494,3 +494,45 @@ def all_valid_top_calls():
     catalog = _catalog(semantic_project_factory, source)
     assert consume_row(catalog.fields.get("sales.orders.native_top_calls")).unit == "CNY"
     assert consume_metric(catalog.metrics.get("sales.all_valid_top_calls")).unit == "CNY"
+
+
+def test_publication_graph_matches_full_reconstruction_and_survives_failed_reload(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    from marivo.semantic._compiled_state import definition_graph
+    from marivo.semantic.expressions import _Resolver
+
+    metrics = """
+@ms.measure()
+def margin():
+    return amount - cost
+
+@ms.metric()
+def a_revenue():
+    return margin.sum()
+
+@ms.metric()
+def z_total():
+    return a_revenue * 2
+"""
+    project = _project(semantic_project_factory, _PHYSICAL + metrics)
+    first = project.catalog()
+    state = first._state
+    original_version = _Resolver(state).exact(ref_factory.metric("sales.z_total"))
+    assert (dict(state.definitions), dict(state.dependencies)) == definition_graph(
+        state.registry, state.sidecar
+    )
+    model = project.semantic_root / "sales" / "objects.py"
+    model.write_text(_PHYSICAL + metrics.replace("a_revenue * 2", "a_revenue + orders.count()"))
+    failed = project.load()
+    assert failed.status == "errored"
+    assert failed.registry is None and failed.compiled_state is None
+
+    model.write_text(_PHYSICAL.replace('column="amount"', 'column="net_amount"') + metrics)
+    assert project.load().status == "ready"
+    second = project.catalog()._state
+    assert _Resolver(second).exact(ref_factory.metric("sales.z_total")) != original_version
+    assert _Resolver(first._state).exact(ref_factory.metric("sales.z_total")) == original_version
+    assert (dict(second.definitions), dict(second.dependencies)) == definition_graph(
+        second.registry, second.sidecar
+    )

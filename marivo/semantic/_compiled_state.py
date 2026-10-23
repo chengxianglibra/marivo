@@ -257,15 +257,55 @@ def definition_graph(
     return definitions, dependencies
 
 
+@dataclass(slots=True)
+class CompilationGraph:
+    """Load-owned append-only graph; never retained by a published Catalog."""
+
+    registry: Registry
+    sidecar: CompiledExpressionSidecar
+    definitions: dict[Ref[SemanticKindTag], object]
+    dependencies: dict[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]]
+
+    @classmethod
+    def create(cls, registry: Registry, sidecar: CompiledExpressionSidecar) -> CompilationGraph:
+        definitions, dependencies = definition_graph(registry, sidecar)
+        return cls(registry, sidecar, definitions, dependencies)
+
+    def append(
+        self,
+        reference: Ref[SemanticKindTag],
+        *,
+        stage: Literal["measure", "metric"],
+        name: str,
+        node: MetricNode | RowNode,
+        unit: str | None,
+    ) -> None:
+        self.definitions[reference] = PublishedDeclaration(
+            stage, name, computation_fingerprint(node), unit
+        )
+        self.dependencies[reference] = tuple(
+            sorted(
+                ({exact.ref for exact in direct_refs(node)} | direct_calendar_refs(node))
+                - {reference},
+                key=lambda item: item.key,
+            )
+        )
+
+
 def build_compiled_state(
     *,
     registry: Registry,
     sidecar: CompiledExpressionSidecar,
     selected_root_roles: Sequence[str],
     filtered_domains: Sequence[str],
+    graph: CompilationGraph | None = None,
 ) -> CompiledSemanticState:
     """Copy and freeze all compiled values after successful validation."""
-    definitions, dependencies = definition_graph(registry, sidecar)
+    if graph is None:
+        definitions, dependencies = definition_graph(registry, sidecar)
+    else:
+        assert graph.registry is registry and graph.sidecar is sidecar
+        definitions, dependencies = graph.definitions, graph.dependencies
     selected_roots = tuple(
         CompiledRootIdentity(role=role, order=index)
         for index, role in enumerate(selected_root_roles)

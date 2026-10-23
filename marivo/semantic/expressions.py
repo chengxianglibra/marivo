@@ -55,7 +55,7 @@ from marivo.refs import (
 )
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
-from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic._compiled_state import CompilationGraph, CompiledSemanticState
 from marivo.semantic._dsl_authoring import (
     AdditiveAllV1,
     AdditiveOverV1,
@@ -654,7 +654,7 @@ _SUPPORTED_KINDS = (
 class _Resolver:
     """Definition identity over one compiled or declared semantic state."""
 
-    def __init__(self, state: CompiledSemanticState) -> None:
+    def __init__(self, state: CompiledSemanticState | CompilationGraph) -> None:
         self._state = state
         self._registry: Registry = state.registry
         self._versions: dict[Ref[SemanticKindTag], ExactRef] = {}

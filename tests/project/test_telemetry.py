@@ -1231,3 +1231,49 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
     records = execution_records(telemetry_project)
     assert {record["operation_id"] for record in records} == {operation["marivo.operation.id"]}
     assert "query-canary" not in _event_path(telemetry_project).read_text()
+
+
+@pytest.mark.parametrize("environment_off", [False, True])
+def test_disabled_load_preserves_execution_context_and_resets_after_failure(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch, environment_off: bool
+) -> None:
+    import marivo.telemetry as telemetry
+    from marivo import _execution_log
+    from tests.support.execution_logs import execution_records
+
+    if environment_off:
+        monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+    else:
+        monkeypatch.delenv("MARIVO_TELEMETRY", raising=False)
+        (telemetry_project / "marivo.toml").write_text(
+            '[project]\nname="disabled"\n[telemetry]\nenabled="off"\n'
+        )
+
+    def reject_attributes(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Disabled telemetry must not prepare event attributes")
+
+    monkeypatch.setattr(telemetry, "_input_attributes", reject_attributes)
+
+    @telemetry.tracked_capability(
+        surface="datasource", capability_id="raw_sql", capability_kind="boundary"
+    )
+    def child() -> None:
+        with _execution_log.QueryLog("SELECT 1", backend="duckdb", purpose="test"):
+            pass
+        raise ValueError("failure after logging")
+
+    @telemetry.tracked_capability(
+        surface="semantic", capability_id="load", capability_kind="callable"
+    )
+    def load(*, workspace_dir: Path) -> None:
+        child()
+
+    with pytest.raises(ValueError, match="failure after logging"):
+        load(workspace_dir=telemetry_project)
+    records = execution_records(telemetry_project)
+    assert records and all(record["operation_id"] for record in records)
+    assert all(record["parent_operation_id"] for record in records)
+    assert all(record["capability"] == "raw_sql" for record in records)
+    assert telemetry._CURRENT_OPERATION.get() is None
+    assert telemetry._LOAD_POLICY.get() is None
+    assert not (telemetry_project / ".marivo" / "telemetry").exists()

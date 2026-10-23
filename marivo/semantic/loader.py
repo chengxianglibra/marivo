@@ -38,7 +38,11 @@ from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import _load_models_datasources, _models_root_errors
 from marivo.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
-from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
+from marivo.semantic._compiled_state import (
+    CompilationGraph,
+    CompiledSemanticState,
+    build_compiled_state,
+)
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
@@ -562,12 +566,16 @@ def _declaration_site(value: Deferred) -> str:
 
 
 def _publish_declarations(
-    all_contexts: Sequence[LoaderContext], registry: Registry, sidecar: CompiledExpressionSidecar
+    all_contexts: Sequence[LoaderContext],
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+    *,
+    graph: CompilationGraph | None = None,
 ) -> list[SemanticError]:
     """Bind all collected declarations in one complete, deterministic scope."""
     from marivo.semantic._symbolic_binding import publish_declarations
 
-    return publish_declarations(all_contexts, registry, sidecar)
+    return publish_declarations(all_contexts, registry, sidecar, graph=graph)
 
 
 def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
@@ -871,6 +879,7 @@ def load_project(
     warnings: list[StructuredWarning] = []
     registry: Registry | None = None
     expression_sidecar: CompiledExpressionSidecar | None = None
+    compilation_graph: CompilationGraph | None = None
     all_contexts: list[LoaderContext] = []
     all_model_dirs: list[Path] = []
     datasource_irs: list[DatasourceIR] = [default_datasource()]
@@ -935,7 +944,12 @@ def load_project(
         errors.extend(asm_errors)
         warnings.extend(asm_warnings)
         if not errors:
-            errors.extend(_publish_declarations(all_contexts, registry, expression_sidecar))
+            compilation_graph = CompilationGraph.create(registry, expression_sidecar)
+            errors.extend(
+                _publish_declarations(
+                    all_contexts, registry, expression_sidecar, graph=compilation_graph
+                )
+            )
 
     finally:
         for path_entry in path_entries:
@@ -952,6 +966,7 @@ def load_project(
                 "external" if root_spec.is_external else "local" for root_spec in root_specs
             ),
             filtered_domains=filtered_models_tuple,
+            graph=compilation_graph,
         )
         if status == "ready" and registry is not None and expression_sidecar is not None
         else None

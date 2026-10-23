@@ -35,7 +35,7 @@ from marivo._definition.types import DefinitionGraphError, FieldRead, SumNone
 from marivo._symbolic import SymbolResolver
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
-from marivo.semantic._compiled_state import CompiledSemanticState, definition_graph
+from marivo.semantic._compiled_state import CompilationGraph
 from marivo.semantic._deferred_semantics import (
     consume_field,
     consume_metric,
@@ -52,6 +52,7 @@ from marivo.semantic.errors import (
 from marivo.semantic.expressions import (
     Entity,
     Relationship,
+    ResolvedValue,
     _Resolver,
     author_value,
     declare_measure,
@@ -62,10 +63,25 @@ if TYPE_CHECKING:
     from marivo.semantic.loader import LoaderContext
 
 
-def _view(registry: Registry, sidecar: CompiledExpressionSidecar) -> CompiledSemanticState:
-    """Read-only compiler facts without freezing the registry being assembled."""
-    definitions, dependencies = definition_graph(registry, sidecar)
-    return CompiledSemanticState("", (), (), registry, definitions, dependencies, sidecar)
+class _PublicationResolver(_Resolver):
+    """Reuse complete physical facts while derived identities advance with publication."""
+
+    def __init__(self, graph: CompilationGraph) -> None:
+        super().__init__(graph)
+        self._physical = frozenset(graph.definitions)
+        self._physical_values: dict[Ref[SemanticKindTag], ResolvedValue] = {}
+
+    def advance(self) -> None:
+        self._versions = {
+            ref: value for ref, value in self._versions.items() if ref in self._physical
+        }
+
+    def value(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
+        if target not in self._physical:
+            return super().value(target)
+        if target not in self._physical_values:
+            self._physical_values[target] = super().value(target)
+        return self._physical_values[target]
 
 
 def _children(recipe: Resolver) -> tuple[Resolver, ...]:
@@ -274,7 +290,11 @@ def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
 
 
 def publish_declarations(
-    contexts: Sequence[LoaderContext], registry: Registry, sidecar: CompiledExpressionSidecar
+    contexts: Sequence[LoaderContext],
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar,
+    *,
+    graph: CompilationGraph | None = None,
 ) -> list[SemanticError]:
     """Index, order, and bind all declarations before publishing the closed scope."""
     from marivo.semantic.loader import _closure_scope_error, _declaration_site, _defined_kinds
@@ -412,12 +432,14 @@ def publish_declarations(
     except SemanticError as error:
         return [error]
 
+    graph = CompilationGraph.create(registry, sidecar) if graph is None else graph
+    resolver = _PublicationResolver(graph)
     closed: dict[int, Deferred] = {}
     for target in order:
         original = indexed[target]
 
         def lookup(reference: Ref[SemanticKindTag]) -> object:
-            return author_value(_Resolver(_view(registry, sidecar)).value(reference))
+            return author_value(resolver.value(reference))
 
         try:
             value = Deferred(
@@ -454,14 +476,22 @@ def publish_declarations(
             scope_error = _closure_scope_error(target.path, value, consumed, available)
             if scope_error is not None:
                 raise scope_error
+            declaration = root_declaration(value)
+            assert declaration is not None
+            graph.append(
+                target,
+                stage=declaration.kind,
+                name=declaration.name,
+                node=facts.node,
+                unit=facts.unit,
+            )
+            resolver.advance()
             if target.kind is SemanticKind.MEASURE:
                 registry.declared_measures[target.path] = value
                 closed[id(resolver_of(original))] = value
             else:
                 registry.declared_metrics[target.path] = value
-                closed[id(resolver_of(original))] = _Resolver(_view(registry, sidecar)).metric(
-                    target.path
-                )
+                closed[id(resolver_of(original))] = resolver.metric(target.path)
         except DefinitionGraphError as error:
             errors.append(
                 SemanticExpressionError.from_definition(error, operation=f"binding {target.key}")
