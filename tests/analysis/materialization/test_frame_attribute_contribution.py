@@ -219,9 +219,8 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
     assert rows[("value", "contribution_share.q")].isna().all()
 
 
-@pytest.mark.parametrize("derive", ("direct", "top0", "select", "where"))
 def test_original_formula_error_keeps_owner_context_and_atomicity(
-    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, derive: str
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.core.attribute import AttributeFineFiber
     from marivo.analysis.core.data_types import ScalarDataType
@@ -236,54 +235,55 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    pending = _contribution(
-        session.observe(
-            {
-                "safe": amount.sum(),
-                "bad": amount.sum() * 2,
-            },
-            where=phase == "current",
-        ),
-        session.observe(
-            {
-                "safe": amount.sum(),
-                "bad": amount.sum() * 2,
-            },
-            where=phase == "base",
-        ),
-        by=(channel,),
-    )
-    if derive == "top0":
-        pending = pending.top(0, by=pending["detail.current.safe"])
-    elif derive == "select":
-        pending = pending.select({"only": pending["detail.current.safe"]})
-    elif derive == "where":
-        pending = pending.where(pending.coord(pending.axes[0]) != "B")
-        reads: list[CompiledRead] = []
-        execute = SourceSession.execute
+    reads: list[CompiledRead] = []
+    execute = SourceSession.execute
 
-        def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-            reads.append(issued)
-            return execute(self, issued)
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        reads.append(issued)
+        return execute(self, issued)
 
-        monkeypatch.setattr(SourceSession, "execute", read)
-        pending.show(n=0)
-        assert reads == []
-        assert terminal_runs(session) == ()
-    with pytest.raises(MaterializationError) as failure:
-        pending.compute()
-    error = failure.value
-    assert error.stage == "numeric_value"
-    assert error.location == "dataset.numeric_value"
-    assert error.attribute_context is not None
-    assert {use.metric for use in error.attribute_context.uses} == {"bad"}
-    assert {use.endpoint for use in error.attribute_context.uses} == {"left"}
-    fiber = error.attribute_context.fiber
-    assert isinstance(fiber, AttributeFineFiber)
-    assert fiber.parent == ()
-    assert fiber.fine == ((ScalarDataType("string"), "B"),)
-    assert len(fiber.fine_columns) == 1
-    assert error.repair is not None and "numeric" in error.repair.action
+    monkeypatch.setattr(SourceSession, "execute", read)
+    for derive in ("where", "direct", "top0", "select"):
+        pending = _contribution(
+            session.observe(
+                {
+                    "safe": amount.sum(),
+                    "bad": amount.sum() * 2,
+                },
+                where=phase == "current",
+            ),
+            session.observe(
+                {
+                    "safe": amount.sum(),
+                    "bad": amount.sum() * 2,
+                },
+                where=phase == "base",
+            ),
+            by=(channel,),
+        )
+        if derive == "top0":
+            pending = pending.top(0, by=pending["detail.current.safe"])
+        elif derive == "select":
+            pending = pending.select({"only": pending["detail.current.safe"]})
+        elif derive == "where":
+            pending = pending.where(pending.coord(pending.axes[0]) != "B")
+            pending.show(n=0)
+            assert reads == []
+            assert terminal_runs(session) == ()
+        with pytest.raises(MaterializationError) as failure:
+            pending.compute()
+        error = failure.value
+        assert error.stage == "numeric_value"
+        assert error.location == "dataset.numeric_value"
+        assert error.attribute_context is not None
+        assert {use.metric for use in error.attribute_context.uses} == {"bad"}
+        assert {use.endpoint for use in error.attribute_context.uses} == {"left"}
+        fiber = error.attribute_context.fiber
+        assert isinstance(fiber, AttributeFineFiber)
+        assert fiber.parent == ()
+        assert fiber.fine == ((ScalarDataType("string"), "B"),)
+        assert len(fiber.fine_columns) == 1
+        assert error.repair is not None and "numeric" in error.repair.action
 
 
 @pytest.mark.parametrize("shape", ("direct", "derived", "shared", "distinct", "source"))
@@ -380,10 +380,7 @@ def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: P
     assert all(type(value) is Decimal for value in rows[("value", "contribution.q")])
 
 
-@pytest.mark.parametrize("mean", (False, True))
-def test_duration_preserves_exact_ticks_and_half_even(
-    session: Session, tmp_path: Path, mean: bool
-) -> None:
+def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path: Path) -> None:
     import pyarrow as pa
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -396,21 +393,22 @@ def test_duration_preserves_exact_ticks_and_half_even(
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    metric = amount.mean() if mean else amount.sum()
     rows = (
         _contribution(
-            session.observe({"q": metric}, where=phase == "current"),
-            session.observe({"q": metric}, where=phase == "base"),
+            session.observe({"sum": amount.sum(), "mean": amount.mean()}, where=phase == "current"),
+            session.observe({"sum": amount.sum(), "mean": amount.mean()}, where=phase == "base"),
             by=(channel,),
         )
         .compute()
         .to_pandas()
     )
-    ticks = pa.array(rows[("value", "contribution.q")]).cast(pa.int64()).to_pylist()
-    assert ticks == ([2, -1] if mean else [3, -1])
-    assert rows[("value", "contribution_share.q")].tolist() == (
-        [2.0, -1.0] if mean else [1.5, -0.5]
-    )
+    for name, expected_ticks, expected_shares in (
+        ("sum", [3, -1], [1.5, -0.5]),
+        ("mean", [2, -1], [2.0, -1.0]),
+    ):
+        ticks = pa.array(rows[("value", f"contribution.{name}")]).cast(pa.int64()).to_pylist()
+        assert ticks == expected_ticks
+        assert rows[("value", f"contribution_share.{name}")].tolist() == expected_shares
 
 
 def test_parent_difference_overflow_has_exact_context_even_under_top0(
