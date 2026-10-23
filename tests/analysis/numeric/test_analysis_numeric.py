@@ -314,7 +314,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
         {kind: expressions[kind] for kind in coordinate_kinds},
         by=(channel,),
         where=mv.in_population(members),
-    ).compute()
+    )
     assert grouped.output_names == coordinate_kinds
 
     for kind in kinds:

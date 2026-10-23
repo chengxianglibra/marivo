@@ -721,20 +721,19 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     metric = amount.weighted_mean(weight=weight)
     left = session.observe({"q": metric}, where=phase == "current")
     right = session.observe({"q": metric}, where=phase == "base")
-    selected = _change(left, right)
+    # Retain both native parent values without reading the same endpoints again.
+    parent = left.compare({"base": right}).compute()
+    parent_rows = parent.to_pandas()
+    native_change = (
+        parent_rows[("value", "q")].iloc[0] - parent_rows[("value", "base.baseline.q")].iloc[0]
+    )
+    selected = parent.select({"q": parent["base.absolute.q"]}).compute()
     fine_current = session.observe({"q": metric}, by=(channel,), where=phase == "current")
     fine_baseline = session.observe({"q": metric}, by=(channel,), where=phase == "base")
     fine_compared = fine_current.compare(
         {"base": fine_baseline}, on={"base": ((fine_current.axes[0], fine_baseline.axes[0]),)}
     )
     ordinary = fine_compared.compute().to_pandas()
-    parent_values = [
-        session.observe({"q": metric}, where=phase == endpoint)
-        .compute()
-        .to_pandas()[("value", "q")]
-        .iloc[0]
-        for endpoint in ("current", "base")
-    ]
     calls: list[object] = []
     execute_original = SourceSession.execute
 
@@ -770,7 +769,6 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     assert rows[("presence", "detail.current.present.q")].all()
     assert rows[("presence", "detail.baseline.present.q")].all()
     assert rows[("value", "contribution.q")].tolist() == expected_contributions
-    native_change = parent_values[0] - parent_values[1]
     assert rows[("value", "contribution_share.q")].tolist() == [
         value / native_change for value in expected_contributions
     ]

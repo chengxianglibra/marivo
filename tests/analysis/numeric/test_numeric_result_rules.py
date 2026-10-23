@@ -70,16 +70,24 @@ def test_sum_has_one_decimal_primary_accumulation(dtype: str, dialect: str) -> N
     assert "CAST(SUM(" in sql
 
 
-@pytest.mark.parametrize("value", ["9.995", "-9.995", "1.245", "-1.245"])
-def test_decimal_convergence_handles_ties_and_carry(value: str) -> None:
-    expected = {"9.995": "10.00", "-9.995": "-10.00", "1.245": "1.25", "-1.245": "-1.25"}[value]
-    result = finish_decimal(pd.Series([Decimal(value), None]), 4, 2)
-    assert result.iloc[0] == Decimal(expected)
-    assert pd.isna(result.iloc[1])
-    assert pa.array(result).type == pa.decimal128(4, 2)
-    if abs(Decimal(value)) > 9:
-        with pytest.raises(SemanticExpressionError, match="representable Decimal"):
-            finish_decimal(pd.Series([Decimal(value)]), 3, 2)
+def test_decimal_convergence_handles_ties_and_carry() -> None:
+    for value, expected in (
+        ("9.995", "10.00"),
+        ("-9.995", "-10.00"),
+        ("1.245", "1.25"),
+        ("-1.245", "-1.25"),
+    ):
+        result = finish_decimal(pd.Series([Decimal(value), None]), 4, 2)
+        assert result.iloc[0] == Decimal(expected), value
+        assert pd.isna(result.iloc[1]), value
+        assert pa.array(result).type == pa.decimal128(4, 2), value
+        if abs(Decimal(value)) > 9:
+            try:
+                finish_decimal(pd.Series([Decimal(value)]), 3, 2)
+            except SemanticExpressionError as error:
+                assert "representable Decimal" in str(error), value
+            else:
+                pytest.fail(f"Expected a representable Decimal error for {value}")
 
 
 @pytest.mark.parametrize("sign", ["", "-"])

@@ -322,27 +322,28 @@ def direct():
     )
 
 
-@pytest.mark.parametrize("bad", ("additive_all", ms.additive_all, object()))
 @pytest.mark.parametrize("closed", (False, True))
 def test_malformed_measure_additivity_rejects_equally_for_symbols_and_closed_rows(
-    bad: object, closed: bool
+    closed: bool,
 ) -> None:
     dependency = (
         _physical_scope("CNY", ()).fields.get("sales.orders.amount")
         if closed
         else ms.ref.measure("sales.orders.amount")
     )
-    with pytest.raises(SemanticExpressionError) as failure:
+    for bad in ("additive_all", ms.additive_all, object()):
+        case = f"closed={closed}, additivity={type(bad).__name__}"
+        with pytest.raises(SemanticExpressionError) as failure:
 
-        @ms.measure(additivity=bad)
-        def malformed_policy():
-            return dependency * 2
+            @ms.measure(additivity=bad)
+            def malformed_policy():
+                return dependency * 2
 
-    assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
-    assert "closed additivity policy" in failure.value.message
-    assert "ms.additive_all(...)" in failure.value.expected
-    assert failure.value.received == type(bad).__name__
-    assert failure.value.repair is not None
+        assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value, case
+        assert "closed additivity policy" in failure.value.message, case
+        assert "ms.additive_all(...)" in failure.value.expected, case
+        assert failure.value.received == type(bad).__name__, case
+        assert failure.value.repair is not None, case
 
 
 def test_invalid_duplicate_argument_stops_the_public_model_at_capture(

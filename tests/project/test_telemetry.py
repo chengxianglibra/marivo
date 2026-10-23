@@ -1126,37 +1126,43 @@ def test_writer_failure_is_isolated_and_reported_on_next_success(
 
 
 @pytest.mark.parametrize(
-    ("setting", "environment", "enabled"),
+    ("setting", "cases"),
     [
-        ('[project]\nname="test"\n\n[telemetry]\nenabled="off"\n', None, False),
-        ('[project]\nname="test"\n\n[telemetry]\nenabled="off"\n', "on", True),
-        ('[project]\nname="test"\n', "off", False),
-        ('[project]\nname="test"\n', "0", True),
+        (
+            '[project]\nname="test"\n\n[telemetry]\nenabled="off"\n',
+            ((None, False), ("on", True)),
+        ),
+        ('[project]\nname="test"\n', (("off", False), ("0", True))),
     ],
+    ids=("project_off", "project_default"),
 )
 def test_telemetry_enablement_precedence(
     telemetry_project: Path,
     monkeypatch: pytest.MonkeyPatch,
     setting: str,
-    environment: str | None,
-    enabled: bool,
+    cases: tuple[tuple[str | None, bool], ...],
 ) -> None:
     from marivo.telemetry import track_operation
 
-    (telemetry_project / "marivo.toml").write_text(setting, encoding="utf-8")
-    if environment is None:
-        monkeypatch.delenv("MARIVO_TELEMETRY", raising=False)
-    else:
-        monkeypatch.setenv("MARIVO_TELEMETRY", environment)
-    with track_operation(
-        surface="analysis",
-        capability_kind="operator",
-        capability_id="demo",
-        project_root=telemetry_project,
-    ):
-        pass
-    paths = list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
-    assert bool(paths) is enabled
+    for index, (environment, enabled) in enumerate(cases):
+        project_root = telemetry_project / f"case-{index}"
+        project_root.mkdir()
+        (project_root / "marivo.toml").write_text(setting, encoding="utf-8")
+        with monkeypatch.context() as case_patch:
+            case_patch.chdir(project_root)
+            if environment is None:
+                case_patch.delenv("MARIVO_TELEMETRY", raising=False)
+            else:
+                case_patch.setenv("MARIVO_TELEMETRY", environment)
+            with track_operation(
+                surface="analysis",
+                capability_kind="operator",
+                capability_id="demo",
+                project_root=project_root,
+            ):
+                pass
+            paths = list((project_root / ".marivo" / "telemetry").glob("events-*.jsonl"))
+            assert bool(paths) is enabled, f"MARIVO_TELEMETRY={environment!r}"
 
 
 def _expected_instrumented(descriptors: tuple[object, ...]) -> set[str]:
