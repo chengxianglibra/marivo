@@ -286,32 +286,51 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
         if amount is not None and weight is not None
     ]
     kinds = ("sum", "min", "max", "mean", "weighted", "ratio", "linear")
+    base = value.sum(time=time)
+    expressions: dict[str, Deferred] = {
+        "sum": base,
+        "min": floating_value.min(time=time),
+        "max": value.max(time=time),
+        "mean": value.mean(time=time),
+        "weighted": value.weighted_mean(weight=weight, time=time),
+        "ratio": base / base,
+        "linear": base + base,
+    }
+    member_kinds = ("sum", "min", "max", "mean", "ratio")
+    member_rows = (
+        session.observe({kind: expressions[kind] for kind in member_kinds}, by=members)
+        .compute()
+        .to_pandas()
+    )
+    coordinate_kinds = ("weighted", "linear")
+    coordinate_rows = (
+        session.observe(
+            {kind: expressions[kind] for kind in coordinate_kinds},
+            by=(customer_id, channel),
+            where=mv.in_population(members),
+        )
+        .compute()
+        .to_pandas()
+    )
+    rolled_rows = (
+        session.observe(
+            {kind: expressions[kind] for kind in kinds},
+            where=mv.in_population(members),
+        )
+        .compute()
+        .to_pandas()
+    )
+    grouped = session.observe(
+        {kind: expressions[kind] for kind in coordinate_kinds},
+        by=(channel,),
+        where=mv.in_population(members),
+    ).compute()
+    assert grouped.output_names == coordinate_kinds
+
     for kind in kinds:
         floating = kind == "min"
-        source_value = floating_value if floating else value
-        base = source_value.sum(time=time)
-        expression = (
-            base
-            if kind == "sum"
-            else source_value.min(time=time)
-            if kind == "min"
-            else source_value.max(time=time)
-            if kind == "max"
-            else source_value.mean(time=time)
-            if kind == "mean"
-            else value.weighted_mean(weight=weight, time=time)
-            if kind == "weighted"
-            else base / base
-            if kind == "ratio"
-            else base + base
-        )
         coordinates = kind in ("weighted", "linear")
-        logical = session.observe(
-            {"value": expression},
-            by=(customer_id, channel) if coordinates else members,
-            where=mv.in_population(members) if coordinates else None,
-        )
-        fine = logical.compute().to_pandas()
+        fine = coordinate_rows if coordinates else member_rows
         if kind in ("min", "max"):
             expected_by_member = (
                 {"A": 1.0, "B": 4.000001, "C": 7.0, "D": 3.0}
@@ -324,12 +343,12 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                 }
             )
             assert (
-                fine.set_index(ordinary_columns(fine)[0])[("value", "value")].to_dict()
+                fine.set_index(ordinary_columns(fine)[0])[("value", kind)].to_dict()
                 == expected_by_member
             )
         if kind == "weighted":
             assert (
-                fine.loc[fine[ordinary_columns(fine)[0]].isin(("C", "D")), ("value", "value")]
+                fine.loc[fine[ordinary_columns(fine)[0]].isin(("C", "D")), ("value", kind)]
                 .isna()
                 .all()
             )
@@ -358,19 +377,12 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     rounding=ROUND_HALF_EVEN,
                 )
             )
-        rolled = session.observe({"value": expression}, where=mv.in_population(members))
-        actual = rolled.compute().to_pandas()[("value", "value")].tolist()
+        actual = rolled_rows[("value", kind)].tolist()
         assert (
             actual == pytest.approx([oracle])
             if floating or kind in ("weighted", "ratio")
             else actual == [oracle]
         ), kind
-        if coordinates:
-            # A second explicit source grouping preserves the original equation.
-            grouped = session.observe(
-                {"value": expression}, by=(channel,), where=mv.in_population(members)
-            )
-            assert grouped.compute().output_names == ("value",)
         if kind == "mean":
             backend = ibis.duckdb.connect(str(case.database_path))
             try:
@@ -380,7 +392,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                 ).to_pandas()
             finally:
                 backend.disconnect()
-            assert fine.set_index(ordinary_columns(fine)[0])[("value", "value")].to_dict() == dict(
+            assert fine.set_index(ordinary_columns(fine)[0])[("value", "mean")].to_dict() == dict(
                 zip(native.customer_id, native.value, strict=True)
             )
 

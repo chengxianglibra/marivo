@@ -16,7 +16,7 @@ import pytest
 import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._help.render import PublicHelpTarget, render_help_text
+from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
@@ -31,20 +31,24 @@ class Trace:
         self.pages: list[tuple[str, str]] = []
         self.identities: dict[str, str] = {}
 
-    def read(self, label: str, call: Callable[[], None]) -> str:
+    def read(self, label: str | Callable[[str], str], call: Callable[[], None]) -> str:
         output = StringIO()
         with redirect_stdout(output):
             call()
         text = output.getvalue()
         assert text, label
-        self.pages.append((label, text))
+        resolved_label = label if isinstance(label, str) else label(text)
+        self.pages.append((resolved_label, text))
         return text
 
     def help(self, target: PublicHelpTarget) -> str:
         assert marivo.help is public_help
-        _, surface, canonical_id = render_help_text(target)
         return self.read(
-            surface + ("." + canonical_id if canonical_id else ""),
+            lambda text: next(
+                line.removeprefix("Target: ")
+                for line in text.splitlines()
+                if line.startswith("Target: ")
+            ),
             lambda: public_help(target),
         )
 
