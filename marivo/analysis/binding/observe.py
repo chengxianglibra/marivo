@@ -176,9 +176,31 @@ def bind_observation(
                 sample_layers,
             )
             return
+        sample_operand = (
+            node.operand
+            if isinstance(node, PerReduce)
+            and node.reducer == "mean"
+            and isinstance(node.samples, tuple)
+            and len(node.samples) == 1
+            else None
+        )
+        while isinstance(sample_operand, (DeclaredMetricRef, ContributionFilter)):
+            sample_operand = (
+                declared[sample_operand.ref]
+                if isinstance(sample_operand, DeclaredMetricRef)
+                else sample_operand.operand
+            )
+        native_sample_mean = (
+            isinstance(sample_operand, SourceAggregate)
+            and sample_operand.reducer == "mean"
+            and sample_operand.time is not None
+        )
+        # Physical preparation verifies this candidate before allowing an
+        # unbounded period; a local route retains the ordinary period rule.
         if isinstance(node, (PerReduce, PerWeightedMean)) and (
             period is None
             and time_axis is None
+            and not native_sample_mean
             and isinstance(node.samples, tuple)
             and any(
                 axis.field is not None and axis.field.ref.kind.value == "time_dimension"
@@ -300,6 +322,7 @@ def bind_observation(
                     contribution_period is None
                     and not coordinate_calendar_axes
                     and dimension.sample_interval is not None
+                    and not (isinstance(node, SourceAggregate) and node.reducer == "mean")
                 ):
                     reject(
                         "an explicit period for sampled time",

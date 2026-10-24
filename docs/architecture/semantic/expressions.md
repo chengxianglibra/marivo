@@ -151,7 +151,7 @@ Field comparisons and missing/membership tests produce Deferred boolean recipes.
 Use parenthesized &, | and ~, never Python and/or/not or bool. Field NA follows
 three-valued logic; only final True selects. Membership leaves test complete
 correlated tuples with null-safe field matching. Both sides retain dependencies,
-static checks and demanded numerical checks even with boolean constants.
+static checks and captured NULL/domain checks even with boolean constants.
 
 - Source observation, members and a single-source Metric.where can combine field
   and Population membership leaves on their own contribution/identity domain.
@@ -185,7 +185,8 @@ include_null policy. For a sampled status quantity, spatial reduction precedes
 temporal reduction, for example bandwidth.sum(time=sample_at).per(sample_at).quantile(0.95).
 Per-device P95 values cannot reconstruct the P95 of the combined time series.
 
-Field `sample_interval` supplies optional source coverage, independently of parse.
+Field `sample_interval` supplies optional source coverage, independently of parse,
+for sample reducers that require it. Native AVG does not check scheduled coverage.
 Preparation freezes the sampling clock: naive values use parser timezone or
 reader authority; aware values use UTC. Output timezone only clips these points
 to the actual contribution intervals. The clock is never inferred from the first
@@ -197,17 +198,22 @@ instants. Source wall clocks follow backend-native gap/fold interpretation; a
 native choice does not invent missing sample points. Complete sampling requires a bounded
 contribution interval. An aware non-UTC civil sampling plan is not supported.
 
-DuckDB and Trino can finish a direct float64 source mean followed by one internal
-time-sample mean in the source. The exact sample identities and completed inner
-means remain the inputs to the outer equal-weight mean. A source guard requires
-complete coverage, satisfied numeric/null checks and a bound proving the outer
-sum finite in every accumulation order. Unproved inputs retain the existing
-sampled local finish, including its checked finite-sum behavior. Original-input
-consumers, Duration/Decimal, windows, explicit sample populations and conditional
-formulas retain their existing execution routes. Native floating order remains
-backend-dependent. Raw-wall coverage transport contains only clocks capable of
-satisfying scheduled points; off-grid observations still participate in numeric
-reduction. `sample_interval` never truncates or buckets those observations.
+DuckDB, PostgreSQL, MySQL, Trino and ClickHouse finish a qualified direct numeric
+source mean followed by one internal time-sample mean in the source. The exact
+sample identities and completed inner means remain the inputs to the outer
+equal-weight AVG. Both AVG operations delegate NULL, empty-input and overflow
+behavior to the backend, including when authored with `nulls="error"`. There is no
+scheduled-clock coverage check, safety window, sample ranking or local fallback
+on this route. Missing clocks are absent samples; off-grid observations still
+participate. `sample_interval` never truncates or buckets those observations.
+Integer and floating AVG has a declared Float64 output; Decimal AVG retains its
+declared precision and scale. Explicit result casts enforce these carriers after
+native AVG arithmetic.
+Original-input consumers, Duration, windows, explicit sample populations
+and unsupported nested or conditional formulas retain their existing execution
+routes, including explicit local sample reduction where qualified. Other sample
+reducers retain their own coverage and NULL policies. Native floating order remains
+backend-dependent.
 
 Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated
 member fields stay in one tuple descriptor. [Observation](../analysis/populations-and-observation.md)
@@ -225,12 +231,16 @@ Policies attach to the actual operation. Sum has no empty parameter: an empty
 contribution input returns typed zero; a nonempty all-NULL input returns NULL.
 Mixed inputs sum their valid values. Count/distinct count returns zero.
 Other admitted sample reducers return NA without valid samples. Strict
-nulls="error" is checked on its demanded source/sample domain. Actual source
-NaN and Infinity are rejected before pandas conversion can conflate NaN with
-NULL; raw reads and numeric reductions retain the same checks.
+nulls="error" is checked on its demanded source/sample domain, except native AVG,
+whose NULL and empty-input results belong to the backend. Source-native numeric
+overflow also belongs to the backend: an error or a returned wrapped/nonfinite
+value is accepted without an overflow precheck, finite-result rejection or local
+retry. Source reads retain Infinity and valid NaN; completed Frames preserve these
+values separately from NULL through export and persistence. Local numeric kernels
+retain their own checked arithmetic and domain rules.
 Division uses `/` as its only public syntax. Division and weighted mean mask
 zero denominators before arithmetic and return NA, including cancelling signed
-weights. An outer formula cannot overwrite a strict nulls child.
+weights. An outer formula cannot overwrite a captured strict NULL check.
 Demand-aware native ifelse evaluates its selected branch while retaining static
 checks on both; multiplication by zero and coalesce do not catch strict failures.
 
@@ -260,6 +270,9 @@ using a single primary accumulation. Counts retain int64. Bound Decimal arithmet
 uses the [numeric carrier rules](../analysis/operators-and-frames.md), with explicit
 Ibis result casts and ties-away Decimal convergence. Division is float64; Decimal
 mean keeps its declared p/s without promising an exact backend AVG algorithm.
-Ordinary source overflow follows the backend, including ClickHouse silent wrapping;
-local integer kernels are checked. Explicit null/zero/domain policies, identity and
-Duration contracts are unchanged. No extra arithmetic is run to verify overflow.
+All source-native numeric overflow follows the backend, including native errors,
+ClickHouse silent wrapping and floating Infinity/NaN. Local kernels retain their
+own checked arithmetic. Native AVG delegates NULL and empty-input handling to the
+backend and does not require scheduled sample coverage. Other captured
+NULL/zero/domain policies, identity and Duration contracts retain their owners.
+No extra arithmetic is run to verify overflow.

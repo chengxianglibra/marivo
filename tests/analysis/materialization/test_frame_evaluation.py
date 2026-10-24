@@ -417,11 +417,13 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
 ) -> None:
     numerator = session.catalog.fields.get("sales.facts.numerator")
     denominator = session.catalog.fields.get("sales.facts.denominator")
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("UPDATE facts SET numerator=NULL WHERE tenant='t2' AND id=2")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"invalid": numerator.sum() * 1e308},
+        {"invalid": numerator.sum(nulls="error")},
     )
     before = _inventory(session)
     closed: list[SourceSession] = []
@@ -432,7 +434,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
         closed.append(self)
 
     monkeypatch.setattr(SourceSession, "close", record_close)
-    with pytest.raises(MaterializationError, match="finite") as failure:
+    with pytest.raises(MaterializationError, match="non-NA") as failure:
         source.compute()
     error = failure.value
     cause = error.__cause__
@@ -863,7 +865,7 @@ def test_pending_read_top_preserves_an_empty_source(
 
 
 @pytest.mark.parametrize("n", (0, 1))
-def test_pending_read_top_preserves_full_input_nonfinite_error(
+def test_pending_read_top_preserves_native_infinite_values(
     session: Session, monkeypatch: pytest.MonkeyPatch, n: int
 ) -> None:
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
@@ -874,11 +876,11 @@ def test_pending_read_top_preserves_full_input_nonfinite_error(
     denominator = session.catalog.fields.get("sales.facts.denominator")
     pending = session.read(members, {"score": denominator, "invalid": numerator})
     trace = capture_source(monkeypatch)
-    with pytest.raises(MaterializationError) as failure:
-        pending.top(n, by=pending["score"]).compute()
-    assert failure.value.stage == "numeric_value"
-    assert "finite" in str(failure.value.expected)
-    assert "'key.0': 't2', 'key.1': 2" in failure.value.received
+    result = pending.top(n, by=pending["score"]).compute().to_pandas()
+    assert len(result) == n
+    if n:
+        assert result["value", "score"].tolist() == [45]
+        assert result["value", "invalid"].tolist() == [450.0]
     assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
 
 

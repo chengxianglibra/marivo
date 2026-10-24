@@ -16,6 +16,15 @@ import pyarrow.compute as pc
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
+def _is_null(value: object) -> bool:
+    """Use captured Arrow validity rather than pandas' floating NaN convention."""
+    return value is None or value is pd.NA
+
+
+def _nulls(values: pd.Series) -> pd.Series:
+    return values.map(_is_null).astype(bool)
+
+
 def evaluate_numeric(
     node: ops.Value,
     values: Mapping[str, pd.Series],
@@ -46,7 +55,7 @@ def evaluate_numeric(
         result = constant(None)
         for key in index[active]:
             value = source.loc[key]
-            if pd.notna(value) or nulls:
+            if not _is_null(value) or nulls:
                 result.loc[key] = function(value)
         return result
 
@@ -59,7 +68,7 @@ def evaluate_numeric(
             context.prec = 120
             for key in index[active]:
                 x, y = a.loc[key], b.loc[key]
-                if pd.notna(x) and pd.notna(y):
+                if not _is_null(x) and not _is_null(y):
                     if isinstance(x, float) and isinstance(y, Decimal):
                         y = float(y)
                     elif isinstance(x, Decimal) and isinstance(y, float):
@@ -100,9 +109,9 @@ def evaluate_numeric(
             result = constant(None)
             for child in node.arg:
                 part = visit(child, remaining)
-                selected = remaining & part.notna()
+                selected = remaining & ~_nulls(part)
                 result.loc[selected] = part.loc[selected]
-                remaining &= part.isna()
+                remaining &= _nulls(part)
             return result
         if isinstance(node, (ops.And, ops.Or)):
             # Both operands remain in the static graph. Demand short circuit here
@@ -186,21 +195,13 @@ def evaluate_numeric(
         if isinstance(node, ops.IsNull):
             return unary(
                 node.arg,
-                lambda value: (
-                    value is None
-                    or value is pd.NA
-                    or (isinstance(value, float) and math.isnan(value))
-                ),
+                _is_null,
                 nulls=True,
             )
         if isinstance(node, ops.NotNull):
             return unary(
                 node.arg,
-                lambda value: (
-                    value is not None
-                    and value is not pd.NA
-                    and not (isinstance(value, float) and math.isnan(value))
-                ),
+                lambda value: not _is_null(value),
                 nulls=True,
             )
         if isinstance(node, ops.Not):
@@ -273,7 +274,7 @@ def evaluate_numeric(
             parts = [visit(child) for child in node.arg]
             result = constant(None)
             for key in index[active]:
-                present = [part.loc[key] for part in parts if pd.notna(part.loc[key])]
+                present = [part.loc[key] for part in parts if not _is_null(part.loc[key])]
                 if present:
                     result.loc[key] = min(present) if isinstance(node, ops.Least) else max(present)
             return result
@@ -282,12 +283,12 @@ def evaluate_numeric(
             if node.lower is not None:
                 lower = visit(node.lower)
                 result = result.where(
-                    result.isna() | lower.isna() | (result >= lower).fillna(False), lower
+                    _nulls(result) | _nulls(lower) | (result >= lower).fillna(False), lower
                 )
             if node.upper is not None:
                 upper = visit(node.upper)
                 result = result.where(
-                    result.isna() | upper.isna() | (result <= upper).fillna(False), upper
+                    _nulls(result) | _nulls(upper) | (result <= upper).fillna(False), upper
                 )
             return result
     except (ArithmeticError, TypeError, ValueError) as error:

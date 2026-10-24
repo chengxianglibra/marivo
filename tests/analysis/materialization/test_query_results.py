@@ -834,7 +834,7 @@ def test_top_selected_frame_bridge_keeps_source_checks(
     assert "_marivo_keys_" in statements[-1]
 
 
-def test_float_nan_attribute_selection_rejects_before_membership_transport(
+def test_float_nan_attribute_selection_is_distinct_from_null(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -861,9 +861,9 @@ def test_float_nan_attribute_selection_rejects_before_membership_transport(
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    with pytest.raises(AnalysisError, match="finite"):
-        session.observe({"rows": entity.count()}, where=mv.in_population(selected)).compute()
-    assert len(statements) == 1
+    result = session.observe({"rows": entity.count()}, where=mv.in_population(selected)).compute()
+    assert result.to_pandas()["value", "rows"].tolist() == [0]
+    assert len(statements) == 2
 
 
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(

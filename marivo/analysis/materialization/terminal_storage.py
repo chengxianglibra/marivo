@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from marivo.analysis.core.artifact_data import DataSchema, ParquetHandle
@@ -70,12 +69,7 @@ def complete_output(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
         if len(rows.columns):
             raise invalid("zero-column output has undeclared physical columns")
         return pd.DataFrame(index=pd.RangeIndex(len(rows)))
-    frame = normalize_complete_frame(rows, schema.columns, schema.key_fields)
-    for column in schema.columns:
-        array = pa.array(frame[column.slot_id], from_pandas=True)
-        if pa.types.is_floating(array.type) and pc.any(pc.invert(pc.is_finite(array))).as_py():
-            raise invalid("terminal floating output contains non-finite values")
-    return frame
+    return normalize_complete_frame(rows, schema.columns, schema.key_fields)
 
 
 def write_output(

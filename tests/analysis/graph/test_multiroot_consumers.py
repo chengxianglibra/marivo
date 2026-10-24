@@ -72,7 +72,7 @@ def _data(
                 "ratio_decimal_output_overflow",
                 "spatial_mean",
             )
-            if mode != "linear_nonfinite"
+            if mode != "linear_nonfinite" or backend == "duckdb"
             if mode != "linear_fanout" or backend == "duckdb"
             if mode not in ("ratio_decimal_overflow", "ratio_decimal_output_overflow")
             or backend in ("mysql", "clickhouse")
@@ -304,16 +304,13 @@ def test_independent_roots_and_temporal_fold(
                 members,
             ),
         )
-        if mode in {"linear_nonfinite", "ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
+        if mode in {"ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
                 values.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
-            if mode.startswith("ratio_decimal"):
-                diagnostic = str(refused.value) + str(refused.value.__cause__)
-                assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
-            else:
-                assert "finite" in (str(refused.value) + str(refused.value.__cause__)).lower()
+            diagnostic = str(refused.value) + str(refused.value.__cause__)
+            assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
             assert set(root.rglob("*.parquet")) == before
             assert session._runtime.store.resources(session.id) == ()
             return
@@ -324,6 +321,7 @@ def test_independent_roots_and_temporal_fold(
         assert frame.index.tolist() == (["a", "b", "c"] if ratio else ["a", "b"])
         expected: dict[str, int | float | Decimal] = {
             "linear_float": 4.5,
+            "linear_nonfinite": math.inf,
             "linear_decimal": Decimal("0.35"),
             "ratio_decimal": 6.0,
             "spatial_mean": 18,
@@ -353,10 +351,10 @@ def test_independent_roots_and_temporal_fold(
             assert actual.loc["b"] == (0.0 if ratio else amounts[4])
         if numeric_type == "decimal" and linear:
             assert isinstance(actual.loc["a"], Decimal) and isinstance(actual.loc["b"], Decimal)
-        ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
-            (Fraction(value) for value in amounts[2:]), Fraction()
-        )
         if ratio:
+            ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
+                (Fraction(value) for value in amounts[2:]), Fraction()
+            )
             assert pd.isna(actual.loc["c"])
             components = session.observe(
                 {"left": left_total, "right": right_total}, by=members

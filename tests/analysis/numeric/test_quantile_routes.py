@@ -1,5 +1,6 @@
 """Exact interpolation and accuracy-preserving native algorithm selection."""
 
+import math
 from decimal import Decimal
 
 import ibis
@@ -149,7 +150,7 @@ def test_portable_bounds_and_typed_interpolation(
 
 
 @pytest.mark.parametrize("bad", [None, float("inf"), float("nan")])
-def test_bounds_do_not_hide_strict_or_nonfinite_inputs(bad: float | None) -> None:
+def test_bounds_keep_strict_null_checks_and_native_nonfinite_values(bad: float | None) -> None:
     for deferred in (False, True):
         connection = ibis.duckdb.connect(threads=1)
         try:
@@ -178,9 +179,60 @@ def test_bounds_do_not_hide_strict_or_nonfinite_inputs(bad: float | None) -> Non
             )
             if deferred:
                 completed = _complete_source_frame(stage, connection.execute(expression), checks)
-                assert any(bool(completed.table[name].iloc[0]) for name, _ in checks)
-            else:
+                assert any(bool(completed.table[name].iloc[0]) for name, _ in checks) is (
+                    bad is None
+                )
+            elif bad is None:
                 with pytest.raises(SemanticExpressionError):
                     _complete_source_frame(stage, connection.execute(expression), checks)
+            else:
+                value = _complete_source_frame(
+                    stage, connection.execute(expression), checks
+                ).table.value
+                assert pa.array(value).is_valid().to_pylist() == [True]
+                assert math.isnan(value.iloc[0]) if math.isnan(bad) else math.isinf(value.iloc[0])
         finally:
             connection.disconnect()
+
+
+@pytest.mark.parametrize(
+    ("values", "q", "expected"),
+    (
+        ([float("inf"), float("inf")], 0.0, float("inf")),
+        ([float("inf"), float("inf")], 0.5, float("inf")),
+        ([-float("inf"), 10.0], 0.0, -float("inf")),
+        ([-float("inf"), 10.0], 0.5, -float("inf")),
+        ([10.0, float("inf")], 0.5, float("inf")),
+        ([-float("inf"), float("inf")], 0.5, float("nan")),
+        ([10.0, float("nan")], 0.5, float("nan")),
+    ),
+)
+def test_bounds_interpolation_preserves_native_infinity_and_valid_nan(
+    values: list[float], q: float, expected: float
+) -> None:
+    connection = ibis.duckdb.connect(threads=1)
+    try:
+        table = connection.create_table(
+            "facts", ibis.memtable(pa.table({"x": pa.array(values, from_pandas=False)}))
+        )
+        native = connection.raw_sql(f"SELECT quantile_cont(x, {q!r}) FROM facts").fetchone()
+        assert native is not None and native[0] is not None
+        assert math.isnan(native[0]) if math.isnan(expected) else native[0] == expected
+        reduction = _reduction("trino", q)
+        expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
+        stage = SourceRead(
+            "read:0",
+            "facts",
+            (0,),
+            (DataColumn("value", "value", ScalarDataType("float64"), True),),
+            (),
+            ReductionRead(reduction),
+            (("sales.facts.x", "x"),),
+            (),
+            None,
+        )
+        value = _complete_source_frame(stage, connection.execute(expression), checks).table.value
+        assert pa.array(value).is_valid().to_pylist() == [True]
+        assert math.isnan(value.iloc[0]) if math.isnan(native[0]) else value.iloc[0] == native[0]
+    finally:
+        connection.disconnect()

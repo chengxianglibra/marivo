@@ -1,8 +1,11 @@
 """Fixed sum semantics distinguish absent contributions from unknown values."""
 
+import math
+
 import duckdb
 import ibis
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -107,28 +110,39 @@ def test_native_formula_does_not_zero_fill_a_present_all_null_group(
 
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf")])
-def test_nonfinite_source_values_reject_before_frame_selection(
+def test_native_nonfinite_source_values_remain_distinct_from_null_during_selection(
     analysis_dsl_case_factory: DslCaseFactory, invalid: float
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
         connection.execute('UPDATE "order" SET amount=? WHERE order_id=?', [invalid, "j1_a"])
+        expected_nulls = connection.execute(
+            'SELECT COUNT(*) FROM "order" WHERE amount IS NULL'
+        ).fetchone()
     session = case.session
     amount = session.catalog.fields.get("sales.order.amount")
     members = session.members(session.catalog.entities.get("sales.order"))
     read = session.read(members, {"amount": amount})
     observed = session.observe({"amount": amount.sum()})
-    for frame in (
-        read,
-        read.where(read["amount"].is_null()),
-        read.top(0, by=read["amount"]),
-        read.select({"constant": 1}),
-        observed,
-        observed.top(0, by=observed["amount"]),
-    ):
-        with pytest.raises(AnalysisError, match="finite"):
-            frame.compute()
+    raw = read.compute().to_pandas()
+    values = pa.array(raw["value", "amount"])
+    assert any(
+        value.is_valid
+        and (math.isnan(value.as_py()) if math.isnan(invalid) else value.as_py() == invalid)
+        for value in values
+    )
+    missing = read.where(read["amount"].is_null()).compute().to_pandas()["value", "amount"]
+    assert expected_nulls is not None and len(missing) == expected_nulls[0]
+    assert pa.array(missing).null_count == len(missing)
+    assert read.top(0, by=read["amount"]).compute().to_pandas().empty
+    assert read.select({"constant": 1}).compute().to_pandas()["value", "constant"].tolist() == [
+        1
+    ] * len(raw)
+    total = observed.compute().to_pandas()["value", "amount"]
+    assert pa.array(total).is_valid().to_pylist() == [True]
+    assert math.isnan(total.iloc[0]) if math.isnan(invalid) else total.iloc[0] == invalid
+    assert observed.top(0, by=observed["amount"]).compute().to_pandas().empty
 
 
 def test_native_presence_checks_boolean_value_for_default_filled_joins() -> None:

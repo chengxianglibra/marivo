@@ -7,6 +7,7 @@ from pathlib import Path
 
 import ibis
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -68,7 +69,7 @@ def _data(boundary: str = "ordinary") -> SourceData:
 
 
 @pytest.mark.parametrize("provider", ("trino", "clickhouse"))
-def test_source_field_finite_checks_compile_nan_and_infinity(provider: str) -> None:
+def test_source_fields_have_no_native_finite_checks(provider: str) -> None:
     table = ibis.table({"value": "float64"}, name="facts")
     column = DataColumn("value", "value", ScalarDataType("float64"), True)
     stage = SourceRead(
@@ -77,9 +78,9 @@ def test_source_field_finite_checks_compile_nan_and_infinity(provider: str) -> N
     plan = QueryPlan((stage,), (), "read", ())
     read = lower_query(plan, {"facts": table}).reads[0]
     sql = ibis.to_sql(read.expression, dialect=provider).upper()
-    assert ("IS_NAN" if provider == "trino" else "ISNAN") in sql
-    assert ("IS_INFINITE" if provider == "trino" else "ISINFINITE") in sql
-    assert len(read.numeric_checks) == 1
+    assert ("IS_NAN" if provider == "trino" else "ISNAN") not in sql
+    assert ("IS_INFINITE" if provider == "trino" else "ISINFINITE") not in sql
+    assert read.numeric_checks == ()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -301,7 +302,7 @@ def test_numeric_attribute_output_key_failure_survives_empty_top(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_nonnullable_float_source_rejects_nan_before_filter_and_top(
+def test_nonnullable_float_source_keeps_valid_nan_through_filter_and_top(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -324,9 +325,11 @@ def test_nonnullable_float_source_rejects_nan_before_filter_and_top(
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
+        values = pa.array(source.compute().to_pandas()["value", "amount"])
+        assert values.null_count == 0
+        assert sum(value.as_py() != value.as_py() for value in values) == 1
         for frame in (source.where(source["amount"].is_null()), source.top(0, by=source["amount"])):
-            with pytest.raises(MaterializationError, match="finite"):
-                frame.compute()
+            assert frame.compute().to_pandas().empty
         assert trace.uploaded_key_rows == []
 
 

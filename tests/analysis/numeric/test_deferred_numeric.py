@@ -1,11 +1,13 @@
 """Native Deferred numeric DAGs share source and local demand semantics."""
 
+import math
 from decimal import Decimal
 
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import pandas as pd
+import pyarrow as pa
 import pytest
 from ibis.common.deferred import Deferred, Variable, resolver
 
@@ -144,6 +146,26 @@ def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> No
     assert any(mask.tolist() == [True, False, False] for mask in violations)
 
 
+def test_completed_native_nan_remains_valid_during_formula_assembly() -> None:
+    x = Deferred(Variable("slot_0"))
+    table = ibis.table({"x": "float64"})
+    values = {
+        "x": pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array([float("nan"), None, 2.0], from_pandas=False))
+        ).astype(object)
+    }
+    expression = lower_recipe(resolver(ibis.coalesce(x + 1, 7)), (NumericValue(table.x),))
+    actual = evaluate_numeric(expression.value.op(), values, values["x"].index)
+    assert math.isnan(actual.iloc[0])
+    assert actual.iloc[1:].tolist() == [7, 3]
+    missing = lower_recipe(resolver(x.isnull()), (NumericValue(table.x),))
+    assert evaluate_numeric(missing.value.op(), values, values["x"].index).tolist() == [
+        False,
+        True,
+        False,
+    ]
+
+
 @pytest.mark.parametrize(
     "values,expected",
     [
@@ -185,6 +207,49 @@ def test_nullable_source_sum(values: list[float | None], expected: float | None)
         assert any(bool(connection.execute(check.violation)) for check in strict.checks) == any(
             value is None for value in values
         )
+    finally:
+        connection.disconnect()
+
+
+@pytest.mark.parametrize("values", ([], [None, None], [None, 2.0, 4.0]))
+def test_native_avg_owns_null_and_empty_results_even_with_strict_policy(
+    values: list[float | None],
+) -> None:
+    connection = ibis.duckdb.connect(threads=1)
+    try:
+        table = connection.create_table(
+            "average_values", pd.DataFrame({"x": values}), schema={"x": "float64"}
+        )
+        field = RowField(
+            ExactRef(ref.measure("sales.facts.x"), "v1"),
+            ExactRef(ref.entity("sales.facts"), "v1"),
+            None,
+            SumAll(),
+        )
+        lowered = lower_source_reduction(
+            SourceAggregate(field, "mean", None, nulls="error"),
+            table,
+            {"sales.facts.x": table.x},
+        )
+        assert lowered.checks == ()
+        assert lowered.value.op().find(ops.Mean)
+        assert not lowered.value.op().find(ops.IfElse)
+        actual = connection.execute(table.aggregate(value=lowered.value)).value.iloc[0]
+        assert pd.isna(actual) if not any(value is not None for value in values) else actual == 3.0
+    finally:
+        connection.disconnect()
+
+
+@pytest.mark.parametrize("operation", ("add", "multiply", "exp"))
+def test_native_float_overflow_is_not_replaced_with_numeric_checks(operation: str) -> None:
+    x = Deferred(Variable("slot_0"))
+    expression = x + x if operation == "add" else x * x if operation == "multiply" else x.exp()
+    connection = ibis.duckdb.connect(threads=1)
+    try:
+        table = connection.sql("SELECT 1e308::DOUBLE AS x")
+        lowered = lower_recipe(resolver(expression), (NumericValue(table.x),))
+        assert lowered.checks == ()
+        assert math.isinf(connection.execute(table.select(value=lowered.value)).value.iloc[0])
     finally:
         connection.disconnect()
 

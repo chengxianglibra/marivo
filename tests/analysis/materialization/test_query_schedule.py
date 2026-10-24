@@ -688,7 +688,9 @@ def test_strict_row_division_cannot_be_hidden_by_a_predicate(
         )
 
 
-def test_nonfinite_and_overflow_fail_without_a_run(warehouse_session: Session) -> None:
+def test_native_infinity_and_widened_integer_results_do_not_publish_a_run(
+    warehouse_session: Session,
+) -> None:
     session = warehouse_session
     amount, weight = _numeric_inputs(session)
     connection = duckdb.connect(str(session.catalog.workspace_dir / "warehouse.duckdb"))
@@ -696,8 +698,7 @@ def test_nonfinite_and_overflow_fail_without_a_run(warehouse_session: Session) -
         connection.execute("UPDATE orders SET weight = 'Infinity'::DOUBLE WHERE id = 1")
     finally:
         connection.close()
-    with pytest.raises(SemanticExpressionError, match="finite numeric"):
-        _compute(session, {"mean": weight.mean()})
+    assert _compute(session, {"mean": weight.mean()}).table["value.0"].tolist() == [float("inf")]
     assert _compute(session, {"wide": amount.sum() * (2**62)}).table["value.0"].tolist() == [
         60 * (2**62)
     ]
@@ -822,7 +823,7 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
     assert tuple(item.rows for item in result.results) == (({"value": 60},), ({"value": 3},))
 
 
-def test_weighted_mean_checks_reduced_denominator(warehouse_session: Session) -> None:
+def test_weighted_mean_uses_native_overflowing_denominator(warehouse_session: Session) -> None:
     session = warehouse_session
     _, weight = _numeric_inputs(session)
     connection = duckdb.connect(str(session.catalog.workspace_dir / "warehouse.duckdb"))
@@ -830,14 +831,16 @@ def test_weighted_mean_checks_reduced_denominator(warehouse_session: Session) ->
         connection.execute("UPDATE orders SET weight = 1e308")
     finally:
         connection.close()
-    with pytest.raises(SemanticExpressionError, match="weight sum"):
-        _compute(session, {"tiny": (weight * 0 + 1e-308).weighted_mean(weight=weight)})
+    # The finite numerator divided by DuckDB's infinite denominator is zero.
+    assert _compute(session, {"tiny": (weight * 0 + 1e-308).weighted_mean(weight=weight)}).table[
+        "value.0"
+    ].tolist() == [0.0]
     import marivo.datasource as md
 
     tiny = session.catalog.metrics.get("sales.tiny_mean")
     assert isinstance(tiny, Deferred)
-    with pytest.raises(SemanticExpressionError, match="weight sum"):
-        session.catalog.preview(tiny, scope=md.unpruned(max_rows=100, timeout_seconds=10))
+    preview = session.catalog.preview(tiny, scope=md.unpruned(max_rows=100, timeout_seconds=10))
+    assert preview.rows == ({"value": 0.0},)
     assert terminal_runs(session) == ()
 
 

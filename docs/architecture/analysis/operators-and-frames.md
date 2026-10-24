@@ -15,7 +15,9 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | --- | --- | --- |
 | Source or internal sum | Non-NA child values, subject to nulls policy | 0 / NA |
 | count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
-| min/max/mean/median/quantile | Effective non-NA samples | NA |
+| min/max/median/quantile | Effective non-NA samples | NA |
+| Native source mean | Backend AVG samples and NULL policy | Backend result |
+| Local internal mean | Effective non-NA completed samples | NA |
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
 | Frame Column sum | Current non-NA represented cells | 0 / NA |
 | Frame Column mean | Current non-NA represented cells | NA |
@@ -23,33 +25,33 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | Frame pair_count / correlate n_pairs | The same common non-NA pairs, including zero and duplicates | 0; retain groups even without pairs |
 | row_count | All current coordinate rows, including NA values | 0 |
 
-Strict `nulls="error"` belongs to the source/internal reduction that captures it.
-Checks cover its demanded sample/contribution domain. A later where, select, zero
-multiplier or empty output cannot suppress a required error.
+Strict `nulls="error"` belongs to the source/internal reduction that captures it,
+except native AVG. Native AVG delegates NULL and empty-input behavior to the
+backend even when authored with `nulls="error"`. Other captured NULL checks cover
+their demanded sample/contribution domain. A later where, select, zero multiplier
+or empty output cannot suppress a required check.
 
 Division uses `/` and masks zero before dividing; both 0/0 and nonzero/0
 return NA. Its explicit float64 result cast survives native compilation, even
 when Ibis already infers float64. This also prevents ClickHouse aggregate
 arithmetic optimization from extracting a NULL divisor from `AVG(x / NULL)`.
 Weighted means return NA when valid paired weights sum to zero,
-including signed cancellation. Nonfinite results and invalid domains are errors,
-never missing states
-or a reason to retry another algorithm. Ordinary source integer and Decimal
-arithmetic follows backend overflow behavior, including ClickHouse wrapping.
-Local integer arithmetic uses checked kernels. An unevaluated source subexpression
-need not trigger overflow, including under empty output; explicit null/domain
-checks retain their own demanded domains. Source
-field reads check actual NaN/Infinity before selection, ordering or a pandas
-carrier can hide them. A pandas missing-value encoding remains NULL; an Arrow
-valid NaN is a nonfinite value, not NULL.
+including signed cancellation. All backend-native numeric operations delegate
+overflow to the backend: its errors, wrapped values, Infinity and NaN are accepted
+without an overflow precheck, result rejection or local retry. Native field reads
+likewise retain backend floating values. Local numeric kernels retain their own
+checked arithmetic and domain rules. An unevaluated source subexpression need not
+trigger overflow, including under empty output; explicit NULL/domain checks retain
+their demanded domains. Arrow-valid NaN is a floating value distinct from NULL.
 
-Source declaration trust does not remove these numeric checks. A missing scalar
-join produces NULL without a separate required-match audit; the consuming
-operator's captured NULL policy still applies, including strict rejection.
+Source declaration trust does not remove type, identity or captured NULL/domain
+checks. A missing scalar join produces NULL without a separate required-match
+audit; the consuming operator's captured NULL policy still applies, including
+strict rejection outside native AVG.
 
 ## Physical numeric and temporal carriers
 
-Admitted physical columns use signed int64, finite float64, Decimal(p,s) with
+Admitted physical columns use signed int64, float64, Decimal(p,s) with
 1 <= p <= 38 and 0 <= s <= p, boolean, string, date, exact timezone-aware timestamp
 and fixed-duration s/ms/us/ns ticks. Boolean is not a numeric quantity. Every
 physical route fixes its actual input and output types before business execution.
@@ -81,13 +83,14 @@ Local Decimal work keeps context precision 120 and converges once per bound resu
 with HALF_UP (ties away from zero), including carry at precision 38. Explicit
 round retains its own semantics. Final carrier conversion is safe. Float64 admits
 binary approximation, integer low-bit loss beyond 2**53 and ordinary underflow;
-new nonfinite results fail. Identity, count, time and Duration remain exact.
+backend-native nonfinite results retain their floating carrier. Identity, count,
+time and Duration remain exact.
 Native intermediate precision, AVG algorithms, floating order and overflow may
 differ between source and local execution. ClickHouse may silently return a wrapped
 value with a different sign/magnitude; an admitted result may be used in formulas,
 filters and ordering. Safe conversion cannot detect prior native wrapping.
-Saved results preserve committed values, scale, dtype, NA and keys without rounding
-or recomputation on export/cold read. Existing terminal fusion consumes the same
+Saved results preserve committed values, including Infinity and valid NaN, scale,
+dtype, NULL and keys without rounding or recomputation on export/cold read. Existing terminal fusion consumes the same
 bound result types; its chosen native path determines overflow behavior. Duration keeps its exact tick unit;
 a calendar month is not an elapsed duration. DuckDB native INTERVAL is admitted
 as microseconds only after a source-native check rejects year, month and day
@@ -106,8 +109,8 @@ ClickHouse. MySQL, Trino and ClickHouse sort and extract the two interpolation
 bounds and valid count on the source; only that bounded summary crosses the
 source boundary. Decimal paths retain their declared precision/scale through
 the shared interpolation finisher. Integer and floating quantiles return
-float64. Empty and all-NULL inputs return NA; strict NULL and nonfinite checks
-remain attached to the complete demanded input. Bounds must complete before
+float64. Empty and all-NULL inputs return NA; strict NULL checks remain attached
+to the complete demanded input. Bounds must complete before
 downstream numeric fusion consumes their values.
 
 Explicit source approximation uses DuckDB `approx_quantile`, Trino
@@ -126,11 +129,23 @@ per-sample keys and ordered sampling checks survive any legal optimization.
 
 Qualified direct min/max of Float64 time-sample means completes each child mean
 before the outer source aggregate on DuckDB, PostgreSQL, MySQL, Trino and
-ClickHouse. Strict NULL, finite-value and scheduled-clock coverage checks remain
+ClickHouse. Strict outer NULL and scheduled-clock coverage checks remain
 attached to their original domains; only bounded output summaries cross the
 boundary. This does not admit arbitrary nested samples, Decimal/Duration or
-ordered first/last to the same optimization. The existing guarded mean-of-mean
-route retains its numeric qualification and original-sample fallback.
+ordered first/last to the same optimization.
+
+Qualified direct mean of numeric time-sample means also executes on those five
+providers. It computes each timestamp's source AVG, then an equal-weight outer
+AVG over those completed means. Both AVG operations use backend NULL and overflow
+semantics. This route has no scheduled-clock coverage check, numeric safety
+windows, sample ranking or local fallback. Missing clocks do not become samples;
+off-grid represented timestamps remain samples. Integer and floating AVG has a
+declared Float64 output; Decimal AVG retains its declared precision and scale.
+Explicit result casts enforce these carriers after native AVG arithmetic.
+Duration, windows,
+explicit sample populations and unsupported nested or conditional formulas retain
+their existing qualified routes, including explicit local sample reduction where
+applicable.
 
 ## Current cells, original Metrics and windows
 

@@ -222,24 +222,8 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                     else {}
                 ),
             )
-            finite_checks = tuple(
-                (
-                    f"__field_nonfinite_{index}",
-                    NumericCheck(
-                        value.notnull() & (value.isnan() | value.isinf()),
-                        "finite numeric values or NULL",
-                        f"nonfinite source field {name}",
-                    ),
-                )
-                for index, name in enumerate(expression.columns)
-                if isinstance((value := expression[name]), ir.FloatingValue)
-            )
-            if finite_checks:
-                expression = expression.mutate(
-                    **{name: check.violation for name, check in finite_checks}
-                )
             expression, checks = _attach_preparation_checks(
-                expression, table, finite_checks, stage.preparation_checks
+                expression, table, (), stage.preparation_checks
             )
             lowered.append(LoweredRead(stage.stage_id, expression, checks))
     return LoweredQuery(

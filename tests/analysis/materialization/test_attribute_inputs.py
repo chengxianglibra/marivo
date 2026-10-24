@@ -360,6 +360,7 @@ def test_unknown_physical_leaf_fails_before_business_read(
         reader: DatasourceEngineTimezone,
         *,
         root_table: ir.Table | None = None,
+        sample_coverage: bool = True,
     ) -> query_preparation.PreparedFields:
         result = original(
             contribution,
@@ -367,6 +368,7 @@ def test_unknown_physical_leaf_fails_before_business_read(
             state,
             reader,
             root_table=root_table,
+            sample_coverage=sample_coverage,
         )
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))
@@ -1075,38 +1077,23 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     value = session.catalog.fields.get("sales.facts.value")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    valid = 1e308
+    metric = value.sum(nulls="error")
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
-        connection.execute("ALTER TABLE facts ALTER value TYPE DOUBLE")
+        connection.execute("UPDATE facts SET value=20 WHERE id=2")
     captured = session.observe(
-        {"q": value.sum()},
+        {"q": metric},
         by=mv.coordinates(by=(region,), keys=(("east",),)),
         where=region == "east",
     ).compute()
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
-        connection.execute("UPDATE facts SET value=? WHERE region='east'", [valid])
-        if failing_scope == "fine":
-            connection.execute("UPDATE facts SET value=? WHERE id=2", [-valid])
-            connection.execute("INSERT INTO facts VALUES ('t',4,'east','A',?,1)", [valid])
+        connection.execute("UPDATE facts SET value=NULL WHERE id=2")
     failed_axes: tuple[Deferred, ...]
     if failing_scope == "parent":
-        valid_children = (
-            session.observe({"q": value.sum()}, by=(region, channel), where=region == "east")
-            .compute()
-            .to_pandas()
-        )
-        assert valid_children["value", "q"].tolist() == [valid, valid]
         failed_axes = (region,)
         expected_coordinates = [{"key.0": "east"}]
     else:
-        valid_parent = (
-            session.observe({"q": value.sum()}, by=(region,), where=region == "east")
-            .compute()
-            .to_pandas()
-        )
-        assert valid_parent["value", "q"].tolist() == [valid]
         failed_axes = (region, channel)
-        expected_coordinates = [{"key.0": "east", "key.1": "A"}]
+        expected_coordinates = [{"key.0": "east", "key.1": "B"}]
     coordinates = []
     failure = graph_source_execution._source_check_failure
 
@@ -1118,13 +1105,34 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
 
     monkeypatch.setattr(graph_source_execution, "_source_check_failure", failed)
     with pytest.raises(MaterializationError) as ordinary:
-        session.observe({"q": value.sum()}, by=failed_axes, where=region == "east").compute()
+        session.observe({"q": metric}, by=failed_axes, where=region == "east").compute()
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("UPDATE facts SET value=20 WHERE id=2")
     reads = []
     execute = SourceSession.execute
 
     def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
-        return execute(self, issued)
+        rows = execute(self, issued)
+        parent = "attribute-parent:" in issued.purpose
+        if parent == (failing_scope == "parent"):
+            # Fault injection at the external reader boundary isolates the
+            # check dispatcher from the separately proven native NULL check.
+            selected = (rows["__attribute_kind"] == (1 if parent else 0)) & (
+                rows["key.0"] == "east"
+            )
+            if not parent:
+                selected &= rows["key.1"] == "B"
+            checks = [
+                name
+                for name in rows
+                if isinstance(name, str) and name.startswith("attribute.check.")
+            ]
+            assert checks and selected.any()
+            rows = rows.copy()
+            for name in checks:
+                rows.loc[selected, name] = True
+        return rows
 
     monkeypatch.setattr(SourceSession, "execute", read)
     with pytest.raises(MaterializationError) as actual:
@@ -1139,7 +1147,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     assert "attribute-parent:" in reads[0].purpose
     if failing_scope == "fine":
         assert "attribute-parent:" not in reads[1].purpose
-    assert coordinates == [expected_coordinates, expected_coordinates]
+    assert coordinates == [expected_coordinates, expected_coordinates], str(actual.value)
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
     assert actual.value.repair is not None and ordinary.value.repair is not None

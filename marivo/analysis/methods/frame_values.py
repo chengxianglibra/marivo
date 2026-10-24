@@ -14,6 +14,7 @@ from marivo._definition.query import (
     SelectValues,
     TopValues,
     ValuePartition,
+    ValueSlot,
 )
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.core.data_types import (
@@ -78,6 +79,7 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
             result[column.slot_id] = (
                 finish_float64(values, "Frame.select")
                 if column.dtype == ScalarDataType("float64")
+                and not isinstance(expression, ValueSlot)
                 else values
             )
         return result.loc[:, [c.slot_id for c in output.columns]].copy()

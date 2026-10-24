@@ -104,7 +104,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_checked_query_overflow_fails_before_empty_top(
+def test_local_query_overflow_fails_before_empty_top(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -154,10 +154,10 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         score = -source["amount"]
         query = source.where(score > 100) if operation == "filter" else source.top(2, by=score)
         trace = capture_source(monkeypatch)
-        # Complete Frame inputs reject nonfinite physical values before any
-        # operation can hide them; unary score evaluation itself adds no check.
-        with pytest.raises(MaterializationError, match="nonfinite"):
-            query.compute()
+        actual = query.compute().to_pandas()
+        assert actual["coordinate", "axis.0"].tolist() == (
+            [("t4", 4)] if operation == "filter" else [("t4", 4), ("t5", 5)]
+        )
         assert terminal_runs(session) == ()
         from marivo._definition.query import (
             FilterValues,
@@ -196,7 +196,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
 
 @pytest.mark.parametrize("negated", (False, True))
 @pytest.mark.parametrize("top_zero", (False, True))
-def test_float_select_rejects_nonfinite_output_before_empty_top(
+def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -216,8 +216,12 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
         query = source.select({"value": -source["amount"] if negated else source["amount"]})
         if top_zero:
             query = query.top(0, by=query["value"])
-        with pytest.raises(MaterializationError, match="nonfinite"):
-            query.compute()
+        if negated:
+            with pytest.raises(MaterializationError, match=r"Frame\.select: output overflow"):
+                query.compute()
+        else:
+            actual = query.compute().to_pandas()
+            assert actual.empty if top_zero else actual["value", "value"].iloc[0] == float("inf")
         assert terminal_runs(session) == ()
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram
@@ -237,5 +241,9 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
         )
         expression = ValueUnary("neg", ValueSlot(0)) if negated else ValueSlot(0)
         program = FrameProgram(SelectValues((("value", expression),)), input_schema, output_schema)
-        with pytest.raises(SemanticExpressionError, match=r"Frame\.select: output overflow"):
-            evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
+        if negated:
+            with pytest.raises(SemanticExpressionError, match=r"Frame\.select: output overflow"):
+                evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
+        else:
+            selected = evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
+            assert selected["value"].tolist() == [float("inf")]

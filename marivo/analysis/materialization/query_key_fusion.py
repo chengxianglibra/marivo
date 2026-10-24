@@ -900,13 +900,8 @@ def native_query_relation(
                     column.dtype == ScalarDataType("float64") for column in stage.columns
                 ):
                     return "floating producer slots retain pandas missing-value semantics"
-                if any(
-                    name not in admitted and not name.startswith("__field_nonfinite_")
-                    for name, _ in read.numeric_checks
-                ) or {
-                    name
-                    for name, _ in read.numeric_checks
-                    if not name.startswith("__field_nonfinite_")
+                if any(name not in admitted for name, _ in read.numeric_checks) or {
+                    name for name, _ in read.numeric_checks
                 } != {name for name, _, _ in stage.preparation_checks}:
                     return "field producer retains an unsupported check"
             elif (
@@ -1182,16 +1177,6 @@ def native_query_relation(
                         return evaluated
                     projection[f"value.{index}"] = evaluated.value
                     checks = (*checks, *evaluated.checks)
-                    if evaluated.value.type().is_floating():
-                        checks = (
-                            *checks,
-                            NumericCheck(
-                                evaluated.value.notnull()
-                                & (evaluated.value.isnan() | evaluated.value.isinf()),
-                                "a finite float64 output",
-                                "Column.select: output overflow",
-                            ),
-                        )
                 expression = expression.select(**projection)
             elif isinstance(operation, TopValues):
                 if (
@@ -1255,7 +1240,6 @@ def native_query_relation(
                     if issue is not None:
                         return issue
                 aggregates: dict[str, ir.Value] = {}
-                floating_sums: list[str] = []
                 for index, (_, statistic) in enumerate(operation.values):
                     slot = f"value.{index}"
                     if isinstance(statistic, PairStatistic):
@@ -1264,24 +1248,11 @@ def native_query_relation(
                         aggregates[slot] = expression.count()
                     elif statistic.method == "sum" and isinstance(statistic.value, ValueSlot):
                         value = values[statistic.value.index]
-                        if value.type().is_integer():
-                            from marivo.semantic._numeric_lowering import _source_sum
-
-                            total = _source_sum(value)
-                            aggregates[slot] = (expression.count() == 0).ifelse(
-                                ibis.literal(0).cast(total.type()), total
-                            )
-                        elif value.type().is_floating() or value.type().is_decimal():
-                            if value.type().is_floating():
-                                floating_sums.append(slot)
-                                checks = (
-                                    *checks,
-                                    NumericCheck(
-                                        value.notnull() & (value.isnan() | value.isinf()),
-                                        "a qualified finite value statistic",
-                                        "float64 state has a nonfinite component",
-                                    ),
-                                )
+                        if (
+                            value.type().is_integer()
+                            or value.type().is_floating()
+                            or value.type().is_decimal()
+                        ):
                             from marivo.semantic._numeric_lowering import _source_sum
 
                             total = _source_sum(value)
@@ -1307,16 +1278,6 @@ def native_query_relation(
                 expression = expression.aggregate(**aggregates, by=groups).select(
                     *stage.keys, *value_slots
                 )
-                for slot in floating_sums:
-                    total = expression[slot]
-                    checks = (
-                        *checks,
-                        NumericCheck(
-                            total.notnull() & (total.isnan() | total.isinf()),
-                            "a qualified finite value statistic",
-                            "float64 state overflow",
-                        ),
-                    )
         else:
             return "producer operation is outside the admitted field relation grammar"
         return NativeQueryRelation(expression, members, sources, checks, parameters)

@@ -622,6 +622,7 @@ def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
     pytest.importorskip("ibis.backends.mysql.converter")
     session._backend.raw_sql("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN clock TIME")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN floating DOUBLE")
     bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
     qualified = session.qualify(
         bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan", "project"}))
@@ -634,14 +635,15 @@ def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
     )
     exact = 2**53 + 1
     cursor = Mock()
-    cursor.description = (("id", 8), ("amount", 246), ("clock", 11))
+    cursor.description = (("id", 8), ("amount", 246), ("clock", 11), ("floating", 5))
     cursor.fetchall.return_value = (
         (
             exact,
             Decimal("9007199254740993.01"),
             timedelta(hours=12, minutes=34, seconds=56, microseconds=123456),
+            float("nan"),
         ),
-        (None, None, None),
+        (None, None, None, None),
     )
     raw_sql = Mock(return_value=nullcontext(cursor))
     monkeypatch.setattr(session, "provider", provider_for("mysql"))
@@ -653,6 +655,9 @@ def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
     assert pa.array(rows.amount).type == pa.decimal128(18, 2)
     assert rows.clock.iloc[0] == time(12, 34, 56, 123456)
     assert pd.isna(rows.clock.iloc[1])
+    floating = pa.array(rows.floating)
+    assert floating.is_valid().to_pylist() == [True, False]
+    assert floating[0].as_py() != floating[0].as_py()
     raw_sql.assert_called_once_with(read.sql)
     cursor.fetchall.assert_called_once_with()
     assert session.submissions[-1].state == "succeeded"
@@ -666,6 +671,7 @@ def test_clickhouse_issued_blocks_preserve_exact_nullable_native_carriers(
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN enabled BOOLEAN")
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN day DATE")
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN instant TIMESTAMPTZ")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN floating DOUBLE")
     bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
     qualified = session.qualify(
         bound, PhysicalRequirement("query.source_read", 1, frozenset({"scan", "project"}))
@@ -684,6 +690,7 @@ def test_clickhouse_issued_blocks_preserve_exact_nullable_native_carriers(
         [1, None],
         [date(2026, 10, 8), None],
         [instant, None],
+        [float("nan"), None],
     )
     stream = Mock(return_value=nullcontext([] if empty else [block]))
     client = Mock(query_column_block_stream=stream)
@@ -710,6 +717,9 @@ def test_clickhouse_issued_blocks_preserve_exact_nullable_native_carriers(
         assert rows.day.tolist() == [date(2026, 10, 8), None]
         assert rows.instant.iloc[0] == instant
         assert pd.isna(rows.instant.iloc[1])
+        floating = pa.array(rows.floating)
+        assert floating.is_valid().to_pylist() == [True, False]
+        assert floating[0].as_py() != floating[0].as_py()
     stream.assert_called_once_with(read.sql, external_data=None)
     ordinary.assert_not_called()
     assert len(session.submissions) == 1 and session.submissions[0].state == "succeeded"

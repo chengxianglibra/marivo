@@ -6,7 +6,6 @@ branch demand before a source backend or the local operation adapter consumes th
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -97,7 +96,6 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
     from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,
-        _finite_check,
         numeric_binary,
         numeric_failure,
     )
@@ -126,7 +124,7 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
     if isinstance(node, (ops.Negate, ops.Abs)):
         item = visit(node.arg)
         value = node.copy(arg=item.value.op()).to_expr()
-        return NumericValue(value, (*item.checks, *_finite_check(value, type(node).__name__)))
+        return NumericValue(value, item.checks)
     if isinstance(node, ops.IfElse):
         condition, yes, no = (
             visit(node.bool_expr),
@@ -162,12 +160,10 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
             remaining = remaining & item.value.isnull()
             items.append(item.value)
         return NumericValue(ibis.coalesce(*items), tuple(checks))
-    if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10, ops.Exp)):
+    if isinstance(node, (ops.Sqrt, ops.Ln, ops.Log, ops.Log2, ops.Log10)):
         item = visit(node.arg)
         argument = item.value
         violation = argument < 0 if isinstance(node, ops.Sqrt) else argument <= 0
-        if isinstance(node, ops.Exp):
-            violation = argument > math.log(float.fromhex("0x1.fffffffffffffp+1023"))
         safe = violation.ifelse(ibis.null().cast(argument.type()), argument)
         checks = [
             *item.checks,
@@ -185,22 +181,9 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
                 )
             )
         value = node.copy(**kwargs).to_expr()
-        return NumericValue(value, (*checks, *_finite_check(value, type(node).__name__)))
+        return NumericValue(value, tuple(checks))
     # These operations have no eager invalid-value behavior. Cast is handled with
     # TryCast so invalid demanded inputs become a structured check, not a backend exception.
-    if isinstance(node, ops.Round) and node.dtype.is_integer():
-        item, digits = visit(node.arg), visit(node.digits)
-        overflow = (item.value < -(2**63)) | (item.value >= float(2**63))
-        safe = overflow.ifelse(ibis.null().cast(item.value.type()), item.value)
-        value = node.copy(arg=safe.op(), digits=digits.value.op()).to_expr()
-        return NumericValue(
-            value,
-            (
-                *item.checks,
-                *digits.checks,
-                NumericCheck(overflow, "signed int64 rounded values", "round: integer overflow"),
-            ),
-        )
     if isinstance(node, ops.Cast):
         item = visit(node.arg)
         value = item.value.try_cast(node.to)
@@ -210,11 +193,11 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
             (
                 *item.checks,
                 NumericCheck(bad, f"values castable to {node.to}", "cast"),
-                *_finite_check(value, "cast"),
             ),
         )
     allowed = (
         ops.Abs,
+        ops.Exp,
         ops.Round,
         ops.Clip,
         ops.Least,
@@ -252,4 +235,4 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
     value = node.copy(
         **{name: replace(arg) for name, arg in zip(node.argnames, node.args, strict=True)}
     ).to_expr()
-    return NumericValue(value, (*gathered, *_finite_check(value, type(node).__name__)))
+    return NumericValue(value, tuple(gathered))

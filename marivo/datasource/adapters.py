@@ -52,6 +52,13 @@ Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
 Termination = Literal["local_closed", "remote_unknown", "remote_confirmed"]
 
 
+def _native_pandas_type(dtype: pa.DataType) -> pd.ArrowDtype | None:
+    """Keep native integers and floating validity before pandas conversion."""
+    return (
+        pd.ArrowDtype(dtype) if pa.types.is_integer(dtype) or pa.types.is_floating(dtype) else None
+    )
+
+
 def _invalid(expected: str, received: str) -> DatasourceSourceCapabilityError:
     return DatasourceSourceCapabilityError(
         message="Governed source read cannot satisfy its binding.",
@@ -611,6 +618,7 @@ class SourceSession:
                         elif (
                             pa.types.is_integer(field.type)
                             or pa.types.is_decimal(field.type)
+                            or pa.types.is_floating(field.type)
                             or native_decimal
                         ):
                             arrow_type = (
@@ -618,7 +626,11 @@ class SourceSession:
                                 if native_decimal and not pa.types.is_decimal(field.type)
                                 else field.type
                             )
-                            array = pa.array(values, type=arrow_type, from_pandas=True)
+                            array = pa.array(
+                                values,
+                                type=arrow_type,
+                                from_pandas=not pa.types.is_floating(field.type),
+                            )
                             result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
                 elif self.provider.name == "clickhouse" and all(
                     requirement.method_id == "query.source_read" and requirement.version == 1
@@ -640,12 +652,16 @@ class SourceSession:
                                     values = [
                                         None if value is None else bool(value) for value in values
                                     ]
-                                arrays.append(pa.array(values, type=field.type, from_pandas=True))
+                                arrays.append(
+                                    pa.array(
+                                        values,
+                                        type=field.type,
+                                        from_pandas=not pa.types.is_floating(field.type),
+                                    )
+                                )
                             batches.append(pa.RecordBatch.from_arrays(arrays, schema=proof.schema))
                     result = pa.Table.from_batches(batches, schema=proof.schema).to_pandas(
-                        types_mapper=lambda dtype: (
-                            pd.ArrowDtype(dtype) if pa.types.is_integer(dtype) else None
-                        )
+                        types_mapper=_native_pandas_type
                     )
                 elif self.provider.name in {"duckdb", "trino"} or (
                     self.provider.name == "postgres"
@@ -654,13 +670,9 @@ class SourceSession:
                         for requirement in proof.requirements
                     )
                 ):
-                    # Preserve native integer/Decimal values and nulls before pandas rounding.
+                    # Preserve native numbers and floating validity before pandas conversion.
                     arrow = self._backend.to_pyarrow(table, params=dict(proof.params), limit=None)
-                    result = arrow.to_pandas(
-                        types_mapper=lambda dtype: (
-                            pd.ArrowDtype(dtype) if pa.types.is_integer(dtype) else None
-                        )
-                    )
+                    result = arrow.to_pandas(types_mapper=_native_pandas_type)
                 else:
                     result = self._backend.execute(table, params=dict(proof.params), limit=None)
             if not isinstance(result, pd.DataFrame):

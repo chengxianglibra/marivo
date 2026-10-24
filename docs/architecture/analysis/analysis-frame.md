@@ -286,3 +286,10 @@ returns Decimal(38,0), Decimal SUM widens to Decimal(38,input_scale), and mean k
 its declared result type. [Numeric carrier rules](operators-and-frames.md) own
 Decimal convergence, float approximation and source/local overflow differences.
 Persistence and cold reads preserve the committed values and types without new rounding.
+Native backend floating results, including infinity and valid NaN, remain valid Frame
+value cells through completion, persistence, reopening and pandas export. Arrow validity
+keeps those values distinct from NULL. Native arithmetic overflow follows the backend's
+result or error; exact carrier, complete-key and local Frame method rules still apply.
+Coordinate keys retain their finite typed-key contract.
+Selecting an existing value Column preserves its captured values and null validity;
+computed local expressions retain their arithmetic checks.

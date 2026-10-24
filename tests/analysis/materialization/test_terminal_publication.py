@@ -853,13 +853,14 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
 ) -> None:
     amount = source_session.catalog.fields.get("sales.orders.amount")
     assert isinstance(amount, Deferred)
-    total = amount.sum()
+    total = amount.sum(nulls="error")
     with pytest.raises(MaterializationError) as caught:
-        source_session.observe({"overflow": total * 1e308}).persist()
+        source_session.observe({"strict": total}).persist()
     from marivo.semantic.errors import SemanticExpressionError
 
     assert isinstance(caught.value.__cause__, SemanticExpressionError)
     assert caught.value.stage == "numeric_value"
+    assert caught.value.expected == "non-NA source values"
     assert caught.value.repair is not None
     assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
     assert not hasattr(caught.value, "run_ref")

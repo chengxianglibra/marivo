@@ -92,6 +92,7 @@ def prepare_fields(
     reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
+    sample_coverage: bool = True,
 ) -> PreparedFields:
     """Prepare expressions and declared many-to-one joins without reading values."""
     registry = state.registry
@@ -407,7 +408,8 @@ def prepare_fields(
     sampled_reads = {
         field_read_key(read): slot
         for read in contribution.coordinates[contribution.output_axis_count :]
-        if isinstance(read, FieldRead)
+        if sample_coverage
+        and isinstance(read, FieldRead)
         and registry.dimensions[read.field.ref.path].sample_interval is not None
         for slot, path in physical_axes
         if path == field_read_key(read)
@@ -642,7 +644,8 @@ def prepare_fields(
         sampling_coverage(
             contribution, state, calendar=None, authorities=authorities, wall_paths=wall_paths
         )
-        if not any(
+        if sample_coverage
+        and not any(
             isinstance(axis, CalendarCoordinate) and not axis.cells
             for _, axis in contribution.calendars
         )

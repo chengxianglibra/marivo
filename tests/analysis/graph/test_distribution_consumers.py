@@ -210,14 +210,6 @@ def test_native_distribution(
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert run_ids(session) == before_runs
             return
-        if kind == "distinct_nonfinite":
-            before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(AnalysisError):
-                observed.persist()
-            assert submissions
-            assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session.id) == ()
-            return
         fixed = observed.persist()
         source_trace.record(fixed)
         exported = fixed.to_pandas()
@@ -228,7 +220,7 @@ def test_native_distribution(
             {"a": 4, "b": 1, "c": 0}
             if kind == "identity"
             else {"a": 2, "b": 1, "c": 0}
-            if kind in ("distinct", "approx_distinct")
+            if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
             else {"a": Decimal("9007199254740993.000002"), "b": Decimal("9007199254740993.000002")}
             if carrier == "decimal"
             else {"a": 4, "b": 6}
@@ -250,14 +242,14 @@ def test_native_distribution(
                 "values": [4, 1, 0]
                 if kind == "identity"
                 else [2, 1, 0]
-                if kind in ("distinct", "approx_distinct")
+                if kind in ("distinct", "distinct_nonfinite", "approx_distinct")
                 else [str(expected["a"]), str(expected["b"]), None]
                 if kind == "quantile" and carrier == "decimal"
                 else [4, 6, None]
                 if kind == "quantile"
                 else ["bounded_2_through_6", 6, None],
                 "empty_cell": "defined"
-                if kind in ("distinct", "identity", "approx_distinct")
+                if kind in ("distinct", "distinct_nonfinite", "identity", "approx_distinct")
                 else "null",
             },
             fixed,

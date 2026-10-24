@@ -651,7 +651,7 @@ def test_effective_source_float_types_and_nonfinite_validation(
         fixed.correlate(fixed["x"], fixed["y"], method="pearson").compute().to_pandas(),
     )
     nonfinite = True
-    with pytest.raises(MaterializationError, match="finite"):
+    with pytest.raises(AnalysisError, match="finite admitted numeric inputs for paired statistics"):
         pending.select({"constant": 1}).compute()
 
 

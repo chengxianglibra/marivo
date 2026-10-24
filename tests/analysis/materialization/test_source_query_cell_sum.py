@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -128,7 +127,7 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("boundary", ("nan", "infinity", "float_overflow", "decimal_overflow"))
-def test_native_cell_sum_retains_numeric_errors_before_top_zero(
+def test_local_cell_sum_retains_numeric_errors_before_top_zero(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -157,8 +156,8 @@ def test_native_cell_sum_retains_numeric_errors_before_top_zero(
             ]
             assert query.compute().to_pandas().empty
         else:
-            with pytest.raises(
-                (AnalysisError, MaterializationError), match=r"nonfinite|overflow|finite"
-            ):
+            # This Frame statistic executes locally after its source read.
+            # Its finite-state policy is independent of native source SUM.
+            with pytest.raises(MaterializationError, match="finite current-row statistic"):
                 query.compute()
         assert trace.uploaded_key_rows == []

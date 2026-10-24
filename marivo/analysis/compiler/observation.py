@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from fractions import Fraction
 
@@ -193,6 +193,9 @@ def lower_observation(
     row_checks: tuple[tuple[str, str, str], ...] = (),
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
+    if prepared.mean_fold is not None and prepared.mean_fold[2] == "mean":
+        # Native AVG owns NULL and absent-clock handling for this completed mean.
+        prepared = replace(prepared, coverage=(), preserve_sample_presence=False)
     window_slot: str | None = None
     if prepared.window_key is not None:
         window_slot = "__marivo_window_key"
@@ -294,6 +297,25 @@ def lower_observation(
 
     bounds = quantile_bounds(prepared, fields)
     item = lower_source_reduction(prepared.node, filtered, fields, quantile_bounds=bounds)
+    if (
+        prepared.duration is not None
+        and isinstance(prepared.node, SourceAggregate)
+        and prepared.node.reducer == "mean"
+        and prepared.node.nulls == "error"
+    ):
+        # Duration mean uses exact tick SUM/count rather than backend AVG.
+        ticks = lower_row(prepared.node.operand, fields).value
+        item = NumericValue(
+            item.value,
+            (
+                *item.checks,
+                NumericCheck(
+                    ticks.isnull().any().fill_null(False),
+                    "non-NA source values",
+                    "mean(nulls='error')",
+                ),
+            ),
+        )
     metrics = {
         prepared.value_slot: item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},

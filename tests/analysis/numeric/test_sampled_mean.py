@@ -4,15 +4,18 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from math import isnan
 from pathlib import Path
 from typing import Literal
 
 import ibis
+import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.compiler import sampled_mean
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -77,8 +80,14 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
     sql = ibis.to_sql(relation, dialect=backend).lower()
     assert "avg(" in sql
     assert f"{'avg' if reducer == 'mean' else reducer}(" in sql
-    assert "distinct" in sql
-    if reducer != "mean":
+    if reducer == "mean":
+        assert "distinct" not in sql
+        assert "row_number" not in sql
+        assert " over " not in sql
+        assert "__mean_safe" not in sql
+        assert "__coverage_" not in sql
+    else:
+        assert "distinct" in sql
         assert "sample_check.coverage" in relation.columns
         assert {name for name, _ in checks} >= {"sample_check.null", "sample_check.coverage"}
     assert relation["key.1"].type().nullable
@@ -96,9 +105,10 @@ def mean_session(
     *,
     values: tuple[float | None, ...] = (0, 100, 100, 100, 0),
     cadence: bool = True,
-    amount_type: Literal["DOUBLE", "DECIMAL(18,2)"] = "DOUBLE",
+    amount_type: Literal["BIGINT", "DOUBLE", "DECIMAL(18,2)"] = "DOUBLE",
     aware: bool = False,
     sample_count: int | None = None,
+    alternate_clock: bool = False,
 ) -> Iterator[tuple[Session, Case]]:
     times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
@@ -114,7 +124,9 @@ def mean_session(
             if aware
             else "2026-10-01 " + times[i],
             "category": "A",
-            "amount": value,
+            "amount": Decimal(str(value))
+            if amount_type == "DECIMAL(18,2)" and value is not None
+            else value,
         }
         for i, value in enumerate(values)
     ]
@@ -139,7 +151,9 @@ def mean_session(
         ",".join(f"({i},{points[i]},'A',{literal})" for i, literal in enumerate(literals)),
         "id Int64, point "
         + ("DateTime64(6, 'UTC')" if aware else "String")
-        + ", category String, amount Nullable(Float64)",
+        + ", category String, amount Nullable("
+        + {"BIGINT": "Int64", "DOUBLE": "Float64", "DECIMAL(18,2)": "Decimal(18, 2)"}[amount_type]
+        + ")",
         rows,
     )
     monkeypatch.chdir(root)
@@ -155,6 +169,11 @@ def mean_session(
                 + ("" if aware else ",parse=ms.strptime('%Y-%m-%d %H:%M:%S')")
                 + (",sample_interval=(1,'hour')" if cadence else "")
                 + ")\n"
+                + (
+                    "other_point=ms.time_dimension_column(name='other_point',entity=facts,column='point',parse=ms.strptime('%Y-%m-%d %H:%M:%S'),sample_interval=(1,'hour'))\n"
+                    if alternate_clock
+                    else ""
+                )
                 + "category=ms.dimension_column(name='category',entity=facts,column='category')\n"
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all(except_=(point,)),status_time_dimension=point)\n"
                 + "@ms.metric()\ndef average():\n    return amount.mean(time=point).per(point).mean()\n",
@@ -237,7 +256,17 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
 
 
 @pytest.mark.parametrize(
-    "backend,profile", source_params([("duckdb", "table"), ("trino", "iceberg")])
+    "backend,profile,aware",
+    source_params(
+        [
+            ("duckdb", "table", False),
+            ("postgres", "table", False),
+            ("mysql", "table", False),
+            ("trino", "iceberg", False),
+            ("clickhouse", "table", False),
+            ("clickhouse", "table", True),
+        ]
+    ),
 )
 def test_native_mean_preserves_sample_weighting_and_fixed_result(
     tmp_path: Path,
@@ -245,8 +274,11 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
+    aware: bool,
 ) -> None:
-    with mean_session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as (
+    with mean_session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, aware=aware
+    ) as (
         session,
         _,
     ):
@@ -273,7 +305,8 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             legacy.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
             old = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
         assert old[("value", "v")].tolist() == pytest.approx([100 / 3])
-        assert trace.returned_rows[-1] == 5  # three numeric and two scheduled clock rows
+        assert trace.returned_rows[-1] == (3 if aware else 5)
+        assert not trace.uploaded_key_rows
         stored = result.persist()
 
         def offline(*args: object, **kwargs: object) -> None:
@@ -284,27 +317,25 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
 
 
 @pytest.mark.parametrize(
-    "values,cadence,error,expected",
+    "values,cadence,expected",
     [
-        ((None, None, None, None, None), True, None, None),
-        ((0, None, 100, 100, 0), True, None, 100 / 3),
-        ((0, 100, 100, 100), True, "missing state sample", None),
-        ((0, 100, 100, 100), False, None, 50),
-        ((1e308, 1e308, None, None, 1e308), True, "overflow", None),
-        ((1e308, -1e308, None, None, 1), True, None, 1 / 3),
-        ((float("inf"), 100, 100, 100, 0), True, "finite", None),
+        ((None, None, None, None, None), True, None),
+        ((0, None, 100, 100, 0), True, 100 / 3),
+        ((0, 100, 100, 100), True, 50),
+        ((0, 100, 100, 100), False, 50),
+        ((1e308, 1e308, None, None, 1e308), True, float("inf")),
+        ((1e308, -1e308, None, None, 1), True, 1 / 3),
+        ((float("inf"), 100, 100, 100, 0), True, float("inf")),
     ],
 )
-def test_mean_checked_completion(
+def test_native_mean_keeps_backend_null_and_large_value_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     values: tuple[float | None, ...],
     cadence: bool,
-    error: str | None,
     expected: float | None,
 ) -> None:
-    # Local kernel witnesses include arithmetic that is unsafe to compact.
     with mean_session(
         "duckdb",
         "table",
@@ -316,12 +347,182 @@ def test_mean_checked_completion(
     ) as (session, _):
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         query = session.observe({"v": session.catalog.metrics.get("sales.average")}, by=(scope,))
-        if error:
-            with pytest.raises(MaterializationError, match=error):
-                query.compute()
+        trace = capture_source(monkeypatch)
+        value = query.compute().to_pandas()[("value", "v")].iloc[0]
+        assert pd.isna(value) if expected is None else value == pytest.approx(expected)
+        assert trace.returned_rows == [1]
+        assert "__mean_folded" in trace.returned_columns[0]
+        assert not trace.uploaded_key_rows
+
+
+def _driver_rows(backend: str, case: Case, sql: str) -> tuple[tuple[object, ...], ...]:
+    if backend == "postgres":
+        from tests.datasource.environment.postgres_analysis import connection
+
+        with connection() as pg_reader, pg_reader.cursor() as pg_cursor:
+            pg_cursor.execute(sql)
+            return tuple(pg_cursor.fetchall())
+    if backend == "mysql":
+        from tests.datasource.environment.mysql_analysis import connection as mysql_connection
+
+        with mysql_connection() as mysql_reader, mysql_reader.cursor() as mysql_cursor:
+            mysql_cursor.execute(sql)
+            return tuple(mysql_cursor.fetchall())
+    if backend == "trino":
+        from tests.datasource.environment.trino_analysis import connection as trino_connection
+
+        with trino_connection() as trino_reader:
+            trino_cursor = trino_reader.cursor()
+            try:
+                trino_cursor.execute(sql)
+                return tuple(tuple(row) for row in trino_cursor.fetchall())
+            finally:
+                trino_cursor.close()
+    if backend == "clickhouse":
+        from tests.datasource.environment.clickhouse_analysis import connection as ch_connection
+
+        with ch_connection() as ch_reader:
+            return tuple(tuple(row) for row in ch_reader.query(sql).result_rows)
+    # Reuse the fixture's DuckDB driver connection and its exact configuration.
+    return tuple(case.session._backend.raw_sql(sql).fetchall())
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(1e308, 1e308, None, None, 1e308),
+    ) as (session, case):
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        query = session.observe({"v": session.catalog.metrics.get("sales.average")}, by=(scope,))
+        trace = capture_source(monkeypatch)
+        actual: pd.DataFrame | None = None
+        failure: MaterializationError | None = None
+        try:
+            actual = query.compute().to_pandas()
+        except MaterializationError as error:
+            failure = error
+        assert len(trace.native_sql) == 1
+        # Overflow is backend-owned. Compare the actual issued SQL through the
+        # provider driver to verify transport/error authority; algebraically
+        # equivalent SQL can have different native overflow behavior.
+        try:
+            native = _driver_rows(backend, case, trace.native_sql[0])
+        except Exception as error:
+            assert failure is not None
+            assert failure.stage in ("source_execution", "source_conversion")
+            assert failure.received is not None
+            assert type(error).__name__ in failure.received
+            assert not trace.returned_rows
         else:
-            value = query.compute().to_pandas()[("value", "v")].iloc[0]
-            assert pd.isna(value) if expected is None else value == pytest.approx(expected)
+            assert failure is None
+            assert actual is not None
+            index = next(
+                i for i, name in enumerate(trace.returned_columns[0]) if name.endswith("/value")
+            )
+            expected = native[0][index]
+            value = actual[("value", "v")].iloc[0]
+            if expected is None:
+                assert pd.isna(value)
+            elif isinstance(expected, float) and isnan(expected):
+                assert isnan(value)
+            else:
+                assert value == expected
+            assert trace.returned_rows == [1]
+            assert "__mean_folded" in trace.returned_columns[0]
+        assert not trace.uploaded_key_rows
+        assert len(trace.native_sql) == 1
+        assert "__mean_safe" not in trace.native_sql[0]
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+@pytest.mark.parametrize("amount_type", ["BIGINT", "DECIMAL(18,2)"])
+def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    amount_type: Literal["BIGINT", "DECIMAL(18,2)"],
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        amount_type=amount_type,
+    ) as (session, case):
+        source = case.session.bind(case.source, source_identity="numeric-oracle").relation
+        assert (
+            source.amount.type().is_integer()
+            if amount_type == "BIGINT"
+            else source.amount.type().is_decimal()
+        )
+        inner = source.amount.mean()
+        if source.amount.type().is_integer() or inner.type().is_decimal():
+            inner = ops.Cast(inner, to=inner.type()).to_expr()
+        means = source.group_by("point").aggregate(sample=inner)
+        outer = means["sample"].mean()
+        if outer.type().is_decimal():
+            outer = ops.Cast(outer, to=outer.type()).to_expr()
+        expected = means.aggregate(value=outer).execute()["value"].tolist()
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        trace = capture_source(monkeypatch)
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        direct = session.observe({"v": amount.mean(time=point)}, by=(scope,)).compute().to_pandas()
+        # The standalone AVG shares the declared carrier boundary, including
+        # PostgreSQL's native numeric AVG over bigint before the output cast.
+        assert direct[("value", "v")].tolist() == [
+            Decimal("60.00") if amount_type == "DECIMAL(18,2)" else 60.0
+        ]
+        rows = (
+            session.observe({"v": session.catalog.metrics.get("sales.average")}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        if amount_type == "DECIMAL(18,2)":
+            assert rows[("value", "v")].tolist() == expected
+        else:
+            assert rows[("value", "v")].tolist() == pytest.approx(expected)
+        assert trace.returned_rows == [1, 1]
+        assert "__mean_folded" in trace.returned_columns[-1]
+        assert not trace.uploaded_key_rows
+        assert "ROW_NUMBER" not in trace.native_sql[0]
+        assert "__coverage_" not in trace.native_sql[0]
 
 
 @pytest.mark.parametrize("reducer,expected", [("min", 0.0), ("max", 80.0)])
@@ -413,7 +614,9 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         metric = empty.min() if reducer == "min" else empty.max()
         rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
         assert rows[("value", "v")].isna().all() and len(rows) == 1
-        assert trace.returned_rows == [1, 1, 1]
+        # Empty grouped input returns no source row; the fixed scope supplies
+        # the one NA output cell.
+        assert trace.returned_rows == [1, 1, 0]
         assert not trace.uploaded_key_rows
 
 
@@ -422,11 +625,11 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
     [
         ((None, None, None, None, None), False, None, None),
         ((0, None, None, None, 20), True, "non-NA", None),
-        ((float("inf"), 40, 100, 100, 20), False, "finite", None),
+        ((float("inf"), 40, 100, 100, 20), False, None, float("inf")),
         ((0, None, None, None, 20), False, None, 20.0),
     ],
 )
-def test_native_extrema_preserve_null_and_finite_checks(
+def test_native_extrema_preserve_null_policy_and_backend_floats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -497,8 +700,8 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
             assert rows[("value", "v")].isna().all() and len(rows) == 1
         invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
         metric = invalid.min() if reducer == "min" else invalid.max()
-        with pytest.raises(MaterializationError, match="finite"):
-            session.observe({"v": metric}, by=(scope,)).compute()
+        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        assert rows[("value", "v")].isna().all() and len(rows) == 1
 
 
 @pytest.mark.parametrize("reducer", ["min", "max"])
@@ -688,9 +891,18 @@ def test_trino_four_day_mean_transport_and_cost(
 
 
 @pytest.mark.parametrize(
-    "backend,profile", source_params([("duckdb", "table"), ("trino", "iceberg")])
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
 )
-def test_mean_strict_and_empty_scope_keep_errors(
+def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -710,21 +922,21 @@ def test_mean_strict_and_empty_scope_keep_errors(
         def checked(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
             result = original(owner, read)
             if "__mean_folded" in result:
-                # SQL boolean windows must cover the whole read, rather than
-                # a default prefix that could discard later failed samples.
-                assert result["__mean_folded"].nunique() <= 1
+                assert result["__mean_folded"].all()
             return result
 
         monkeypatch.setattr(SourceSession, "execute", checked)
+        trace = capture_source(monkeypatch)
         point = session.catalog.fields.get("sales.facts.point")
         amount = session.catalog.fields.get("sales.facts.amount")
+        category = session.catalog.fields.get("sales.facts.category")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         for metric in (
             amount.mean(time=point).per(point).mean(nulls="error"),
             amount.mean(time=point, nulls="error").per(point).mean(),
         ):
-            with pytest.raises(MaterializationError, match="non-NA"):
-                session.observe({"v": metric}, by=(scope,)).compute()
+            rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+            assert rows[("value", "v")].tolist() == [0.0]
         empty = (
             session.observe(
                 {"v": amount.mean(time=point).where(amount < 0).per(point).mean()}, by=(scope,)
@@ -740,3 +952,64 @@ def test_mean_strict_and_empty_scope_keep_errors(
             .to_pandas()
         )
         assert rows[("value", "v")].tolist() == [0.0]
+        missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
+        rows = (
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(missing,))
+            .compute()
+            .to_pandas()
+        )
+        assert rows[("value", "v")].tolist() == [0.0]
+        unbounded = (
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(category,))
+            .compute()
+            .to_pandas()
+        )
+        assert unbounded[("value", "v")].tolist() == [0.0]
+        assert trace.returned_rows == [1, 1, 0, 1, 1, 1]
+        assert not trace.uploaded_key_rows
+        assert all("__coverage_" not in sql and "ROW_NUMBER" not in sql for sql in trace.native_sql)
+
+
+@pytest.mark.parametrize(
+    "excluded,bounded", [("wrong_clock", True), ("wrong_clock", False), ("population", True)]
+)
+def test_local_sample_mean_keeps_coverage_for_excluded_shapes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    excluded: str,
+    bounded: bool,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 100, 100, 100),
+        alternate_clock=excluded == "wrong_clock",
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        sample = (
+            session.catalog.fields.get("sales.facts.other_point")
+            if excluded == "wrong_clock"
+            else point
+        )
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        by = (
+            mv.product(scope, session.members(session.catalog.entities.get("sales.facts")))
+            if excluded == "population"
+            else (scope,)
+            if bounded
+            else ()
+        )
+        assert isinstance(by, (mv.Population, tuple))
+        trace = capture_source(monkeypatch)
+        with pytest.raises(
+            MaterializationError if bounded else AnalysisError,
+            match="missing state sample" if bounded else "explicit observation period",
+        ):
+            session.observe({"v": amount.mean(time=point).per(sample).mean()}, by=by).compute()
+        assert bool(trace.returned_rows) is bounded
+        assert all("__mean_folded" not in columns for columns in trace.returned_columns)

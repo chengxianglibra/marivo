@@ -29,6 +29,7 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameResult,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from tests.shared_fixtures import terminal_runs
@@ -213,7 +214,7 @@ def test_stage_valid_nan_and_null_remain_distinct_complete_keys() -> None:
     result = normalize_stage_frame(rows, (column,), ("key",))
     assert pa.array(result["key"]).is_valid().to_pylist() == [True, False]
     schema = DataSchema((DataAxis("float", (column,), name="float"),), ())
-    with pytest.raises(MaterializationError, match="finite float64 values"):
+    with pytest.raises(CoreRuleError, match="finite typed coordinate values"):
         CompletedFrameData(schema, rows)
 
 

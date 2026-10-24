@@ -99,8 +99,8 @@ def data(structure: DataSchema | None = None) -> CompletedFrameData:
 
 
 @pytest.mark.parametrize("value", [float("inf"), -float("inf")])
-@pytest.mark.parametrize("role", ["value", "coordinate", "attachment"])
-def test_complete_data_rejects_nonfinite_cells_before_any_operation(
+@pytest.mark.parametrize("role", ["value", "coordinate"])
+def test_complete_data_preserves_native_infinite_values_and_checks_coordinate_keys(
     value: float, role: str
 ) -> None:
     column = DataColumn("value.0", "value", ScalarDataType("float64"), True)
@@ -113,30 +113,14 @@ def test_complete_data_rejects_nonfinite_cells_before_any_operation(
         rows = pd.DataFrame({column.slot_id: [value]})
         attachments = ()
     else:
-        key = DataColumn("key.0", "bucket", ScalarDataType("int64"), False)
-        axis = CalendarDataAxis(
-            "axis.0",
-            (key,),
-            "UTC",
-            name="day",
-            frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "calendar.axis.0"),
-        )
-        structure = DataSchema((axis,), ())
-        rows = pd.DataFrame({key.slot_id: [0]})
-        attachment_schema = DataSchema(
-            (DataAxis("axis.0", (key,), name="day"),),
-            (column,),
-            value_paths=(("value",),),
-        )
-        attachments = (
-            OutputAttachment(
-                "calendar.axis.0",
-                attachment_schema,
-                pd.DataFrame({key.slot_id: [0], column.slot_id: [value]}),
-            ),
-        )
-    with pytest.raises(MaterializationError, match="finite float64"):
-        CompletedFrameData(structure, rows, attachments)
+        raise AssertionError(role)
+    if role == "coordinate":
+        with pytest.raises(CoreRuleError, match="finite typed coordinate"):
+            CompletedFrameData(structure, rows, attachments)
+        return
+    complete = CompletedFrameData(structure, rows, attachments)
+    retained = complete.copy_rows()
+    assert retained[column.slot_id].iloc[0] == value
 
 
 def test_complete_data_keeps_nullable_float_na_and_finite_values() -> None:

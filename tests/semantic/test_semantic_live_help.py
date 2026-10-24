@@ -671,15 +671,25 @@ def test_native_deferred_grammar_keeps_expression_kind_and_syntax(
 
 
 @pytest.mark.parametrize("target", ("semantic.row.sum", "semantic.metric_samples.sum"))
-def test_sum_help_discloses_fixed_empty_and_nonfinite_rules(
+def test_sum_help_discloses_fixed_empty_and_native_numeric_rules(
     target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     marivo.help(target)
     page = capsys.readouterr().out
     assert "empty input returns zero" in page
     assert "nonempty all-NA input returns null" in page
-    assert "actual NaN/Infinity are errors" in page
+    assert "Native NaN/Infinity are retained" in page
     assert "parameters: empty" not in page
+
+
+@pytest.mark.parametrize("target", ("semantic.row.mean", "semantic.metric_samples.mean"))
+def test_mean_help_discloses_backend_null_and_sampling_rules(
+    target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(target)
+    page = capsys.readouterr().out
+    assert "Native AVG owns NULL and empty-input behavior" in page
+    assert "without cadence coverage checks or local fallback" in page
 
 
 def test_entity_help_preserves_the_supported_table_decorator(

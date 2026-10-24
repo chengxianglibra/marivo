@@ -2639,7 +2639,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "MySQL, Trino and ClickHouse. Explicit approximate methods use DuckDB approx_quantile, "
                     "Trino approx_percentile or ClickHouse TDigest; PostgreSQL/MySQL reject approximation. "
                     "Median uses q=0.5. Empty/all-NULL inputs return NA; nulls='error' rejects NULL inputs. "
-                    "Nonfinite inputs fail. Integer/float results are float64; Decimal retains its declared "
+                    "Native nonfinite values follow the backend. Integer/float results are float64; Decimal retains its declared "
                     "precision and scale. Algorithms may differ by backend; no cross-backend error bound "
                     "or automatic exact/approximate substitution is promised."
                 )
@@ -2650,10 +2650,15 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Decimal results use bound p/s and ties-away convergence; divide is float64 and mean keeps its declared type. "
                     "Source overflow follows the backend, including ClickHouse silent wrapping; local integers are checked. "
                     "Unevaluated source arithmetic need not fail. Identity/count/time/Duration stay exact. "
-                    "Numeric inputs must be finite or NULL; actual NaN/Infinity are errors. "
+                    "Native NaN/Infinity are retained in completed and saved Frames. "
                     "window accepts a source-free rule and rejects nested windows. "
                     "Use / for division; zero denominators and cancelling weight sums yield NA before arithmetic."
                 )
+                if method == "mean":
+                    summary += (
+                        " Native AVG owns NULL and empty-input behavior, including when nulls='error' is supplied. "
+                        "Qualified time-sample AVG uses represented completed samples without cadence coverage checks or local fallback."
+                    )
             rows.append(
                 _capability(
                     f"{prefix}.{method}",
@@ -3474,7 +3479,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         "Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); "
                         "untyped Decimal literals bind their own digits/exponent. Convergence uses ties away from zero. "
                         "SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. "
-                        "Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved values retain committed types."
+                        "Source overflow follows the backend, including NaN/Infinity and ClickHouse wrapping; local integers are checked. Saved values retain committed types."
                         if prefix == "row"
                         else "Choose an operation on the constructed receiver. Internal Metric samples must finish with a reducer before observation."
                     ),

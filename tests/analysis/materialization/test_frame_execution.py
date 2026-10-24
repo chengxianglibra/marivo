@@ -435,31 +435,42 @@ def _float_rows() -> tuple[DataSchema, pd.DataFrame]:
         FilterValues(ValueLiteral(False)),
     ],
 )
-def test_nonfinite_unused_fixed_column_rejects_before_any_consumer(
+def test_native_infinite_unused_fixed_column_does_not_block_consumers(
     invalid: float, operation: FrameOperationKind
 ) -> None:
     schema, rows = _float_rows()
     data = CompletedFrameData(schema, rows)
     data._rows["b"] = [invalid]
-    with pytest.raises(AnalysisError, match="finite"):
-        _run(data, operation)
+    _, actual = _run(data, operation)
+    assert (
+        actual.empty
+        if isinstance(operation, (TopValues, FilterValues))
+        else actual["value.0"].tolist() == [1.0]
+    )
 
 
 @pytest.mark.parametrize("invalid", [float("inf"), -float("inf")])
 @pytest.mark.parametrize("column", ["key", "b"])
-def test_complete_validation_rejects_nonfinite_stage_cells(invalid: float, column: str) -> None:
+def test_complete_validation_preserves_native_infinite_stage_cells(
+    invalid: float, column: str
+) -> None:
     schema, rows = _float_rows()
     rows[column] = [invalid]
-    with pytest.raises(AnalysisError, match="finite"):
-        normalize_complete_frame(rows, schema.columns, schema.key_fields)
+    assert (
+        normalize_complete_frame(rows, schema.columns, schema.key_fields)[column].iloc[0] == invalid
+    )
     for constructor in (StageOutput.from_frame, StageOutput.from_source_frame):
         transient = constructor(rows, schema.columns, schema.key_fields)
-        with pytest.raises(AnalysisError, match="finite"):
-            normalize_complete_frame(transient.table, transient.columns, transient.keys)
+        assert (
+            normalize_complete_frame(transient.table, transient.columns, transient.keys)[
+                column
+            ].iloc[0]
+            == invalid
+        )
 
 
 @pytest.mark.parametrize("invalid", [float("inf"), -float("inf")])
-def test_fixed_typed_attachment_rejects_nonfinite_float_values(invalid: float) -> None:
+def test_fixed_typed_attachment_checks_finite_coordinate_keys(invalid: float) -> None:
     key = DataColumn("k", "bucket", ScalarDataType("float64"), False)
     axis = CalendarDataAxis(
         "calendar",
@@ -473,7 +484,7 @@ def test_fixed_typed_attachment_rejects_nonfinite_float_values(invalid: float) -
     attachment = _calendar_directory(axis)
     data = CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
     data._attachments[0].rows["k"] = [invalid]
-    with pytest.raises(AnalysisError, match="finite"):
+    with pytest.raises(AnalysisError, match="finite typed coordinate"):
         _run(data, TopValues(0, ValueSlot(0), True))
 
 
@@ -496,5 +507,9 @@ def test_arrow_valid_nonfinite_is_not_a_missing_value(invalid: float) -> None:
     rows["b"] = pd.Series(
         pd.arrays.ArrowExtensionArray(pa.array([invalid], type=pa.float64(), from_pandas=False))
     )
-    with pytest.raises(AnalysisError, match="finite"):
-        CompletedFrameData(schema, rows)
+    retained = CompletedFrameData(schema, rows).copy_rows()["b"]
+    assert not retained.isna().iloc[0]
+    if invalid != invalid:
+        assert retained.iloc[0] != retained.iloc[0]
+    else:
+        assert retained.iloc[0] == invalid

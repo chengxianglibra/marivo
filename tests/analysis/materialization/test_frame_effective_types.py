@@ -1,5 +1,6 @@
 """Native source value types survive Frame kernels and durable completion."""
 
+import math
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
@@ -268,7 +269,7 @@ def test_native_all_null_and_empty_source_carriers(
         assert _schema(reduced) == (expected,)
 
 
-def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing(
+def test_native_invalid_integer_keys_and_strict_nulls_publish_nothing(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with monkeypatch.context() as patch:
@@ -279,15 +280,6 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
             source.top(1, by=source["big"]).compute()
         assert calls == [1] and failure.value.stage == "stage_output"
     assert terminal_runs(session) == ()
-    with monkeypatch.context() as patch:
-        calls = _native_float(patch, nonfinite=True)
-        source = _read(session)
-        # This local select consumes the full returned nullable carrier before
-        # Top-0, so driver-injected Infinity remains an actual input value.
-        selected = source.select({"big": source["big"]})
-        with pytest.raises(MaterializationError, match="finite") as failure:
-            selected.top(0, by=selected["big"]).compute()
-        assert calls == [4] and failure.value.stage == "stage_output"
     big = session.catalog.fields.get("sales.facts.big")
     source = session.observe({"strict": big.sum(nulls="error")})
     with pytest.raises(MaterializationError, match="non-NA"):
@@ -299,3 +291,64 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
     with pytest.raises(MaterializationError, match="finite"):
         invalid.top(0, by=invalid["bad"]).compute()
     assert terminal_runs(session) == ()
+
+
+def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
+    session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "effective-types.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER big TYPE DOUBLE")
+        connection.execute("UPDATE facts SET big=CASE WHEN id <= 2 THEN 1e308 ELSE NULL END")
+        oracle = connection.execute(
+            "SELECT SUM(big), SUM(big)-SUM(big), SUM(big)/NULLIF(0,0) FROM facts"
+        ).fetchone()
+    assert oracle is not None and math.isinf(oracle[0]) and math.isnan(oracle[1])
+    assert oracle[2] is None
+    big = session.catalog.fields.get("sales.facts.big")
+    total = big.sum()
+    fixed = session.observe(
+        {"infinite": total, "not_a_number": total - total, "missing": total / 0}
+    ).compute()
+    saved = fixed.persist()
+    assert saved.artifact is not None
+
+    def offline(*args: object, **kwargs: object) -> pd.DataFrame:
+        raise AssertionError("complete Frame continuation must not read a source")
+
+    monkeypatch.setattr(SourceSession, "execute", offline)
+    reopened = mv.session.resume(session.id).persisted_frame(saved.artifact.id)
+    projected = reopened.select(
+        {
+            "not_a_number": reopened["not_a_number"],
+            "missing": reopened["missing"],
+            "infinite": reopened["infinite"],
+        }
+    ).compute()
+    saved_projection = projected.persist()
+    assert saved_projection.artifact is not None
+    reopened_projection = mv.session.resume(session.id).persisted_frame(
+        saved_projection.artifact.id
+    )
+    for frame in (
+        fixed,
+        saved,
+        saved.compute(),
+        reopened,
+        projected,
+        saved_projection,
+        reopened_projection,
+    ):
+        exported = frame.to_pandas()
+        infinite = pa.array(exported["value", "infinite"])
+        not_a_number = pa.array(exported["value", "not_a_number"])
+        missing = pa.array(exported["value", "missing"])
+        assert infinite.is_valid().to_pylist() == [True]
+        assert not_a_number.is_valid().to_pylist() == [True]
+        assert missing.is_valid().to_pylist() == [False]
+        assert infinite[0].as_py() == oracle[0]
+        assert math.isnan(not_a_number[0].as_py())
+        # Export is an isolated copy, including the Arrow validity bitmap.
+        exported.loc[:, ("value", "infinite")] = 0.0
+        assert math.isinf(frame.to_pandas()["value", "infinite"].iloc[0])
+    with pytest.raises(MaterializationError, match="finite numeric output"):
+        reopened.select({"computed": reopened["infinite"] + 1}).compute()

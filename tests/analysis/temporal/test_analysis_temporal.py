@@ -525,8 +525,8 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
 
     cause = failure.value.__cause__
     assert isinstance(cause, SemanticExpressionError)
-    assert cause.expected == "finite numeric values"
-    assert cause.received == "sum; coordinates=[{'key.0': 0}]"
+    assert cause.expected == "finite values in the admitted numeric type"
+    assert cause.received is not None and "internal sample reduction" in cause.received
     assert not hasattr(failure.value, "run_ref")
     assert terminal_runs(session) == ()
 

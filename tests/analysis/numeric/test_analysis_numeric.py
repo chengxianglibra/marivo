@@ -820,11 +820,17 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
     metric = amount.mean() if case_kind == "large_mean" else amount.sum()
     customer = case.session.catalog.fields.get("sales.order.customer_id")
     logical = case.session.observe({"boundary": metric}, by=(customer,))
-    if case_kind in ("nonfinite", "calendar"):
+    if case_kind == "calendar":
         with pytest.raises(AnalysisError):
             logical.compute()
     else:
-        expected = float(sum(numbers)) / len(numbers) if case_kind == "large_mean" else sum(numbers)
+        expected = (
+            float("inf")
+            if case_kind == "nonfinite"
+            else float(sum(numbers)) / len(numbers)
+            if case_kind == "large_mean"
+            else sum(numbers)
+        )
         fixed = logical.persist()
         assert fixed.to_pandas()[("value", "boundary")].tolist() == [expected]
         assert case.session.observe({"boundary": metric}).compute().to_pandas()[

@@ -66,16 +66,6 @@ def numeric_failure(expected: str, received: str) -> NoReturn:
     )
 
 
-def _finite_check(value: ir.Value, operation: str) -> tuple[NumericCheck, ...]:
-    if not value.type().is_floating():
-        return ()
-    return (
-        NumericCheck(
-            value.notnull() & (value.isnan() | value.isinf()), "finite numeric values", operation
-        ),
-    )
-
-
 def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> NumericValue:
     """Emit arithmetic with the denominator masked before division."""
     a, b = bind_numeric_literal(left.value), bind_numeric_literal(right.value)
@@ -101,7 +91,7 @@ def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> N
         value = multiply_numeric(a, b)
     else:
         numeric_failure("add/subtract/multiply/divide", operation)
-    return NumericValue(value, (*checks, *_finite_check(value, operation)))
+    return NumericValue(value, checks)
 
 
 def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
@@ -126,7 +116,7 @@ def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
             value = value.cast("int64")
         elif value.type().is_floating() and value.type().nbytes < 8:
             value = value.cast("float64")
-        return NumericValue(value, _finite_check(value, node.ref.ref.path))
+        return NumericValue(value)
     if isinstance(node, MeasureAssertion):
         return lower_row(node.operand, fields)
     numeric_failure("an admitted native row recipe", type(node).__name__)
@@ -223,13 +213,13 @@ def lower_source_reduction(
         denominator = denominator.fill_null(ibis.literal(0).cast(denominator.type()))
         divided = numeric_binary(
             "divide",
-            NumericValue(numerator, _finite_check(numerator, "weighted numerator sum")),
-            NumericValue(denominator, _finite_check(denominator, "weight sum")),
+            NumericValue(numerator),
+            NumericValue(denominator),
         )
         return NumericValue(
             divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks)
         )
-    if node.nulls == "error":
+    if node.nulls == "error" and node.reducer != "mean":
         checks.append(
             NumericCheck(value.isnull(), "non-NA source values", f"{node.reducer}(nulls='error')")
         )
@@ -248,10 +238,7 @@ def lower_source_reduction(
         )
         return NumericValue(
             result,
-            (
-                *(_aggregate_check(c) for c in checks),
-                *_finite_check(result, node.reducer),
-            ),
+            tuple(_aggregate_check(c) for c in checks),
         )
     elif node.reducer == "approx_nunique":
         result = value.approx_nunique()
@@ -269,7 +256,7 @@ def lower_source_reduction(
         result = value.min().cast(value.quantile(0.5).type())
     elif node.reducer == "mean":
         result = value.mean()
-        if result.type().is_decimal():
+        if value.type().is_integer() or result.type().is_decimal():
             result = force_cast(result, result.type())
     elif node.reducer == "min":
         result = value.min()
@@ -280,13 +267,11 @@ def lower_source_reduction(
     else:
         assert node.q is not None
         result = value.quantile(node.q)
-    if node.reducer not in ("count", "count_distinct", "approx_nunique"):
+    if node.reducer not in ("count", "count_distinct", "approx_nunique", "mean"):
         result = (value.count() == 0).ifelse(
             ibis.null().cast(result.type().copy(nullable=True)), result
         )
-    return NumericValue(
-        result, (*(_aggregate_check(c) for c in checks), *_finite_check(result, node.reducer))
-    )
+    return NumericValue(result, tuple(_aggregate_check(c) for c in checks))
 
 
 def _aggregate_check(check: NumericCheck) -> NumericCheck:

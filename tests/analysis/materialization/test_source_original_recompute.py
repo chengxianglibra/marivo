@@ -165,6 +165,17 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
     if failure == "overflow":
         assert fine.compute().to_pandas()["value", "metric"].max() == 2**63
         assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
+    elif failure == "null":
+        with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
+            expected = connection.execute(
+                "SELECT bucket, AVG(amount) FROM orders GROUP BY bucket ORDER BY bucket"
+            ).fetchall()
+        rows = fine.compute().to_pandas()
+        key = rows.columns[0]
+        rows = rows.sort_values(key)
+        assert rows[key].tolist() == [key for key, _ in expected]
+        assert rows["value", "metric"].tolist() == pytest.approx([value for _, value in expected])
+        assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
     else:
         with pytest.raises(AnalysisError):
             fine.top(0, by=fine["metric"]).compute()

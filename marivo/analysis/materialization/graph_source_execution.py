@@ -712,111 +712,136 @@ def prepare_query_sources(
                         "frame.population",
                     )
     observation = graph.signature.observation
+    from marivo._definition.expressions import SourceAggregate
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.compiler.graph_plan import qualified_mean_fold
+    from marivo.analysis.compiler.observation import duration_type
+    from marivo.analysis.compiler.sampled_mean import mean_occurrences
     from marivo.analysis.materialization.query_preparation import SourceInputContract
 
     source_bindings: dict[SourceInputContract, str] = {}
+    mean_folds = mean_occurrences(graph.root.metrics, dict(graph.signature.declared_metrics))
+    calendar = next(
+        (
+            axis
+            for axis in graph.signature.axes
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+        ),
+        None,
+    )
     for contribution in () if observation is None else observation.contributions:
         root = contribution.root.ref.path
-        prepared = prepare_fields(
-            contribution, entities, state, probe_engine_timezone(owners[root]._backend)
-        )
-        for dependency in prepared.dependencies:
-            for physical in physical_fields(dependency):
-                for bound in bounds.values():
-                    raw = _bound_physical_field(physical, bound)
-                    if raw is not None:
-                        metadata = raw.metadata or {}
-                        if TIMESTAMP_UNIT_METADATA_KEY in metadata:
-                            _validate_timestamp_precision(raw, f"{root}: {physical.name}")
-                        if DURATION_UNIT_METADATA_KEY in metadata:
-                            admit_source_type(raw, f"{root}: {physical.name}")
-        table = prepared.table
-        source_contract = SourceInputContract(
-            id(owners[root]),
-            owners[root].datasource.semantic_id,
-            normalize_target_entity(registry, root).dependency_fingerprint,
-            contribution.root,
-            contribution.reads,
-            contribution.coordinates,
-            contribution.time,
-            contribution.period,
-            (
-                *contribution.intrinsic_conditions,
-                *(
-                    (contribution.common_condition,)
-                    if contribution.common_condition is not None
-                    else ()
+        mean_fold = mean_folds.get(contribution.logical_occurrence or contribution.occurrence)
+        sample_coverage = mean_fold is None or mean_fold[2] != "mean"
+        reader = probe_engine_timezone(owners[root]._backend)
+        while True:
+            prepared = prepare_fields(
+                contribution,
+                entities,
+                state,
+                reader,
+                sample_coverage=sample_coverage,
+            )
+            for dependency in prepared.dependencies:
+                for physical in physical_fields(dependency):
+                    for bound in bounds.values():
+                        raw = _bound_physical_field(physical, bound)
+                        if raw is not None:
+                            metadata = raw.metadata or {}
+                            if TIMESTAMP_UNIT_METADATA_KEY in metadata:
+                                _validate_timestamp_precision(raw, f"{root}: {physical.name}")
+                            if DURATION_UNIT_METADATA_KEY in metadata:
+                                admit_source_type(raw, f"{root}: {physical.name}")
+            table = prepared.table
+            source_contract = SourceInputContract(
+                id(owners[root]),
+                owners[root].datasource.semantic_id,
+                normalize_target_entity(registry, root).dependency_fingerprint,
+                contribution.root,
+                contribution.reads,
+                contribution.coordinates,
+                contribution.time,
+                contribution.period,
+                (
+                    *contribution.intrinsic_conditions,
+                    *(
+                        (contribution.common_condition,)
+                        if contribution.common_condition is not None
+                        else ()
+                    ),
                 ),
-            ),
-            contribution.memberships,
-            contribution.population_reads,
-            contribution.window_key,
-            contribution.sample_axes,
-            contribution.calendars,
-            prepared.coverage,
-            prepared.time_authorities,
-        )
-        schema = table.schema().to_pyarrow()
-
-        def physical_identity_nonnull(relation: ir.Table, name: str, owner: SourceSession) -> bool:
-            origins = physical_fields(relation[name])
-            if len(origins) != 1:
-                return False
-            field = origins[0]
-            return any(
-                field.rel == bound.relation.op()
-                and owners[path] is owner
-                and not bound.facts.schema.field(field.name).nullable
-                for path, bound in bounds.items()
+                contribution.memberships,
+                contribution.population_reads,
+                contribution.window_key,
+                contribution.sample_axes,
+                contribution.calendars,
+                prepared.coverage,
+                prepared.time_authorities,
             )
+            schema = table.schema().to_pyarrow()
 
-        logical_binding = owners[root].provider.name == "duckdb" or (
-            owners[root].provider.name in ("postgres", "mysql", "trino", "clickhouse")
-            and owners[root]._backend.name == owners[root].provider.name
-            and all(
-                physical_identity_nonnull(table, name, owners[root])
-                for name in registry.entities[root].primary_key
+            def physical_identity_nonnull(
+                relation: ir.Table, name: str, owner: SourceSession
+            ) -> bool:
+                origins = physical_fields(relation[name])
+                if len(origins) != 1:
+                    return False
+                field = origins[0]
+                return any(
+                    field.rel == bound.relation.op()
+                    and owners[path] is owner
+                    and not bound.facts.schema.field(field.name).nullable
+                    for path, bound in bounds.items()
+                )
+
+            logical_binding = owners[root].provider.name == "duckdb" or (
+                owners[root].provider.name in ("postgres", "mysql", "trino", "clickhouse")
+                and owners[root]._backend.name == owners[root].provider.name
+                and all(
+                    physical_identity_nonnull(table, name, owners[root])
+                    for name in registry.entities[root].primary_key
+                )
             )
-        )
-        binding_id = (
-            source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
-            if logical_binding
-            else ""
-        )
-        keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
-        fields = []
-        originals = dict(prepared.originals)
-        for path, column in prepared.columns:
-            admitted = _admitted(schema, path, column)
-            expression = originals[column]
-            duration = DurationDataType("us") if expression.type().is_interval() else None
-            for physical in physical_fields(expression):
-                for bound in bounds.values():
-                    raw = _bound_physical_field(physical, bound)
-                    if raw is not None:
-                        metadata = raw.metadata or {}
-                        if not (
-                            DURATION_UNIT_METADATA_KEY in metadata
-                            or TIMESTAMP_UNIT_METADATA_KEY in metadata
-                        ):
-                            continue
-                        if TIMESTAMP_UNIT_METADATA_KEY in metadata:
-                            _validate_timestamp_precision(raw, path)
-                        if DURATION_UNIT_METADATA_KEY not in metadata:
-                            continue
-                        dtype = admit_source_type(raw, path)
-                        if isinstance(dtype, DurationDataType):
-                            if duration is not None and duration != dtype:
-                                raise _preparation_error("one exact Duration unit", path)
-                            duration = dtype
-            if duration is not None and (
-                isinstance(admitted.dtype, DecimalDataType)
-                or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
-            ):
-                admitted = replace(admitted, dtype=duration)
-            fields.append(admitted)
-        schemas.append(
-            SourceSchema(
+            binding_id = (
+                source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
+                if logical_binding
+                else ""
+            )
+            keys = tuple(
+                _admitted(schema, name, name) for name in registry.entities[root].primary_key
+            )
+            fields = []
+            originals = dict(prepared.originals)
+            for path, column in prepared.columns:
+                admitted = _admitted(schema, path, column)
+                expression = originals[column]
+                duration = DurationDataType("us") if expression.type().is_interval() else None
+                for physical in physical_fields(expression):
+                    for bound in bounds.values():
+                        raw = _bound_physical_field(physical, bound)
+                        if raw is not None:
+                            metadata = raw.metadata or {}
+                            if not (
+                                DURATION_UNIT_METADATA_KEY in metadata
+                                or TIMESTAMP_UNIT_METADATA_KEY in metadata
+                            ):
+                                continue
+                            if TIMESTAMP_UNIT_METADATA_KEY in metadata:
+                                _validate_timestamp_precision(raw, path)
+                            if DURATION_UNIT_METADATA_KEY not in metadata:
+                                continue
+                            dtype = admit_source_type(raw, path)
+                            if isinstance(dtype, DurationDataType):
+                                if duration is not None and duration != dtype:
+                                    raise _preparation_error("one exact Duration unit", path)
+                                duration = dtype
+                if duration is not None and (
+                    isinstance(admitted.dtype, DecimalDataType)
+                    or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+                ):
+                    admitted = replace(admitted, dtype=duration)
+                fields.append(admitted)
+            schema_facts = SourceSchema(
                 root,
                 keys,
                 tuple(fields),
@@ -826,14 +851,57 @@ def prepare_query_sources(
                 coverage=prepared.coverage,
                 time_authorities=prepared.time_authorities,
                 provider=owners[root].provider.name,
+                parameters=tuple(
+                    parameter
+                    for parameter in parameters
+                    if parameter.placeholder
+                    in {node.name for node in table.op().find(ops.UnboundTable)}
+                ),
                 original_identity=tuple(
                     _admitted(schema, name, name)
                     for name in normalize_target_entity(registry, root).version_row_key
                 ),
             )
-        )
-        stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
-        relations[stage_id] = table
+            if (
+                not sample_coverage
+                and qualified_mean_fold(
+                    contribution, schema_facts, observation, mean_fold, calendar
+                )
+                is None
+            ):
+                if contribution.period is None and calendar is None:
+                    reject(
+                        "an explicit observation period for time samples",
+                        f"None at {mean_fold[0] if mean_fold is not None else contribution.occurrence}",
+                        "Pass by=(session.time_scope(...),).",
+                        "session.observe",
+                    )
+                sample_coverage = True
+                continue
+            if (
+                contribution.period is None
+                and calendar is None
+                and isinstance(contribution.definition, SourceAggregate)
+                and contribution.definition.reducer == "mean"
+                and contribution.time is not None
+                and registry.dimensions[contribution.time.field.ref.path].sample_interval
+                is not None
+                and duration_type(
+                    contribution.definition,
+                    {item.field: item.dtype for item in schema_facts.fields},
+                )
+                is not None
+            ):
+                reject(
+                    "an explicit period for sampled time",
+                    f"None for {contribution.time.field.ref.path} at {contribution.occurrence}",
+                    "Pass by=(session.time_scope(...),).",
+                    "session.observe",
+                )
+            schemas.append(schema_facts)
+            stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
+            relations[stage_id] = table
+            break
     from marivo._definition.graph import computation_fingerprint
     from marivo.analysis.dsl.population import population_keys
     from marivo.analysis.materialization.population_preparation import (
@@ -1691,9 +1759,18 @@ def _complete_source_frame(
             if any(
                 isinstance(bound, float) and not math.isfinite(bound) for bound in (lower, upper)
             ):
-                # A retained source check belongs to the outer formula's
-                # demanded branch. Do not raise in interpolation before it.
-                quantile_values.append(None)
+                # Keep native nonfinite bounds as values. Exact rational
+                # interpolation applies only to finite carriers.
+                left, right = float(lower), float(upper)
+                if math.isnan(left) or math.isnan(right):
+                    interpolated = float("nan")
+                elif fraction == 0 or left == right:
+                    interpolated = left
+                elif math.isinf(left) and math.isinf(right):
+                    interpolated = float("nan")
+                else:
+                    interpolated = left if math.isinf(left) else right
+                quantile_values.append(interpolated)
                 continue
             exact = Fraction(lower) + fraction * (Fraction(upper) - Fraction(lower))
             quantile_values.append(
@@ -1705,7 +1782,16 @@ def _complete_source_frame(
                 if isinstance(dtype, DecimalDataType)
                 else float(exact)
             )
-        frame[reduction.value_slot] = pd.Series(quantile_values, dtype=object, index=frame.index)
+        frame[reduction.value_slot] = (
+            pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(quantile_values, type=pa.float64(), from_pandas=False)
+                ),
+                index=frame.index,
+            )
+            if dtype == ScalarDataType("float64")
+            else pd.Series(quantile_values, dtype=object, index=frame.index)
+        )
     if (
         reduction is not None
         and reduction.duration is not None

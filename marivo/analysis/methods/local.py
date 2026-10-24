@@ -141,10 +141,9 @@ def _combine_program(
         if (
             binding.folded_mean is not None
             and "__mean_folded" in frame
-            and len(frame)
             and bool(frame["__mean_folded"].all())
         ):
-            # The guarded source read completed the entire sample reducer.
+            # The native source read completed the entire sample reducer.
             # Retain the original graph; this occurrence supplies its value.
             binding = replace(
                 binding,
@@ -736,11 +735,19 @@ def _combine_program(
                 [round(value) if pd.notna(value) else None for value in series], dtype=object
             )
         if isinstance(column.dtype, ScalarDataType) and column.dtype.name == "float64":
-            series = series.map(lambda value: float(value) if pd.notna(value) else None)
+            series = pd.Series(
+                [None if value is None or value is pd.NA else float(value) for value in series],
+                index=series.index,
+                dtype=object,
+            )
         try:
             result[column.slot_id] = pd.Series(
                 pd.arrays.ArrowExtensionArray(
-                    pa.array(series, type=stage_arrow_type(column.dtype), from_pandas=True)
+                    pa.array(
+                        series,
+                        type=stage_arrow_type(column.dtype),
+                        from_pandas=column.dtype != ScalarDataType("float64"),
+                    )
                 )
             )
         except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:

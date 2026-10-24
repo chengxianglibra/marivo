@@ -314,6 +314,74 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         compute(session, {"strict": elapsed.mean(nulls="error")})
 
 
+@pytest.mark.parametrize(
+    "shape,bounded",
+    [("direct", True), ("formula", True), ("direct", False), ("formula", False), ("source", False)],
+)
+def test_local_duration_sample_mean_retains_coverage_and_period_requirements(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bounded: bool,
+    shape: str,
+) -> None:
+    from datetime import datetime, timezone
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from tests.support.source_trace import capture_source
+
+    path = tmp_path / "duration_samples.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "id": [1, 2],
+                "point": pa.array(
+                    [datetime(2026, 10, 1, hour, tzinfo=timezone.utc) for hour in (0, 2)],
+                    type=pa.timestamp("us", "UTC"),
+                ),
+                "elapsed": pa.array([10, 30], type=pa.duration("ns")),
+            }
+        ),
+        path,
+    )
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse",path=":memory:")\n',
+            "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n',
+            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"
+            + "point=ms.time_dimension_column(name='point',entity=facts,column='point',sample_interval=(1,'hour'))\n"
+            + "elapsed=ms.measure_column(name='elapsed',entity=facts,column='elapsed',additivity=ms.additive_all(except_=(point,)),status_time_dimension=point)\n",
+        },
+        load=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.create("duration-samples", timezone="UTC")
+    elapsed = session.catalog.fields.get("sales.facts.elapsed")
+    point = session.catalog.fields.get("sales.facts.point")
+    child = elapsed.mean(time=point)
+    metric = (
+        child
+        if shape == "source"
+        else (child + child if shape == "formula" else child).per(point).mean()
+    )
+    scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
+    trace = capture_source(monkeypatch)
+    with pytest.raises(
+        AnalysisError,
+        match="missing state sample"
+        if bounded
+        else "explicit period for sampled time"
+        if shape == "source"
+        else "explicit observation period",
+    ):
+        session.observe({"v": metric}, by=(scope,) if bounded else ()).compute()
+    assert bool(trace.returned_rows) is bounded
+    assert all("__mean_folded" not in columns for columns in trace.returned_columns)
+
+
 def test_independent_roots_across_datasources(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,

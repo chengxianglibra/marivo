@@ -255,17 +255,15 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
             },
         )
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError) as failure:
-            pending.top(n, by=pending["score"]).compute()
-        assert failure.value.stage == "numeric_value"
-        assert failure.value.expected is not None and failure.value.received is not None
-        assert "finite" in failure.value.expected
+        result = pending.top(n, by=pending["score"]).compute().to_pandas()
+        assert len(result) == n
+        if n:
+            assert result["value", "score"].tolist() == [1]
+            assert result["value", "invalid"].tolist() == [1.0]
         if backend == "postgres":
             # Float payloads keep PostgreSQL's existing complete-read boundary.
-            assert "'population.0': 'a', 'population.1': 2" in failure.value.received
             assert trace.returned_rows and all(count == 2 for count in trace.returned_rows)
         else:
-            assert "'key.0': 'a', 'key.1': 2" in failure.value.received
             assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
 

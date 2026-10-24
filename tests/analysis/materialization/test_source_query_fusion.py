@@ -602,7 +602,7 @@ def test_shared_frame_key_constraint_keeps_complement_masks(
 
 
 @pytest.mark.parametrize("method", ("sum", "mean"))
-def test_aggregate_selection_retains_parent_strict_null_check(
+def test_aggregate_selection_keeps_reducer_owned_null_policy(
     source_query_session: Session, method: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
@@ -617,6 +617,16 @@ def test_aggregate_selection_retains_parent_strict_null_check(
     )
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
+    if method == "mean":
+        result = query.compute().to_pandas()
+        assert result["value", "total"].tolist() == [0]
+        assert not any(
+            check.received == "mean(nulls='error')"
+            for _, request in reads
+            for _, check in request.numeric_checks
+        )
+        assert terminal_runs(session) == ()
+        return
     with pytest.raises(MaterializationError, match="non-NA") as caught:
         query.compute()
     assert caught.value.stage == "numeric_value"

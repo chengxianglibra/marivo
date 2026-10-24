@@ -455,7 +455,7 @@ def test_literal_graph_is_prefixed_and_uses_same_schedule_without_source_prepare
 
 
 @pytest.mark.parametrize("invalid", [float("inf"), -float("inf")])
-def test_source_adapter_complete_boundary_rejects_unused_infinity(
+def test_source_adapter_complete_boundary_preserves_unused_native_infinity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid: float
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -474,15 +474,14 @@ def test_source_adapter_complete_boundary_rejects_unused_infinity(
     def adapt(input_id: str, output: StageOutput) -> StageOutput:
         rows = output.table.copy()
         rows[schema.values[1].slot_id] = [invalid]
-        # Transient stages retain their old contract. The Frame completion
-        # boundary, before the select consumer, must reject this data.
+        # Backend floating values remain valid even when a later select omits them.
         return StageOutput.from_frame(rows, schema.columns, schema.key_fields)
 
     def no_fixed(stage: FrameInput) -> CompletedFrameData:
         raise AssertionError("source-free graph requested a fixed input")
 
-    with pytest.raises(AnalysisError, match="finite"):
-        run_frame_plan(compiled, source_prepared={}, read_fixed=no_fixed, adapt_source=adapt)
+    result = run_frame_plan(compiled, source_prepared={}, read_fixed=no_fixed, adapt_source=adapt)
+    assert result.table["value.0"].tolist() == [1.0]
 
 
 def test_source_prefix_covers_native_fused_parameter_and_numeric_payload_references(

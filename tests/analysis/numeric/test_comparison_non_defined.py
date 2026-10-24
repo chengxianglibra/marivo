@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import duckdb
 import pandas as pd
 import pytest
@@ -161,11 +163,9 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         assert pd.isna(frame.loc["D", ("value", "value")])
 
 
-def test_nonfinite_operand_still_fails_the_whole_run(
+def test_native_nan_operand_is_retained_in_comparison_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
@@ -173,11 +173,17 @@ def test_nonfinite_operand_still_fails_the_whole_run(
     ms.load(workspace_dir=case.root)
     current = _observe(case, "2026-09-01", "2026-10-01")
     baseline = _observe(case, "2026-08-01", "2026-09-01")
-    with pytest.raises(AnalysisError) as caught:
+    rows = (
         current.compare(
             {"reference": baseline},
             on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
             match={"reference": mv.ordinal()},
-        ).compute()
-    assert caught.value.expected and caught.value.received
+        )
+        .compute()
+        .to_pandas()
+    )
+    rows = rows.set_index(ordinary_columns(rows)[0])
+    assert math.isnan(rows.loc["A", ("value", "value")])
+    assert rows.loc["A", "presence"].all()
+    assert rows.loc["B", ("value", "reference.absolute.value")] == 80
     assert terminal_runs(case.session) == ()

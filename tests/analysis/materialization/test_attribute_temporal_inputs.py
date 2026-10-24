@@ -304,6 +304,7 @@ def test_window_partition_context_is_scoped_before_classification(
 def test_temporal_native_numeric_check_keeps_actual_scope(
     session: Session,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     scope: str,
 ) -> None:
     from marivo.analysis.core.attribute import (
@@ -312,33 +313,51 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
         AttributeParentFiber,
     )
     from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.datasource.adapters import SourceSession
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
-        connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
         connection.execute("UPDATE facts SET amount=0")
     amount = session.catalog.fields.get("sales.facts.amount")
     day = session.catalog.fields.get("sales.facts.day")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
-    metric = amount.sum(time=day)
+    metric = amount.sum(time=day, nulls="error")
     observed = session.observe({"q": metric}, by=(calendar,), where=phase == "current").compute()
     selected = _change(observed, observed)
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
-        connection.execute("UPDATE facts SET amount=? WHERE id=1", [1e308])
-        connection.execute(
-            "UPDATE facts SET amount=? WHERE id=2", [1e308 if scope == "parent" else -(1e308)]
-        )
-        if scope == "fine":
-            connection.execute(
-                "INSERT INTO facts VALUES (15,'current','east','A',?,1,'2026-08-01')", [1e308]
-            )
+        connection.execute("UPDATE facts SET amount=NULL WHERE id=1")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe(
             {"q": metric},
             where=phase == "current",
             by=(calendar, *(() if scope == "parent" else (channel,))),
         ).compute()
+    with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
+        connection.execute("UPDATE facts SET amount=0 WHERE id=1")
+    execute = SourceSession.execute
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        parent = "attribute-parent:" in issued.purpose
+        if parent == (scope == "parent") and "__attribute_kind" in rows:
+            # The ordinary query proves the native NULL decision. Inject its
+            # signal at the reader boundary to isolate temporal check dispatch.
+            failed = rows["__attribute_kind"] == (1 if parent else 0)
+            if not parent:
+                failed &= rows["key.1"] == "A"
+            checks = [
+                name
+                for name in rows
+                if isinstance(name, str) and name.startswith("attribute.check.")
+            ]
+            assert checks and failed.any()
+            rows = rows.copy()
+            for name in checks:
+                rows.loc[failed, name] = True
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
     with pytest.raises(MaterializationError) as actual:
         selected.attribute(by=(channel,)).compute()
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
