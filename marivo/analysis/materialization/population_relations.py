@@ -108,6 +108,11 @@ def prepare_member_fields(
         },
         **{name: table[name] for name, _, _ in prepared_checks},
     )
+    if original._find_backend().name == "mysql":
+        # Keep MySQL from merging the scoped semijoin into the outer domain
+        # join, where unindexed identities otherwise become nested full scans.
+        # The complete classified output already has set semantics.
+        attributes = attributes.distinct()
     joined = domain.left_join(
         attributes,
         [

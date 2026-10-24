@@ -24,8 +24,8 @@ from tests.support.source_trace import capture_source
 
 
 @pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
-@pytest.mark.parametrize("reducer", ["min", "max"])
-def test_sample_extrema_compile_completed_mean_and_coverage_summaries(
+@pytest.mark.parametrize("reducer", ["mean", "min", "max"])
+def test_sample_folds_compile_completed_mean_and_coverage_summaries(
     backend: str,
     reducer: str,
 ) -> None:
@@ -38,8 +38,8 @@ def test_sample_extrema_compile_completed_mean_and_coverage_summaries(
     table = ibis.table(
         {
             "amount": "float64",
-            "point": "timestamp('UTC')",
-            "wall": "timestamp('UTC')",
+            "point": ibis.dtype("timestamp('UTC', 6)").copy(nullable=False),
+            "wall": ibis.dtype("timestamp('UTC', 6)").copy(nullable=False),
             "category": "string",
         },
         name="samples",
@@ -76,10 +76,14 @@ def test_sample_extrema_compile_completed_mean_and_coverage_summaries(
     )
     sql = ibis.to_sql(relation, dialect=backend).lower()
     assert "avg(" in sql
-    assert f"{reducer}(" in sql
+    assert f"{'avg' if reducer == 'mean' else reducer}(" in sql
     assert "distinct" in sql
-    assert "sample_check.coverage" in relation.columns
-    assert {name for name, _ in checks} >= {"sample_check.null", "sample_check.coverage"}
+    if reducer != "mean":
+        assert "sample_check.coverage" in relation.columns
+        assert {name for name, _ in checks} >= {"sample_check.null", "sample_check.coverage"}
+    assert relation["key.1"].type().nullable
+    if backend == "clickhouse":
+        assert "cast(null as datetime64" not in sql
 
 
 @contextmanager
@@ -96,7 +100,7 @@ def mean_session(
     aware: bool = False,
     sample_count: int | None = None,
 ) -> Iterator[tuple[Session, Case]]:
-    times = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
+    times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
         times = tuple(
             (datetime(2026, 10, 1) + timedelta(seconds=i)).strftime("%H:%M:%S")
@@ -104,7 +108,14 @@ def mean_session(
         )
         values = tuple(float(i % 11) for i in range(sample_count))
     rows: list[dict[str, object]] = [
-        {"id": i, "point": "2026-10-01 " + times[i], "category": "A", "amount": value}
+        {
+            "id": i,
+            "point": datetime.fromisoformat("2026-10-01 " + times[i]).replace(tzinfo=timezone.utc)
+            if aware
+            else "2026-10-01 " + times[i],
+            "category": "A",
+            "amount": value,
+        }
         for i, value in enumerate(values)
     ]
     literals = [
@@ -126,7 +137,9 @@ def mean_session(
     data = SourceData(
         f"id BIGINT, point {point_type}, category VARCHAR(8), amount {physical_amount}",
         ",".join(f"({i},{points[i]},'A',{literal})" for i, literal in enumerate(literals)),
-        "id Int64, point String, category String, amount Nullable(Float64)",
+        "id Int64, point "
+        + ("DateTime64(6, 'UTC')" if aware else "String")
+        + ", category String, amount Nullable(Float64)",
         rows,
     )
     monkeypatch.chdir(root)
@@ -313,14 +326,15 @@ def test_mean_checked_completion(
 
 @pytest.mark.parametrize("reducer,expected", [("min", 0.0), ("max", 80.0)])
 @pytest.mark.parametrize(
-    "backend,profile",
+    "backend,profile,aware",
     source_params(
         [
-            ("duckdb", "table"),
-            ("postgres", "table"),
-            ("mysql", "table"),
-            ("trino", "iceberg"),
-            ("clickhouse", "table"),
+            ("duckdb", "table", False),
+            ("postgres", "table", False),
+            ("mysql", "table", False),
+            ("trino", "iceberg", False),
+            ("clickhouse", "table", False),
+            ("clickhouse", "table", True),
         ]
     ),
 )
@@ -332,6 +346,7 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
     expected: float,
     backend: str,
     profile: str,
+    aware: bool,
 ) -> None:
     with mean_session(
         backend,
@@ -340,6 +355,7 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
         monkeypatch,
         semantic_project_factory,
         values=(0, 40, 100, 100, 20),
+        aware=aware,
     ) as (session, _):
         amount = session.catalog.fields.get("sales.facts.amount")
         point = session.catalog.fields.get("sales.facts.point")
@@ -356,6 +372,49 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
         with pytest.raises(MaterializationError, match="missing state sample"):
             session.observe({"v": metric}, by=(missing, category)).compute()
         assert trace.returned_rows == [1, 1]
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("reducer,expected", [("min", 0.0), ("max", 20.0)])
+def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    reducer: str,
+    expected: float,
+) -> None:
+    with mean_session(
+        "clickhouse",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, None, None, None, 20),
+        aware=True,
+        cadence=False,
+    ) as (session, case):
+        native = case.session.bind(case.source, source_identity="native-clock").relation
+        assert not native.point.type().nullable
+        assert native.point.type().timezone == "UTC"
+        assert native.point.type().scale == 6
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        samples = amount.mean(time=point).per(point)
+        metric = samples.min() if reducer == "min" else samples.max()
+        trace = capture_source(monkeypatch)
+        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        # The native timestamp means are [0, NULL, 20].
+        assert rows[("value", "v")].tolist() == [expected]
+        strict = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
+        with pytest.raises(MaterializationError, match="non-NA internal samples"):
+            session.observe({"v": strict}, by=(scope,)).compute()
+        empty = amount.mean(time=point).where(amount < 0).per(point)
+        metric = empty.min() if reducer == "min" else empty.max()
+        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        assert rows[("value", "v")].isna().all() and len(rows) == 1
+        assert trace.returned_rows == [1, 1, 1]
+        assert not trace.uploaded_key_rows
 
 
 @pytest.mark.parametrize(

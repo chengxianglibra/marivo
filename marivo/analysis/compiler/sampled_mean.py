@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import ReductionInput
 
 
+def _null_like(value: ir.Value) -> ir.Value:
+    """Keep the physical type while making synthesized NULLs explicitly nullable."""
+    return ibis.null().cast(value.type().copy(nullable=True))
+
+
 def mean_occurrences(
     outputs: tuple[tuple[str, MetricNode], ...], declared: Mapping[ExactRef, MetricNode]
 ) -> dict[tuple[int, ...], tuple[tuple[int, ...], str, str]]:
@@ -95,7 +100,7 @@ def compact_mean(
     )
     normal = ~coverage_row
     value = result[prepared.value_slot]
-    numeric_value = normal.ifelse(value, ibis.null().cast(value.type()))
+    numeric_value = normal.ifelse(value, _null_like(value))
     count = numeric_value.count()
     bound = numeric_value.abs().max().fill_null(0) < sys.float_info.max / count.clip(lower=1)
     safe = bound & ibis.and_(
@@ -121,13 +126,13 @@ def compact_mean(
             # Other output cells impose no requirement for this coverage entry.
             selected = required & in_output
             safe &= (
-                selected.ifelse(result[clock], ibis.null().cast(result[clock].type())).count()
+                selected.ifelse(result[clock], _null_like(result[clock])).count()
                 == len(set(points))
             ) | (in_output.cast("int64").max().fill_null(0) == 0)
         else:
-            safe &= required.ifelse(
-                result[clock], ibis.null().cast(result[clock].type())
-            ).count() == len(set(points))
+            safe &= required.ifelse(result[clock], _null_like(result[clock])).count() == len(
+                set(points)
+            )
     # Window summaries share the original grouped relation. A scalar gate
     # joined back to the source would make Trino inline and rescan its CTEs.
     window = ibis.window(group_by=[result[key] for key in outer], rows=(None, None))
@@ -157,7 +162,7 @@ def compact_mean(
         elif result[name].type().is_boolean():
             projection[name] = compact.ifelse(True, original)
         else:
-            projection[name] = compact.ifelse(ibis.null().cast(result[name].type()), original)
+            projection[name] = compact.ifelse(_null_like(result[name]), original)
     return folded.select(**projection, __mean_folded=compact)
 
 
@@ -188,7 +193,7 @@ def compact_extrema(
     )
     demanded = ~coverage_row & present
     value = result[prepared.value_slot]
-    numeric = demanded.ifelse(value, ibis.null().cast(value.type()))
+    numeric = demanded.ifelse(value, _null_like(value))
     missing: ir.BooleanValue = ibis.literal(False)
     for coverage in prepared.coverage:
         clock = "__coverage_" + coverage.key if coverage.wall_timezone else coverage.key
@@ -203,9 +208,7 @@ def compact_extrema(
             if coverage.output_key is not None
             else ibis.literal(True)
         )
-        observed = (selected & in_output).ifelse(
-            result[clock], ibis.null().cast(result[clock].type())
-        )
+        observed = (selected & in_output).ifelse(result[clock], _null_like(result[clock]))
         missing |= (observed.nunique() != len(set(points))) & (
             demanded & in_output
         ).any().fill_null(False)
@@ -233,7 +236,7 @@ def compact_extrema(
             if name in folded.columns
             else ibis.literal(False)
             if name == "__coverage_row"
-            else ibis.null().cast(result[name].type())
+            else _null_like(result[name])
             for name in result.columns
         },
         **{name: folded[name] for name in ("sample_check.null", "sample_check.coverage")},

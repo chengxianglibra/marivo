@@ -1,6 +1,8 @@
 """Native pending field Top returns bounded rows on each supported provider."""
 
+import json
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -9,9 +11,11 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import StoredFrameBacking
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.support.json import Json, checked
 from tests.support.source_trace import capture_source
 
 CASES = [
@@ -21,6 +25,19 @@ CASES = [
     ("trino", "iceberg"),
     ("clickhouse", "mergetree"),
 ]
+
+
+def _mysql_materializes_attributes(plan: Json) -> bool:
+    if isinstance(plan, list):
+        return any(_mysql_materializes_attributes(item) for item in plan)
+    if not isinstance(plan, dict):
+        return False
+    used = plan.get("used_columns")
+    return (
+        isinstance(used, list)
+        and "__classify_value_0" in used
+        and isinstance(plan.get("materialized_from_subquery"), dict)
+    ) or any(_mysql_materializes_attributes(item) for item in plan.values())
 
 
 def _data() -> SourceData:
@@ -89,6 +106,16 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
         assert trace.returned_rows == [4, 4, 1, 1]
         assert trace.uploaded_key_rows == []
         assert all("ORDER BY" in sql for sql in trace.native_sql)
+        if backend == "mysql":
+            from tests.datasource.environment import mysql_analysis as mysql
+
+            # This unindexed fixture must keep the scalar attributes behind a
+            # materialization boundary, rather than rescan them per identity.
+            with mysql.connection() as connection, connection.cursor() as cursor:
+                cursor.execute("EXPLAIN FORMAT=JSON " + trace.native_sql[2])
+                plan = cursor.fetchone()
+            assert plan is not None
+            assert _mysql_materializes_attributes(checked(json.loads(plan[0])))
         trace.save(
             "frame-top-" + backend,
             case.environment,
@@ -114,3 +141,42 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
             ]
             assert fixed.top(0, by=fixed["score"]).compute().to_pandas().empty
         assert trace.returned_rows == [] and trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
+@pytest.mark.parametrize("n", (0, 1))
+@pytest.mark.parametrize("invalid", ("duplicate", "null_identity"))
+def test_mysql_read_top_preserves_full_input_key_errors(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    profile: str,
+    n: int,
+    invalid: str,
+) -> None:
+    source = _data()
+    extra = (
+        "(2,'a','x',1,1,1,DATE '2026-07-01')"
+        if invalid == "duplicate"
+        else "(0,NULL,'x',1,0,1,DATE '2026-07-01')"
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(
+        backend, profile, tmp_path, monkeypatch, replace(source, values=source.values + "," + extra)
+    ) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("mysql-read-top-integrity", timezone="UTC")
+        members = session.members(session.catalog.entities.get("sales.facts"))
+        pending = session.read(members, {"score": session.catalog.fields.get("sales.facts.big")})
+        trace = capture_source(monkeypatch)
+        with pytest.raises(MaterializationError) as failure:
+            pending.top(n, by=pending["score"]).compute()
+        assert failure.value.expected is not None
+        if invalid == "duplicate":
+            assert failure.value.stage == "stage_output"
+            assert "unique stage key" in failure.value.expected
+        else:
+            assert "identity" in failure.value.expected
+            assert "non-null" in failure.value.expected
+        assert trace.returned_rows == [1] and trace.uploaded_key_rows == []

@@ -404,19 +404,30 @@ def lower_observation(
 
         expected = coverage_selection(prepared.coverage, clocks, output_axes(fields))
         observed = filtered.filter(expected).select(**output_axes(fields), **clocks).distinct()
+        # Synthetic NULLs require matching nullable types in both union arms.
         normal = result.mutate(
+            **{
+                name: result[name].cast(result[name].type().copy(nullable=True))
+                for name in result.columns
+                if name not in observed.columns
+                and not result[name].type().is_boolean()
+                and not result[name].type().nullable
+            },
             __coverage_row=ibis.literal(False),
-            **{name: ibis.null().cast(value.type()) for name, value in clocks.items()},
+            **{
+                name: ibis.null().cast(value.type().copy(nullable=True))
+                for name, value in clocks.items()
+            },
         )
         coverage = observed.select(
             **{
-                name: observed[name]
+                name: observed[name].cast(normal[name].type())
                 if name in observed.columns
                 else ibis.literal(True)
                 if name == "__coverage_row"
                 else ibis.literal(False)
                 if normal[name].type().is_boolean()
-                else ibis.null().cast(normal[name].type())
+                else ibis.null().cast(normal[name].type().copy(nullable=True))
                 for name in normal.columns
             }
         )
