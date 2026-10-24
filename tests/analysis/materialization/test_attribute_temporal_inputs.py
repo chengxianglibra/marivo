@@ -231,10 +231,9 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
             "2026-08-02T00:00:00+00:00",
             "2026-08-03T00:00:00+00:00",
         ]
-        assert {
-            "attribute.scoped_identity_coverage",
-            "attribute.parent_component_coverage",
-        } <= {receipt.check_id for receipt in root.receipts}
+        assert not any(
+            receipt.check_id == "attribute.scoped_identity_coverage" for receipt in root.receipts
+        )
         for leaf in root.layout.leaves:
             reduction = require_reduction(leaf.read)
             calendar_slot = reduction.calendars[0][0]
@@ -488,7 +487,6 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
 def test_calendar_pre_predicate_check_keeps_real_failure_scope(
     session: Session, tmp_path: Path
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeCheckWitness, AttributeParentFiber
     from marivo.analysis.materialization.errors import MaterializationError
 
     amount = session.catalog.fields.get("sales.otherfacts.amount")
@@ -501,27 +499,13 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
         connection.execute("DELETE FROM facts WHERE id=2")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, where=channel == "A", by=(calendar, channel)).compute()
-    with pytest.raises(MaterializationError) as actual:
-        parent.attribute(by=(channel,)).compute()
-    assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
-    assert actual.value.expected == ordinary.value.expected
-    assert actual.value.repair is not None and ordinary.value.repair is not None
-    assert actual.value.repair.action == ordinary.value.repair.action
-    context = actual.value.attribute_context
-    assert context is not None and isinstance(context.fiber, AttributeParentFiber)
-    assert context.fiber.parent[0][1] == 0
-    assert isinstance(context.witness, AttributeCheckWitness)
-    assert context.witness.coordinates == (context.fiber.parent,)
-    assert tuple(column.slot_id for column in context.witness.columns) == ("key.0",)
-    assert context.uses[0].root == "sales.otherfacts"
+    assert ordinary.value.location == "dataset.scalar_field_lookup"
+    assert ordinary.value.repair is not None
+    result = parent.attribute(by=(channel,)).compute().to_pandas()
+    assert result[("value", "total.q")].tolist() == [260]
 
 
-def test_calendar_duplicate_root_is_checked_before_classification(
-    session: Session, tmp_path: Path
-) -> None:
-    from marivo.analysis.core.attribute import AttributeCoverageWitness
-    from marivo.analysis.materialization.errors import MaterializationError
-
+def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
     amount = session.catalog.fields.get("sales.facts.amount")
     day = session.catalog.fields.get("sales.facts.day")
     channel = session.catalog.fields.get("sales.facts.channel")
@@ -530,13 +514,9 @@ def test_calendar_duplicate_root_is_checked_before_classification(
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
-    with pytest.raises(
-        MaterializationError, match="duplicate complete contribution identity"
-    ) as actual:
-        parent.attribute(by=(channel,)).compute()
-    context = actual.value.attribute_context
-    assert context is not None and isinstance(context.witness, AttributeCoverageWitness)
-    assert context.witness.identity[0][1] == 1
+    rows = parent.attribute(by=(channel,)).compute().to_pandas()
+    assert rows[("value", "total.q")].tolist() == [600, 600]
+    assert rows[("value", "contribution.q")].sum() == 600
 
 
 def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: Session) -> None:

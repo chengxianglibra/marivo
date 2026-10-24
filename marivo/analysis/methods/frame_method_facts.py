@@ -1,4 +1,4 @@
-"""Check finite saved method totals using the producer's existing numeric adapter."""
+"""Validate captured method structure and exact non-floating arithmetic."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.attribute import _coefficient_column
-from marivo.analysis.core.data_types import DurationDataType
+from marivo.analysis.core.data_types import DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
@@ -41,7 +41,9 @@ def _equal(actual: _Value, expected: FrameMethodValue) -> None:
     array = pa.array(actual.values, type=stage_arrow_type(actual.column.dtype))
     if isinstance(actual.column.dtype, DurationDataType):
         array = array.cast(pa.int64())
-    if actual.column.dtype != expected.column.dtype or array[0].as_py() != expected.value:
+    if actual.column.dtype != expected.column.dtype or (
+        expected.column.dtype != ScalarDataType("float64") and array[0].as_py() != expected.value
+    ):
         reject(
             "saved method totals consistent with their captured typed arithmetic",
             expected.column.name,
@@ -51,36 +53,53 @@ def _equal(actual: _Value, expected: FrameMethodValue) -> None:
         )
 
 
-def _scaled(
+def _binary_equal(
+    operation: Literal["add", "sub", "div"],
+    left: FrameMethodValue,
+    right: FrameMethodValue,
+    expected: FrameMethodValue,
+    *,
+    finish: bool = True,
+) -> None:
+    # Float64 facts are captured native results, not a second execution of the
+    # formula. Skip before evaluation, including potentially overflowing inputs.
+    if expected.column.dtype == ScalarDataType("float64"):
+        return
+    _equal(
+        _numeric_binary(
+            operation, _value(left), _value(right), output=expected.column.dtype if finish else None
+        ),
+        expected,
+    )
+
+
+def _scale_equal(
     value: FrameMethodValue, coefficient: int | float | Decimal, output: FrameMethodValue
-) -> _Value:
+) -> None:
+    if output.column.dtype == ScalarDataType("float64"):
+        return
     scalar = _Value(
         pd.Series([coefficient], dtype=object),
         _coefficient_column(coefficient),
     )
-    return _numeric_binary("mul", _value(value), scalar, output=output.column.dtype)
+    _equal(_numeric_binary("mul", _value(value), scalar, output=output.column.dtype), output)
 
 
 def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) -> None:
-    _equal(_numeric_binary("sub", _value(method.left), _value(method.right)), method.change)
+    _binary_equal("sub", method.left, method.right, method.change, finish=False)
     if isinstance(method, FrameRatioMethod):
         for numerator, denominator, expected in (
             (method.numerator_left, method.denominator_left, method.left),
             (method.numerator_right, method.denominator_right, method.right),
         ):
-            _equal(
-                _numeric_binary(
-                    "div", _value(numerator), _value(denominator), output=expected.column.dtype
-                ),
-                expected,
-            )
+            _binary_equal("div", numerator, denominator, expected)
     elif isinstance(method, FrameLinearMethod):
         for term in method.terms:
             _method(term.method)
         if len(method.terms) == 1:
             term = method.terms[0]
-            _equal(_scaled(term.method.left, term.coefficient, method.left), method.left)
-            _equal(_scaled(term.method.right, term.coefficient, method.right), method.right)
+            _scale_equal(term.method.left, term.coefficient, method.left)
+            _scale_equal(term.method.right, term.coefficient, method.right)
         elif (
             len(method.terms) == 2
             and type(method.terms[0].coefficient) is int
@@ -90,24 +109,8 @@ def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) 
         ):
             first, second = method.terms
             operation: Literal["add", "sub"] = "add" if second.coefficient == 1 else "sub"
-            _equal(
-                _numeric_binary(
-                    operation,
-                    _value(first.method.left),
-                    _value(second.method.left),
-                    output=method.left.column.dtype,
-                ),
-                method.left,
-            )
-            _equal(
-                _numeric_binary(
-                    operation,
-                    _value(first.method.right),
-                    _value(second.method.right),
-                    output=method.right.column.dtype,
-                ),
-                method.right,
-            )
+            _binary_equal(operation, first.method.left, second.method.left, method.left)
+            _binary_equal(operation, first.method.right, second.method.right, method.right)
         else:
             reject(
                 "the captured unary scale or binary add/subtract method topology",
@@ -122,21 +125,13 @@ def _level(
     method: FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod,
 ) -> None:
     if isinstance(method, FrameLevelRatioMethod):
-        _equal(
-            _numeric_binary(
-                "div",
-                _value(method.numerator),
-                _value(method.denominator),
-                output=method.value.column.dtype,
-            ),
-            method.value,
-        )
+        _binary_equal("div", method.numerator, method.denominator, method.value)
     elif isinstance(method, FrameLevelLinearMethod):
         for term in method.terms:
             _level(term.method)
         if len(method.terms) == 1:
             term = method.terms[0]
-            _equal(_scaled(term.method.value, term.coefficient, method.value), method.value)
+            _scale_equal(term.method.value, term.coefficient, method.value)
         elif (
             len(method.terms) == 2
             and type(method.terms[0].coefficient) is int
@@ -146,15 +141,7 @@ def _level(
         ):
             first, second = method.terms
             operation: Literal["add", "sub"] = "add" if second.coefficient == 1 else "sub"
-            _equal(
-                _numeric_binary(
-                    operation,
-                    _value(first.method.value),
-                    _value(second.method.value),
-                    output=method.value.column.dtype,
-                ),
-                method.value,
-            )
+            _binary_equal(operation, first.method.value, second.method.value, method.value)
         else:
             reject(
                 "the captured unary scale or binary add/subtract topology",
@@ -175,20 +162,21 @@ def _target(metric: FrameAttributeMetric) -> None:
     else:
         _method(method)
         if metric.kind == "relative":
-            baseline = _value(method.right)
-            baseline = _Value(baseline.values.abs(), baseline.column)
-            _equal(
-                _numeric_binary(
-                    "div", _value(method.change), baseline, output=metric.total.column.dtype
-                ),
-                metric.total,
-            )
+            if metric.total.column.dtype != ScalarDataType("float64"):
+                baseline = _value(method.right)
+                baseline = _Value(baseline.values.abs(), baseline.column)
+                _equal(
+                    _numeric_binary(
+                        "div", _value(method.change), baseline, output=metric.total.column.dtype
+                    ),
+                    metric.total,
+                )
         else:
             _equal(_value(method.change), metric.total)
 
 
 def validate_method_facts(facts: FrameMethodFacts) -> None:
-    """Validate saved endpoint/change consistency without executing a decomposition."""
+    """Validate structure and exact arithmetic; Float64 values remain captured facts."""
     if type(facts) is not FrameMethodFacts:
         reject(
             "exact complete FrameMethodFacts",

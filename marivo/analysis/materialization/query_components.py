@@ -18,7 +18,6 @@ from marivo.analysis.compiler.original import (
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import normalize_stage_frame
-from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import source_columns
 
@@ -161,11 +160,13 @@ class AttributeRootInputs:
 
 
 def attribute_witness_order(rows: pd.DataFrame, columns: tuple[DataColumn, ...]) -> tuple[int, ...]:
-    """Choose source witnesses deterministically by complete exact typed keys."""
-    from marivo.analysis.core.frozen_calendar import frozen_key_rows
-
-    keys = frozen_key_rows(rows, columns)
-    return tuple(sorted(range(len(keys)), key=lambda index: repr(keys[index])))
+    """Order only failed aggregate candidates by their native typed coordinates."""
+    if not columns:
+        return tuple(range(len(rows)))
+    ordered = rows.reset_index(drop=True).sort_values(
+        [column.slot_id for column in columns], kind="stable", na_position="first"
+    )
+    return tuple(int(index) for index in ordered.index)
 
 
 def attribute_failure_context(
@@ -239,7 +240,7 @@ def complete_attribute_inputs(
     frame: pd.DataFrame,
     originals: dict[tuple[int, str], pd.DataFrame],
 ) -> tuple[pd.DataFrame, AttributeRootInputs]:
-    """Prove scope coverage and one joint tuple inside each complete parent fiber."""
+    """Finish aggregate inputs and consume bounded backend failure witnesses."""
     from marivo.analysis.compiler.attribute_inputs import input_failure
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
     from marivo.analysis.materialization.graph_exchange import CheckReceipt
@@ -248,126 +249,82 @@ def complete_attribute_inputs(
     identity = tuple(column for column, _ in layout.identity)
     parent_columns = tuple(columns[name] for name in layout.parent_keys)
     full_columns = tuple(columns[name] for name in layout.keys)
-    scope = frame.loc[frame[layout.kind] == 2].reset_index(drop=True)
-    assigned = frame.loc[frame[layout.kind] == 3].reset_index(drop=True)
-    scope_columns = (
-        *parent_columns,
-        *identity,
-        DataColumn("__attribute_root_duplicate", "root duplicate", ScalarDataType("boolean"), True),
-    )
-    scope = normalize_stage_frame(
-        scope.loc[:, [column.slot_id for column in scope_columns]], scope_columns, ()
-    )
-    assigned_columns = (
-        *full_columns,
-        *identity,
-        *(leaf.distinct for leaf in layout.leaves if leaf.distinct is not None),
-    )
-    assigned = (
-        normalize_stage_frame(
-            assigned.loc[:, [column.slot_id for column in assigned_columns]], assigned_columns, ()
-        )
-        if layout.scope == "fine"
-        else normalize_stage_frame(
-            pd.DataFrame(columns=[c.slot_id for c in assigned_columns]), assigned_columns, ()
-        )
-    )
-    identity_names = [column.slot_id for column in identity]
-    if scope.loc[:, identity_names].isna().any().any() or (
-        layout.scope == "fine" and assigned.loc[:, identity_names].isna().any().any()
-    ):
-        input_failure("missing_component_proof", f"{stage_id}: incomplete scoped root identity")
     from marivo.analysis.core.attribute import AttributeCoverageWitness, AttributePartitionWitness
 
-    assignments = tuple(frozen_key_rows(assigned, full_columns))
+    uncovered = (
+        frame.loc[frame[layout.kind] == 6] if layout.population is not None else frame.iloc[:0]
+    )
+    if not uncovered.empty:
+        from marivo.analysis.core.attribute import AttributeAggregateWitness
+
+        actual = normalize_stage_frame(
+            uncovered.loc[:, [c.slot_id for c in full_columns]], full_columns, ()
+        )
+        leaves = tuple(
+            leaf for leaf in layout.leaves if leaf.fiber == uncovered[layout.fiber].iloc[0]
+        )
+        coverage_witness = AttributeAggregateWitness(
+            "fine", frozen_key_rows(actual.iloc[:1], full_columns)[0], full_columns
+        )
+        input_failure(
+            "undefined_input",
+            "output Population coverage: missing complete coordinate",
+            context=attribute_failure_context(
+                layout, actual, leaves, full_columns, coverage_witness, fine=True
+            ),
+        )
     for fiber_number in dict.fromkeys(leaf.fiber for leaf in layout.leaves):
         leaves = tuple(leaf for leaf in layout.leaves if leaf.fiber == fiber_number)
-        local_scope = scope.loc[
-            frame.loc[frame[layout.kind] == 2, layout.fiber].reset_index(drop=True) == fiber_number
-        ].reset_index(drop=True)
-        local_scope = local_scope.iloc[
-            list(attribute_witness_order(local_scope, (*parent_columns, *identity)))
-        ].reset_index(drop=True)
-        local_assigned = assigned.loc[
-            frame.loc[frame[layout.kind] == 3, layout.fiber].reset_index(drop=True) == fiber_number
-        ].reset_index(drop=True)
-        roots = tuple(frozen_key_rows(local_scope, (*parent_columns, *identity)))
-        classified: dict[FrozenKey, set[FrozenKey]] = {}
-        for root_key, key in zip(
-            frozen_key_rows(local_assigned, (*parent_columns, *identity)),
-            frozen_key_rows(local_assigned, full_columns),
-            strict=True,
-        ):
-            classified.setdefault(root_key, set()).add(key)
-        duplicated = local_scope["__attribute_root_duplicate"].astype("boolean").fillna(False)
-        if duplicated.any():
-            position = next(i for i, bad in enumerate(duplicated) if bad)
-            witness: AttributeWitness = AttributeCoverageWitness(
-                frozen_key_rows(local_scope.iloc[[position]], identity)[0]
-            )
-            error = _invalid("duplicate complete contribution identity in one scoped parent input")
-            error.attribute_context = attribute_failure_context(
-                layout, local_scope.iloc[[position]], leaves, (*parent_columns, *identity), witness
-            )
-            raise error
-        for index, key in enumerate(roots if layout.scope == "fine" else ()):
-            groups = classified.get(key, set())
-            if len(groups) != 1:
-                actual = local_scope.iloc[[index]]
-                identity_key = frozen_key_rows(actual, identity)[0]
-                witness = (
-                    AttributeCoverageWitness(identity_key)
-                    if not groups
-                    else AttributePartitionWitness(
-                        "root", identity_key, tuple(sorted(groups, key=repr)[:6])
-                    )
-                )
-                input_failure(
-                    "undefined_input" if not groups else "overlapping_groups",
-                    f"{stage_id}: scoped identity does not have exactly one joint tuple",
-                    context=attribute_failure_context(
-                        layout, actual, leaves, (*parent_columns, *identity), witness
-                    ),
-                )
-        for leaf in leaves:
-            if layout.scope == "parent" or leaf.distinct is None:
+        local = frame.loc[frame[layout.fiber] == fiber_number]
+        for kind in (2, 3, 5):
+            failed = local.loc[local[layout.kind] == kind].reset_index(drop=True)
+            if failed.empty:
                 continue
-            counted = local_assigned.loc[local_assigned[leaf.distinct.slot_id].notna()].reset_index(
-                drop=True
+            witness_columns: tuple[DataColumn, ...]
+            uses: tuple[AttributeLeafInput, ...]
+            if kind == 5:
+                leaf_index = int(failed["__attribute_leaf"].iloc[0])
+                failed = failed.loc[failed["__attribute_leaf"] == leaf_index].reset_index(drop=True)
+                leaf = leaves[leaf_index]
+                assert leaf.distinct is not None
+                witness_columns = (leaf.distinct,)
+                uses = (leaf,)
+            else:
+                witness_columns = identity
+                uses = leaves
+            context_columns = (*parent_columns, *witness_columns)
+            normalized = normalize_stage_frame(
+                failed.loc[:, [c.slot_id for c in context_columns]], context_columns, ()
             )
-            counted = counted.iloc[
-                list(attribute_witness_order(counted, (*parent_columns, leaf.distinct)))
-            ].reset_index(drop=True)
-            partition: dict[FrozenKey, set[FrozenKey]] = {}
-            counted_keys = tuple(frozen_key_rows(counted, (*parent_columns, leaf.distinct)))
-            for key, group in zip(
-                counted_keys, frozen_key_rows(counted, full_columns), strict=True
-            ):
-                partition.setdefault(key, set()).add(group)
-            for index, key in enumerate(counted_keys):
-                groups = partition[key]
-                if len(groups) > 1:
-                    actual = counted.iloc[[index]]
-                    witness = AttributePartitionWitness(
-                        "distinct",
-                        frozen_key_rows(actual, (leaf.distinct,))[0],
-                        tuple(sorted(groups, key=repr)[:6]),
-                    )
-                    input_failure(
-                        "overlapping_groups",
-                        f"{stage_id}: counted distinct value crosses joint groups",
-                        context=attribute_failure_context(
-                            layout, actual, (leaf,), (*parent_columns, leaf.distinct), witness
-                        ),
-                    )
-    receipts = (
-        CheckReceipt("attribute.scoped_identity_coverage", stage_id),
-        *(
-            (CheckReceipt("attribute.disjoint_joint_partition", stage_id),)
-            if layout.scope == "fine"
-            else ()
-        ),
+            key = frozen_key_rows(normalized.iloc[:1], witness_columns)[0]
+            witness: AttributeWitness
+            if kind == 2:
+                witness = AttributeCoverageWitness(key)
+            else:
+                groups = normalize_stage_frame(
+                    failed.loc[:, [c.slot_id for c in full_columns]], full_columns, ()
+                )
+                witness = AttributePartitionWitness(
+                    "distinct" if kind == 5 else "root",
+                    key,
+                    tuple(frozen_key_rows(groups, full_columns)),
+                )
+            input_failure(
+                "undefined_input" if kind == 2 else "overlapping_groups",
+                f"{stage_id}: missing classification"
+                if kind == 2
+                else f"{stage_id}: classification crosses joint groups",
+                context=attribute_failure_context(
+                    layout, normalized, uses, context_columns, witness
+                ),
+            )
+    receipts: tuple[CheckReceipt, ...] = (
+        (CheckReceipt("attribute.membership_partition", stage_id),)
+        if layout.scope == "fine" and layout.partition
+        else ()
     )
+    if layout.population is not None:
+        receipts = (*receipts, CheckReceipt("attribute.population_coverage", stage_id))
     values = tuple(
         column
         for column in layout.columns
@@ -381,36 +338,30 @@ def complete_attribute_inputs(
         frame.loc[frame[layout.kind] == 1, parent_names].drop_duplicates().reset_index(drop=True)
     )
     fine = frame.loc[frame[layout.kind] == 0, fine_names].drop_duplicates().reset_index(drop=True)
+    kind, target, keys = (
+        (1, parent, parent_columns) if layout.scope == "parent" else (0, fine, full_columns)
+    )
+    key_frame = normalize_stage_frame(target.loc[:, [c.slot_id for c in keys]], keys, ())
+    target_key_rows = frozen_key_rows(key_frame, keys)
     for leaf in layout.leaves:
-        assert read_reduction(leaf.read) is not None
-        slot = require_reduction(leaf.read).value_slot
-        for kind, target, keys in (
-            ((1, parent, parent_columns),)
-            if layout.scope == "parent"
-            else ((0, fine, full_columns),)
-        ):
-            completed = originals[(kind, slot)]
-            completed_keys = frozen_key_rows(completed, keys)
-            key_frame = normalize_stage_frame(
-                target.loc[:, [column.slot_id for column in keys]], keys, ()
-            )
-            active = tuple(
-                i
-                for i in range(len(target))
-                if require_reduction(leaf.read).window_key is None
-                or target[require_reduction(leaf.read).calendars[0][0]].iloc[i]
-                == require_reduction(leaf.read).window_key
-            )
-            target_keys = frozen_key_rows(key_frame.iloc[list(active)].reset_index(drop=True), keys)
-            if len(set(completed_keys)) != len(completed_keys) or set(completed_keys) != set(
-                target_keys
-            ):
-                raise _invalid("finished original values differ from their complete aggregate keys")
-            by_key = {key: index for index, key in enumerate(completed_keys)}
-            restored = pd.Series([pd.NA] * len(target), dtype=completed[slot].dtype)
-            for index, key in zip(active, target_keys, strict=True):
-                restored.iloc[index] = completed[slot].iloc[by_key[key]]
-            target[slot] = restored
+        reduction = require_reduction(leaf.read)
+        slot = reduction.value_slot
+        completed = originals[(kind, slot)]
+        completed_keys = frozen_key_rows(completed, keys)
+        by_key = {key: index for index, key in enumerate(completed_keys)}
+        active = tuple(
+            i
+            for i in range(len(target))
+            if reduction.window_key is None
+            or target[reduction.calendars[0][0]].iloc[i] == reduction.window_key
+        )
+        target_keys = tuple(target_key_rows[i] for i in active)
+        if len(by_key) != len(completed_keys) or by_key.keys() != set(target_keys):
+            raise _invalid("finished original values differ from their complete aggregate keys")
+        restored = pd.Series([pd.NA] * len(target), dtype=completed[slot].dtype)
+        for index, key in zip(active, target_keys, strict=True):
+            restored.iloc[index] = completed[slot].iloc[by_key[key]]
+        target[slot] = restored
     actual_columns = {
         column.slot_id: column
         for column in source_columns(
@@ -440,19 +391,8 @@ def complete_attribute_inputs(
         input_failure("missing_component_proof", f"{stage_id}: duplicate complete parent totals")
     if layout.keys and fine.duplicated(list(layout.keys)).any():
         input_failure("missing_component_proof", f"{stage_id}: duplicate complete fine inputs")
-    observed_parents = set(frozen_key_rows(scope, parent_columns))
-    actual_parents = set(frozen_key_rows(parent, parent_columns))
-    if layout.scope == "parent" and not observed_parents <= actual_parents:
-        input_failure(
-            "missing_component_proof", f"{stage_id}: missing a parent aggregate for a scoped root"
-        )
-    if not set(assignments) <= set(frozen_key_rows(fine, full_columns)):
-        input_failure(
-            "missing_component_proof", f"{stage_id}: missing a fine aggregate for an assigned root"
-        )
     receipts = (
         *receipts,
-        CheckReceipt("attribute." + layout.scope + "_component_coverage", stage_id),
         *(
             (CheckReceipt("attribute.distinct_value_partition", stage_id),)
             if layout.scope == "fine" and any(leaf.distinct is not None for leaf in layout.leaves)
@@ -501,6 +441,10 @@ def complete_attribute_parent_domain(
     actual = tuple(frozen_key_rows(root.parent, parent_columns))
     if len(set(actual)) != len(actual):
         raise _invalid("duplicate complete Attribute parent totals")
+    if not root.layout.parent_keys and expected and not actual:
+        from marivo.analysis.compiler.attribute_inputs import input_failure
+
+        input_failure("missing_component_proof", "missing selected scalar parent aggregate")
     by_key = {key: index for index, key in enumerate(actual)}
     records: list[dict[str, object]] = []
     states: list[Literal["present", "known_empty"]] = []

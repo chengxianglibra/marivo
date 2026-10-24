@@ -98,6 +98,7 @@ def prepare_fields(
     reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
+    trust_declarations: bool = False,
 ) -> PreparedFields:
     """Prepare expressions and checked many-to-one joins without reading values."""
     registry = state.registry
@@ -536,17 +537,20 @@ def prepare_fields(
                     dependencies.append(expression)
                     originals.append((slot, expression))
                     target = target.mutate(**{slot: expression}, **time_columns(expression))
-                # Collapse before joining; the count makes duplicates an error rather than fanout.
                 right_keys = tuple(right for _, right in keys)
                 prefix = f"__route_{index}_{step_index}_"
                 count = unique(prefix + "count")
-                grouped = target.group_by(*right_keys).aggregate(
-                    **{
-                        name: scalar_field(target[name])
-                        for name in target.columns
-                        if name not in right_keys
-                    },
-                    **{count: target.count()},
+                grouped = (
+                    target
+                    if trust_declarations
+                    else target.group_by(*right_keys).aggregate(
+                        **{
+                            name: scalar_field(target[name])
+                            for name in target.columns
+                            if name not in right_keys
+                        },
+                        **{count: target.count()},
+                    )
                 )
                 renamed = {name: unique(prefix + name) for name in grouped.columns}
                 grouped = grouped.rename(**{new: old for old, new in renamed.items()})
@@ -555,11 +559,12 @@ def prepare_fields(
                     [table[current[left]] == grouped[renamed[right]] for left, right in keys],
                 )
                 table = joined.select(table, *(grouped[name] for name in grouped.columns))
-                check = unique(f"__prepare_check_{len(checks)}")
-                table = table.mutate(**{check: table[renamed[count]].fill_null(0) != 1})
-                checks.append(
-                    (check, "exactly one matching scalar field row", field_read_key(read))
-                )
+                if not trust_declarations:
+                    check = unique(f"__prepare_check_{len(checks)}")
+                    table = table.mutate(**{check: table[renamed[count]].fill_null(0) != 1})
+                    checks.append(
+                        (check, "exactly one matching scalar field row", field_read_key(read))
+                    )
                 current = renamed
                 if final:
                     table = table.mutate(

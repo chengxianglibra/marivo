@@ -385,7 +385,7 @@ def _evaluate_frame(
                         continue
                     fact = OutputEvidence(
                         "check",
-                        "Actual Attribute role semantic check passed for this independent source read.",
+                        "Attribute operation constraint passed for this independent source read.",
                         (
                             ("input_id", input_id),
                             ("check", receipt.check_id),
@@ -441,11 +441,11 @@ def _evaluate_frame(
                 checks.append(
                     OutputEvidence(
                         "check",
-                        "Requested final Attribute target passed precision closure against independently read parent totals; source consistency was not audited.",
+                        "Requested final Attribute target passed closure within the target tolerance against independently read parent totals; source consistency was not audited.",
                         (
                             ("stage", stage.stage_id),
                             ("check", "attribute_closure"),
-                            ("policy", "attribute_closure/v1"),
+                            ("policy", "attribute_closure/v2"),
                             ("target", ".".join(target.path)),
                             ("mode", target.mode),
                             (

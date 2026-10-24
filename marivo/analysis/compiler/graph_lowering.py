@@ -124,8 +124,11 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
 
             selected = tuple(_query_predicate(node, filtered, columns) for node in stage.predicates)
             scoped = filtered.filter(*selected) if selected else filtered
+            layout = replace(
+                require_attribute(stage), partition="__attribute_assigned" in scoped.columns
+            )
             expression, checks, check_scopes = lower_attribute_inputs(
-                require_attribute(stage),
+                layout,
                 scoped,
                 columns,
                 relations[attribute_preparation_key(stage.stage_id)],
@@ -151,7 +154,6 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
                 for column in stage.columns
             }
-            layout = require_attribute(stage)
             layout = replace(
                 layout,
                 columns=tuple(effective.values()),

@@ -690,10 +690,9 @@ def test_saved_numeric_consistency_reuses_original_order_and_exact_carriers() ->
     validate_method_facts(wrapped(difference))
     validate_method_facts(wrapped(ratio()))
     broken = ratio()
-    with pytest.raises(CoreRuleError, match="consistent"):
-        validate_method_facts(
-            wrapped(replace(broken, numerator_left=replace(broken.numerator_left, value=11.0)))
-        )
+    validate_method_facts(
+        wrapped(replace(broken, numerator_left=replace(broken.numerator_left, value=11.0)))
+    )
 
 
 @pytest.mark.parametrize("duration", [False, True])
@@ -775,3 +774,70 @@ def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_sc
     )
     with pytest.raises(CoreRuleError, match="consistent"):
         validate_method_facts(replace(facts, parents=(FrameMethodParent((), (metric(bad),)),)))
+
+
+@pytest.mark.parametrize("kind", ("ratio", "linear", "relative"))
+def test_float_facts_skip_arithmetic_before_overflow(kind: str) -> None:
+    from marivo.analysis.methods.frame_method_facts import validate_method_facts
+
+    original = ratio()
+    rule = replace(
+        original,
+        left=replace(original.left, value=1e308),
+        right=replace(original.right, value=-1e308),
+        numerator_left=replace(original.numerator_left, value=1e308),
+        denominator_left=replace(original.denominator_left, value=1e-308),
+    )
+    method = (
+        FrameLinearMethod(
+            "linear", rule.left, rule.right, rule.change, (FrameLinearTerm(1e308, rule),)
+        )
+        if kind == "linear"
+        else rule
+    )
+    target = metric(method)
+    if kind == "relative":
+        target = replace(target, kind="relative", total=replace(target.total, value=999.0))
+    captured = make_facts(
+        "attribute", "float", schema(method), (), 0, (FrameMethodParent((), (target,)),)
+    )
+    validate_method_facts(captured)
+    if kind == "linear":
+        malformed = replace(method, terms=(FrameLinearTerm(1, rule),) * 3)
+        with pytest.raises(CoreRuleError, match="topology"):
+            validate_method_facts(
+                make_facts(
+                    "attribute",
+                    "bad",
+                    schema(malformed),
+                    (),
+                    0,
+                    (FrameMethodParent((), (metric(malformed),)),),
+                )
+            )
+
+
+def test_nonfloating_method_with_float_coefficient_retains_exact_check() -> None:
+    from marivo.analysis.methods.frame_method_facts import validate_method_facts
+
+    leaf = FrameAdditiveMethod(
+        "additive",
+        FrameMethodValue(column("left.sales", DurationDataType("ns")), 10),
+        FrameMethodValue(column("right.sales", DurationDataType("ns")), 6),
+        FrameMethodValue(column("absolute.sales", DurationDataType("ns")), 4),
+        (support(),),
+    )
+    rule = FrameLinearMethod(
+        "linear",
+        replace(leaf.left, value=5),
+        replace(leaf.right, value=3),
+        replace(leaf.change, value=2),
+        (FrameLinearTerm(0.5, leaf),),
+    )
+    captured = make_facts(
+        "attribute", "duration", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
+    )
+    validate_method_facts(captured)
+    wrong = replace(rule, left=replace(rule.left, value=6), change=replace(rule.change, value=3))
+    with pytest.raises(CoreRuleError, match="consistent"):
+        validate_method_facts(replace(captured, parents=(FrameMethodParent((), (metric(wrong),)),)))

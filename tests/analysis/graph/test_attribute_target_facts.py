@@ -93,15 +93,14 @@ def test_level_facts_keep_single_endpoint_and_independent_observed_total() -> No
     assert "SourceFrameBinding" not in record
 
 
-def test_target_facts_reject_wrong_mappings_and_inconsistent_reread_total() -> None:
+def test_target_facts_check_structure_and_preserve_captured_float_total() -> None:
     facts = level_facts()
     metric = facts.parents[0].metrics[0]
     assert isinstance(metric, FrameAttributeMetric)
     with pytest.raises(CoreRuleError):
         replace(metric, outputs=metric.outputs[:3])
-    wrong = replace(metric, total=replace(metric.total, value=241.0))
-    with pytest.raises(CoreRuleError):
-        validate_method_facts(replace(facts, parents=(FrameMethodParent((), (wrong,)),)))
+    captured = replace(metric, total=replace(metric.total, value=300.0))
+    validate_method_facts(replace(facts, parents=(FrameMethodParent((), (captured,)),)))
     wrong_path = replace(
         metric, outputs=(replace(metric.outputs[0], path=("missing",)), *metric.outputs[1:])
     )

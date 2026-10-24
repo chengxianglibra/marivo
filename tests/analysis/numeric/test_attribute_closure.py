@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from decimal import Decimal, localcontext
+from math import nextafter
 from pathlib import Path
 from typing import Literal
 
@@ -307,6 +308,81 @@ def test_float_closure_uses_absolute_contribution_magnitude_under_cancellation()
     )
 
 
+@pytest.mark.parametrize("total", [-100.0, 100.0])
+def test_float_closure_accepts_inclusive_one_percent_of_absolute_target(total: float) -> None:
+    method = _level(total, _FLOAT)
+    for accepted in (total - 1.0, total + 1.0):
+        _closure(
+            _values([accepted], _FLOAT),
+            method.value,
+            method,
+            relative=False,
+            parent=_PARENT,
+            target=_target(),
+        )
+    for rejected in (nextafter(total - 1.0, float("-inf")), nextafter(total + 1.0, float("inf"))):
+        with pytest.raises(AttributeInputError) as error:
+            _closure(
+                _values([rejected], _FLOAT),
+                method.value,
+                method,
+                relative=False,
+                parent=_PARENT,
+                target=_target(),
+            )
+        assert _witness(error).tolerance == 1.0
+
+
+def test_float_absolute_tolerance_uses_change_not_endpoint_totals() -> None:
+    method = FrameAdditiveMethod(
+        "additive",
+        _value(1_000_100.0, _FLOAT),
+        _value(1_000_000.0, _FLOAT),
+        _value(100.0, _FLOAT),
+        (FrameMethodSupport("facts", "rows", 2, 2, 2, 2),),
+    )
+    _closure(
+        _values([101.0], _FLOAT),
+        method.change,
+        method,
+        relative=False,
+        parent=_PARENT,
+        target=_target("absolute"),
+    )
+    with pytest.raises(AttributeInputError) as error:
+        _closure(
+            _values([102.0], _FLOAT),
+            method.change,
+            method,
+            relative=False,
+            parent=_PARENT,
+            target=_target("absolute"),
+        )
+    assert _witness(error).tolerance == 1.0
+
+
+def test_float_zero_target_retains_numeric_floor_without_business_allowance() -> None:
+    method = _level(0.0, _FLOAT)
+    _closure(
+        _values([0.1, 0.2, -0.3], _FLOAT),
+        method.value,
+        method,
+        relative=False,
+        parent=_PARENT,
+        target=_target(),
+    )
+    with pytest.raises(AttributeInputError) as error:
+        _closure(
+            _values([0.001], _FLOAT),
+            method.value,
+            method,
+            relative=False,
+            parent=_PARENT,
+            target=_target(),
+        )
+    assert 0 < _witness(error).tolerance < 1e-10
+
+
 def test_float_failure_witness_preserves_fsum_and_signed_residual() -> None:
     with pytest.raises(AttributeInputError) as error:
         _closure(
@@ -385,7 +461,7 @@ def test_float_linear_budget_weights_child_endpoint_rounding() -> None:
 
 
 @pytest.mark.parametrize("baseline", [-100.0, 100.0])
-def test_relative_rounding_budget_uses_absolute_fresh_baseline(baseline: float) -> None:
+def test_relative_tolerance_uses_normalized_final_target(baseline: float) -> None:
     method = FrameAdditiveMethod(
         "additive",
         _value(baseline + 25.0, _FLOAT),
@@ -394,7 +470,7 @@ def test_relative_rounding_budget_uses_absolute_fresh_baseline(baseline: float) 
         (FrameMethodSupport("facts", "rows", 2, 2, 2, 2),),
     )
     _closure(
-        _values([0.15, 0.1], _FLOAT),
+        _values([0.15, 0.101], _FLOAT),
         _value(0.25, _FLOAT),
         method,
         relative=True,
@@ -413,7 +489,7 @@ def test_relative_rounding_budget_uses_absolute_fresh_baseline(baseline: float) 
     witness = _witness(error)
     assert witness.kind == "relative"
     assert witness.policy == "float64"
-    assert 0 < witness.tolerance < 1e-10
+    assert witness.tolerance == 0.0025
 
 
 @pytest.mark.parametrize(
@@ -447,7 +523,7 @@ def test_empty_contributions_use_their_own_policy(
     if tolerance is not None:
         assert witness.tolerance == tolerance
     else:
-        assert 0 < witness.tolerance < 1e-10
+        assert witness.tolerance == 0.01
 
 
 @pytest.fixture
@@ -504,6 +580,43 @@ def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_o
     assert rows[("value", "total.q")].tolist() == [0.25, 0.25]
     assert rows[("value", "observed_total.q")].tolist() == [10 / 90, 10 / 90]
     assert rows[("value", "contribution_share.q")].tolist() == [0.6, 0.4]
+
+
+@pytest.mark.parametrize("drift", [0.5, 1.0])
+def test_float_report_allows_one_percent_without_rebalancing(
+    numeric_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: float
+) -> None:
+    with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
+    amount = numeric_session.catalog.fields.get("sales.facts.amount")
+    phase = numeric_session.catalog.fields.get("sales.facts.phase")
+    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    selected = numeric_session.observe({"q": amount.sum()}, where=phase == "current").compute()
+    execute = SourceSession.execute
+
+    def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(source, issued)
+        if "__attribute_kind" in rows and "attribute-parent:" not in issued.purpose:
+            fine = (rows["__attribute_kind"] == 0) & (rows["key.0"] == "A")
+            for name in rows:
+                if name.endswith("/value") or name.endswith(".additive_value"):
+                    rows.loc[fine, name] += drift
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    if drift == 1.0:
+        with pytest.raises(AttributeInputError) as error:
+            selected.attribute(by=(channel,)).compute()
+        context = error.value.attribute_context
+        assert context is not None and isinstance(context.witness, AttributeClosureWitness)
+        assert context.witness.total == -80.0
+        assert context.witness.residual == 1.0
+        assert context.witness.tolerance == 0.8
+    else:
+        rows = selected.attribute(by=(channel,)).compute().to_pandas()
+        assert rows[("value", "contribution.q")].tolist() == [-39.5, -40.0]
+        assert rows[("value", "total.q")].tolist() == [-80.0, -80.0]
+        assert rows[("value", "observed_total.q")].tolist() == [-80.0, -80.0]
 
 
 def test_relative_zero_fresh_baseline_is_rejected_before_closure(

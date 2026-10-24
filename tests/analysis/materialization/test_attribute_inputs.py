@@ -115,13 +115,11 @@ def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
     assert len(reads) == 4
     assert len(prepared.attribute_inputs) == 4
     assert all(len(root.layout.leaves) == 2 for root in prepared.attribute_inputs)
-    assert all(
-        {
-            "attribute.scoped_identity_coverage",
-            "attribute." + root.layout.scope + "_component_coverage",
-        }
-        <= {receipt.check_id for receipt in root.receipts}
+    assert not any(
+        receipt.check_id
+        in {"attribute.scoped_identity_coverage", "attribute.disjoint_joint_partition"}
         for root in prepared.attribute_inputs
+        for receipt in root.receipts
     )
     for root in prepared.attribute_inputs:
         if root.layout.scope != "parent":
@@ -173,19 +171,16 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
         )
 
 
-def test_duplicate_physical_root_identity_keeps_original_error(
-    session: Session, tmp_path: Path
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
+def test_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
-    with pytest.raises(MaterializationError, match="duplicate complete contribution identity"):
-        evaluate_attribute_inputs(
-            _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
-        )
+    result = evaluate_attribute_inputs(
+        _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
+    )
+    root = next(root for root in result.attribute_inputs if root.layout.scope == "parent")
+    assert root.parent[require_reduction(root.layout.leaves[0].read).value_slot].tolist() == [50]
 
 
 @pytest.mark.parametrize("empty", (False, True))
@@ -365,8 +360,16 @@ def test_unknown_physical_leaf_fails_before_business_read(
         reader: DatasourceEngineTimezone,
         *,
         root_table: ir.Table | None = None,
+        trust_declarations: bool = False,
     ) -> query_preparation.PreparedFields:
-        result = original(contribution, entities, state, reader, root_table=root_table)
+        result = original(
+            contribution,
+            entities,
+            state,
+            reader,
+            root_table=root_table,
+            trust_declarations=trust_declarations,
+        )
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))
 
@@ -997,17 +1000,25 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         return
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": value.sum()}, by=(channel,), where=where).compute()
-    with pytest.raises(MaterializationError) as actual:
-        evaluate_attribute_inputs(
-            _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
-        )
-    assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
-    assert actual.value.expected == ordinary.value.expected
-    assert actual.value.repair is not None and ordinary.value.repair is not None
-    assert actual.value.repair.action == ordinary.value.repair.action
-    assert actual.value.received is not None
-    assert "source=sales.otherfacts" in actual.value.received
-    assert "coordinates=" in actual.value.received
+    assert ordinary.value.location == "dataset.scalar_field_lookup"
+    assert ordinary.value.repair is not None
+    if case == "ambiguous_predicate":
+        # The pending receiver still owns ordinary Observe validation.
+        with pytest.raises(MaterializationError, match="scalar_field_lookup"):
+            evaluate_attribute_inputs(
+                _level_inputs(
+                    session.observe({"q": value.sum()}, where=where, by=()), by=(channel,)
+                )
+            )
+        return
+    # Attribute trusts the same declared relationship; explicit/other operations
+    # retain their existing independently owned checks.
+    output = evaluate_attribute_inputs(
+        _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
+    )
+    assert not any(
+        "prepare_check" in r.check_id for root in output.attribute_inputs for r in root.receipts
+    )
 
 
 @pytest.mark.release
@@ -1303,3 +1314,126 @@ def test_known_empty_parent_native_formula_has_defined_original_zero(session: Se
                 ("east",): 20,
                 ("absent",): 0,
             }
+
+
+@pytest.mark.parametrize("source_rows", (100, 10000))
+def test_attribute_transport_depends_on_groups_not_source_rows(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_rows: int
+) -> None:
+    from tests.support.source_trace import capture_source
+
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts SELECT 't', i, 'east', CASE WHEN i%2=0 THEN 'A' ELSE 'B' END, 1, 1 FROM range(?) t(i)",
+            [source_rows],
+        )
+    value = session.catalog.fields.get("sales.facts.value")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe({"q": value.sum()}).compute()
+    trace = capture_source(monkeypatch)
+    result = selected.attribute(by=(channel,)).compute().to_pandas()
+    assert result[("value", "contribution.q")].tolist() == [source_rows // 2] * 2
+    assert trace.returned_rows == [1, 2]
+    assert all(
+        not any(c.startswith("__original_id.") for c in columns)
+        for columns in trace.returned_columns
+    )
+    assert all(
+        "__attribute_root_duplicate" not in sql and "__attribute_fine_" not in sql
+        for sql in trace.native_sql
+    )
+
+
+@pytest.mark.parametrize("reverse", (False, True))
+def test_distinct_failure_returns_one_key_and_six_ordered_groups(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool
+) -> None:
+    from marivo.analysis.core.attribute import AttributeInputError, AttributePartitionWitness
+    from tests.support.source_trace import capture_source
+
+    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts SELECT 't', i, 'east', 'g'||lpad(cast(i%10 AS VARCHAR),2,'0'), 1+i//10, 1 FROM range(20) t(i) ORDER BY i "
+            + ("DESC" if reverse else "ASC")
+        )
+    value = session.catalog.fields.get("sales.facts.value")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    selected = session.observe({"q": value.count_distinct() + weight.count_distinct()}).compute()
+    trace = capture_source(monkeypatch)
+    with pytest.raises(AttributeInputError) as caught:
+        selected.attribute(by=(channel,)).compute()
+    context = caught.value.attribute_context
+    assert context is not None and isinstance(context.witness, AttributePartitionWitness)
+    assert context.witness.identity[0][1] == 1
+    assert [group[0][1] for group in context.witness.groups] == [f"g{i:02}" for i in range(6)]
+    assert trace.returned_rows == [1, 22]  # Ten aggregates plus six witnesses per check.
+
+
+def test_explicit_fine_population_still_requires_complete_coverage(session: Session) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    value = session.catalog.fields.get("sales.facts.value")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    selected = session.observe({"q": value.sum()}).compute()
+    with pytest.raises(AnalysisError, match="coverage"):
+        selected.attribute(by=mv.coordinates(by=(channel,), keys=(("A",),))).compute()
+
+
+@pytest.mark.parametrize("kind", ("ordinary", "membership", "distinct"))
+def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
+    session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    import ibis
+
+    from marivo.analysis.compiler import attribute_inputs
+    from marivo.analysis.compiler.attribute_inputs import AttributeCheckLayout, AttributeRootLayout
+    from marivo.analysis.errors import AnalysisError
+    from marivo.semantic._numeric_lowering import NumericCheck
+
+    original = attribute_inputs.lower_attribute_inputs
+    compiled: set[str] = set()
+
+    def lower(
+        layout: AttributeRootLayout,
+        table: ir.Table,
+        field_columns: dict[str, str],
+        preparation: ir.Table,
+        preparation_checks: tuple[tuple[str, str, str], ...],
+    ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
+        result = original(layout, table, field_columns, preparation, preparation_checks)
+        for dialect in ("postgres", "mysql", "trino", "clickhouse"):
+            sql = ibis.to_sql(result[0].unbind(), dialect=dialect)
+            assert "__attribute_root_duplicate" not in sql
+            compiled.add(dialect)
+        return result
+
+    monkeypatch.setattr(attribute_inputs, "lower_attribute_inputs", lower)
+    value = session.catalog.fields.get("sales.facts.value")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    by: tuple[Deferred | Grouping, ...] = (channel,)
+    if kind == "membership":
+        label = session.catalog.fields.get("sales.tags.label")
+        by = (
+            mv.membership(
+                label,
+                via=(
+                    (
+                        session.catalog.relationships.get("sales.fact_links"),
+                        session.catalog.relationships.get("sales.link_tags"),
+                    ),
+                ),
+                unmatched="exclude",
+            ),
+        )
+    selected = session.observe(
+        {"q": value.count_distinct() if kind == "distinct" else value.count()}
+    ).compute()
+    if kind == "membership":
+        with pytest.raises(AnalysisError, match=r"undefined_input|overlapping_groups"):
+            selected.attribute(by=by).compute()
+    else:
+        selected.attribute(by=by).compute()
+    assert compiled == {"postgres", "mysql", "trino", "clickhouse"}

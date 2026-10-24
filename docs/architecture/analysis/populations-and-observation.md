@@ -196,10 +196,19 @@ admitted rules and coverage; one unsupported target rejects the whole request.
 
 The qualified contribution route uses physical tables through the existing native
 DuckDB, PostgreSQL, MySQL, Trino and ClickHouse source execution paths, subject to
-the backend's actual method, type, key and source restrictions. Both read roles keep
-their own identity, fanout, original formula and numeric checks; fine classification
-still requires complete, disjoint coverage. A successful final closure does not
-replace these semantic checks or prove consistency between the reads.
+the backend's actual method, type, key and source restrictions. Attribute trusts
+semantic identity, relationship cardinality and version-grain declarations. It does
+not scan for duplicate source keys or re-prove ordinary scalar classification.
+Parent aggregates use the original scope; fine aggregates use the classified scope,
+without a per-identity coverage self-join. Explicit source_check remains the route
+for declared data-quality expectations.
+Operation-specific membership/Population coverage and overlap, distinct values
+crossing groups, complete time correspondence and necessary numeric checks remain.
+Data-dependent partition checks run in the same backend statement: successful reads
+return aggregates; failures retain one deterministic key per check and at most six
+conflicting groups. Only failed candidates are sorted; no evidence reread occurs.
+Python consumes aggregate keys, components and bounded diagnostics. Final closure
+neither replaces these operation checks nor proves consistency between reads.
 The existing rejection of incompatible non-temporal scopes within one root remains;
 such scopes are never merged merely because their root matches.
 Remote original-input admission still requires direct physically nonnull integer
@@ -222,10 +231,14 @@ The report closure owner uses zero tolerance for proved integer/count paths,
 including integer SUM widened to Decimal through lossless add/subtract/integer
 scaling, and for final Duration ticks, including rounded Duration means. Other
 Decimal results use the common final scale's `(n + 1) / 2` quantum window. Float64
-uses stable summation and the existing endpoint-rounding and magnitude ULP budget;
-the total, sum, residual and budget must all be finite. These bounded acceptance
-policies do not prove a backend's general numerical accuracy. Native precision
-and overflow contracts still apply. Source evidence records independent actual
+uses stable summation and accepts an absolute residual up to the greater of 1%
+of the absolute fresh final target total and the existing endpoint-rounding and
+magnitude ULP budget. The 1% applies to the level, absolute change or normalized
+relative change actually requested, not the endpoint magnitudes or historical
+observed total. Zero totals retain only the numeric budget. The total, sum,
+residual and budget must all be finite. This business closure allowance does not
+rebalance contributions or prove source consistency or backend numerical accuracy.
+Native precision and overflow contracts still apply. Source evidence records independent actual
 reads; successful closure is recorded on its local consuming stage. Reopened
 results retain inert facts and do not reread sources or rerun closure.
 

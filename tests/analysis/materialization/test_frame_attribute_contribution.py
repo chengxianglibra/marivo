@@ -947,9 +947,8 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert saved.compute().method_facts==saved.method_facts
     checks=[dict(item.values) for item in saved.artifact.evidence_digest().items if item.kind=='check']
     ids={item.get('check') for item in checks}
-    assert {'attribute.scoped_identity_coverage','attribute.parent_component_coverage','attribute.disjoint_joint_partition','attribute.fine_component_coverage','attribute.complete_key_mapping','attribute_closure'} <= ids
-    roles={item.get('attribute_read_role') for item in checks if item.get('check')=='attribute.scoped_identity_coverage'}
-    assert roles=={'parent','fine'}
+    assert {'attribute.complete_key_mapping','attribute_closure'} <= ids
+    assert not {'attribute.scoped_identity_coverage','attribute.disjoint_joint_partition'} & ids
 """
         cold = subprocess.run(
             [sys.executable, "-c", code, session.id, saved.artifact.id, str(checkout)],
@@ -1243,7 +1242,7 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         assert {
             key: closures[0][key] for key in ("policy", "target", "mode", "parent_count", "result")
         } == {
-            "policy": "attribute_closure/v1",
+            "policy": "attribute_closure/v2",
             "target": "q",
             "mode": "absolute",
             "parent_count": 1,
@@ -1255,22 +1254,7 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
             if fact.kind == "check"
             and str(dict(fact.values).get("check", "")).startswith("attribute.")
         ]
-        assert {(fact["attribute_read_role"], fact["check"]) for fact in semantic} == {
-            ("parent", "attribute.scoped_identity_coverage"),
-            ("parent", "attribute.parent_component_coverage"),
-            ("fine", "attribute.scoped_identity_coverage"),
-            ("fine", "attribute.disjoint_joint_partition"),
-            ("fine", "attribute.fine_component_coverage"),
-        }
-        role_stages = {
-            fact["physical_stage"]: fact["attribute_read_role"]
-            for fact in read_facts
-            if "attribute_read_role" in fact
-        }
-        assert all(
-            fact["attribute_read_role"] == role_stages[fact["stage"]] and fact["result"] == "passed"
-            for fact in semantic
-        )
+        assert semantic == []
         mappings = [
             dict(check.values)
             for check in audit.evaluation.checks
@@ -1318,44 +1302,6 @@ def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
     assert (context.witness.total, context.witness.contribution_sum) == (100, 101)
     assert context.witness.tolerance == 0
     assert context.witness.policy == "exact_integer"
-
-
-def test_parent_duplicate_identity_rejected_before_fine_role_can_mask_it(
-    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
-
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    selected = session.observe({"q": amount.sum()}, where=phase == "current").compute()
-    database = tmp_path / "contribution.duckdb"
-    with duckdb.connect(str(database)) as connection:
-        connection.execute("DELETE FROM facts WHERE phase='current'")
-        connection.execute("INSERT INTO facts VALUES (103,'current','east','A',100,1)")
-    execute = SourceSession.execute
-    reads: list[str] = []
-
-    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-        rows = execute(self, issued)
-        if "__attribute_kind" in rows:
-            reads.append(issued.purpose)
-        if "attribute-parent:" in issued.purpose:
-            # Return the parent's independently read duplicate50+50 batch.
-            # The underlying fine source is already the repaired single100 row;
-            # skipping this role's check would otherwise allow final closure.
-            scope = rows["__attribute_kind"] == 2
-            rows.loc[scope, "__attribute_root_duplicate"] = True
-            for name in rows:
-                if name.endswith((".input_count", ".effective_count")):
-                    rows.loc[rows["__attribute_kind"] == 1, name] = 2
-        return rows
-
-    monkeypatch.setattr(SourceSession, "execute", read)
-    with pytest.raises(MaterializationError, match="duplicate complete contribution identity"):
-        selected.attribute(by=(channel,)).compute()
-    assert len(reads) == 1 and "attribute-parent:" in reads[0]
 
 
 def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
@@ -1433,3 +1379,83 @@ def test_fixed_top_parent_and_observed_value_survive_new_source_ranking(
     assert rows[("value", "contribution.q")].tolist() == [60, 40]
     assert rows[("value", "total.q")].tolist() == [100, 100]
     assert rows[("value", "observed_total.q")].tolist() == [240, 240]
+
+
+def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import subprocess
+    import sys
+    from dataclasses import replace
+
+    import marivo
+    from marivo.analysis.core.frame_method_facts import FrameRatioMethod
+    from marivo.datasource.adapters import SourceSession
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    pending = _contribution(
+        session.observe({"q": amount.sum() / weight.sum()}, where=phase == "current"),
+        session.observe({"q": amount.sum() / weight.sum()}, where=phase == "base"),
+        by=(channel,),
+    )
+    execute = SourceSession.execute
+
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "attribute-parent:" in issued.purpose:
+            rows["attribute.native.0"] += 1e-12
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", read)
+    result = pending.compute()
+    facts = result.method_facts[0]
+    parent = facts.parents[0]
+    metric = parent.metrics[0]
+    method = metric.method
+    assert isinstance(method, FrameRatioMethod)
+    assert method.left.value == 120.0 + 1e-12
+    assert method.numerator_left.value == 240 and method.denominator_left.value == 2
+    saved_native = result.persist()
+    saved_native.show()
+    saved_native.method_facts[0].show()
+    # A finite discrepancy well above 1% is still a captured fact, not a new
+    # closure calculation. The actual report was checked by its producer above.
+    captured = replace(method, left=replace(method.left, value=999.0))
+    changed = replace(
+        facts, parents=(replace(parent, metrics=(replace(metric, method=captured),)),)
+    )
+    memory = _memory(result)
+    frame = AnalysisFrame._from_memory(
+        session._runtime.local, replace(memory.result, method_facts=(changed,))
+    )
+    saved = frame.compute().persist()
+    saved.method_facts[0].show()
+    checkout = Path(marivo.__file__).resolve().parents[1]
+    code = """
+import sys
+from unittest.mock import patch
+import marivo.analysis as mv
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold facts attempted a source/model read')
+with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSession,'__init__',forbidden):
+    session=mv.session.resume(sys.argv[1])
+    for artifact, expected in ((sys.argv[2], 120.0+1e-12), (sys.argv[3], 999.0)):
+        saved=session.persisted_frame(artifact)
+        assert saved.compute().method_facts[0].parents[0].metrics[0].method.left.value==expected
+        saved.show()
+        saved.method_facts[0].show()
+"""
+    cold = subprocess.run(
+        [sys.executable, "-c", code, session.id, saved_native.artifact.id, saved.artifact.id],
+        cwd=checkout,
+        env={**os.environ, "PYTHONPATH": str(checkout), "MARIVO_PROJECT_ROOT": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr

@@ -577,9 +577,14 @@ class AnalysisFrame:
         direct Metric or admitted comparison target. Select and rename direct outputs;
         define ratio/linear Metrics before observation. Completion freezes parent keys
         and old values; parent and fine inputs are read independently without reranking
-        or a shared-snapshot guarantee. Original formulas, identity, coverage and
-        numeric checks remain required; only requested final targets must close within
-        their numeric precision policy. Qualified physical tables use the native backend
+        or a shared-snapshot guarantee. Semantic identity, cardinality and version-grain
+        declarations are trusted. Operation-specific membership/Population coverage,
+        overlap, distinct-value partitions, numeric validity and complete time
+        correspondence remain checked. Float64 method facts preserve captured values
+        without arithmetic recomputation. Only requested final targets must close within
+        their closure policy. Float64 allows the greater of 1% of abs(total) and the
+        numeric rounding budget; zero totals retain only that budget. Integer/count,
+        Decimal and Duration policies are unchanged. Qualified physical tables use the native backend
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.
         """
@@ -1002,7 +1007,10 @@ class AnalysisFrame:
         Read static type details with marivo.help("analysis.frame_method_facts").
         Constraints: Pending expressions require compute/persist. Stored reads validate
         all owned method payloads, without reading current data or loading sources/models.
-        Inherited facts explain their original result identities, not derived values.
+        Float64 values are captured facts without arithmetic recomputation; structural,
+        type, unit, finite-value and storage-integrity checks remain. Non-floating
+        arithmetic retains exact validation. Inherited facts explain original result
+        identities, not derived values.
         """
         if isinstance(self._backing, ExpressionFrameBacking):
             reject(

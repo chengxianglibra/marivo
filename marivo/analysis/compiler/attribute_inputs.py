@@ -153,6 +153,8 @@ class AttributeRootLayout:
     side: Literal["left", "right"]
     scope: Literal["parent", "fine"] = "fine"
     assigned: str = "__attribute_assigned"
+    partition: bool = False
+    population: SourceParameter | None = None
     kind: str = "__attribute_kind"
     fiber: str = "__attribute_fiber"
     checks: tuple[AttributeCheckLayout, ...] = ()
@@ -305,6 +307,21 @@ def bundle_attribute_plan(
         ),
         None,
     )
+    population_parameter = None
+    if formula is not None and formula.output_population is not None:
+        from marivo.analysis.compiler.query_program import SourceParameter
+
+        population_input = next(
+            item for item in formula.populations if item.definition == formula.output_population
+        )
+        population_stage = next(
+            stage for stage in plan.stages if stage.stage_id == population_input.stage_id
+        )
+        population_parameter = SourceParameter(
+            population_stage.stage_id,
+            "__attribute_output_population_" + population_stage.stage_id.replace(":", "_"),
+            population_stage.columns,
+        )
     native_bindings: dict[int, tuple[str, DataColumn]] = {}
     aliases: dict[str, str] = {}
     bundles: dict[str, SourceRead] = {}
@@ -475,6 +492,7 @@ def bundle_attribute_plan(
             ),
             side,
             native_formulas=tuple(native_formulas),
+            population=population_parameter,
         )
         bundles[first.stage_id] = replace(
             first,
@@ -483,10 +501,19 @@ def bundle_attribute_plan(
                 dict(pair for member in members for pair in member.field_columns).items()
             ),
             program=AttributeRead(layout, require_reduction(first), read_members(first)),
+            inputs=(
+                *first.inputs,
+                *((population_parameter.stage_id,) if population_parameter is not None else ()),
+            ),
+            parameters=(
+                *first.parameters,
+                *((population_parameter,) if population_parameter is not None else ()),
+            ),
         )
         parent_layout = replace(
             layout,
             scope="parent",
+            population=None,
             columns=tuple(
                 c for c in layout.columns if c.slot_id not in first.keys or c.slot_id in parent_keys
             ),
@@ -497,6 +524,8 @@ def bundle_attribute_plan(
             keys=parent_keys,
             columns=parent_layout.columns,
             preparation_checks=parent_checks[root],
+            inputs=first.inputs,
+            parameters=first.parameters,
             program=AttributeRead(parent_layout, require_reduction(first), read_members(first)),
         )
     stages: list[QueryStage] = []
@@ -518,7 +547,11 @@ def bundle_attribute_plan(
             ]
             for index, (stage_id, column) in selected_native.items():
                 values.append(FormulaInput((index,), stage_id, column, False, keys=first.keys))
-            program = replace(stage.program, values=tuple(values))
+            program = replace(
+                stage.program,
+                values=tuple(values),
+                population_checked=population_parameter is not None,
+            )
             stage = replace(
                 stage,
                 inputs=(
@@ -528,6 +561,23 @@ def bundle_attribute_plan(
                 program=program,
             )
         stages.append(stage)
+    if population_parameter is not None:
+        # Population keys are an existing captured dependency, uploaded once as
+        # a typed relation before the fine read that checks their coverage.
+        by_id = {stage.stage_id: stage for stage in stages}
+        ordered: dict[str, QueryStage] = {}
+
+        def include(stage: QueryStage) -> None:
+            if stage.stage_id in ordered:
+                return
+            for dependency in stage.inputs:
+                if dependency in by_id:
+                    include(by_id[dependency])
+            ordered[stage.stage_id] = stage
+
+        for stage in stages:
+            include(stage)
+        stages = list(ordered.values())
     consumers = tuple(
         (
             stage.stage_id,
@@ -593,12 +643,14 @@ def lower_attribute_inputs(
                 if field_columns[path] in prepared.columns
             )
             actual_columns = tuple(column for column in layout.columns if column.slot_id in axes)
-            relations.append(
-                prepared.select(
-                    **axes, **{name: prepared[name] for name, _, _ in preparation_checks}
-                ).mutate(**{layout.kind: ibis.literal(4), layout.fiber: ibis.literal(fiber)})
-            )
             for name, expected, received in preparation_checks:
+                failed = prepared.select(**axes, **{name: prepared[name]})
+                failed = failed.filter(failed[name])
+                relations.append(
+                    _first_failure(failed, tuple(axes)).mutate(
+                        **{layout.kind: ibis.literal(4), layout.fiber: ibis.literal(fiber)}
+                    )
+                )
                 checks.append((name, NumericCheck(prepared[name], expected, received)))
                 scopes.append(
                     AttributeCheckLayout(name, "preparation", tuple(leaves), actual_columns)
@@ -633,7 +685,7 @@ def _union_attribute_relations(relations: tuple[ir.Table, ...]) -> ir.Table:
 def _lower_attribute_fiber(
     layout: AttributeRootLayout, table: ir.Table, field_columns: dict[str, str]
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...], tuple[AttributeCheckLayout, ...]]:
-    """Transport one role's aggregates and its own identity/classification evidence."""
+    """Return aggregates and bounded witnesses for operation-specific constraints."""
     fields = {path: table[column] for path, column in field_columns.items()}
     representative = layout.leaves[0].read
     assert read_reduction(representative) is not None
@@ -648,26 +700,6 @@ def _lower_attribute_fiber(
         if slot in {slot for slot, _ in require_reduction(representative).calendars}
     )
     parent_axes = {slot: table[column] for slot, column in layout.scoped_columns}
-    identities = {column.slot_id: table[name] for column, name in layout.identity}
-    # The source preparation keeps the selected complete parent and raw root
-    # values even when an unmatched new membership would exclude its fine row.
-    scoped = table.select(
-        **parent_axes, **identities, __attribute_root_duplicate=table["__attribute_root_duplicate"]
-    ).distinct()
-    distinct_values = {
-        leaf.distinct.slot_id: lower_row(node.operand, fields).value
-        for leaf in layout.leaves
-        if leaf.distinct is not None
-        and read_reduction(leaf.read) is not None
-        and isinstance(node := require_reduction(leaf.read).node, SourceAggregate)
-    }
-    assigned = (
-        table.filter(table[layout.assigned])
-        .select(**axes, **identities, **distinct_values)
-        .distinct()
-        if layout.scope == "fine"
-        else scoped
-    )
     parent_active: ir.BooleanValue = ibis.literal(True)
     if not layout.parent_keys:
         import ibis.expr.operations as ops
@@ -858,20 +890,91 @@ def _lower_attribute_fiber(
             result = result.filter(parent_active)
         return result.mutate(**{layout.kind: ibis.literal(kind)})
 
-    scope_rows = scoped.mutate(**{layout.kind: ibis.literal(2)})
     if layout.scope == "parent":
-        parent = aggregate(table, parent_axes, 1)
-        relations: tuple[ir.Table, ...] = (parent, scope_rows)
+        relations: tuple[ir.Table, ...] = (aggregate(table, parent_axes, 1),)
     else:
-        fine_source = table.filter(table[layout.assigned])
+        fine_source = table.filter(table[layout.assigned]) if layout.partition else table
         fine = aggregate(
             fine_source,
             {slot: fine_source[value.get_name()] for slot, value in axes.items()},
             0,
         )
-        assignment_rows = assigned.mutate(**{layout.kind: ibis.literal(3)})
-        relations = (fine, scope_rows, assignment_rows)
+        diagnostics: list[ir.Table] = []
+        if layout.population is not None:
+            domain = ibis.table(
+                {column.slot_id: ibis_type(column.dtype) for column in layout.population.columns},
+                name=layout.population.placeholder,
+            )
+            missing = fine.anti_join(
+                domain,
+                [
+                    fine[key].identical_to(domain[column.slot_id])
+                    for key, column in zip(layout.keys, layout.population.columns, strict=True)
+                ],
+            )
+            diagnostics.append(
+                _first_failure(missing.select(*layout.keys), layout.keys).mutate(
+                    **{layout.kind: ibis.literal(6)}
+                )
+            )
+        identities = {column.slot_id: table[name] for column, name in layout.identity}
+        if layout.partition:
+            roots = table.select(**parent_axes, **identities).distinct()
+            assigned = fine_source.select(
+                **{slot: fine_source[value.get_name()] for slot, value in axes.items()},
+                **{column.slot_id: fine_source[name] for column, name in layout.identity},
+            ).distinct()
+            root_keys = (*layout.parent_keys, *identities)
+            missing = roots.anti_join(
+                assigned,
+                [roots[key].identical_to(assigned[key]) for key in root_keys],
+            )
+            diagnostics.append(
+                _first_failure(missing, root_keys).mutate(**{layout.kind: ibis.literal(2)})
+            )
+            diagnostics.append(
+                _partition_failure(assigned, root_keys, tuple(axes)).mutate(
+                    **{layout.kind: ibis.literal(3)}
+                )
+            )
+        for index, leaf in enumerate(layout.leaves):
+            if leaf.distinct is None:
+                continue
+            node = require_reduction(leaf.read).node
+            assert isinstance(node, SourceAggregate)
+            value = lower_row(
+                node.operand, {path: fine_source[column] for path, column in field_columns.items()}
+            ).value
+            assigned = fine_source.select(
+                **{slot: fine_source[item.get_name()] for slot, item in axes.items()},
+                **{leaf.distinct.slot_id: value},
+            ).distinct()
+            assigned = assigned.filter(assigned[leaf.distinct.slot_id].notnull())
+            diagnostics.append(
+                _partition_failure(
+                    assigned, (*layout.parent_keys, leaf.distinct.slot_id), tuple(axes)
+                ).mutate(**{layout.kind: ibis.literal(5), "__attribute_leaf": ibis.literal(index)})
+            )
+        relations = (fine, *diagnostics)
     return _union_attribute_relations(relations), tuple(checks), tuple(check_scopes)
+
+
+def _first_failure(table: ir.Table, keys: tuple[str, ...]) -> ir.Table:
+    """Sort failed candidates only, selecting one exact native key."""
+    return (
+        table.order_by(*(table[key].asc(nulls_first=True) for key in keys)).limit(1)
+        if keys
+        else table.limit(1)
+    )
+
+
+def _partition_failure(
+    assigned: ir.Table, keys: tuple[str, ...], groups: tuple[str, ...]
+) -> ir.Table:
+    counts = assigned.group_by(*keys).aggregate(__attribute_groups=assigned.count())
+    failed = _first_failure(counts.filter(counts.__attribute_groups > 1), keys)
+    samples = assigned.semi_join(failed, [assigned[key].identical_to(failed[key]) for key in keys])
+    return samples.order_by(*(samples[key].asc(nulls_first=True) for key in groups)).limit(6)
 
 
 def attribute_input_program(

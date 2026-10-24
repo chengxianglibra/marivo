@@ -79,9 +79,19 @@ Level rules contain a genuine single endpoint; absolute/relative retain both.
 Parent support describes the independent parent read; fine support and presence
 describe the fine read. They do not certify matching source versions or identities.
 Audit records retain each actual source read and a separate local final-target
-closure check with its policy version and checked parent count. This check records
-numerical acceptance, not source consistency. Cold reads preserve the original
-audit without rereading sources or applying a newer closure policy.
+closure check with its policy version and checked parent count. Policy
+`attribute_closure/v2` includes the Float64 1% final-target allowance with a numeric
+rounding floor. This check records tolerance acceptance, not source consistency.
+Cold reads preserve the original audit without rereading sources or applying a
+newer closure policy. New audits record actual reads, operation checks and final
+closure, without receipts certifying semantic identity or relationship declarations.
+Historical receipts remain unchanged.
+
+Float64 method values are finite captured facts, not arithmetic identities to
+recompute. Validation skips floating ratio, linear, endpoint-difference and relative
+arithmetic before formula evaluation, with no second tolerance. Exact non-floating
+arithmetic, method structure, field bindings, types, units, finite values and stored
+payload digests remain checked. The public shape and Store format are unchanged.
 Output diagnostics retain original fine values, presence and applicable components
 and valid counts. Physical columns retain numeric carriers, units and precision. where/top/select/reduce retain the original explanation without
 changing its denominator or certifying derived arithmetic. Process-local source

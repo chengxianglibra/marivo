@@ -140,7 +140,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
             ("integer", "level", 1),
         }
         assert all(
-            fact["policy"] == "attribute_closure/v1" and fact["result"] == "passed"
+            fact["policy"] == "attribute_closure/v2" and fact["result"] == "passed"
             for fact in closures
         )
         assert tuple(trace.native_sql) == submissions

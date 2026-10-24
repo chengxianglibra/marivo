@@ -396,7 +396,7 @@ def _combine_program(
     domain = parent_scoped(domain)
     if program.output_population is not None:
         complete_domain = parent_scoped(population_domain(program.output_population, key_slots))
-        if program.values:
+        if program.values and not program.population_checked:
             if keys:
                 missing = domain.merge(
                     complete_domain.drop_duplicates(), on=keys, how="left", indicator=True

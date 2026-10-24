@@ -238,6 +238,9 @@ def _closure(
                     source_error += abs(expected) * ((ulp(abs(method.right.value)) / baseline) / 2)
             magnitude = max(abs(expected), fsum(abs(value) for value in cells))
             tolerance = 16 * (len(cells) + 1) * (source_error + ulp(magnitude))
+            # Accept business closure within 1% of the requested final target,
+            # retaining the numeric floor for zero totals and cancellation.
+            tolerance = max(tolerance, abs(expected) * 0.01)
             residual = actual - expected
             if not all(
                 isfinite(value)

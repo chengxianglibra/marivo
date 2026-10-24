@@ -1032,7 +1032,9 @@ class FrameMethodFacts(_FactRecord):
     Read an item from ``fixed_frame.method_facts``. The returned frozen record
     contains complete original output schema, coordinates and ordered parents.
     Direct construction is not a supported public entrypoint.
-    Constraints: no source authority, current-result certification or numerical reexecution.
+    Float64 values remain finite captured facts without arithmetic recomputation.
+    Structure, types, units, storage integrity and exact non-floating arithmetic remain checked.
+    Constraints: no source authority or current-result certification.
     """
 
     kind: Literal["attribute"]

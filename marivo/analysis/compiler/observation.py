@@ -131,6 +131,7 @@ class FormulaProgram:
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
+    population_checked: bool = False
 
 
 def calendar_field(slot: str) -> str:

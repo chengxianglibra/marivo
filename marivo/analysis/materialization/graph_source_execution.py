@@ -2299,8 +2299,12 @@ def prepare_attribute_sources(
                 memberships=parent_memberships,
             )
             reader = probe_engine_timezone(owner._backend)
-            scoped = prepare_fields(baseline, prepared.entities, state, reader)
-            classified = prepare_fields(merged, prepared.entities, state, reader)
+            scoped = prepare_fields(
+                baseline, prepared.entities, state, reader, trust_declarations=True
+            )
+            classified = prepare_fields(
+                merged, prepared.entities, state, reader, trust_declarations=True
+            )
             scoped_map, assigned_map = dict(scoped.columns), dict(classified.columns)
             parent_paths = tuple(
                 path for read in parent_reads for path in coordinate_read_keys(read)
@@ -2381,6 +2385,7 @@ def prepare_attribute_sources(
                     "population-parameter:" + computation_fingerprint(parent_scope)
                 ]
                 parent_predicates: list[ir.BooleanValue] = []
+                parent_pairs: list[tuple[str, str]] = []
                 source_columns: tuple[str, ...]
                 for axis, group in zip(
                     parent_scope.axes, frame_key_groups(parent_scope.root), strict=True
@@ -2396,6 +2401,7 @@ def prepare_attribute_sources(
                         source_columns = tuple(
                             scoped_map[path] for path in coordinate_read_keys(read)
                         )
+                    parent_pairs.extend(zip(source_columns, group, strict=True))
                     parent_predicates.extend(
                         base[column].identical_to(parameter_relation[name])
                         for column, name in zip(source_columns, group, strict=True)
@@ -2405,44 +2411,72 @@ def prepare_attribute_sources(
                     if parent_predicates
                     else base.filter(parameter_relation.count() > 0)
                 )
-            identity = (
-                normalize_target_entity(state.registry, root).version_row_key
-                or normalize_target_entity(state.registry, root).primary_key
-            )
-            root_fiber = tuple(dict.fromkeys((*identity, *(column for _, column in parent_slots))))
-            base = base.mutate(
-                __attribute_root_duplicate=base.count().over(
-                    ibis.window(group_by=[base[column] for column in root_fiber])
-                )
-                > 1
-            )
-            fine = classified.table.mutate(__attribute_assigned=ibis.literal(True))
-            renamed = {name: f"__attribute_fine_{index}" for index, name in enumerate(fine.columns)}
-            fine = fine.rename(**{new: old for old, new in renamed.items()})
-            identity = (
-                normalize_target_entity(state.registry, root).version_row_key
-                or normalize_target_entity(state.registry, root).primary_key
-            )
-            predicates = [base[name].identical_to(fine[renamed[name]]) for name in identity]
-            predicates.extend(
-                base[column].identical_to(fine[renamed[column]]) for _, column in parent_slots
-            )
-            joined = base.left_join(fine, predicates)
             mapping = dict(scoped_map)
-            projections = {name: base[name] for name in base.columns}
             classification_columns = tuple(
                 (path, name) for path, name in assigned_map.items() if path not in mapping
             )
-            for path, source_name in classification_columns:
-                name = f"__attribute_member_{len(mapping)}"
-                projections[name] = fine[renamed[source_name]]
-                mapping[path] = name
-            projections["__attribute_assigned"] = fine[renamed["__attribute_assigned"]].fill_null(
-                False
-            )
-            raw = joined.select(**projections).mutate(__attribute_fiber=ibis.literal(fiber))
-            # Parent values and identity evidence use the preclassification
-            # input directly; placeholder fields retain the shared lowering map.
+            if new_memberships:
+                fine = classified.table.mutate(__attribute_assigned=ibis.literal(True))
+                renamed = {
+                    name: f"__attribute_fine_{index}" for index, name in enumerate(fine.columns)
+                }
+                fine = fine.rename(**{new: old for old, new in renamed.items()})
+                identity = (
+                    normalize_target_entity(state.registry, root).version_row_key
+                    or normalize_target_entity(state.registry, root).primary_key
+                )
+                predicates = [base[name].identical_to(fine[renamed[name]]) for name in identity]
+                predicates.extend(
+                    base[column].identical_to(fine[renamed[column]]) for _, column in parent_slots
+                )
+                joined = base.left_join(fine, predicates)
+                mapping = dict(scoped_map)
+                projections = {name: base[name] for name in base.columns}
+                classification_columns = tuple(
+                    (path, name) for path, name in assigned_map.items() if path not in mapping
+                )
+                for path, source_name in classification_columns:
+                    name = f"__attribute_member_{len(mapping)}"
+                    projections[name] = fine[renamed[source_name]]
+                    mapping[path] = name
+                projections["__attribute_assigned"] = fine[
+                    renamed["__attribute_assigned"]
+                ].fill_null(False)
+                raw = joined.select(**projections).mutate(__attribute_fiber=ibis.literal(fiber))
+            else:
+                # Ordinary scalar classification trusts identity, relationship and
+                # version declarations. Apply the same scope without a root self-join.
+                fine = classified.table
+                fine_fields = {path: fine[column] for path, column in classified.columns}
+                if source_predicates:
+                    fine = fine.filter(
+                        *(lower_condition(p, fine_fields).value for p in source_predicates)
+                    )
+                if parent_scope is not None:
+                    fine_parent_columns = {
+                        column: assigned_map[path] for path, column in scoped.columns
+                    }
+                    fine_predicates = [
+                        fine[fine_parent_columns.get(column, column)].identical_to(
+                            parameter_relation[name]
+                        )
+                        for column, name in parent_pairs
+                    ]
+                    fine = (
+                        fine.semi_join(parameter_relation, fine_predicates)
+                        if fine_predicates
+                        else fine.filter(parameter_relation.count() > 0)
+                    )
+                for path, _ in classification_columns:
+                    mapping[path] = f"__attribute_member_{len(mapping)}"
+                raw = fine.select(
+                    *(
+                        fine[name]
+                        for name in scoped.table.columns
+                        if name not in {v for _, v in scoped.columns}
+                    ),
+                    **{name: fine[assigned_map[path]] for path, name in mapping.items()},
+                ).mutate(__attribute_fiber=ibis.literal(fiber))
             parent = base.mutate(
                 **{
                     mapping[path]: ibis.null().cast(
