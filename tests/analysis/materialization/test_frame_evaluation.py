@@ -883,19 +883,29 @@ def test_pending_read_top_preserves_full_input_nonfinite_error(
 
 
 @pytest.mark.parametrize("n", (0, 1))
+@pytest.mark.parametrize("invalid", ("duplicate", "null_string", "null_integer"))
 def test_pending_read_top_preserves_full_output_key_integrity(
-    session: Session, monkeypatch: pytest.MonkeyPatch, n: int
+    session: Session, monkeypatch: pytest.MonkeyPatch, n: int, invalid: str
 ) -> None:
+    extra = {
+        "duplicate": "('t2',2,'Store',75,0,3)",
+        "null_string": "(NULL,3,'Store',0,0,3)",
+        "null_integer": "('t2',NULL,'Store',0,0,3)",
+    }[invalid]
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
-        connection.execute("INSERT INTO facts VALUES ('t2',2,'Store',75,0,3)")
+        connection.execute("INSERT INTO facts VALUES " + extra)
     members = session.members(session.catalog.entities.get("sales.facts"))
     numerator = session.catalog.fields.get("sales.facts.numerator")
     pending = session.read(members, {"score": numerator})
     trace = capture_source(monkeypatch)
     with pytest.raises(MaterializationError) as failure:
         pending.top(n, by=pending["score"]).compute()
-    assert failure.value.stage == "stage_output"
-    assert "unique stage key" in failure.value.expected
+    assert failure.value.expected is not None
+    if invalid == "duplicate":
+        assert failure.value.stage == "stage_output"
+        assert "unique stage key" in failure.value.expected
+    else:
+        assert "non-null complete identity keys" in failure.value.expected
     assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
 
 

@@ -22,6 +22,7 @@ from marivo._definition.types import (
     field_read_key,
 )
 from marivo.analysis.compiler.predicate import population_key
+from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import normalize_target_entity
@@ -53,16 +54,35 @@ def prepare_condition_memberships(
             renamed = {
                 key: f"__predicate_{index}_{i}" for i, key in enumerate(selected.key_columns)
             }
+            identity_columns = {
+                key
+                for axis, group in zip(domain.axes, selected.key_groups, strict=True)
+                if isinstance(axis, AxisBinding) and axis.field is None
+                for key in group
+            }
+            provider = table._find_backend().name
             allowed = _domain_table(selected)
             allowed = (
-                (
-                    allowed.select(**{new: allowed[old] for old, new in renamed.items()})
-                    if renamed
-                    else allowed
+                allowed.select(
+                    **{
+                        new: (
+                            string_bytes(allowed[old], provider)
+                            if old in identity_columns and allowed[old].type().is_string()
+                            else allowed[old]
+                        )
+                        for old, new in renamed.items()
+                    }
                 )
-                .distinct()
-                .mutate(**{marker: ibis.literal(True)})
+                if renamed
+                else allowed
             )
+            # Complete identity tuples already form a set. Native DISTINCT can
+            # collapse byte-distinct string identities before their byte match.
+            if not domain.axes or not all(
+                isinstance(axis, AxisBinding) and axis.field is None for axis in domain.axes
+            ):
+                allowed = allowed.distinct()
+            allowed = allowed.mutate(**{marker: ibis.literal(True)})
             predicates: list[ir.BooleanValue] = []
             for axis, group in zip(domain.axes, selected.key_groups, strict=True):
                 if isinstance(axis, CalendarCoordinate):
@@ -107,7 +127,15 @@ def prepare_condition_memberships(
                     continue
                 assert isinstance(axis, AxisBinding)
                 for left, right in zip(coordinate_read_keys(reads[axis]), group, strict=True):
-                    predicates.append(table[columns[left]].identical_to(allowed[renamed[right]]))
+                    left_value, right_value = table[columns[left]], allowed[renamed[right]]
+                    if axis.field is None:
+                        if left_value.type().is_string():
+                            left_value = string_bytes(left_value, provider)
+                        predicate = left_value == right_value
+                    else:
+                        predicate = left_value.identical_to(right_value)
+                    assert isinstance(predicate, ir.BooleanValue)
+                    predicates.append(predicate)
             table = table.left_join(allowed, predicates or ibis.literal(True)).select(
                 table, allowed[marker]
             )

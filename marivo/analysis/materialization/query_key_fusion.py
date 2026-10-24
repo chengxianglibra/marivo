@@ -1082,11 +1082,10 @@ def native_query_relation(
             if selected is None:
                 return "producer formula has no exact complete population input"
             expression = inputs[stage.inputs.index(selected.stage_id)].expression
-            expression = _distinct(
-                expression.select(
-                    **dict(zip(stage.keys, (expression[key] for key in selected.keys), strict=True))
-                ),
-                owner.provider.name,
+            # The exact complete Population already has set semantics; this
+            # projection only renames its slots and cannot collapse tuples.
+            expression = expression.select(
+                **dict(zip(stage.keys, (expression[key] for key in selected.keys), strict=True))
             )
             return NativeQueryRelation(expression, members, sources, checks, parameters)
         program = local_result(stage)

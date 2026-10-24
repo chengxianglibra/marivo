@@ -12,12 +12,15 @@ from marivo._definition.relations import (
     PopulationImage,
     PopulationPreimage,
     PopulationProgram,
+    SourceIdentities,
 )
 from marivo._definition.types import AxisBinding
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.population_preparation import (
     PreparedPopulation,
+    _identity_source,
     prepare_population,
 )
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -56,7 +59,18 @@ def prepare_member_fields(
         replace(read, at=read.at or axis.at) if read.entity.ref == axis.entity.ref else read
         for read in node.fields
     )
-    if contract.version is not None:
+    identity_node = (
+        node.operand.root
+        if isinstance(node.operand, PopulationProgram)
+        and isinstance(node.operand.root, SourceIdentities)
+        and node.operand.root.entity.ref == axis.entity.ref
+        and node.operand.root.at == axis.at
+        else None
+    )
+    direct_members = identity_node is not None
+    if identity_node is not None:
+        source, _, _ = _identity_source(identity_node, entities, state)
+    elif contract.version is not None:
         if axis.at is not None:
             source = prepare_version_filter(
                 source,
@@ -79,13 +93,26 @@ def prepare_member_fields(
                 "Session.read",
             )
     domain = _domain_table(identities)
-    source = source.semi_join(
-        domain,
-        [
-            source[key].identical_to(domain[slot])
-            for key, slot in zip(contract.primary_key, identities.key_groups[0], strict=True)
-        ],
-    )
+    provider = original._find_backend().name
+
+    def same_identity(left: ir.Value, right: ir.Value) -> ir.BooleanValue:
+        if left.type().is_string() and right.type().is_string():
+            left, right = string_bytes(left, provider), string_bytes(right, provider)
+        result = left == right
+        assert isinstance(result, ir.BooleanValue)
+        return result
+
+    # Complete Entity identities have non-null keys on every backend. Retained
+    # identity checks below still reject invalid null keys before cropping.
+    # Equality lets source planners join these keys without null-safe filters.
+    if not direct_members:
+        source = source.semi_join(
+            domain,
+            [
+                same_identity(source[key], domain[slot])
+                for key, slot in zip(contract.primary_key, identities.key_groups[0], strict=True)
+            ],
+        )
     contribution = ContributionBinding(
         (), EntityCount(axis.entity, None), axis.entity, (), None, fields, (), None, None
     )
@@ -108,26 +135,31 @@ def prepare_member_fields(
         },
         **{name: table[name] for name, _, _ in prepared_checks},
     )
-    if original._find_backend().name == "mysql":
-        # Keep MySQL from merging the scoped semijoin into the outer domain
-        # join, where unindexed identities otherwise become nested full scans.
-        # The complete classified output already has set semantics.
-        attributes = attributes.distinct()
-    joined = domain.left_join(
-        attributes,
-        [
-            domain[slot].identical_to(attributes[key])
-            for key, slot in zip(contract.primary_key, identities.key_groups[0], strict=True)
-        ],
+    # Exact members use their predicate-filtered source at the same anchor;
+    # reading their attributes needs no identity self-joins.
+    joined = (
+        attributes
+        if direct_members
+        else domain.left_join(
+            attributes,
+            [
+                same_identity(domain[slot], attributes[key])
+                for key, slot in zip(contract.primary_key, identities.key_groups[0], strict=True)
+            ],
+        )
     )
     values: dict[str, ir.Value] = {}
     field_index = 0
+    retains_identity = False
     for output_axis, group in zip(definition.axes, groups, strict=True):
         assert isinstance(output_axis, AxisBinding)
         if output_axis.field is None:
+            retains_identity = True
             values.update(
-                (name, domain[slot])
-                for name, slot in zip(group, identities.key_groups[0], strict=True)
+                (name, attributes[key] if direct_members else domain[slot])
+                for name, key, slot in zip(
+                    group, contract.primary_key, identities.key_groups[0], strict=True
+                )
             )
         else:
             values[group[0]] = attributes[field_names[field_index]]
@@ -149,7 +181,7 @@ def prepare_member_fields(
             output.mutate(**{presence: ibis.literal(True)}), ibis.literal(True)
         )
     return PreparedPopulation(
-        output.distinct(),
+        output if retains_identity else output.distinct(),
         groups,
         (
             *identities.checks,
@@ -172,7 +204,17 @@ def prepare_relationship_population(
     assert isinstance(axis, AxisBinding)
     contract = normalize_target_entity(state.registry, axis.entity.ref.path)
     source = entities[axis.entity.ref.path].view()
-    if contract.version is not None:
+    identity_node = (
+        node.operand.root
+        if isinstance(node.operand, PopulationProgram)
+        and isinstance(node.operand.root, SourceIdentities)
+        and node.operand.root.entity.ref == axis.entity.ref
+        and node.operand.root.at == axis.at
+        else None
+    )
+    if identity_node is not None:
+        source, _, _ = _identity_source(identity_node, entities, state)
+    elif contract.version is not None:
         if axis.at is None:
             reject(
                 "an exact source identity anchor",
@@ -190,13 +232,22 @@ def prepare_relationship_population(
         )
     # The receiver limits the relation before traversal; this never discovers
     # additional source identities outside the requested finite domain.
-    allocation = source.inner_join(
-        operand.table,
-        [
-            source[key] == operand.table[slot]
-            for key, slot in zip(contract.primary_key, operand.key_groups[0], strict=True)
-        ],
-    ).select(source, operand.table)
+    allocation = (
+        source.mutate(
+            **{
+                slot: source[key]
+                for key, slot in zip(contract.primary_key, operand.key_groups[0], strict=True)
+            }
+        )
+        if identity_node is not None
+        else source.inner_join(
+            operand.table,
+            [
+                source[key] == operand.table[slot]
+                for key, slot in zip(contract.primary_key, operand.key_groups[0], strict=True)
+            ],
+        ).select(source, operand.table)
+    )
     origin = operand.key_groups[0]
     current = {name: name for name in source.columns}
     result_columns: tuple[str, ...] = ()

@@ -13,6 +13,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.source_trace import capture_source
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -143,6 +144,30 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
         session.observe({"revenue": revenue}, where=mv.in_population(lines)).compute().to_pandas()
     )
     assert result[("value", "revenue")].tolist() == [100]
+
+
+def test_identity_membership_uses_equality_while_null_field_categories_still_match(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("UPDATE orders SET customer=NULL WHERE id=3")
+    entity = session.catalog.entities.get("sales.orders")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    selected = mv.coordinates(by=(mv.identity(entity), customer), keys=(((1,), 1), ((3,), None)))
+    trace = capture_source(monkeypatch)
+    result = (
+        session.observe(
+            {"value": session.catalog.metrics.get("sales.revenue")},
+            where=mv.in_population(selected),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert result[("value", "value")].tolist() == [110]
+    assert sum(sql.count("IS NOT DISTINCT FROM") for sql in trace.native_sql) == 1
 
 
 def test_per_completes_ratio_per_sample_and_retains_empty_samples(

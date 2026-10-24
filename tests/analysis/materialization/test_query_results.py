@@ -763,7 +763,7 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
         result = session.observe({"total": amount.sum()}, where=condition).compute().to_pandas()
         assert result[("value", "total")].tolist() == [expected]
         assert len(statements) == 2
-        assert "IS NOT DISTINCT FROM" in statements[-1]
+        assert "IS NOT DISTINCT FROM" not in statements[-1]
 
 
 @pytest.mark.parametrize(

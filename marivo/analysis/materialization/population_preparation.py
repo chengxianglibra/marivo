@@ -141,6 +141,60 @@ def _identity_condition(
     return binding.contributions[0]
 
 
+def _identity_source(
+    node: SourceIdentities,
+    entities: Mapping[str, ir.Table],
+    state: CompiledSemanticState,
+) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], ir.Table | None]:
+    """Prepare the exact selected source and its pre-filter check summary."""
+    source = entities[node.entity.ref.path].view()
+    contract = normalize_target_entity(state.registry, node.entity.ref.path)
+    if contract.version is not None:
+        if node.at is None:
+            reject(
+                "an exact identity version anchor",
+                node.entity.ref.path,
+                "Pass at=session.instant(...).",
+                "population.prepare",
+            )
+        selection = normalize_target_version_selection(
+            contract, boundary=node.at, interpretation="instant"
+        )
+        source = prepare_version_filter(source, contract.version, selection, state=state)
+    checks: tuple[tuple[str, str, str], ...] = ()
+    summary: ir.Table | None = None
+    if node.predicate is not None:
+        from marivo.analysis.compiler.predicate import lower_condition
+        from marivo.analysis.materialization.query_preparation import prepare_fields
+        from marivo.datasource.timezone import probe_engine_timezone
+
+        contribution = _identity_condition(node, state)
+        identity_fields = prepare_fields(
+            contribution,
+            entities,
+            state,
+            probe_engine_timezone(source._find_backend()),
+            root_table=source,
+        )
+        source = identity_fields.table
+        fields = {key: source[slot] for key, slot in identity_fields.columns}
+        lowered = lower_condition(contribution.intrinsic_conditions[0], fields)
+        if lowered.checks:
+            reject(
+                "a source identity predicate with completed data checks",
+                "strict arithmetic checks",
+                "Evaluate the checked quantity before selecting its identity domain.",
+                "population.prepare",
+            )
+        checks = identity_fields.checks
+        if checks:
+            summary = source.aggregate(
+                **{name: source[name].any().fill_null(False) for name, _, _ in checks}
+            )
+        source = source.filter(lowered.value)
+    return source, checks, summary
+
+
 def _field(read: FieldRead, table: ir.Table, state: CompiledSemanticState) -> ir.Value:
     body = state.sidecar.bodies.get(read.field.ref)
     if body is None:
@@ -375,59 +429,15 @@ def prepare_population(
 
         return prepare_relationship_population(definition, node, entities, state, key_groups)
     if isinstance(node, SourceIdentities):
-        source = entities[node.entity.ref.path].view()
-        contract = normalize_target_entity(state.registry, node.entity.ref.path)
-        if contract.version is not None:
-            if node.at is None:
-                reject(
-                    "an exact identity version anchor",
-                    node.entity.ref.path,
-                    "Pass at=session.instant(...).",
-                    "population.prepare",
-                )
-            selection = normalize_target_version_selection(
-                contract, boundary=node.at, interpretation="instant"
-            )
-            source = prepare_version_filter(source, contract.version, selection, state=state)
-        checks: tuple[tuple[str, str, str], ...] = ()
-        summary: ir.Table | None = None
-        if node.predicate is not None:
-            from marivo.analysis.materialization.query_preparation import prepare_fields
-            from marivo.datasource.timezone import probe_engine_timezone
-
-            contribution = _identity_condition(node, state)
-            identity_fields = prepare_fields(
-                contribution,
-                entities,
-                state,
-                probe_engine_timezone(source._find_backend()),
-                root_table=source,
-            )
-            source = identity_fields.table
-            from marivo.analysis.compiler.predicate import lower_condition
-
-            fields = {key: source[slot] for key, slot in identity_fields.columns}
-            lowered = lower_condition(contribution.intrinsic_conditions[0], fields)
-            if lowered.checks:
-                reject(
-                    "a source identity predicate with completed data checks",
-                    "strict arithmetic checks",
-                    "Evaluate the checked quantity before selecting its identity domain.",
-                    "population.prepare",
-                )
-            checks = identity_fields.checks
-            if checks:
-                summary = source.aggregate(
-                    **{name: source[name].any().fill_null(False) for name, _, _ in checks}
-                )
-            source = source.filter(lowered.value)
+        source, checks, summary = _identity_source(node, entities, state)
         keys = state.registry.entities[node.entity.ref.path].primary_key
         null_key = "__identity_null"
+        # The declared identity/version grain already makes this projection unique.
         output = source.select(
             **{slot: source[key] for slot, key in zip(columns, keys, strict=True)},
             **{null_key: ibis.or_(*(source[key].isnull() for key in keys))},
             **({name: source[name] for name, _, _ in checks} if summary is None else {}),
-        ).distinct()
+        )
         presence = None
         if summary is not None:
             presence = "__identity_selected"
