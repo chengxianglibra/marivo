@@ -150,7 +150,7 @@ make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_sess
 ```
 
 `make test` 默认精简输出，使用短 traceback，累计五项失败后停止，同时保留失败
-退出状态，默认使用 12 个 pytest-xdist worker。可用 `PYTEST_WORKERS=<count>` 覆盖；
+退出状态，默认使用 8 个 pytest-xdist worker。可用 `PYTEST_WORKERS=<count>` 覆盖；
 含 `::` 的单个测试节点仍串行执行。需要更多诊断时，仅对失败范围使用
 `.venv/bin/pytest` 并指定详细输出。
 日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整

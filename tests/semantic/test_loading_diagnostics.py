@@ -218,41 +218,58 @@ def test_orphan_bytecode_is_ignored_and_real_duplicates_still_fail(tmp_path: Pat
     assert {path: path.read_bytes() for path in caches} == before
 
 
-@pytest.mark.parametrize("surface", ["datasource", "semantic"])
-def test_real_import_recursion_retains_importlib_traceback(tmp_path: Path, surface: str) -> None:
-    directory = "datasources" if surface == "datasource" else "semantic/demo"
+def test_real_import_recursion_retains_importlib_traceback(tmp_path: Path) -> None:
+    datasource_root = tmp_path / "datasource"
+    semantic_root = tmp_path / "semantic"
+    directory = "datasources"
     _write(
-        tmp_path,
+        semantic_root,
         "semantic/demo/_domain.py",
         "import marivo.semantic as ms\nms.domain(name='demo', owner='tester')\n",
     )
     for index in range(100):
-        _write(tmp_path, f"{directory}/m{index:03}.py", f"from . import m{index + 1:03}\n")
+        _write(datasource_root, f"{directory}/m{index:03}.py", f"from . import m{index + 1:03}\n")
+        _write(
+            semantic_root,
+            f"semantic/demo/m{index:03}.py",
+            f"from . import m{index + 1:03}\n",
+        )
     code = """import json, sys
 from pathlib import Path
 from marivo.datasource.loader import load_datasources
 from marivo.semantic.loader import load_project
-root = Path(sys.argv[1]) / 'models'
+root = Path(sys.argv[1])
 sys.setrecursionlimit(150)
-result = load_datasources(root / 'datasources') if sys.argv[2] == 'datasource' else load_project(root / 'semantic')
-error = next(e for e in result.errors if e.exception_type == 'RecursionError')
-print(json.dumps({'traceback': error.traceback, 'repair': error.repair.action, 'hint': getattr(error, 'hint', None), 'rendered': str(error)}))
+results = {
+    'datasource': load_datasources(root / 'datasource' / 'models' / 'datasources'),
+    'semantic': load_project(root / 'semantic' / 'models' / 'semantic'),
+}
+diagnostics = {}
+for surface, result in results.items():
+    error = next(e for e in result.errors if e.exception_type == 'RecursionError')
+    diagnostics[surface] = {
+        'traceback': error.traceback,
+        'repair': getattr(error, 'repair', None).action if getattr(error, 'repair', None) else None,
+        'hint': getattr(error, 'hint', None),
+        'rendered': str(error),
+    }
+print(json.dumps(diagnostics))
 """
     result = subprocess.run(
-        [sys.executable, "-c", code, str(tmp_path), surface],
+        [sys.executable, "-c", code, str(tmp_path)],
         check=True,
         capture_output=True,
         text=True,
     )
-    diagnostic = json.loads(result.stdout)
-    assert "RecursionError" in diagnostic["traceback"]
-    assert "importlib" in diagnostic["traceback"]
-    assert diagnostic["traceback"].rstrip() in diagnostic["rendered"]
-    assert "syntax or runtime errors" not in diagnostic["rendered"]
-    if surface == "datasource":
-        assert "recursive calls or import chain" in diagnostic["repair"]
-    else:
-        assert "recursive calls or import chain" in diagnostic["hint"]
+    diagnostics = json.loads(result.stdout)
+    for surface in ("datasource", "semantic"):
+        diagnostic = diagnostics[surface]
+        assert "RecursionError" in diagnostic["traceback"]
+        assert "importlib" in diagnostic["traceback"]
+        assert diagnostic["traceback"].rstrip() in diagnostic["rendered"]
+        assert "syntax or runtime errors" not in diagnostic["rendered"]
+    assert "recursive calls or import chain" in diagnostics["datasource"]["repair"]
+    assert "recursive calls or import chain" in diagnostics["semantic"]["hint"]
 
 
 @pytest.mark.parametrize("surface", ["datasource", "semantic"])

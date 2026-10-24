@@ -246,20 +246,21 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
         by=(region,),
     ).compute()
     rows = result.to_pandas()
+    columns = _columns(result)
     assert rows.iloc[:, 0].tolist() == ["G1", "G2"]
     assert rows[("value", "detail.current.q")].tolist() == [value for _, value in native]
     assert rows[("value", "detail.baseline.q")].tolist() == [Decimal("0.00"), Decimal("0.00")]
     for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
         assert all(type(value) is Decimal for value in rows[("value", path)])
-        assert isinstance(_columns(result)[path].dtype, DecimalDataType)
-        assert _columns(result)[path].unit == "USD"
+        assert isinstance(columns[path].dtype, DecimalDataType)
+        assert columns[path].unit == "USD"
     assert rows[("value", "detail.absolute.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
     assert rows[("value", "contribution.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
     assert sum(rows[("value", "contribution.q")]) == root_change[0]
     assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
         [float(Fraction(4, 9)), float(Fraction(5, 9))]
     )
-    assert _columns(result)["contribution_share.q"].unit == "1"
+    assert columns["contribution_share.q"].unit == "1"
     _present(rows)
 
 

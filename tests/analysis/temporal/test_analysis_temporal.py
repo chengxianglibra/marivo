@@ -459,20 +459,31 @@ def test_fold_reaggregates_aligned_samples_before_time(
     assert calendar.scope is not None
     revenue = session.catalog.metrics.get("sales.revenue")
     members = session.members(session.catalog.entities.get("sales.customer"))
-    expected = {"first": [10, 0], "last": [0, 10], "mean": [5, 5], "min": [0, 0], "max": [10, 10]}
+    expected = {
+        "first": [10, 0],
+        "last": [0, 10],
+        "mean": [5, 5],
+        "min": [0, 0],
+        "max": [10, 10],
+    }
+    timestamp_samples = session.catalog.fields.get("sales.order.ordered_at")
+    daily_samples = mv.product(mv.coordinates(by=(), keys=((),)), calendar)
+    daily_revenue = revenue.per(daily_samples)
+    metrics = {
+        "first": revenue.per(timestamp_samples).first(),
+        "last": revenue.per(timestamp_samples).last(),
+        "mean": daily_revenue.mean(),
+        "min": daily_revenue.min(),
+        "max": daily_revenue.max(),
+    }
+    population = mv.product(calendar.scope, members)
+    assert isinstance(population, mv.Population)
+    observed = session.observe(metrics, by=population).compute().to_pandas()
     for kind, values in expected.items():
-        samples = (
-            session.catalog.fields.get("sales.order.ordered_at")
-            if kind in ("first", "last")
-            else mv.product(mv.coordinates(by=(), keys=((),)), calendar)
-        )
-        metric = getattr(revenue.per(samples), kind)()
-        population = mv.product(calendar.scope, members)
-        assert isinstance(population, mv.Population)
-        observed = session.observe({"value": metric}, by=population)
-        assert observed.compute().to_pandas()[("value", "value")].tolist() == values
-        overall = session.observe({"value": metric}, by=(calendar.scope,))
-        assert overall.compute().to_pandas()[("value", "value")].tolist() == [10]
+        assert observed[("value", kind)].tolist() == values
+    overall = session.observe(metrics, by=(calendar.scope,)).compute().to_pandas()
+    for kind in expected:
+        assert overall[("value", kind)].tolist() == [10]
     region = session.catalog.fields.get("sales.customer.region")
     regional_population = mv.product(calendar.scope, members.classify(by=(region,)))
     assert isinstance(regional_population, mv.Population)

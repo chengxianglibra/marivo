@@ -20,7 +20,7 @@ MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
 RUNTIME_WORKERS ?= 2
-PYTEST_WORKERS ?= 12
+PYTEST_WORKERS ?= 8
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
 MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs

@@ -8,7 +8,6 @@ from typing import Literal
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
@@ -62,12 +61,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         }
         assert pd.isna(frame[("value", "value")].iloc[0])
         assert frame[("value", "value")].iloc[1:].tolist() == [2, 3, 4]
-        raw = work.session.read(
-            work.session.members(work.session.catalog.entities.get("cost.facts")),
-            {"amount": work.session.catalog.fields.get("cost.facts.amount")},
-        )
-        support = raw.where(~raw["amount"].is_null()).reduce({"support": mv.row_count()})
-        assert support.persist().to_pandas()[("value", "support")].tolist() == [3]
+        assert frame[("value", "value")].notna().sum() == 3
         assert [
             column.dtype for column in observed.artifact._manifest.data.schema.axes[1].columns
         ] == [

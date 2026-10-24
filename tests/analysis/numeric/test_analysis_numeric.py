@@ -186,36 +186,57 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     decimal_amount = session.catalog.fields.get("sales.order.decimal_amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
     members = session.members(session.catalog.entities.get("sales.customer"))
-    for metric, expected, by_member in (
-        (amount.mean(time=time), 4.0, [2.0, 8.0]),
-        (amount.weighted_mean(weight=weight, time=time), 20.75 / 4, [2.375, 8.0]),
+    float_metrics = {
+        "mean": amount.mean(time=time),
+        "weighted_mean": amount.weighted_mean(weight=weight, time=time),
+    }
+    float_members = session.observe(float_metrics, by=members).compute().to_pandas()
+    float_overall = (
+        session.observe(float_metrics, where=mv.in_population(members)).compute().to_pandas()
+    )
+    for kind, expected, by_member in (
+        ("mean", 4.0, [2.0, 8.0]),
+        ("weighted_mean", 20.75 / 4, [2.375, 8.0]),
     ):
-        observed = session.observe({"value": metric}, by=members)
-        frame = observed.compute().to_pandas()[("value", "value")]
+        frame = float_members[("value", kind)]
         assert frame.iloc[:2].tolist() == by_member
         assert frame.iloc[2:].isna().all()
-        assert session.observe(
-            {"value": metric}, where=mv.in_population(members)
-        ).compute().to_pandas()[("value", "value")].tolist() == [expected]
-    for metric, decimal_expected in (
-        (decimal_amount.sum(time=time), "1000.75"),
-        (decimal_amount.min(time=time), "150.25"),
-        (decimal_amount.max(time=time), "450.25"),
-    ):
-        logical = session.observe(
-            {"value": metric},
-            by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
-        )
-        decimal_frame = logical.compute().to_pandas()
-        assert len(decimal_frame) == 4
-        assert session.observe(
-            {"value": metric},
-            by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+        assert float_overall[("value", kind)].tolist() == [expected]
+    decimal_metrics = {
+        "sum": decimal_amount.sum(time=time),
+        "min": decimal_amount.min(time=time),
+        "max": decimal_amount.max(time=time),
+    }
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    logical = session.observe(decimal_metrics, by=mv.product(scope, members))
+    decimal_frame = logical.compute().to_pandas()
+    decimal_overall = (
+        session.observe(
+            decimal_metrics,
+            by=(scope,),
             where=mv.in_population(members),
-        ).compute().to_pandas()[("value", "value")].tolist() == [Decimal(decimal_expected)]
-        assert logical.reduce({"rows": mv.row_count()}).compute().to_pandas()[
-            ("value", "rows")
-        ].tolist() == [4]
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert len(decimal_frame) == 4
+    for kind, decimal_expected, decimal_by_member in (
+        ("sum", "1000.75", ["600.50", "400.25", "0.00", "0.00"]),
+        ("min", "150.25", ["150.25", "400.25"]),
+        ("max", "450.25", ["450.25", "400.25"]),
+    ):
+        frame = decimal_frame[("value", kind)]
+        assert frame.iloc[: len(decimal_by_member)].tolist() == [
+            Decimal(value) for value in decimal_by_member
+        ]
+        assert frame.iloc[len(decimal_by_member) :].isna().all()
+        assert decimal_overall[("value", kind)].tolist() == [Decimal(decimal_expected)]
+        for value in (*frame.dropna(), *decimal_overall[("value", kind)]):
+            assert isinstance(value, Decimal)
+            assert value.as_tuple().exponent == -2
+    assert logical.reduce({"rows": mv.row_count()}).compute().to_pandas()[
+        ("value", "rows")
+    ].tolist() == [4]
 
 
 def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -> None:

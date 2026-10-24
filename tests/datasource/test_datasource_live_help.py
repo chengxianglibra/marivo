@@ -258,7 +258,6 @@ def test_live_help_performs_no_datasource_effects(
         "datasource.inspection",
         "datasource.boundary.semantic_authoring",
         "datasource.inspect",
-        md.SourceInspection,
         *(type(t) for t in datasource_runtime_targets),
     ):
         assert marivo.help(target) is None

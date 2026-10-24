@@ -262,12 +262,13 @@ def test_public_j2_selected_members_and_next_month_mean(
         chosen, on=((chosen.axes[1], case.session.catalog.entities.get("sales.customer")),)
     )
     observed = _observe(case, "2026-09-01", "2026-10-01", members=selected)
-    assert observed.reduce({"mean": observed["value"].mean()}).persist().to_pandas()[
-        ("value", "mean")
-    ].tolist() == [15]
-    assert observed.reduce({"value": observed["value"].sum()}).persist().to_pandas()[
-        ("value", "value")
-    ].tolist() == [30]
+    summary = (
+        observed.reduce({"mean": observed["value"].mean(), "value": observed["value"].sum()})
+        .persist()
+        .to_pandas()
+    )
+    assert summary[("value", "mean")].tolist() == [15]
+    assert summary[("value", "value")].tolist() == [30]
 
 
 def test_public_j3_ratio_rollup_uses_original_components(
@@ -321,7 +322,7 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
         frame[("value", "readings")], method="spearman"
     ) == pytest.approx(-0.4)
     assert frame[("value", "signal")].count() == 4
-    assert query.persist()._schema.values[0].unit == "kWh"
+    assert saved._schema.values[0].unit == "kWh"
 
 
 def test_public_wrong_relationship_rejects_before_execution(

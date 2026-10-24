@@ -79,38 +79,39 @@ def _save(
 ) -> None:
     sql = measurements[0]["native_sql"]
     assert isinstance(sql, list) and all(isinstance(item, str) for item in sql)
+    destination = os.environ.get("MARIVO_SOURCE_COST_DIR")
+    if not destination:
+        return
     with duckdb.connect(str(database)) as db:
         plans = [
             db.execute("EXPLAIN ANALYZE " + item).fetchall()[0][1]
             for item in sql
             if "_marivo_keys_" not in item
         ]
-    destination = os.environ.get("MARIVO_SOURCE_COST_DIR")
-    if destination:
-        path = Path(destination)
-        path.mkdir(parents=True, exist_ok=True)
-        (path / f"{name}-{facts}.json").write_text(
-            json.dumps(
-                {
-                    "scenario": name,
-                    "facts": facts,
-                    "repetitions_per_route": len(measurements),
-                    "environment": {
-                        "python": platform.python_version(),
-                        "platform": platform.platform(),
-                        "duckdb": duckdb.__version__,
-                        "ibis": ibis.__version__,
-                        "pandas": pd.__version__,
-                    },
-                    "explain_analyze": plans,
-                    "explain_scope": "Only source SQL independent of invocation-local key relations can be replayed after cleanup.",
-                    "measurements": measurements,
-                    "boundary": "Actual explicit local source and Frame evaluations followed by publication without replay. EXPLAIN is a separate diagnostic read. Byte counts are in-memory, RSS is process lifetime peak; no latency or provider-wide qualification claim.",
+    path = Path(destination)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"{name}-{facts}.json").write_text(
+        json.dumps(
+            {
+                "scenario": name,
+                "facts": facts,
+                "repetitions_per_route": len(measurements),
+                "environment": {
+                    "python": platform.python_version(),
+                    "platform": platform.platform(),
+                    "duckdb": duckdb.__version__,
+                    "ibis": ibis.__version__,
+                    "pandas": pd.__version__,
                 },
-                indent=2,
-            )
-            + "\n"
+                "explain_analyze": plans,
+                "explain_scope": "Only source SQL independent of invocation-local key relations can be replayed after cleanup.",
+                "measurements": measurements,
+                "boundary": "Actual explicit local source and Frame evaluations followed by publication without replay. EXPLAIN is a separate diagnostic read. Byte counts are in-memory, RSS is process lifetime peak; no latency or provider-wide qualification claim.",
+            },
+            indent=2,
         )
+        + "\n"
+    )
 
 
 # Keep the 10k acceptance point in the daily gate; the 100k matrix exceeds its

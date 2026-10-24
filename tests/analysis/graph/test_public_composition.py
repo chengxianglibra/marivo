@@ -64,8 +64,8 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("tuple_union")
-    observed = _ratio(case, coordinates=(case.names.channel, case.names.status))
-    frame = observed.persist().to_pandas()
+    observed = _ratio(case, coordinates=(case.names.channel, case.names.status)).persist()
+    frame = observed.to_pandas()
     assert frame.set_index(list(ordinary_columns(frame)))[("value", "value")].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
         ("A", "web", "paid"): 40.0,

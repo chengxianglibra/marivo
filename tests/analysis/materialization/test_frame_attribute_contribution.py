@@ -121,38 +121,6 @@ def test_additive_exact_values_and_independent_role_reads(
     assert result[("value", "detail.absolute.q")].tolist() == [60, -20]
 
 
-@pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear"))
-def test_rule_families(session: Session, kind: str) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    if kind == "ratio":
-        metric = amount.sum() / weight.sum()
-    elif kind == "mean":
-        metric = amount.mean()
-    elif kind == "weighted":
-        metric = amount.weighted_mean(weight=weight)
-    else:
-        metric = amount.sum() - 2 * amount.sum()
-    result = (
-        _contribution(
-            session.observe({"q": metric}, where=phase == "current"),
-            session.observe({"q": metric}, where=phase == "base"),
-            by=(channel,),
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert result[("value", "contribution.q")].tolist() == (
-        [-60, 20] if kind == "linear" else [30, -10]
-    )
-    assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
-    if kind != "linear":
-        assert result[("value", "component.current.numerator.q")].tolist() == [160, 80]
-        assert result[("value", "component.current.denominator.q")].tolist() == [1, 1]
-
-
 def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute(
@@ -379,18 +347,18 @@ def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute(
-            "ALTER TABLE facts ALTER amount TYPE INTERVAL USING amount * INTERVAL '1 microsecond'"
-        )
-        connection.execute(
-            "UPDATE facts SET amount=CASE id WHEN 1 THEN INTERVAL '1 microsecond' WHEN 2 THEN INTERVAL '3 microsecond' WHEN 3 THEN INTERVAL '4 microsecond' ELSE INTERVAL '2 microsecond' END"
+            "ALTER TABLE facts ALTER amount TYPE INTERVAL USING CASE id "
+            "WHEN 1 THEN INTERVAL '1 microsecond' WHEN 2 THEN INTERVAL '3 microsecond' "
+            "WHEN 3 THEN INTERVAL '4 microsecond' ELSE INTERVAL '2 microsecond' END"
         )
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
+    metrics = {"sum": amount.sum(), "mean": amount.mean()}
     rows = (
         _contribution(
-            session.observe({"sum": amount.sum(), "mean": amount.mean()}, where=phase == "current"),
-            session.observe({"sum": amount.sum(), "mean": amount.mean()}, where=phase == "base"),
+            session.observe(metrics, where=phase == "current"),
+            session.observe(metrics, where=phase == "base"),
             by=(channel,),
         )
         .compute()
@@ -527,15 +495,9 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     parents = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
-    rows = (
-        _contribution(
-            session.observe({"q": amount.sum()}, by=parents, where=phase == "current"),
-            session.observe({"q": amount.sum()}, by=parents, where=phase == "base"),
-            by=(channel,),
-        )
-        .compute()
-        .to_pandas()
-    )
+    # Both phases have identical values; one endpoint retains the exact/empty-parent boundary.
+    endpoint = session.observe({"q": amount.sum()}, by=parents, where=phase == "current")
+    rows = _contribution(endpoint, endpoint, by=(channel,)).compute().to_pandas()
     assert rows[("value", "detail.current.q")].tolist() == [9007199254740993, 0]
     assert rows[("value", "contribution.q")].tolist() == [0, 0]
 
@@ -589,21 +551,34 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
         connection.execute(
             "INSERT INTO facts VALUES (5,'base','east','B',100,1),(6,'current','east','B',100,1)"
         )
+        connection.execute("UPDATE facts SET weight=3 WHERE id IN (5,6)")
     amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
+    metrics = {
+        "mean": amount.mean(),
+        "ratio": amount.sum() / weight.sum(),
+        "linear": amount.sum() - 2 * amount.sum(),
+    }
     rows = (
         _contribution(
-            session.observe({"q": amount.mean()}, where=phase == "current"),
-            session.observe({"q": amount.mean()}, where=phase == "base"),
+            session.observe(metrics, where=phase == "current"),
+            session.observe(metrics, where=phase == "base"),
             by=(channel,),
         )
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == pytest.approx([10 / 3, 0])
-    assert rows[("value", "detail.absolute.q")].tolist() == [10, 0]
-    assert rows[("value", "component.current.denominator.q")].tolist() == [1, 2]
+    assert rows[("value", "contribution.mean")].tolist() == pytest.approx([10 / 3, 0])
+    assert rows[("value", "detail.absolute.mean")].tolist() == [10, 0]
+    assert rows[("value", "component.current.denominator.mean")].tolist() == [1, 2]
+    assert rows[("value", "contribution.ratio")].tolist() == pytest.approx([2, 0])
+    assert rows[("value", "detail.absolute.ratio")].tolist() == [10, 0]
+    assert rows[("value", "component.current.numerator.ratio")].tolist() == [10, 200]
+    assert rows[("value", "component.current.denominator.ratio")].tolist() == [1, 4]
+    assert rows[("value", "contribution.linear")].tolist() == [-10, 0]
+    assert rows[("value", "contribution_share.linear")].tolist() == [1, 0]
 
 
 @pytest.mark.parametrize("kind", ("additive", "ratio_component", "linear"))
@@ -1050,58 +1025,62 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
     assert result[("value", "contribution_share.change")].tolist() == [1.5, -0.5]
 
 
-@pytest.mark.parametrize("kind", ("ratio", "mean", "weighted", "linear", "count"))
-def test_captured_rule_families(session: Session, kind: str) -> None:
+def test_captured_rule_families(session: Session) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
 
     amount = session.catalog.fields.get("sales.facts.amount")
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    if kind == "ratio":
-        metric = amount.sum() / weight.sum()
-    elif kind == "mean":
-        metric = amount.mean()
-    elif kind == "weighted":
-        metric = amount.weighted_mean(weight=weight)
-    elif kind == "count":
-        metric = amount.count()
-    else:
-        metric = amount.sum() - 2 * amount.sum()
-    current = session.observe({"q": metric}, where=phase == "current")
-    current_frame = current.compute()
-    baseline = session.observe({"q": metric}, where=phase == "base").compute()
+    metrics = {
+        "ratio": amount.sum() / weight.sum(),
+        "mean": amount.mean(),
+        "weighted": amount.weighted_mean(weight=weight),
+        "linear": amount.sum() - 2 * amount.sum(),
+        "count": amount.count(),
+    }
+    current_frame = session.observe(metrics, where=phase == "current").compute()
+    baseline = session.observe(metrics, where=phase == "base").compute()
     comparison = current_frame.compare(
         {"base": baseline},
         on={"base": tuple(zip(current_frame.axes, baseline.axes, strict=True))},
-    ).compute()
-    selected_by_mode = (
-        ("level", current_frame),
-        (
-            "absolute",
-            comparison.select({"q": comparison["base.absolute.q"]}).compute(),
-        ),
-        (
-            "relative",
-            comparison.select({"q": comparison["base.relative.q"]}).compute(),
-        ),
     )
-    for mode, selected in selected_by_mode:
-        expected: list[int | float]
-        if mode == "level":
-            expected = [-160, -80] if kind == "linear" else [1, 1] if kind == "count" else [80, 40]
-        else:
-            expected = [-60, 20] if kind == "linear" else [0, 0] if kind == "count" else [30, -10]
-            if mode == "relative":
-                expected = [
-                    value / (200 if kind == "linear" else 2 if kind == "count" else 100)
-                    for value in expected
-                ]
-        rows = attribute(selected, by=(channel,)).compute().to_pandas()
-        assert rows[("value", "contribution.q")].tolist() == expected
-        if mode == "level" and kind in ("ratio", "mean", "weighted"):
-            assert rows[("value", "detail.value.q")].tolist() == [160, 80]
-            assert rows[("value", "total.q")].tolist() == [120, 120]
+    # Captured level and comparison modes share immutable endpoints and one attribution pass.
+    selected_outputs = {f"level_{name}": comparison[name] for name in metrics}
+    selected_outputs.update(
+        {f"absolute_{name}": comparison[f"base.absolute.{name}"] for name in metrics}
+    )
+    selected_outputs.update(
+        {f"relative_{name}": comparison[f"base.relative.{name}"] for name in metrics}
+    )
+    selected = comparison.select(selected_outputs).compute()
+    rows = attribute(selected, by=(channel,)).compute().to_pandas()
+    for name in ("ratio", "mean", "weighted"):
+        assert rows[("value", f"contribution.level_{name}")].tolist() == [80, 40]
+        assert rows[("value", f"detail.value.level_{name}")].tolist() == [160, 80]
+        assert rows[("value", f"total.level_{name}")].tolist() == [120, 120]
+    assert rows[("value", "contribution.level_linear")].tolist() == [-160, -80]
+    assert rows[("value", "contribution.level_count")].tolist() == [1, 1]
+
+    expected_absolute = {
+        "ratio": [30, -10],
+        "mean": [30, -10],
+        "weighted": [30, -10],
+        "linear": [-60, 20],
+        "count": [0, 0],
+    }
+    relative_denominator = {
+        "ratio": 100,
+        "mean": 100,
+        "weighted": 100,
+        "linear": 200,
+        "count": 2,
+    }
+    for name, expected in expected_absolute.items():
+        assert rows[("value", f"contribution.absolute_{name}")].tolist() == expected
+        assert rows[("value", f"contribution.relative_{name}")].tolist() == [
+            value / relative_denominator[name] for value in expected
+        ]
 
 
 def test_captured_original_fine_formula_checks_survive_pruning(session: Session) -> None:

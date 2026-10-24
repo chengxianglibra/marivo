@@ -485,28 +485,6 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     assert calls == []
 
 
-def test_calendar_original_nullable_integer_stays_exact(session: Session, tmp_path: Path) -> None:
-    exact = 2**53 + 1
-    with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
-        connection.execute("UPDATE facts SET amount=? WHERE id=1", [exact])
-        connection.execute("UPDATE facts SET amount=? WHERE id=3", [exact - 60])
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
-    metric = amount.sum(time=day)
-    selected = _change(
-        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
-        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
-    )
-    rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert int(rows[("value", "detail.current.q")].iloc[0]) == exact
-    assert int(rows[("value", "detail.baseline.q")].iloc[0]) == exact - 60
-    assert rows[("value", "contribution.q")].tolist() == [60, -20]
-    assert str(rows[("value", "detail.current.q")].dtype) == "decimal128(38, 0)[pyarrow]"
-
-
 def test_calendar_pre_predicate_check_keeps_real_failure_scope(
     session: Session, tmp_path: Path
 ) -> None:
@@ -676,12 +654,10 @@ def test_paired_source_failure_retains_original_full_parent(
         assert len(context.witness.groups) == 2
 
 
-@pytest.mark.parametrize("wide_role", ("numerator", "denominator"))
 def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     session: Session,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    wide_role: str,
 ) -> None:
     from decimal import Decimal
     from fractions import Fraction
@@ -695,45 +671,62 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     from marivo.datasource.adapters import SourceSession
 
     x = 2**62
-    data: list[tuple[int, str, str, int | None, int]]
-    if wide_role == "numerator":
-        data = [(1, "base", "A", x, 1), (2, "base", "B", x, 1)]
-        data.extend([(3, "current", "A", x + 1024, 1), (4, "current", "B", x + 2048, 1)])
-        expected_sums = {"left": (2 * x + 3072, 2), "right": (2 * x, 2)}
-        expected_contributions = [float(Fraction(1024, 2)), float(Fraction(2048, 2))]
-        input_count = 2
-    else:
-        data = [(1, "base", "A", 0, x), (2, "base", "B", 0, x)]
-        data.extend([(3, "current", "A", 1, x), (4, "current", "B", 1, x)])
-        data.extend([(5, "current", "A", None, x), (6, "base", "A", None, x)])
-        expected_sums = {"left": (2 * x, 2 * x), "right": (0, 2 * x)}
-        expected_contributions = [float(Fraction(x, 2 * x))] * 2
-        input_count = 3
+    # Each parent independently crosses the native int64 sum boundary for one pair role.
+    data: list[tuple[int, str, str, str, int | None, int]] = [
+        (1, "base", "numerator", "A", x, 1),
+        (2, "base", "numerator", "B", x, 1),
+        (3, "current", "numerator", "A", x + 1024, 1),
+        (4, "current", "numerator", "B", x + 2048, 1),
+        (5, "base", "denominator", "A", 0, x),
+        (6, "base", "denominator", "B", 0, x),
+        (7, "current", "denominator", "A", 1, x),
+        (8, "current", "denominator", "B", 1, x),
+        (9, "current", "denominator", "A", None, x),
+        (10, "base", "denominator", "A", None, x),
+    ]
+    expected_sums = {
+        "numerator": {"left": (2 * x + 3072, 2), "right": (2 * x, 2)},
+        "denominator": {"left": (2 * x, 2 * x), "right": (0, 2 * x)},
+    }
+    expected_contributions = {
+        "numerator": [float(Fraction(1024, 2)), float(Fraction(2048, 2))],
+        "denominator": [float(Fraction(x, 2 * x))] * 2,
+    }
+    # Native floating finishes retain their admitted rounding at this integer boundary.
+    expected_parent_values = {
+        "numerator": (float(x + 1536), float(x), 2048.0),
+        "denominator": (1.0, 0.0, 1.0),
+    }
+    expected_details = {
+        "numerator": {
+            "detail.current.q": [float(x + 1024), float(x + 2048)],
+            "detail.baseline.q": [float(x)] * 2,
+            "detail.absolute.q": [1024.0, 2048.0],
+        },
+        "denominator": {
+            "detail.current.q": [1.0, 1.0],
+            "detail.baseline.q": [0.0, 0.0],
+            "detail.absolute.q": [1.0, 1.0],
+        },
+    }
+    input_counts = {"numerator": 2, "denominator": 3}
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
         connection.executemany(
-            "INSERT INTO facts(id,phase,channel,amount,weight) VALUES (?,?,?,?,?)", data
+            "INSERT INTO facts(id,phase,region,channel,amount,weight) VALUES (?,?,?,?,?,?)", data
         )
     amount = session.catalog.fields.get("sales.facts.amount")
     weight = session.catalog.fields.get("sales.facts.weight")
     phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.weighted_mean(weight=weight)
-    left = session.observe({"q": metric}, where=phase == "current")
-    right = session.observe({"q": metric}, where=phase == "base")
+    left = session.observe({"q": metric}, by=(region,), where=phase == "current")
+    right = session.observe({"q": metric}, by=(region,), where=phase == "base")
     # Retain both native parent values without reading the same endpoints again.
-    parent = left.compare({"base": right}).compute()
+    parent = left.compare({"base": right}, on={"base": ((left.axes[0], right.axes[0]),)}).compute()
     parent_rows = parent.to_pandas()
-    native_change = (
-        parent_rows[("value", "q")].iloc[0] - parent_rows[("value", "base.baseline.q")].iloc[0]
-    )
-    selected = parent.select({"q": parent["base.absolute.q"]}).compute()
-    fine_current = session.observe({"q": metric}, by=(channel,), where=phase == "current")
-    fine_baseline = session.observe({"q": metric}, by=(channel,), where=phase == "base")
-    fine_compared = fine_current.compare(
-        {"base": fine_baseline}, on={"base": ((fine_current.axes[0], fine_baseline.axes[0]),)}
-    )
-    ordinary = fine_compared.compute().to_pandas()
+    selected = parent.select({"q": parent["base.absolute.q"]})
     calls: list[object] = []
     execute_original = SourceSession.execute
 
@@ -759,34 +752,43 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     monkeypatch.setattr(execution, "read_stage", read)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(calls) == len(captured) == 4
-    assert rows.iloc[:, 0].tolist() == ["A", "B"]
-    for name, raw in (
-        ("detail.current.q", "q"),
-        ("detail.baseline.q", "base.baseline.q"),
-        ("detail.absolute.q", "base.absolute.q"),
-    ):
-        assert rows[("value", name)].tolist() == ordinary[("value", raw)].tolist()
+    assert sorted(parent_rows.iloc[:, 0]) == ["denominator", "numerator"]
+    assert sorted(rows.iloc[:, 0]) == ["denominator"] * 2 + ["numerator"] * 2
+    for wide_role, contributions in expected_contributions.items():
+        role_rows = rows.loc[rows.iloc[:, 0] == wide_role]
+        role_parent = parent_rows.loc[parent_rows.iloc[:, 0] == wide_role]
+        native_current, native_baseline, native_change = expected_parent_values[wide_role]
+        assert role_parent[("value", "q")].tolist() == [native_current]
+        assert role_parent[("value", "base.baseline.q")].tolist() == [native_baseline]
+        assert role_parent[("value", "base.absolute.q")].tolist() == [native_change]
+        assert role_rows.iloc[:, 1].tolist() == ["A", "B"]
+        for name, values in expected_details[wide_role].items():
+            assert role_rows[("value", name)].tolist() == values
+        assert role_rows[("value", "contribution.q")].tolist() == contributions
+        assert role_rows[("value", "contribution_share.q")].tolist() == [
+            value / native_change for value in contributions
+        ]
     assert rows[("presence", "detail.current.present.q")].all()
     assert rows[("presence", "detail.baseline.present.q")].all()
-    assert rows[("value", "contribution.q")].tolist() == expected_contributions
-    assert rows[("value", "contribution_share.q")].tolist() == [
-        value / native_change for value in expected_contributions
-    ]
-    for root in captured:
-        if root.layout.scope != "parent":
-            continue
+    parent_inputs = [root for root in captured if root.layout.scope == "parent"]
+    assert sorted(root.layout.leaves[0].use.endpoint for root in parent_inputs) == ["left", "right"]
+    for root in parent_inputs:
         (leaf,) = root.layout.leaves
-        numerator, denominator = expected_sums[leaf.use.endpoint]
+        (parent_key,) = root.layout.parent_keys
+        assert sorted(root.parent[parent_key]) == ["denominator", "numerator"]
         roles = dict(leaf.roles)
         assert roles["pair_product_sum"].dtype == DecimalDataType(38, 2)
         assert roles["pair_weight_sum"].dtype == DecimalDataType(38, 2)
         assert roles["pair_count"].dtype == ScalarDataType("int64")
         assert leaf.support.dtype == leaf.effective.dtype == ScalarDataType("int64")
-        assert root.parent[roles["pair_product_sum"].slot_id].tolist() == [Decimal(numerator)]
-        assert root.parent[roles["pair_weight_sum"].slot_id].tolist() == [Decimal(denominator)]
-        assert root.parent[roles["pair_count"].slot_id].tolist() == [2]
-        assert root.parent[leaf.support.slot_id].tolist() == [input_count]
-        assert root.parent[leaf.effective.slot_id].tolist() == [2]
+        for wide_role, sums in expected_sums.items():
+            numerator, denominator = sums[leaf.use.endpoint]
+            role_parent = root.parent.loc[root.parent[parent_key] == wide_role]
+            assert role_parent[roles["pair_product_sum"].slot_id].tolist() == [Decimal(numerator)]
+            assert role_parent[roles["pair_weight_sum"].slot_id].tolist() == [Decimal(denominator)]
+            assert role_parent[roles["pair_count"].slot_id].tolist() == [2]
+            assert role_parent[leaf.support.slot_id].tolist() == [input_counts[wide_role]]
+            assert role_parent[leaf.effective.slot_id].tolist() == [2]
         for role in ("pair_product_sum", "pair_weight_sum"):
             assert all(isinstance(value, Decimal) for value in root.fine[roles[role].slot_id])
     for side in ("left", "right"):
@@ -958,7 +960,16 @@ def test_captured_interval_parent_keeps_original_endpoint_scopes(
     assert rows[("value", "observed_total.q")].tolist() == rows[("value", "total.q")].tolist()
 
 
-def test_captured_selected_calendar_parent_uses_saved_comparison_map(session: Session) -> None:
+def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
+    session: Session, tmp_path: Path
+) -> None:
+    exact = 2**53 + 1
+    with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
+        # Select August 2 uniquely; its baseline must remain July 2 after Top.
+        connection.execute(
+            "UPDATE facts SET amount=CASE id WHEN 1 THEN 150 WHEN 5 THEN ? WHEN 11 THEN ? ELSE amount END",
+            [exact, exact - 60],
+        )
     amount = session.catalog.fields.get("sales.facts.amount")
     day = session.catalog.fields.get("sales.facts.day")
     phase = session.catalog.fields.get("sales.facts.phase")
@@ -976,9 +987,12 @@ def test_captured_selected_calendar_parent_uses_saved_comparison_map(session: Se
         on={"base": ((current.axes[0], baseline.axes[0]),)},
         match={"base": mv.ordinal()},
     )
-    selected = comparison.select({"q": comparison["base.absolute.q"]}).compute()
+    selected = comparison.select({"q": comparison["base.absolute.q"]})
     selected = selected.top(1, by=selected["q"]).compute()
     report = selected.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
+    assert int(rows[("value", "detail.current.q")].iloc[0]) == exact
+    assert int(rows[("value", "detail.baseline.q")].iloc[0]) == exact - 60
     assert rows[("value", "contribution.q")].tolist() == [60, -20]
     assert rows[("value", "total.q")].tolist() == [40, 40]
+    assert str(rows[("value", "detail.current.q")].dtype) == "decimal128(38, 0)[pyarrow]"

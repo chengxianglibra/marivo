@@ -1284,16 +1284,18 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
                 {"reference": right}, on={"reference": ((fixed.axes[0], right.axes[0]),)}
             )
         ).compute()
-        assert combined.to_pandas()[("coordinate", "axis.0")].tolist() == ["A", pd.NA]
-        pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined.to_pandas())
+        combined_rows = combined.to_pandas()
+        assert combined_rows[("coordinate", "axis.0")].tolist() == ["A", pd.NA]
+        pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined_rows)
     reduced = fixed.reduce(
         {"rows": row_count(), "total": fixed["amount"].sum()}, by=(fixed.axes[0],)
     ).compute()
-    assert reduced.to_pandas()[("coordinate", "axis.0")].tolist() == [pd.NA, "A"]
-    assert reduced.to_pandas()[("value", "rows")].tolist() == [1, 1]
-    assert reduced.to_pandas()[("value", "total")].tolist() == [10, 18014398509481986]
+    reduced_rows = reduced.to_pandas()
+    assert reduced_rows[("coordinate", "axis.0")].tolist() == [pd.NA, "A"]
+    assert reduced_rows[("value", "rows")].tolist() == [1, 1]
+    assert reduced_rows[("value", "total")].tolist() == [10, 18014398509481986]
     saved = reduced.persist()
-    pd.testing.assert_frame_equal(saved.to_pandas(), reduced.to_pandas())
+    pd.testing.assert_frame_equal(saved.to_pandas(), reduced_rows)
     script = """
 import sys
 from pathlib import Path

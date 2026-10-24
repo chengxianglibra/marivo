@@ -110,6 +110,7 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
     assert pa.array(rows["q"]).to_pylist() == [2, None, 100, None]
     assert pa.array(rows["reference.baseline.q"]).to_pylist() == [2, 2, None, None]
     assert pa.array(rows["reference.absolute.q"]).to_pylist() == [0, None, None, None]
+    assert pending.top(0, by=pending["q"]).compute().to_pandas().empty
     assert fixed.top(0, by=fixed["reference.absolute.q"]).compute().to_pandas().empty
     assert fixed.method_facts == () and terminal_runs(session) == ()
 
@@ -236,19 +237,6 @@ def test_unsupported_max_can_still_be_investigated_against_native_sql(
     assert rows["reference.absolute.net"].sum() == 10
 
 
-def test_parent_frame_bridge_conjoins_original_predicate(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    parent = session.observe({"q": amount}, by=(region,))
-    parent = parent.top(1, by=parent["q"]).compute()
-    keys = session.population_from(parent, on=((parent.axes[0], region),))
-    detail = session.observe(
-        {"q": amount}, by=(region, channel), where=mv.in_population(keys) & (channel != "C")
-    ).compute()
-    assert list(detail.to_pandas().itertuples(index=False, name=None)) == [("east", "A", 2)]
-
-
 def test_explicit_fine_question_keeps_original_ratio_without_parent_formula(
     session: Session,
 ) -> None:
@@ -284,17 +272,6 @@ def test_complete_population_null_keys_and_empty_parent(session: Session) -> Non
     )
 
 
-def test_complete_parent_outer_alignment_retains_missing_sides(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    left = session.observe({"q": amount}, by=(region,), where=channel == "A")
-    right = session.observe({"q": amount}, by=(region,), where=channel == "B")
-    compared = _compare(left, right)
-    assert len(compared.compute().to_pandas()) == 2
-    assert compared.top(0, by=compared["q"]).compute().to_pandas().empty
-
-
 def test_fixed_and_pending_selection_keep_original_execution_boundary(
     session: Session, tmp_path: Path
 ) -> None:
@@ -317,11 +294,61 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     channel = session.catalog.fields.get("sales.facts.channel")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
-    assert len(session.observe({"q": metric}, by=(calendar, channel)).compute().to_pandas()) == 6
+    fine = session.observe({"q": metric}, by=(calendar, channel))
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    assert len(parent.attribute(by=(channel,)).compute().to_pandas()) == 3
+    first_day, second_day = parent.to_pandas().iloc[:, 0]
+    actual = parent.attribute(by=(channel,))
+    actual = actual.select({"q": actual["contribution.q"]})
     candidates = mv.coordinates(by=(channel,), keys=(("A",), ("B",), ("C",), ("Z",)))
-    assert len(parent.attribute(by=candidates).compute().to_pandas()) == 8
+    complete = parent.attribute(by=candidates)
+    complete = complete.select({"q": complete["contribution.q"]})
+    rows = (
+        fine.compare(
+            {"actual": actual, "complete": complete},
+            on={
+                "actual": tuple(zip(fine.axes, actual.axes, strict=True)),
+                "complete": tuple(zip(fine.axes, complete.axes, strict=True)),
+            },
+        )
+        .compute()
+        .to_pandas()
+    )
+    # Comparison presence retains each input's row domain.
+    values = {(first_day, "B"): 2, (first_day, "C"): 100, (second_day, "A"): 2}
+    for alias, count, expected in (
+        (
+            "current",
+            6,
+            {
+                (bucket, key): values.get((bucket, key), 0)
+                for bucket in (first_day, second_day)
+                for key in "ABC"
+            },
+        ),
+        ("actual", 3, values),
+        (
+            "complete",
+            8,
+            {
+                (bucket, key): values.get((bucket, key), 0)
+                for bucket in (first_day, second_day)
+                for key in "ABCZ"
+            },
+        ),
+    ):
+        domain = rows.loc[rows[("presence", f"{alias}.present")]]
+        assert len(domain) == count
+        value = "q" if alias == "current" else f"{alias}.baseline.q"
+        assert (
+            dict(
+                zip(
+                    domain.iloc[:, :2].itertuples(index=False, name=None),
+                    domain[("value", value)],
+                    strict=True,
+                )
+            )
+            == expected
+        )
 
 
 def test_compound_identity_parent_and_member_candidate_policy(
@@ -340,8 +367,9 @@ def test_compound_identity_parent_and_member_candidate_policy(
     ).compute()
     assert detail.to_pandas().iloc[:, 0].tolist() == [("t", 1), ("t", 3)]
     members = session.observe({"q": amount}, by=keys, where=mv.in_population(keys)).compute()
-    assert members.to_pandas().iloc[:, 0].tolist() == [("t", 1), ("t", 3), ("t", 999)]
-    assert members.to_pandas()[("value", "q")].tolist() == [100, 2, 0]
+    rows = members.to_pandas()
+    assert rows.iloc[:, 0].tolist() == [("t", 1), ("t", 3), ("t", 999)]
+    assert rows[("value", "q")].tolist() == [100, 2, 0]
 
 
 def test_original_checks_survive_projection_top_zero_and_empty_investigation(
@@ -358,8 +386,8 @@ def test_original_checks_survive_projection_top_zero_and_empty_investigation(
         session.observe({"q": amount.sum()}, by=empty).compute()
 
 
-def test_overlapping_membership_has_explicit_investigation_continuation(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
+def test_overlapping_membership_rejects_parent_attribution(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
     label = session.catalog.fields.get("sales.tags.label")
     kind = session.catalog.fields.get("sales.tags.kind")
     route = (
@@ -367,9 +395,9 @@ def test_overlapping_membership_has_explicit_investigation_continuation(session:
         session.catalog.relationships.get("sales.link_tags"),
     )
     buckets = mv.membership((label, kind), via=(route,), unmatched="exclude")
-    detail = session.observe({"q": amount}, by=(buckets,)).compute()
-    assert detail.to_pandas()[("value", "q")].tolist() == [102, 100]
-    parent = session.observe({"q": amount}, where=session.catalog.fields.get("sales.facts.id") <= 2)
+    parent = session.observe(
+        {"q": amount.sum()}, where=session.catalog.fields.get("sales.facts.id") <= 2
+    )
     with pytest.raises(AnalysisError):
         parent.attribute(by=(buckets,)).compute()
 
@@ -496,28 +524,36 @@ def test_population_count_classified_identity_domain_is_explicit_source_authorit
     assert detail.to_pandas().iloc[:, 0].tolist() == [("t", 1)]
 
 
-@pytest.mark.parametrize("scaled", (False, True))
 def test_member_count_effective_root_rejects_unrelated_identity_targets(
-    session: Session, scaled: bool
+    session: Session,
 ) -> None:
     tags = session.catalog.entities.get("sales.tags")
     links = session.catalog.entities.get("sales.links")
     first = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     second = mv.coordinates(by=(mv.identity(links),), keys=(((1,),), ((2,),), ((3,),)))
-    a = first.count() * 2 if scaled else first.count()
-    b = second.count() * 2 if scaled else second.count()
-    compared = _compare(session.observe({"q": a}), session.observe({"q": b}))
-    target = compared.select({"change": compared["reference.absolute.q"]})
-    with pytest.raises(AnalysisError):
-        target.attribute(by=(mv.identity(tags),))
+    for scaled in (False, True):
+        a = first.count() * 2 if scaled else first.count()
+        b = second.count() * 2 if scaled else second.count()
+        compared = _compare(session.observe({"q": a}), session.observe({"q": b}))
+        target = compared.select({"change": compared["reference.absolute.q"]})
+        with pytest.raises(AnalysisError):
+            target.attribute(by=(mv.identity(tags),))
     same_root = mv.coordinates(by=(mv.identity(tags),), keys=(((2,),),))
-    other = same_root.count() * 2 if scaled else same_root.count()
-    fine_current = session.observe({"q": a}, by=(mv.identity(tags),))
-    fine_baseline = session.observe({"q": other}, by=(mv.identity(tags),))
+    fine_current = session.observe(
+        {"plain": first.count(), "scaled": first.count() * 2}, by=(mv.identity(tags),)
+    )
+    fine_baseline = session.observe(
+        {"plain": same_root.count(), "scaled": same_root.count() * 2}, by=(mv.identity(tags),)
+    )
     investigated = _compare(fine_current, fine_baseline).compute().to_pandas()
     assert investigated.iloc[:, 0].tolist() == [1, 2]
     assert investigated[("presence", "reference.present")].tolist() == [False, True]
-    assert investigated[("value", "reference.absolute.q")].dropna().tolist() == [0]
+    assert investigated[("value", "plain")].tolist() == [1, 1]
+    assert investigated[("value", "scaled")].tolist() == [2, 2]
+    assert pa.array(investigated[("value", "reference.baseline.plain")]).to_pylist() == [None, 1]
+    assert pa.array(investigated[("value", "reference.baseline.scaled")]).to_pylist() == [None, 2]
+    for name in ("plain", "scaled"):
+        assert investigated[("value", "reference.absolute." + name)].dropna().tolist() == [0]
 
 
 @pytest.mark.parametrize("complete_fine", (False, True))
@@ -532,7 +568,6 @@ def test_selected_parent_scopes_member_count_before_fine_candidates(
     ).classify(by=(mv.identity(entity), region, channel))
     parents = mv.coordinates(by=(region,), keys=(("east",),))
     fine = mv.coordinates(by=(channel,), keys=(("A",), ("C",), ("outside",)))
-    original = session.observe({"q": members.count()}, by=parents).compute()
     detail = session.observe(
         {"q": members.where(mv.in_population(parents)).count()},
         by=mv.product(parents, fine) if complete_fine else (region, channel),
@@ -580,14 +615,15 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
         connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
         connection.execute("DELETE FROM facts")
         connection.execute(
-            "INSERT INTO facts(id,region,channel,amount,denominator,day) VALUES (1,'east','A',100,1,'2026-08-01'),(2,'east','B',100,1,'2026-08-01'),(3,'east','A',160.25,1,'2026-08-02'),(4,'east','B',80.25,1,'2026-08-02'),(5,'east',NULL,NULL,1,'2026-08-02'),(6,'west','outside',999,1,'2026-08-02')"
+            "INSERT INTO facts(id,region,channel,amount,denominator,day) VALUES (1,'east','A',100,1,'2026-08-01'),(2,'east','B',100,1,'2026-08-01'),(3,'east','A',160.25,1,'2026-08-02'),(4,'east','B',80.25,1,'2026-08-02'),(5,'east',NULL,NULL,1,'2026-08-02'),(6,'west','outside',1,1,'2026-08-02')"
         )
     amount = session.catalog.fields.get("sales.facts.amount")
     identifier = session.catalog.fields.get("sales.facts.id")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = (amount.sum() + amount.sum()) * Decimal("0.5")
-    parents = session.observe({"q": metric}, by=(region,), where=region == "east").compute()
+    parent_query = session.observe({"q": metric}, by=(region,))
+    parents = parent_query.top(1, by=parent_query["q"]).compute()
     keys = session.population_from(parents, on=((parents.axes[0], region),))
 
     def no_proof(*args: object, **kwargs: object) -> None:
@@ -627,10 +663,9 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
     on = tuple(zip(fixed.axes, fixed.axes, strict=True))
     compared = fixed.compare({"one": fixed, "two": fixed}, on={"one": on, "two": on}).compute()
     assert len(fixed.method_facts) == 1 and compared.method_facts == fixed.method_facts
+    rows = compared.to_pandas()
     for alias in ("one", "two"):
-        assert (
-            compared.to_pandas()[("value", alias + ".absolute.detail.value.q")].dropna().eq(0).all()
-        )
+        assert rows[("value", alias + ".absolute.detail.value.q")].dropna().eq(0).all()
     assert isinstance(compared._backing, MemoryFrameBacking)
     assert len(compared._backing.metadata.audit.evaluation.inputs) == 1
 

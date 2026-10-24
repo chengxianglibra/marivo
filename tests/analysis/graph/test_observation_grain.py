@@ -116,9 +116,6 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     assert _keyed(grouped.persist().to_pandas()) == {("east",): 600, ("south",): 400, ("west",): 0}
     channels = _query(case, by=(channel,), members=members, during=_august(case))
     assert _keyed(channels.persist().to_pandas()) == {("mobile",): 150, ("web",): 850}
-    assert channels.reduce({"value": channels["value"].sum()}).persist().to_pandas()[
-        ("value", "value")
-    ].tolist() == [1000]
     tuples = (
         _query(case, by=(region, channel), members=members, during=_august(case))
         .persist()

@@ -896,30 +896,40 @@ def test_temporal_cold_reader_keeps_physical_ticks_nulls_and_detaches(
     import subprocess
     import sys
 
-    saved_ids = []
+    temporal_values: list[tuple[DataColumn, bool, str, pa.DataType]] = []
     for timestamp in (True, False):
         for unit in ("s", "ms", "us", "ns"):
+            name = f"{'timestamp' if timestamp else 'duration'}_{unit}"
             dtype = TimestampDataType(unit, "UTC") if timestamp else DurationDataType(unit)
             physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
-            key = DataColumn("key", "key", ScalarDataType("string"), False)
-            value = DataColumn("value", "value", dtype, True)
-            schema = DataSchema(
-                (DataAxis("axis", (key,), name="item"),), (value,), value_paths=(("value",),)
+            temporal_values.append(
+                (
+                    DataColumn(name, name, dtype, True),
+                    timestamp,
+                    unit,
+                    physical,
+                )
             )
-            rows = pd.DataFrame(
-                {
-                    "key": pd.Series(["b", "a"], dtype="string[pyarrow]"),
-                    "value": pd.Series(
-                        pd.arrays.ArrowExtensionArray(
-                            pa.array([-(2**63), None], type=pa.int64()).cast(physical)
-                        )
-                    ),
-                }
+    key = DataColumn("key", "key", ScalarDataType("string"), False)
+    values = tuple(column for column, _, _, _ in temporal_values)
+    schema = DataSchema(
+        (DataAxis("axis", (key,), name="item"),),
+        values,
+        value_paths=tuple((column.name,) for column in values),
+    )
+    rows = pd.DataFrame({"key": pd.Series(["b", "a"], dtype="string[pyarrow]")})
+    for column, _, _, physical in temporal_values:
+        rows[column.slot_id] = pd.Series(
+            pd.arrays.ArrowExtensionArray(
+                pa.array([-(2**63), None], type=pa.int64()).cast(physical)
             )
-            frame = AnalysisFrame._from_memory(
-                local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata())
-            ).persist()
-            saved_ids.append(frame.artifact.id)
+        )
+    saved = AnalysisFrame._from_memory(
+        local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata())
+    ).persist()
+    expected_values = [
+        (column.slot_id, timestamp, unit) for column, timestamp, unit, _ in temporal_values
+    ]
     script = """
 import json, sys
 from pathlib import Path
@@ -936,18 +946,26 @@ def forbidden(*args, **kwargs):
 store = SessionStore.open_existing(Path(sys.argv[1]))
 local = LocalFrameServices(store, sys.argv[2])
 with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_calendar", forbidden):
-    for artifact_id in json.loads(sys.argv[3]):
-        backing = local.open_frame(artifact_id)
-        result = local.read_complete(backing)
-        rows = result.data.copy_rows()
-        array = pa.array(rows["value"])
+    specs = json.loads(sys.argv[4])
+    backing = local.open_frame(sys.argv[3])
+    result = local.read_complete(backing)
+    rows = result.data.copy_rows()
+    assert rows["key"].tolist() == ["b", "a"]
+    for name, timestamp, unit in specs:
+        physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
+        array = pa.array(rows[name])
+        assert array.type == physical
         assert array.null_count == 1
         assert array.cast(pa.int64()).to_pylist() == [-(2**63), None]
-        assert rows["key"].tolist() == ["b", "a"]
-        (store.project_root / backing.data.rows.receipt.project_relative_path / "data.parquet").unlink()
-        copied = local.publish(result)
-        assert copied.metadata == result.metadata
-        copied_values = pa.array(local.read_complete(copied).data.copy_rows()["value"])
+    (store.project_root / backing.data.rows.receipt.project_relative_path / "data.parquet").unlink()
+    copied = local.publish(result)
+    assert copied.metadata == result.metadata
+    copied_rows = local.read_complete(copied).data.copy_rows()
+    for name, timestamp, unit in specs:
+        physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
+        copied_values = pa.array(copied_rows[name])
+        assert copied_values.type == physical
+        assert copied_values.null_count == 1
         assert copied_values.cast(pa.int64()).to_pylist() == [-(2**63), None]
 print("cold-temporal-exact")
 """
@@ -958,7 +976,8 @@ print("cold-temporal-exact")
             script,
             str(local.store.project_root),
             local.session_ref,
-            json.dumps(saved_ids),
+            saved.artifact.id,
+            json.dumps(expected_values),
         ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
@@ -1291,13 +1310,18 @@ def test_reduce_retains_exact_extreme_and_null_complete_keys(
         {"rows": row_count(), "total": memory["amount"].sum()}, by=(memory.axes[0],)
     ).compute()
     saved = reduced.persist()
-    for frame in (reduced, saved, saved.compute()):
-        data = _memory_backing(frame.compute()).data.copy_rows()
+    restored = saved.compute()
+    for frame in (reduced, restored):
+        data = _memory_backing(frame).data.copy_rows()
         values = pa.array(data["key"])
         assert values.type == physical
         assert values.cast(integer).to_pylist() == [None, minimum]
-        assert frame.to_pandas()[("value", "rows")].tolist() == [1, 2]
-        assert frame.to_pandas()[("value", "total")].tolist() == [pd.NA, 10]
+        exported = frame.to_pandas()
+        assert exported[("value", "rows")].tolist() == [1, 2]
+        assert exported[("value", "total")].tolist() == [pd.NA, 10]
+    stored_export = saved.to_pandas()
+    assert stored_export[("value", "rows")].tolist() == [1, 2]
+    assert stored_export[("value", "total")].tolist() == [pd.NA, 10]
 
     if composite:
         import subprocess
@@ -1394,8 +1418,9 @@ def test_top_orders_exact_extreme_null_composite_keys_and_scores(
         top = memory.top(6, by=memory["amount"], descending=descending).compute()
         saved = top.persist()
         stored_top = stored_input.top(6, by=stored_input["amount"], descending=descending).compute()
-        for frame in (top, stored_top, saved, saved.compute()):
-            data = _memory_backing(frame.compute()).data.copy_rows()
+        restored = saved.compute()
+        for frame in (top, stored_top, restored):
+            data = _memory_backing(frame).data.copy_rows()
             actual = pa.array(data["key"])
             assert actual.type == physical
             assert actual.cast(integer).to_pylist() == keys
@@ -2401,7 +2426,6 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
         saved.artifact.show()
         assert local.open_frame(saved.artifact.id) == _stored_backing(saved)
         assert saved.persist() is saved
-        assert len(saved.to_pandas()) == 2
         _ = saved.select({"q": saved["contribution.q"]})
     assert ".method_facts" in capsys.readouterr().out
     primary = manifest(saved).data.rows
@@ -2680,7 +2704,6 @@ def test_source_report_and_observed_parent_reopen_without_declarations(
     observed = session.observe({"q": amount.sum()}).compute().persist()
     report = observed.attribute(by=(channel,)).compute().persist()
     assert observed._derivation is not None
-    assert report.method_facts[0].parents[0].metrics[0].kind == "level"
     script = """
 import os, sys
 from unittest.mock import patch

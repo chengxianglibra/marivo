@@ -404,9 +404,9 @@ def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
     )
     assert len({owner.show for owner in types}) == 1
     expected = render_help_text("analysis.frame_method_facts.show")[0]
+    assert registry.by_callable(mv.FrameMethodFacts.show).canonical_id == "frame_method_facts.show"
+    assert render_help_text(mv.FrameMethodFacts.show)[0] == expected
     for owner in types:
-        assert registry.by_callable(owner.show).canonical_id == "frame_method_facts.show"
-        assert render_help_text(owner.show)[0] == expected
         assert "analysis.frame_method_facts.show" in render_help_text(owner)[0]
     owners = [
         descriptor

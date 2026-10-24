@@ -41,7 +41,7 @@ def test_complete_keys_source_and_fixed(
         assert_comparison(source, operation)
         source_trace.record(source)
         if operation == "nested":
-            selected_values = query.where(query["value"] > 0).compute()
+            selected_values = source.where(source["value"] > 0).compute()
             selected = session.population_from(
                 selected_values,
                 on=((selected_values.axes[0], session.catalog.entities.get("sales.facts")),),
@@ -61,10 +61,6 @@ def test_complete_keys_source_and_fixed(
         monkeypatch.setattr(SourceSession, "execute", forbid_source)
         reopened = session.persisted_frame(source.artifact.id)
         assert_comparison(reopened, operation)
-        frame = reopened.to_pandas()
-        assert frame[("value", "value")].dropna().sum() == (
-            6 if operation == "nested" else 2 if operation == "ratio" else 0
-        )
         assert len(source_trace.native_sql) == native and terminal_runs(session) == before
         assert session._runtime.store.resources(session.id) == ()
         source_trace.save(

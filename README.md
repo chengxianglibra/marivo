@@ -206,7 +206,7 @@ owned by the change. `make format` formats the whole checkout.
 `make test` runs the daily local regression suite, including slow-marked cases
 unless they are also marked `release`. Measured high-cost subprocess, CPU-bound,
 typing, and query/recovery cases keep their assertions in `make release-check`;
-the daily runtime target is under three minutes. The Make target defaults to 12
+the daily runtime target is under three minutes. The Make target defaults to 8
 pytest-xdist workers; use `PYTEST_WORKERS=<count> make test` to override. A single
 selected node runs serially. Output is compact, tracebacks are short, and the run
 stops after five failures. Runtime and release cases use separate entrypoints.

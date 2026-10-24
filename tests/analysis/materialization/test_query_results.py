@@ -583,6 +583,7 @@ def test_frame_population_transport_keeps_consumer_expression_bounded(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import ibis.expr.operations as ops
+    import ibis.expr.types as ir
 
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
@@ -593,38 +594,47 @@ def test_frame_population_transport_keeps_consumer_expression_bounded(
     selected = _population(session, producer.where(producer["total"] > 0), region)
     consumer = session.observe({"total": amount.sum()}, where=mv.in_population(selected))
     statements: list[tuple[str, int]] = []
+    keys: list[pa.Table] = []
     original = SourceSession.execute
+    original_bind = SourceSession._bind_key_relation
 
     def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         statements.append((read.sql, len(read.expression.op().find(ops.Node))))
         return original(owner, read)
 
+    def bind(owner: SourceSession, data: pa.Table) -> ir.Table:
+        keys.append(data)
+        return original_bind(owner, data)
+
     monkeypatch.setattr(SourceSession, "execute", record)
-    sizes = []
-    for count in (1_000, 10_000):
-        with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
-            connection.execute("DELETE FROM orders")
-            connection.execute(
-                "INSERT INTO orders SELECT i, 'region_' || i, 1, 'Web' FROM range(?) AS rows(i)",
-                [count],
-            )
-        statements.clear()
-        result = consumer.compute().to_pandas()
-        assert result[("value", "total")].tolist() == [count]
-        assert len(statements) == 2
-        sql, nodes = statements[-1]
-        assert "region_0" not in sql
-        assert "UNION" not in sql
-        assert "_marivo_keys_" in sql
-        sizes.append((len(sql), nodes))
-    assert abs(sizes[1][0] - sizes[0][0]) <= 128
-    assert sizes[1][1] == sizes[0][1]
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
+    count = 10_000
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders SELECT i, 'region_' || i, 1, 'Web' FROM range(?) AS rows(i)",
+            [count],
+        )
+    result = consumer.compute().to_pandas()
+    assert result[("value", "total")].tolist() == [count]
+    assert len(keys) == 1 and keys[0].num_rows == count
+    assert set(keys[0].column(0).to_pylist()) == {f"region_{i}" for i in range(count)}
+    assert len(statements) == 2
+    sql, nodes = statements[-1]
+    assert "region_0" not in sql
+    assert "UNION" not in sql
+    assert "_marivo_keys_" in sql
+    # Generous fixed budgets reject per-key SQL/expression expansion at 10k
+    # without evaluating the same producer/consumer again at a smaller size.
+    assert len(sql) <= 5_000
+    assert nodes <= 100
 
 
 def test_source_read_frame_bridge_uses_bounded_key_transport(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import ibis.expr.operations as ops
+    import ibis.expr.types as ir
 
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
@@ -640,36 +650,43 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
     )
     consumer = session.observe({"total": amount.sum()}, where=mv.in_population(selected))
     statements: list[tuple[str, int]] = []
+    keys: list[pa.Table] = []
     original = SourceSession.execute
+    original_bind = SourceSession._bind_key_relation
 
     def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         statements.append((read.sql, len(read.expression.op().find(ops.Node))))
         return original(owner, read)
 
+    def bind(owner: SourceSession, data: pa.Table) -> ir.Table:
+        keys.append(data)
+        return original_bind(owner, data)
+
     monkeypatch.setattr(SourceSession, "execute", record)
-    sizes = []
-    # Exact identities above 2**53 and bounded SQL shape are covered at both
-    # sizes; the 100k source query added routine cost without a new contract.
-    for count in (1_000, 10_000):
-        with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
-            connection.execute("DELETE FROM orders")
-            connection.execute(
-                "INSERT INTO orders SELECT 9007199254740993 + i, "
-                "CASE WHEN i % 2 = 0 THEN 'selected' ELSE 'other' END, 1, 'Web' "
-                "FROM range(?) AS rows(i)",
-                [count],
-            )
-        statements.clear()
-        result = consumer.compute().to_pandas()
-        assert result[("value", "total")].tolist() == [count // 2]
-        assert len(statements) == 2
-        sql, nodes = statements[-1]
-        assert "JOIN" in sql
-        assert "'selected'" not in sql
-        assert "_marivo_keys_" in sql
-        sizes.append((len(sql), nodes))
-    assert max(length for length, _ in sizes) - min(length for length, _ in sizes) <= 128
-    assert len({nodes for _, nodes in sizes}) == 1
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
+    count = 10_000
+    large = 2**53 + 1
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders SELECT ? + i, "
+            "CASE WHEN i % 2 = 0 THEN 'selected' ELSE 'other' END, i + 1, 'Web' "
+            "FROM range(?) AS rows(i)",
+            [large, count],
+        )
+    result = consumer.compute().to_pandas()
+    # The selected amounts are the first count // 2 odd positive integers.
+    assert result[("value", "total")].tolist() == [(count // 2) ** 2]
+    assert len(keys) == 1 and keys[0].num_rows == count // 2
+    assert set(keys[0].column(0).to_pylist()) == {large + i for i in range(0, count, 2)}
+    assert len(statements) == 2
+    sql, nodes = statements[-1]
+    assert "JOIN" in sql
+    assert "'selected'" not in sql
+    assert "_marivo_keys_" in sql
+    # The same fixed budgets retain the large-key boundary in one evaluation.
+    assert len(sql) <= 5_000
+    assert nodes <= 100
 
 
 def test_source_read_frame_bridge_preserves_complete_keys_and_complements(

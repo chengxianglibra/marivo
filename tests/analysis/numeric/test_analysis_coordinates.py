@@ -155,13 +155,16 @@ def test_explicit_classification_rollup_and_current_rows(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     observed = _observe(case, classified=True)
-    region = case.session.catalog.fields.get("sales.customer.region")
-    totals = _observe(case, grouped=True).compute().to_pandas()
-    assert _dict(totals) == {"east": 600, "south": 400, "west": 0}
-    counts = (
-        observed.reduce({"count": mv.row_count()}, by=(observed.axes[2],)).compute().to_pandas()
+    summary = (
+        observed.reduce(
+            {"sum": observed["value"].sum(), "count": mv.row_count()},
+            by=(observed.axes[2],),
+        )
+        .compute()
+        .to_pandas()
     )
-    assert _dict(counts, "count") == {"east": 2, "south": 1, "west": 1}
+    assert _dict(summary, "sum") == {"east": 600, "south": 400, "west": 0}
+    assert _dict(summary, "count") == {"east": 2, "south": 1, "west": 1}
 
 
 def test_selected_row_groups_preserve_count_mean_state(
@@ -252,15 +255,21 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
 
 @pytest.mark.slow
 def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(
-    retained_coordinates_case: DslCase,
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import os
     import subprocess
     import sys
 
-    case = retained_coordinates_case
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("DELETE FROM customer WHERE customer_id='D'")
+        connection.execute(
+            """UPDATE "order" SET amount = CASE order_id
+                WHEN 'j1_a' THEN 120 WHEN 'j1_b' THEN 20 WHEN 'j1_c' THEN 7
+            END WHERE order_id IN ('j1_a', 'j1_b', 'j1_c')"""
+        )
     observed = _observe(case, classified=True)
-    region = case.session.catalog.fields.get("sales.customer.region")
     saved = observed.reduce(
         {"sum": observed["value"].sum(), "count": mv.row_count()}, by=(observed.axes[2],)
     ).persist()
@@ -284,6 +293,13 @@ DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 before = len(terminal_runs(session))
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
+axes = [axis for axis in frame.attrs['axes'] if axis['role'] != 'interval']
+assert len(axes) == 1
+coordinate = ('coordinate', axes[0]['token'])
+assert set(frame.columns) == {coordinate, ('value','sum'), ('value','count')}
+groups = frame[coordinate].tolist()
+assert dict(zip(groups, frame[('value','sum')], strict=True)) == {'east': 140, 'south': 7}
+assert dict(zip(groups, frame[('value','count')], strict=True)) == {'east': 2, 'south': 1}
 assert frame[('value','sum')].sum() / frame[('value','count')].sum() == 49
 assert len(terminal_runs(session)) == before
 """

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -18,14 +19,55 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.pandas_workflows import forecast, receipt_paths
 from tests.analysis.statistics.runs_worker import segments
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import terminal_runs
 from tests.support.json import encode
 from tests.support.paths import PROJECT_ROOT
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def coverage_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Seed the three keyed source rows consumed by the business-mask recipes."""
+    source = tmp_path / "source_files"
+    source.mkdir()
+    path = source / "order.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "order_id": ["a", "b", "c"],
+                "ordered_at": pa.array(
+                    [datetime(2026, 8, day, 12) for day in (1, 2, 3)],
+                    type=pa.timestamp("us"),
+                ),
+                "profile_0": [1, 2, 7],
+            }
+        ),
+        path,
+    )
+    semantic = tmp_path / "models/semantic/sales"
+    semantic.mkdir(parents=True)
+    datasources = tmp_path / "models/datasources"
+    datasources.mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "business-coverage"\n')
+    (datasources / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    )
+    (semantic / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"
+    )
+    (semantic / "models.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        f"orders = ms.entity(name='order', datasource=ms.ref.datasource('warehouse'), source=md.parquet({str(path)!r}), primary_key=['order_id'])\n"
+        "ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at', parse=ms.timestamp())\n"
+        "profile_0 = ms.measure_column(name='profile_0', entity=orders, column='profile_0', additivity=ms.additive_all(), unit='CNY')\n"
+        "@ms.metric()\ndef total_0():\n    return profile_0.sum(time=ordered_at)\n"
+    )
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    return tmp_path
 
 
 def _query(session: mv.Session) -> mv.AnalysisFrame:
@@ -60,13 +102,10 @@ def _mask(frame: pd.DataFrame) -> pd.DataFrame:
 
 @pytest.mark.slow
 def test_public_full_grid_unknown(
-    analysis_dsl_case_factory: DslCaseFactory,
+    coverage_project: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
-    ms.load(workspace_dir=case.root)
     session = mv.session.create("business-coverage", timezone="UTC")
     artifact = _query(session).persist()
     raw = artifact.to_pandas()
@@ -100,7 +139,7 @@ def test_public_full_grid_unknown(
         forecast(frame[("value", "value")])
     assert len(forecast(raw[("value", "value")])) == 2
     assert len(terminal_runs(session)) == before
-    for path in receipt_paths(case.root, artifact):
+    for path in receipt_paths(coverage_project, artifact):
         contents = path.read_bytes()
         try:
             path.write_bytes(b"invalid calendar output")
@@ -108,18 +147,18 @@ def test_public_full_grid_unknown(
                 artifact.to_pandas()
         finally:
             path.write_bytes(contents)
-    (case.root / "business-mask.json").write_bytes(
+    (coverage_project / "business-mask.json").write_bytes(
         encode(
             {
                 "session": session.id,
                 "artifact": artifact.artifact.id,
-                "snapshot": snapshot(artifact),
+                "snapshot": snapshot(artifact, frame=raw),
             }
         )
     )
-    for path in (case.root / "source_files").glob("*.parquet"):
+    for path in (coverage_project / "source_files").glob("*.parquet"):
         path.rename(path.with_suffix(".offline"))
-    shutil.rmtree(case.root / "models")
+    shutil.rmtree(coverage_project / "models")
     script = """
 import json
 from pathlib import Path
@@ -142,15 +181,16 @@ state = json.loads(Path('business-mask.json').read_text())
 session = mv.session.resume(state['session'])
 before = len(terminal_runs(session))
 output = session.persisted_frame(state['artifact'])
-assert snapshot(output) == state['snapshot']
-masked = _mask(output.to_pandas())
+rows = output.to_pandas()
+assert snapshot(output, frame=rows) == state['snapshot']
+masked = _mask(rows)
 assert masked[('value','value')].isna().sum() == 3
 assert segments(masked, threshold=-1)['count'].tolist() == [1]*6
 assert len(terminal_runs(session)) == before
 """
     cold = subprocess.run(
         [sys.executable, "-c", script],
-        cwd=case.root,
+        cwd=coverage_project,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
@@ -160,25 +200,24 @@ assert len(terminal_runs(session)) == before
 
 
 def test_public_duration_business_coverage(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+    coverage_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
-    path = case.root / "source_files/order.parquet"
+    path = coverage_project / "source_files/order.parquet"
     table = pq.read_table(path)
     index = table.schema.get_field_index("profile_0")
     pq.write_table(
         table.set_column(index, "profile_0", table["profile_0"].cast(pa.duration("us"))), path
     )
-    ms.load(workspace_dir=case.root)
+    ms.load(workspace_dir=coverage_project)
     session = mv.session.create("duration-business-coverage", timezone="UTC")
     query = _query(session)
     original = query.persist()
     ratio = query.select({"value": query["value"] / query["value"]}).persist()
-    original_values = original.to_pandas()[("value", "value")]
+    original_rows = original.to_pandas()
+    original_values = original_rows[("value", "value")]
     dtype = original_values.dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("us")
-    assert _mask(original.to_pandas())[("value", "value")].isna().sum() == 3
+    assert _mask(original_rows)[("value", "value")].isna().sum() == 3
     before = len(terminal_runs(session))
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -192,11 +231,9 @@ def test_public_duration_business_coverage(
 
 
 def test_business_coverage_source_selection_keeps_original_support(
-    analysis_dsl_case_factory: DslCaseFactory,
+    coverage_project: Path,
 ) -> None:
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
-    ms.load(workspace_dir=case.root)
+    ms.load(workspace_dir=coverage_project)
     session = mv.session.create("business-coverage-selection", timezone="UTC")
     original = _query(session).persist()
     raw = original.to_pandas()

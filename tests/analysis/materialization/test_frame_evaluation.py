@@ -192,8 +192,14 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
         base = session.observe({"q": 2 * numerator.sum()}, by=(channel,))
         pending = current.compare({"base": base}, on={"base": ((current.axes[0], base.axes[0]),)})
     else:
-        current = session.observe({"q": numerator.sum()}, where=item <= 2)
-        base = session.observe({"q": numerator.sum()}, where=item >= 2)
+        observed = session.observe(
+            {
+                "current_q": numerator.sum().where(item <= 2),
+                "base_q": numerator.sum().where(item >= 2),
+            }
+        )
+        current = observed.select({"q": observed["current_q"]})
+        base = observed.select({"q": observed["base_q"]})
         compared = current.compare({"base": base}, on={"base": ()})
         target = compared.select({"q": compared["base.absolute.q"]})
         pending = target.attribute(by=(channel,))

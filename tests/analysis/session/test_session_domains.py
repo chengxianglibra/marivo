@@ -42,15 +42,15 @@ def test_scope_is_canonical_immutable_and_recovers_in_a_cold_process(
     assert as_ref(scoped.catalog.entities.get("sales.rows").ref).path == "sales.rows"
     with pytest.raises(ms.errors.SemanticRuntimeError):
         scoped.catalog.entities.get("finance.rows")
-    assert mv.session.resume(scoped.id).domains == ("sales",)
-    assert mv.session.resume(scoped.id).id == scoped.id
+    resumed = mv.session.resume(scoped.id)
+    assert resumed.domains == ("sales",)
+    assert resumed.id == scoped.id
     other = mv.session.create("other", domains=["sales", "finance", "sales"])
     assert other.domains == ("finance", "sales")
     with pytest.raises(SessionStateError, match="already exists"):
         mv.session.create("scoped", domains="finance")
     code = """import sys
 import marivo.analysis as mv
-import marivo.semantic as ms
 from tests.support.refs import as_ref
 session = mv.session.resume(sys.argv[1])
 assert session.domains == ('sales',)

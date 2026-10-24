@@ -25,7 +25,7 @@ from tests.support.json import Json, checked, encode
 def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    semantic_project_factory: Callable[[dict[str, str], bool], SemanticProject],
     version: Literal["snapshot", "validity"],
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -72,46 +72,45 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                 + "beginning=ms.time_dimension_column(name='beginning',entity=subjects,column='beginning')\n"
                 + "ending=ms.time_dimension_column(name='ending',entity=subjects,column='ending')\n"
                 + "amount=ms.measure_column(name='amount',entity=subjects,column='amount',additivity=ms.additive_all())\n",
-            }
+            },
+            False,  # Each real Session owns loading the semantic project.
         )
         sessions = [
             mv.session.create("r94-owner-left", timezone="UTC"),
             mv.session.create("r94-owner-right", timezone="UTC"),
         ]
         point = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        families = (
+            ("numeric", "amount"),
+            ("category", "tenant"),
+            ("boolean", "enabled"),
+            ("temporal", "beginning"),
+        )
         logical = []
         for owner in sessions:
             at = owner.instant(point)
             members = owner.members(owner.catalog.entities.get("sales.subjects"), at=at)
             logical.append(
-                tuple(
-                    owner.read(members, {"value": owner.catalog.fields.get(path).at(at)})
-                    for path in (
-                        "sales.subjects.amount",
-                        "sales.subjects.tenant",
-                        "sales.subjects.enabled",
-                        "sales.subjects.beginning",
-                    )
+                owner.read(
+                    members,
+                    {
+                        name: owner.catalog.fields.get("sales.subjects." + name).at(at)
+                        for _, name in families
+                    },
                 )
             )
-        fixed = [tuple(value.persist() for value in values) for values in logical]
-        frames = [[value.to_pandas() for value in values] for values in fixed]
-        for family_frames in frames:
-            assert all(
-                frame.iloc[:, 0].tolist() == [(9007199254740992, "a"), (9007199254740993, "b")]
-                for frame in family_frames
-            )
-            assert family_frames[0][("value", "value")].tolist() == [10, 20]
-            assert family_frames[1][("value", "value")].tolist() == ["a", "b"]
-            assert family_frames[2][("value", "value")].tolist() == [False, True]
-            assert family_frames[3][("value", "value")].tolist() == [date(2026, 8, 1)] * 2
-        saved = [
-            [
-                snapshot(value, frame=frame)
-                for value, frame in zip(values, family_frames, strict=True)
+        fixed = [value.persist() for value in logical]
+        frames = [value.to_pandas() for value in fixed]
+        for frame in frames:
+            assert frame.iloc[:, 0].tolist() == [
+                (9007199254740992, "a"),
+                (9007199254740993, "b"),
             ]
-            for values, family_frames in zip(fixed, frames, strict=True)
-        ]
+            assert frame[("value", "amount")].tolist() == [10, 20]
+            assert frame[("value", "tenant")].tolist() == ["a", "b"]
+            assert frame[("value", "enabled")].tolist() == [False, True]
+            assert frame[("value", "beginning")].tolist() == [date(2026, 8, 1)] * 2
+        saved = [snapshot(value, frame=frame) for value, frame in zip(fixed, frames, strict=True)]
         before = [run_ids(owner) for owner in sessions]
         published_before = [publication_counts(owner) for owner in sessions]
         calls: list[str] = []
@@ -128,32 +127,41 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
         monkeypatch.setattr(terminal_store, "admit", tripwire("terminal_store.admit"))
         errors: list[Json] = []
         for left, right in ((logical[0], logical[1]), (logical[1], logical[0])):
-            for family, value, foreign in zip(
-                ("numeric", "category", "boolean", "temporal"), left, right, strict=True
-            ):
-                for operation in ("predicate", "comparison"):
-                    with pytest.raises(AnalysisError) as caught:
-                        if operation == "predicate":
-                            value.where(~foreign["value"].is_null())
-                        else:
-                            value.compare({"reference": foreign})
-                    error = caught.value
-                    assert error.expected and error.received and error.repair is not None
-                    assert error.repair.action
-                    errors.append(
-                        {
-                            "operation": operation,
-                            "family": family,
-                            "type": type(error).__name__,
-                            "expected": error.expected,
-                            "received": error.received,
-                            "repair": error.repair.action,
-                        }
-                    )
-        assert len(errors) == 16 and calls == []
+            for family, name in families:
+                with pytest.raises(AnalysisError) as caught:
+                    left.where(~right[name].is_null())
+                error = caught.value
+                assert error.expected and error.received and error.repair is not None
+                assert error.repair.action
+                errors.append(
+                    {
+                        "operation": "predicate",
+                        "family": family,
+                        "type": type(error).__name__,
+                        "expected": error.expected,
+                        "received": error.received,
+                        "repair": error.repair.action,
+                    }
+                )
+            with pytest.raises(AnalysisError) as caught:
+                left.compare({"reference": right})
+            error = caught.value
+            assert error.expected and error.received and error.repair is not None
+            assert error.repair.action
+            errors.append(
+                {
+                    "operation": "comparison",
+                    "family": "all",
+                    "type": type(error).__name__,
+                    "expected": error.expected,
+                    "received": error.received,
+                    "repair": error.repair.action,
+                }
+            )
+        assert len(errors) == 10 and calls == []
         assert [run_ids(owner) for owner in sessions] == before
         assert [publication_counts(owner) for owner in sessions] == published_before
-        assert [[snapshot(value) for value in values] for values in fixed] == saved
+        assert [snapshot(value) for value in fixed] == saved
         assert all(owner._runtime.store.resources(owner.id) == () for owner in sessions)
         if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
             Path(directory, "versioned-ownership-" + version + ".json").write_bytes(

@@ -79,7 +79,7 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
         assert result.returncode == 0, result.stderr
         pytest_commands = [command for command in commands if command[0] == "pytest"]
         assert len(pytest_commands) == 1
-        assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "12"]
+        assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "8"]
         assert "-m" not in pytest_commands[0]
         mypy_command = next(command for command in commands if command[0] == "mypy")
         assert mypy_command[1:4] == [
@@ -110,7 +110,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 3
-    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "12"]
+    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "8"]
     assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
     assert pytest_commands[2] == [
         "pytest",
@@ -185,7 +185,7 @@ def test_default_test_runs_slow_cases_without_marker_narrowing(tmp_path: Path) -
 
 
 def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
-    for workers in (None, 8):
+    for workers in (None, 4):
         result, commands = _run_make(
             tmp_path / str(workers),
             "test",
@@ -200,7 +200,7 @@ def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
                 "--tb=short",
                 "--maxfail=5",
                 "-n",
-                str(12 if workers is None else workers),
+                str(8 if workers is None else workers),
                 "tests/focused.py",
             ]
         ]

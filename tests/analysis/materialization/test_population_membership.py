@@ -385,9 +385,9 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
         by=(mv.identity(entity),),
         keys=tuple(((key,),) for key in range(1, 2001)),
     )
-    frame = session.frame(literal).compute().to_pandas()
-    assert sorted(frame.iloc[:, 0].tolist()) == list(range(1, 2001))
     fixed = session.frame(literal).compute()
+    frame = fixed.to_pandas()
+    assert sorted(frame.iloc[:, 0].tolist()) == list(range(1, 2001))
     targets = session.population_from(fixed, on=((fixed.axes[0], entity),))
     path = (
         session.catalog.relationships.get("sales.order_links"),

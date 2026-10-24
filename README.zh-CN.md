@@ -158,7 +158,7 @@ make check
 
 `make test` 运行日常本地回归，包括标记为 `slow` 且未同时标记为 `release` 的用例。
 经测量较重的子进程、CPU 密集型、类型检查及查询/恢复用例保留原断言，由
-`make release-check` 执行；日常套件目标为三分钟以内。该 Make 目标默认使用 12 个
+`make release-check` 执行；日常套件目标为三分钟以内。该 Make 目标默认使用 8 个
 pytest-xdist worker，可通过 `PYTEST_WORKERS=<count> make test` 覆盖；指定单个测试节点时仍串行执行。
 输出精简、traceback 较短，累计五项失败后停止。Runtime 和 release 用例使用单独入口。
 `make check` 和 `make check-agent` 合并本地测试、静态检查和 API 文档检查。

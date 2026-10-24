@@ -376,19 +376,22 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         unmatched="exclude",
     )
     ratio, linear = line_revenue / revenue, line_revenue - revenue
-    for metric, expected in (
-        (ratio, {"book": 700 / 850, "game": 2.0}),
-        (linear, {"book": -150, "game": 150}),
-    ):
-        logical = session.observe({"value": metric}, by=(_window(session), buckets))
-        result = logical.persist()
-        exported = result.to_pandas()
-        frame = exported.set_index(ordinary_columns(exported)[0])
-        assert frame[("value", "value")].to_dict() == pytest.approx(expected)
-        assert set(frame.index) == {"book", "game"}
-        assert session.observe({"value": metric}, by=(_window(session),)).persist().to_pandas()[
-            ("value", "value")
-        ].tolist() == [1.0 if metric is ratio else 0]
+    grouped = session.observe(
+        {"ratio": ratio, "linear": linear}, by=(_window(session), buckets)
+    ).persist()
+    exported = grouped.to_pandas()
+    frame = exported.set_index(ordinary_columns(exported)[0])
+    assert set(frame.index) == {"book", "game"}
+    assert frame[("value", "ratio")].to_dict() == pytest.approx({"book": 700 / 850, "game": 2.0})
+    assert frame[("value", "linear")].to_dict() == pytest.approx({"book": -150, "game": 150})
+
+    overall = (
+        session.observe({"ratio": ratio, "linear": linear}, by=(_window(session),))
+        .persist()
+        .to_pandas()
+    )
+    assert overall[("value", "ratio")].tolist() == pytest.approx([1.0])
+    assert overall[("value", "linear")].tolist() == [0]
 
 
 def test_timed_classification_cannot_remove_consumed_contributions(

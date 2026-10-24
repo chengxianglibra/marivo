@@ -48,6 +48,14 @@ def _comparison_inputs(
     return source_inputs(parent, parent._derivation.outputs[0], by)
 
 
+def _level_inputs(
+    parent: AnalysisFrame, *, by: tuple[Deferred | Grouping, ...] | Population
+) -> AttributeInputRequest:
+    """Prepare one source target without repeating identical comparison endpoints."""
+    assert parent._derivation is not None
+    return source_inputs(parent, parent._derivation.outputs[0], by)
+
+
 @pytest.fixture
 def session(
     semantic_project_factory: Callable[..., SemanticProject],
@@ -136,11 +144,7 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
     region = session.catalog.fields.get("sales.facts.region")
     metric = value.weighted_mean(weight=weight) if weighted else value.mean()
     output = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": metric}, where=region == "east", by=()),
-            session.observe({"q": metric}, where=region == "east", by=()),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": metric}, where=region == "east", by=()), by=(channel,))
     )
     for root in output.attribute_inputs:
         if root.layout.scope != "parent":
@@ -156,26 +160,6 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
             assert values == {"valid_value_sum": 10, "valid_value_count": 1}
 
 
-def test_full_compound_and_null_parent_keys(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    region = session.catalog.fields.get("sales.facts.region")
-    parents = mv.coordinates(by=(region,), keys=(("east",), (None,)))
-    output = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.sum()}, by=parents),
-            session.observe({"q": value.sum()}, by=parents),
-            by=(channel,),
-        )
-    )
-    assert len(output.table) == 3
-    for root in output.attribute_inputs:
-        if root.layout.scope != "parent":
-            continue
-        assert len(root.parent) == 2
-        assert len(root.layout.identity) == 2
-
-
 def test_distinct_count_requires_value_partition(session: Session, tmp_path: Path) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -185,11 +169,7 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AnalysisError, match="overlapping_groups"):
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.count_distinct()}, by=()),
-                session.observe({"q": value.count_distinct()}, by=()),
-                by=(channel,),
-            )
+            _level_inputs(session.observe({"q": value.count_distinct()}, by=()), by=(channel,))
         )
 
 
@@ -204,11 +184,7 @@ def test_duplicate_physical_root_identity_keeps_original_error(
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(MaterializationError, match="duplicate complete contribution identity"):
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.sum()}, by=()),
-                session.observe({"q": value.sum()}, by=()),
-                by=(channel,),
-            )
+            _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
         )
 
 
@@ -221,10 +197,8 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
     region = session.catalog.fields.get("sales.facts.region")
     parents = mv.coordinates(by=(region,), keys=() if empty else (("absent",),))
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.sum()}, by=parents, where=region == "absent"),
-            session.observe({"q": value.sum()}, by=parents, where=region == "absent"),
-            by=(channel,),
+        _level_inputs(
+            session.observe({"q": value.sum()}, by=parents, where=region == "absent"), by=(channel,)
         )
     )
     assert prepared.table.empty
@@ -252,11 +226,7 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
     membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.sum()}, by=(parents, membership)),
-            session.observe({"q": value.sum()}, by=(parents, membership)),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": value.sum()}, by=(parents, membership)), by=(channel,))
     )
     assert len(prepared.table) == 3
     for root in prepared.attribute_inputs:
@@ -288,12 +258,7 @@ def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     with pytest.raises(AnalysisError, match="undefined_input" if missing else "overlapping_groups"):
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe(
-                    {"q": value.sum()},
-                    where=region.isnull() if missing else fact_id == 1,
-                    by=(),
-                ),
+            _level_inputs(
                 session.observe(
                     {"q": value.sum()},
                     where=region.isnull() if missing else fact_id == 1,
@@ -316,10 +281,8 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.sum()}, where=fact_id == 1, by=()),
-            session.observe({"q": value.sum()}, where=fact_id == 1, by=()),
-            by=(membership,),
+        _level_inputs(
+            session.observe({"q": value.sum()}, where=fact_id == 1, by=()), by=(membership,)
         )
     )
     assert len(prepared.table) == 1
@@ -443,11 +406,7 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.mean()}, by=()),
-            session.observe({"q": value.mean()}, by=()),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
     for root in prepared.attribute_inputs:
         if root.layout.scope != "parent":
@@ -483,11 +442,7 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.mean()}, by=()),
-            session.observe({"q": value.mean()}, by=()),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
     for root in prepared.attribute_inputs:
         if root.layout.scope != "parent":
@@ -519,11 +474,7 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
     value = session.catalog.fields.get("sales.facts.value")
     channel = session.catalog.fields.get("sales.facts.channel")
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.mean()}, by=()),
-            session.observe({"q": value.mean()}, by=()),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
     for root in prepared.attribute_inputs:
         if root.layout.scope != "parent":
@@ -712,8 +663,7 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     with pytest.raises(MaterializationError) as caught:
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
+            _level_inputs(
                 session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
                 by=(channel,),
             )
@@ -751,11 +701,7 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
     channel = session.catalog.fields.get("sales.facts.channel")
     with pytest.raises(AttributeInputError) as caught:
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.sum()}, by=()),
-                session.observe({"q": value.sum()}, by=()),
-                by=(channel,),
-            )
+            _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
         )
     assert caught.value.reason == "missing_component_proof"
 
@@ -766,10 +712,7 @@ def test_empty_zero_axis_parent_has_no_required_weighted_total(session: Session)
     channel = session.catalog.fields.get("sales.facts.channel")
     empty = mv.coordinates(by=(), keys=())
     prepared = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe(
-                {"q": value.weighted_mean(weight=weight)}, by=empty, where=mv.in_population(empty)
-            ),
+        _level_inputs(
             session.observe(
                 {"q": value.weighted_mean(weight=weight)}, by=empty, where=mv.in_population(empty)
             ),
@@ -851,9 +794,12 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
         )
     )
     assert len(reads) == 4
+    assert len(output.table) == 3
     for root in output.attribute_inputs:
         if root.layout.scope != "parent":
             continue
+        assert len(root.parent) == 2
+        assert len(root.layout.identity) == 2
         leaf = root.layout.leaves[0]
         value_slot = require_reduction(leaf.read).value_slot
         component = leaf.roles[0][1].slot_id
@@ -933,12 +879,7 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
     output = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe(
-                {"q": value.sum()},
-                where=region == "east",
-                by=mv.coordinates(by=(region,), keys=(("east",), ("absent",))),
-            ),
+        _level_inputs(
             session.observe(
                 {"q": value.sum()},
                 where=region == "east",
@@ -1007,11 +948,7 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
         for row in default_rows.itertuples(index=False, name=None)
     } == {(exact, "A"): 1, (exact, "B"): 0, (None, "A"): 1}
     output = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe({"q": value.count()}, by=parents),
-            session.observe({"q": value.count()}, by=parents),
-            by=(channel,),
-        )
+        _level_inputs(session.observe({"q": value.count()}, by=parents), by=(channel,))
     )
     for root in output.attribute_inputs:
         if root.layout.scope != "parent":
@@ -1050,11 +987,7 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         )
         assert ordinary_rows["value", "q"].tolist() == [10]
         output = evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.sum()}, where=where, by=()),
-                session.observe({"q": value.sum()}, where=where, by=()),
-                by=(channel,),
-            )
+            _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
         )
         for root in output.attribute_inputs:
             if root.layout.scope != "parent":
@@ -1066,11 +999,7 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         session.observe({"q": value.sum()}, by=(channel,), where=where).compute()
     with pytest.raises(MaterializationError) as actual:
         evaluate_attribute_inputs(
-            _comparison_inputs(
-                session.observe({"q": value.sum()}, where=where, by=()),
-                session.observe({"q": value.sum()}, where=where, by=()),
-                by=(channel,),
-            )
+            _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
         )
     assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
     assert actual.value.expected == ordinary.value.expected

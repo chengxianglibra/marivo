@@ -397,25 +397,24 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
         "customers": customer.count_distinct(),
         "median": amount.quantile(q=0.5),
     }
-    ordinary = session.observe(metrics, by=(calendar,)).compute()
+    observed = {
+        **metrics,
+        **{
+            f"trailing_{name}": metric.window(mv.trailing_periods(count=2))
+            for name, metric in metrics.items()
+        },
+    }
+    ordinary = session.observe(observed, by=(calendar,)).compute()
     values = ordinary.to_pandas()
     assert values.iloc[:, 0].tolist() == [0, 1]
     assert values[("value", "revenue")].tolist() == [40, 150]
     assert values[("value", "aov")].tolist() == [20.0, 50.0]
     assert values[("value", "customers")].tolist() == [2, 2]
     assert values[("value", "median")].tolist() == [20.0, 30.0]
-    trailing = (
-        session.observe(
-            {name: metric.window(mv.trailing_periods(count=2)) for name, metric in metrics.items()},
-            by=(calendar,),
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert trailing[("value", "revenue")].tolist() == [45, 350]
-    assert trailing[("value", "aov")].tolist() == [15.0, 87.5]
-    assert trailing[("value", "customers")].tolist() == [3, 2]
-    assert trailing[("value", "median")].tolist() == [10.0, 65.0]
+    assert values[("value", "trailing_revenue")].tolist() == [45, 350]
+    assert values[("value", "trailing_aov")].tolist() == [15.0, 87.5]
+    assert values[("value", "trailing_customers")].tolist() == [3, 2]
+    assert values[("value", "trailing_median")].tolist() == [10.0, 65.0]
     axis = ordinary._schema.axes[0]
     assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
     assert axis.frozen.direct is not None

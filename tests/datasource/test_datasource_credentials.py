@@ -508,12 +508,7 @@ def test_public_semantic_analysis_and_resume(
             md.credential_scope(resolver=HostResolver()),
             pytest.raises(md.DatasourceCredentialScopeError) as scope_failure,
         ):
-            session.observe(
-                {"revenue": catalog.metrics.get("sales.revenue")},
-                where=mv.in_population(
-                    session.members(session.catalog.entities.get("sales.orders"))
-                ),
-            ).compute()
+            query.compute()
         assert (
             scope_failure.value.expected == "the runtime's captured resolver or no explicit scope"
         )
@@ -533,12 +528,7 @@ def test_public_semantic_analysis_and_resume(
         with monkeypatch.context() as patched:
             patched.setattr(Backend, "raw_sql", fail_query)
             with pytest.raises(DatasourceConnectionError) as failed:
-                session.observe(
-                    {"revenue": catalog.metrics.get("sales.revenue")},
-                    where=mv.in_population(
-                        session.members(session.catalog.entities.get("sales.orders"))
-                    ),
-                ).compute()
+                query.compute()
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
     finally:
         pass
@@ -596,8 +586,9 @@ print('cold-resume-ok')
     assert all(request.project_root == project for request in (*resolver.requests, *other.requests))
     for path in (project / ".marivo").rglob("*"):
         if path.is_file():
-            assert resolver.value.encode() not in path.read_bytes()
-            assert other.value.encode() not in path.read_bytes()
+            contents = path.read_bytes()
+            assert resolver.value.encode() not in contents
+            assert other.value.encode() not in contents
 
 
 def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

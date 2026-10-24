@@ -1108,8 +1108,9 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
         paired = frame.align(frame, match=mv.ordinal())
         fixed = paired.compute()
         assert isinstance(fixed._schema.axes[0], PairedDataAxis)
-        assert fixed.to_pandas()[("value", "left.delta")].tolist() == [6]
-        assert fixed.to_pandas()[("value", "right.delta")].tolist() == [6]
+        fixed_rows = fixed.to_pandas()
+        assert fixed_rows[("value", "left.delta")].tolist() == [6]
+        assert fixed_rows[("value", "right.delta")].tolist() == [6]
         assert tuple(fact.namespace for fact in fixed._schema.comparisons) == (
             ("left",),
             ("right",),
@@ -1119,33 +1120,40 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
             for fact in fixed._schema.comparisons
         )
         scalar = paired.select({"constant": 1}).compute()
-        assert scalar.to_pandas()[("value", "constant")].tolist() == [1]
+        scalar_rows = scalar.to_pandas()
+        assert scalar_rows[("value", "constant")].tolist() == [1]
         assert scalar._schema.comparisons == fixed._schema.comparisons
 
     explicit_chain(selected)
-    expected_same = same_chain(selected).compute()
-    expected_displaced = displaced_chain(selected).compute()
+    computed = selected.compute()
+    explicit_chain(computed)
+    expected_same = same_chain(computed).compute()
+    expected_displaced = displaced_chain(computed).compute()
     assert len(expected_same._schema.comparisons) == 3
     assert all(
         isinstance(fact.binding, CalendarComparisonBinding)
         for fact in expected_same._schema.comparisons
     )
     assert len(_memory_backing(expected_same).data.copy_attachments()) == 7
-    assert expected_same.to_pandas()[("value", "again.absolute.delta")].tolist() == [0]
+    expected_same_rows = expected_same.to_pandas()
+    assert expected_same_rows[("value", "again.absolute.delta")].tolist() == [0]
     assert len(expected_displaced._schema.comparisons) == 3
     assert all(
         isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
         for fact in expected_displaced._schema.comparisons[1:]
     )
     assert len(_memory_backing(expected_displaced).data.copy_attachments()) == 3
-    assert expected_displaced.to_pandas()[("value", "saved")].tolist() == [6, pd.NA]
-    for fixed in (selected.compute(), selected.persist()):
-        explicit_chain(fixed)
-        same, displaced = same_chain(fixed).compute(), displaced_chain(fixed).compute()
-        assert same._schema == expected_same._schema
-        assert displaced._schema == expected_displaced._schema
-        pd.testing.assert_frame_equal(same.to_pandas(), expected_same.to_pandas())
-        pd.testing.assert_frame_equal(displaced.to_pandas(), expected_displaced.to_pandas())
+    expected_displaced_rows = expected_displaced.to_pandas()
+    assert expected_displaced_rows[("value", "saved")].tolist() == [6, pd.NA]
+
+    persisted = selected.persist()
+    explicit_chain(persisted)
+    same = same_chain(persisted).compute()
+    displaced = displaced_chain(persisted).compute()
+    assert same._schema == expected_same._schema
+    assert displaced._schema == expected_displaced._schema
+    pd.testing.assert_frame_equal(same.to_pandas(), expected_same_rows)
+    pd.testing.assert_frame_equal(displaced.to_pandas(), expected_displaced_rows)
     filtered = expected_same.where(expected_same["delta"] > 0)
     retained = filtered.top(0, by=filtered["delta"]).compute()
     assert retained._schema.comparisons == expected_same._schema.comparisons

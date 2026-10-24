@@ -67,11 +67,16 @@ def test_native_weighted_and_mean(
         {"value": session.catalog.metrics.get("sales.weighted")}, by=mv.product(scope, members)
     )
     total = session.observe(
-        {"value": session.catalog.metrics.get("sales.weighted")},
+        {
+            "weighted": session.catalog.metrics.get("sales.weighted"),
+            "mean": session.catalog.metrics.get("sales.mean"),
+        },
         by=(scope,),
         where=mv.in_population(members),
     ).compute()
-    assert _value(total).tolist() == pytest.approx([expected])
+    total_values = total.to_pandas()
+    assert total_values[("value", "weighted")].tolist() == pytest.approx([expected])
+    assert float(total_values[("value", "mean")].iloc[0]) == pytest.approx(2.34, abs=0.01)
     saved = observed.persist()
     raw = (
         session.read(
@@ -96,20 +101,21 @@ def test_native_weighted_and_mean(
         by=(scope, members.axes[0], coordinate),
         where=mv.in_population(members),
     )
-    result = session.observe(
-        {"value": session.catalog.metrics.get("sales.weighted")},
-        by=(scope, coordinate),
-        where=mv.in_population(members),
-    ).compute()
-    assert _value(result).dropna().tolist() == pytest.approx([expected])
-    grouped = session.observe(
-        {"value": session.catalog.metrics.get("sales.mean")},
-        by=(scope, coordinate),
-        where=mv.in_population(members),
+    grouped = (
+        session.observe(
+            {
+                "weighted": session.catalog.metrics.get("sales.weighted"),
+                "mean": session.catalog.metrics.get("sales.mean"),
+            },
+            by=(scope, coordinate),
+            where=mv.in_population(members),
+        )
+        .compute()
+        .to_pandas()
     )
-    grouped_mean = grouped.compute()
+    assert grouped[("value", "weighted")].dropna().tolist() == pytest.approx([expected])
     # Direct source means follow the independently executed native SQL carrier.
-    assert _value(grouped_mean).tolist() == [row[0] for row in expected_mean]
+    assert grouped[("value", "mean")].tolist() == [row[0] for row in expected_mean]
     if value_type.startswith("DECIMAL"):
         assert all(isinstance(value, Decimal) for value in raw[("value", "value")].dropna())
         expected_a = ((Decimal("1.01") + Decimal("1.02")) / 2).quantize(
@@ -129,15 +135,6 @@ def test_native_weighted_and_mean(
     mean = session.observe(
         {"value": session.catalog.metrics.get("sales.mean")}, by=mv.product(scope, members)
     )
-    assert float(
-        _value(
-            session.observe(
-                {"value": session.catalog.metrics.get("sales.mean")},
-                by=(scope,),
-                where=mv.in_population(members),
-            ).compute()
-        ).iloc[0]
-    ) == pytest.approx(2.34, abs=0.01)
 
 
 def _model(tmp_path: Path) -> None:
@@ -338,22 +335,21 @@ def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
 
 
 @pytest.mark.parametrize(
-    "method,value_type,weight_type,weight",
+    "value_type,weight_type,weight,methods",
     [
-        ("weighted", "DOUBLE", "BIGINT", 1.0),
-        ("weighted", "DECIMAL(12,2)", "BIGINT", 1.0),
-        ("ratio", "DOUBLE", "BIGINT", 1.0),
-        ("ratio", "BIGINT", "DOUBLE", 1.0),
-        ("ratio", "DECIMAL(12,2)", "DOUBLE", 1e-14),
+        ("DOUBLE", "BIGINT", 1.0, ("weighted", "ratio")),
+        ("DECIMAL(12,2)", "BIGINT", 1.0, ("weighted",)),
+        ("BIGINT", "DOUBLE", 1.0, ("ratio",)),
+        ("DECIMAL(12,2)", "DOUBLE", 1e-14, ("ratio",)),
     ],
 )
 def test_mixed_component_attribution_source_and_fixed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    method: str,
     value_type: str,
     weight_type: str,
     weight: float,
+    methods: tuple[str, ...],
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with duckdb.connect(str(tmp_path / "source.duckdb")) as con:
@@ -368,19 +364,19 @@ def test_mixed_component_attribution_source_and_fixed(
     session = mv.session.create("mixed_attribution", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.people"))
     axis = session.catalog.fields.get("sales.facts.category")
-    metric = (
-        session.catalog.metrics.get("sales.weighted")
-        if method == "weighted"
-        else session.catalog.metrics.get("sales.total")
-        / session.catalog.metrics.get("sales.weights")
-    )
+    metrics = {
+        "weighted": session.catalog.metrics.get("sales.weighted"),
+        "ratio": session.catalog.metrics.get("sales.total")
+        / session.catalog.metrics.get("sales.weights"),
+    }
+    outputs = {name: metrics[name] for name in methods}
     current = session.observe(
-        {"value": metric},
+        outputs,
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), axis),
         where=mv.in_population(members),
     )
     baseline = session.observe(
-        {"value": metric},
+        outputs,
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"), axis),
         where=mv.in_population(members),
     )
@@ -389,11 +385,13 @@ def test_mixed_component_attribution_source_and_fixed(
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         match={"reference": mv.ordinal()},
     ).persist()
-    expected = 1.0 if method == "weighted" else 1.0 / weight
-    assert changed.to_pandas()[("value", "reference.absolute.value")].tolist() == pytest.approx(
-        [expected]
-    )
-    assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed.to_pandas())
+    changed_rows = changed.to_pandas()
+    for method in methods:
+        expected = 1.0 if method == "weighted" else 1.0 / weight
+        assert changed_rows[("value", f"reference.absolute.{method}")].tolist() == pytest.approx(
+            [expected]
+        )
+    assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed_rows)
 
 
 @pytest.mark.parametrize(

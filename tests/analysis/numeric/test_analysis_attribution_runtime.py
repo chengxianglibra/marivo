@@ -565,8 +565,11 @@ def test_attribution_publication_cleans_only_failed_run(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     query = basis_query(case, 8)
-    fixed = query.persist()
+    # Reuse evaluated data while each memory publication admits a distinct Run.
+    completed = query.compute()
+    fixed = completed.persist()
     expected = fixed.to_pandas()
+    failed_run_refs = {run.run_ref for run in terminal_runs(case.session, status="failed")}
     for point in ("terminal_primary_written", "terminal_files_published"):
         before = set((case.root / ".marivo").rglob("*.parquet"))
         succeeded = terminal_runs(case.session, status="succeeded")
@@ -580,9 +583,13 @@ def test_attribution_publication_cleans_only_failed_run(
         with monkeypatch.context() as patch:
             patch.setattr(terminal_publication, "_event", fail)
             with pytest.raises((AnalysisError, RuntimeError)):
-                query.persist()
+                completed.persist()
         assert set((case.root / ".marivo").rglob("*.parquet")) == before
         assert terminal_runs(case.session, status="succeeded") == succeeded
+        failed = {run.run_ref for run in terminal_runs(case.session, status="failed")}
+        assert failed_run_refs < failed
+        assert len(failed - failed_run_refs) == 1
+        failed_run_refs = failed
         pd.testing.assert_frame_equal(fixed.to_pandas(), expected)
         with case.session._runtime.store._read() as conn:
             assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0

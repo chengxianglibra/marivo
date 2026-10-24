@@ -337,6 +337,7 @@ def test_public_native_numeric_methods(
                 for name in ("average", "weighted", "distinct")
             }
             | {
+                "q": session.catalog.metrics.get("sales.quantile"),
                 "row_zero": (amount / 0).mean(),
                 "integer_zero": (weight / 0).mean(),
                 "floating_zero": ((amount / 1) / 0.0).mean(),
@@ -378,8 +379,7 @@ def test_public_native_numeric_methods(
             "cancelled_weight",
         ):
             assert frame[("value", name)].isna().tolist() == [True]
-        quantile = session.observe({"q": session.catalog.metrics.get("sales.quantile")})
-        assert float(quantile.compute().to_pandas()[("value", "q")].iloc[0]) == 2.0
+        assert float(frame[("value", "q")].iloc[0]) == 2.0
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
