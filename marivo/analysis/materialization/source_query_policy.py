@@ -63,6 +63,11 @@ def qualify_query_source(
             column.dtype != ScalarDataType("string")
             and not (column.slot_id in identity_slots and column.dtype == ScalarDataType("int64"))
             and not (
+                owner.provider.name == "mysql"
+                and column.slot_id in attribute_slots
+                and column.dtype == ScalarDataType("int64")
+            )
+            and not (
                 owner.provider.name in ("trino", "clickhouse")
                 and (column.slot_id not in stage.keys or column.slot_id in attribute_slots)
                 and (

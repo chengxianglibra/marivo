@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -22,6 +23,65 @@ from tests.datasource.source_cases import Case, SourceData, source_case, source_
 from tests.support.source_trace import capture_source
 
 
+@pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
+@pytest.mark.parametrize("reducer", ["min", "max"])
+def test_sample_extrema_compile_completed_mean_and_coverage_summaries(
+    backend: str,
+    reducer: str,
+) -> None:
+    from marivo._definition.expressions import RowField, SourceAggregate
+    from marivo._definition.observations import SampleCoverage
+    from marivo._definition.types import ExactRef, SumAll
+    from marivo.analysis.compiler.observation import ReductionInput, lower_observation
+    from marivo.refs import ref
+
+    table = ibis.table(
+        {
+            "amount": "float64",
+            "point": "timestamp('UTC')",
+            "wall": "timestamp('UTC')",
+            "category": "string",
+        },
+        name="samples",
+    )
+    field = RowField(
+        ExactRef(ref.measure("sales.facts.amount"), "v1"),
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        None,
+        SumAll(),
+    )
+    prepared = ReductionInput(
+        SourceAggregate(field, "mean", None),
+        (("key.0", "category"), ("key.1", "point")),
+        "value",
+        provider=backend,
+        preserve_sample_presence=True,
+        coverage=(
+            SampleCoverage(
+                "key.1", (datetime(2026, 10, 1, tzinfo=timezone.utc),), wall_timezone="UTC"
+            ),
+        ),
+        mean_fold=("key.1", "error", reducer),
+    )
+    relation, checks = lower_observation(
+        prepared,
+        table,
+        {
+            "sales.facts.amount": "amount",
+            "category": "category",
+            "point": "point",
+            "__coverage_key.1": "wall",
+        },
+        (),
+    )
+    sql = ibis.to_sql(relation, dialect=backend).lower()
+    assert "avg(" in sql
+    assert f"{reducer}(" in sql
+    assert "distinct" in sql
+    assert "sample_check.coverage" in relation.columns
+    assert {name for name, _ in checks} >= {"sample_check.null", "sample_check.coverage"}
+
+
 @contextmanager
 def mean_session(
     backend: str,
@@ -34,8 +94,15 @@ def mean_session(
     cadence: bool = True,
     amount_type: Literal["DOUBLE", "DECIMAL(18,2)"] = "DOUBLE",
     aware: bool = False,
+    sample_count: int | None = None,
 ) -> Iterator[tuple[Session, Case]]:
     times = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
+    if sample_count is not None:
+        times = tuple(
+            (datetime(2026, 10, 1) + timedelta(seconds=i)).strftime("%H:%M:%S")
+            for i in range(sample_count)
+        )
+        values = tuple(float(i % 11) for i in range(sample_count))
     rows: list[dict[str, object]] = [
         {"id": i, "point": "2026-10-01 " + times[i], "category": "A", "amount": value}
         for i, value in enumerate(values)
@@ -53,8 +120,11 @@ def mean_session(
         f"TIMESTAMP '2026-10-01 {point} UTC'" if aware else f"'2026-10-01 {point}'"
         for point in times
     ]
+    physical_amount = (
+        "DOUBLE PRECISION" if backend == "postgres" and amount_type == "DOUBLE" else amount_type
+    )
     data = SourceData(
-        f"id BIGINT, point {point_type}, category VARCHAR(8), amount {amount_type}",
+        f"id BIGINT, point {point_type}, category VARCHAR(8), amount {physical_amount}",
         ",".join(f"({i},{points[i]},'A',{literal})" for i, literal in enumerate(literals)),
         "id Int64, point String, category String, amount Nullable(Float64)",
         rows,
@@ -239,6 +309,242 @@ def test_mean_checked_completion(
         else:
             value = query.compute().to_pandas()[("value", "v")].iloc[0]
             assert pd.isna(value) if expected is None else value == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("reducer,expected", [("min", 0.0), ("max", 80.0)])
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_native_extrema_reduce_completed_means_with_bounded_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    reducer: str,
+    expected: float,
+    backend: str,
+    profile: str,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 40, 100, 100, 20),
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        category = session.catalog.fields.get("sales.facts.category")
+        samples = amount.mean(time=point).per(point)
+        metric = samples.min() if reducer == "min" else samples.max()
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        trace = capture_source(monkeypatch)
+        rows = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
+        # Three completed timestamp means are [0, 80, 20], despite a raw maximum of 100.
+        assert rows[("value", "v")].tolist() == [expected]
+        assert trace.returned_rows == [1]
+        missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
+        with pytest.raises(MaterializationError, match="missing state sample"):
+            session.observe({"v": metric}, by=(missing, category)).compute()
+        assert trace.returned_rows == [1, 1]
+
+
+@pytest.mark.parametrize(
+    "values,strict,error,expected",
+    [
+        ((None, None, None, None, None), False, None, None),
+        ((0, None, None, None, 20), True, "non-NA", None),
+        ((float("inf"), 40, 100, 100, 20), False, "finite", None),
+        ((0, None, None, None, 20), False, None, 20.0),
+    ],
+)
+def test_native_extrema_preserve_null_and_finite_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    values: tuple[float | None, ...],
+    strict: bool,
+    error: str | None,
+    expected: float | None,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=values,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        metric = amount.mean(time=point).per(point).max(nulls="error" if strict else "ignore")
+        trace = capture_source(monkeypatch)
+        query = session.observe({"v": metric}, by=(scope,))
+        if error:
+            with pytest.raises(MaterializationError, match=error):
+                query.compute()
+        else:
+            value = query.compute().to_pandas()[("value", "v")].iloc[0]
+            assert pd.isna(value) if expected is None else value == expected
+        assert trace.returned_rows == [1]
+
+
+@pytest.mark.parametrize("reducer,expected", [("min", 20.0), ("max", 100.0)])
+@pytest.mark.parametrize("grouped", [False, True])
+def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    reducer: str,
+    expected: float,
+    grouped: bool,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, None, 100, 100, 20),
+        cadence=False,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        category = session.catalog.fields.get("sales.facts.category")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        for nulls in ("ignore", "error"):
+            selected = amount.mean(time=point).where(amount > 0).per(point)
+            metric = selected.min(nulls=nulls) if reducer == "min" else selected.max(nulls=nulls)
+            rows = (
+                session.observe({"v": metric}, by=(scope, category) if grouped else (scope,))
+                .compute()
+                .to_pandas()
+            )
+            # The selected timestamp means are [100, 20]; the zero group is absent.
+            assert rows[("value", "v")].tolist() == [expected]
+            empty = amount.mean(time=point).where(amount < 0).per(point)
+            metric = empty.min(nulls=nulls) if reducer == "min" else empty.max(nulls=nulls)
+            rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+            assert rows[("value", "v")].isna().all() and len(rows) == 1
+        invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
+        metric = invalid.min() if reducer == "min" else invalid.max()
+        with pytest.raises(MaterializationError, match="finite"):
+            session.observe({"v": metric}, by=(scope,)).compute()
+
+
+@pytest.mark.parametrize("reducer", ["min", "max"])
+def test_sample_extrema_without_cadence_keep_present_null_samples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    reducer: str,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, None, None, None, 20),
+        cadence=False,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        category = session.catalog.fields.get("sales.facts.category")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        samples = amount.mean(time=point).where(category == "A").per(point)
+        metric = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
+        with pytest.raises(MaterializationError, match="non-NA internal samples"):
+            session.observe({"v": metric}, by=(scope,)).compute()
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_native_sample_extrema_strict_filter_uses_selected_sample_presence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, None, 100, 100, 20),
+        cadence=False,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        metric = amount.mean(time=point).where(amount > 0).per(point).max(nulls="error")
+        trace = capture_source(monkeypatch)
+        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        assert rows[("value", "v")].tolist() == [100.0]
+        assert trace.returned_rows == [1]
+
+
+@pytest.mark.parametrize("sample_count", [100, 10_000])
+def test_native_sample_extrema_return_final_rows_at_scale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    sample_count: int,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        sample_count=sample_count,
+    ) as (session, case):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        scope = session.time_scope(
+            start="2026-10-01",
+            end=(datetime(2026, 10, 1) + timedelta(seconds=sample_count)).isoformat(),
+        )
+        samples = amount.mean(time=point).per(point)
+        trace = capture_source(monkeypatch, measure_cost=True)
+        result = session.observe(
+            {"min": samples.min(), "max": samples.max()}, by=(scope,)
+        ).compute()
+        rows = result.to_pandas()
+        assert rows[("value", "min")].tolist() == [0.0]
+        assert rows[("value", "max")].tolist() == [10.0]
+        assert trace.returned_rows == [1, 1]
+        assert not trace.uploaded_key_rows
+        trace.save(
+            f"samples-extrema-{sample_count}",
+            case.environment,
+            {"samples": sample_count},
+            {"min": 0.0, "max": 10.0},
+            result,
+            (case.session,),
+        )
 
 
 @pytest.mark.runtime

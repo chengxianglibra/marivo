@@ -65,6 +65,14 @@ Ibis executes through its declared datasource and returns pandas. Fixed reads
 consume complete memory/stored data; local operations reuse existing kernels.
 There is one prepared schedule, without recursive compute or a second local SQL executor.
 
+After Frame planning, a qualified pending field-read Top can bound the native
+read on DuckDB, PostgreSQL, MySQL, Trino or ClickHouse. The initial route requires
+one consumer, ordinary complete identity axes with integer/string keys, and a
+direct int64 score. Native ordering preserves NA-last and complete-key ties.
+Full-input numeric and Frame integrity checks precede cropping, including Top-0.
+Completed and reopened inputs continue through fixed-data execution without
+source reads or uploads. Unsupported expressions retain their local stages.
+
 `QueryPlan` owns executable stage layouts; lowering and physical rewrites return
 that plan together with stage-ID-associated Ibis/check payloads. Native execution
 programs retain their finish rules, independently of logical-read provenance and
@@ -76,6 +84,9 @@ control sharing/release; self-combination reads one shared input while retaining
 both consumers. Preparation checks and demanded numeric flags retain their source
 or formula owners and finish before downstream projection/Top-0 can hide failures.
 Conditional branches retain their existing demand policy.
+Checks on the same source relation share a multi-column aggregate summary;
+source completion dispatches each retained obligation once. Summary-only rows
+carry required failures even for empty data and are removed before public output.
 Compatible stored handles share exact Store/Session/Artifact input identity;
 equal fingerprints or names cannot substitute an input. Completed data contains
 no source graph, internal aggregation state or semantic object.

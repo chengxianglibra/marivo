@@ -471,6 +471,47 @@ def test_internal_sum_keeps_large_integer_beside_null_group() -> None:
     assert result.value.tolist() == [2**53 + 1, None]
 
 
+def test_internal_sample_groups_keep_complete_exact_keys_and_empty_domain_order() -> None:
+    import pyarrow as pa
+
+    from marivo._definition.expressions import PerReduce
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.methods._sample_numeric import reduce_samples
+
+    source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
+    axis = AxisBinding(
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        ExactRef(ref.dimension("sales.facts.customer"), "v1"),
+        (),
+        "field",
+    )
+    ticks = pa.array([-(2**63), None, -(2**63), 0], type=pa.int64()).cast(pa.timestamp("ns", "UTC"))
+    frame = pd.DataFrame(
+        {
+            "key.0": pd.Series([2**53, 2**53 + 1, 2**53, 2**53 + 1], dtype="int64[pyarrow]"),
+            "key.1": pd.Series(pd.arrays.ArrowExtensionArray(ticks)),
+            "value": [1, 7, 2, 9],
+            "inherited": [False, False, True, False],
+        }
+    )
+    domain = frame.iloc[[3, 1, 0]].loc[:, ["key.0", "key.1"]].reset_index(drop=True)
+    absent = domain.iloc[:1].copy()
+    absent["key.0"] = pd.Series([2**53 + 2], dtype="int64[pyarrow]")
+    domain = pd.concat([domain, absent], ignore_index=True)
+    reduced, _ = reduce_samples(
+        PerReduce(source, (axis,), "sum"),
+        frame,
+        ("key.0", "key.1"),
+        domain,
+        ("value",),
+        (("inherited", "valid sample", "invalid sample"),),
+        output_type=ScalarDataType("int64"),
+    )
+    assert reduced.value.tolist() == [9, 7, 3, 0]
+    assert reduced["inherited"].tolist() == [False, False, True, False]
+    assert reduced["key.0"].tolist() == [2**53 + 1, 2**53 + 1, 2**53, 2**53 + 2]
+
+
 @pytest.mark.parametrize("scale", (1, 2))
 def test_cancelled_sample_weights_do_not_hide_numeric_overflow(
     analysis_dsl_case_factory: DslCaseFactory, scale: int

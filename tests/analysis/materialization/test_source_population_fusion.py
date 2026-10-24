@@ -1,9 +1,12 @@
 """Relationship Populations keep checks at source without downloading ancestors."""
 
+import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -12,19 +15,67 @@ from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session
 from tests.datasource.source_cases import source_params
-from tests.support.source_trace import capture_source
+from tests.support.source_trace import SourceTrace, capture_source
+
+
+def _save_trace(
+    name: str,
+    size: int,
+    trace: SourceTrace,
+    result: pd.DataFrame | None = None,
+    error: MaterializationError | None = None,
+) -> None:
+    directory = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
+    if directory:
+        Path(directory, name + ".json").write_text(
+            json.dumps(
+                {
+                    "provider": "duckdb",
+                    "version": duckdb.__version__,
+                    "size": size,
+                    "returned_rows": trace.returned_rows,
+                    "returned_columns": trace.returned_columns,
+                    "returned_arrow_bytes": trace.returned_arrow_bytes,
+                    "returned_pandas_bytes": trace.returned_pandas_bytes,
+                    "uploaded_key_rows": trace.uploaded_key_rows,
+                    "uploaded_key_bytes": trace.uploaded_key_bytes,
+                    "native_sql": trace.native_sql,
+                    "result": {
+                        "columns": list(result.columns),
+                        "dtypes": [str(dtype) for dtype in result.dtypes],
+                        "rows": list(result.itertuples(index=False, name=None)),
+                    }
+                    if result is not None
+                    else None,
+                    "error": {
+                        "stage": error.stage,
+                        "expected": error.expected,
+                        "received": error.received,
+                        "repair": error.repair,
+                    }
+                    if error is not None
+                    else None,
+                },
+                indent=2,
+                default=str,
+            )
+        )
 
 
 def _case(
-    factory: Callable[..., SemanticProject], root: Path, monkeypatch: pytest.MonkeyPatch
+    factory: Callable[..., SemanticProject],
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    size: int = 1000,
 ) -> Session:
     session = _session(factory, root, monkeypatch)
     with duckdb.connect(str(root / "population.duckdb")) as db:
         db.execute("DELETE FROM orders")
         db.execute("DELETE FROM links")
-        db.execute("INSERT INTO orders SELECT i,i%10,1 FROM range(1000) t(i)")
-        db.execute("INSERT INTO links SELECT i,i,i%2+1 FROM range(1000) t(i)")
-        db.execute("INSERT INTO links SELECT i+1000,i,i%2+1 FROM range(1000) t(i)")
+        db.execute("INSERT INTO orders SELECT i,i%10,1 FROM range(?) t(i)", [size])
+        db.execute("INSERT INTO links SELECT i,i,i%2+1 FROM range(?) t(i)", [size])
+        db.execute("INSERT INTO links SELECT i+?,i,i%2+1 FROM range(?) t(i)", [size, size])
     return session
 
 
@@ -87,12 +138,10 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
         assert trace.uploaded_key_rows == [0 if operation == "empty_query" else 1]
 
 
-@pytest.mark.parametrize("boundary", ("null_source", "missing_operand", "target_attributes"))
-def test_relationship_population_failures_survive_empty_top(
+def test_relationship_population_identity_failure_survives_empty_top(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    boundary: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
     orders = session.members(session.catalog.entities.get("sales.orders"))
@@ -100,53 +149,29 @@ def test_relationship_population_failures_survive_empty_top(
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
     )
-    if boundary == "null_source":
-        with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
-            db.execute("INSERT INTO orders VALUES (NULL,0,1)")
-        selected = orders.image(via=path)
-        metric = (
-            session.catalog.fields.get("sales.tags.id").count().where(mv.in_population(selected))
-        )
-        expected = "non-null complete identity keys"
-    elif boundary == "missing_operand":
-        selected = mv.coordinates(
-            by=(mv.identity(session.catalog.entities.get("sales.orders")),), keys=(((9999,),),)
-        ).image(via=path)
-        metric = (
-            session.catalog.fields.get("sales.tags.id").count().where(mv.in_population(selected))
-        )
-        expected = "source relationship row"
-    else:
-        with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
-            db.execute("INSERT INTO tags VALUES (1,'corrupt','other')")
-        fields = session.read(
-            session.members(session.catalog.entities.get("sales.tags")),
-            {"label": session.catalog.fields.get("sales.tags.label")},
-        )
-        chosen = fields.where(fields["label"] == "missing")
-        targets = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.tags")),)
-        )
-        selected = orders.preimage(targets, via=path)
-        metric = (
-            session.catalog.fields.get("sales.orders.id").count().where(mv.in_population(selected))
-        )
-        expected = "exactly one attribute row"
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("INSERT INTO orders VALUES (NULL,0,1)")
+    selected = orders.image(via=path)
+    metric = session.catalog.fields.get("sales.tags.id").count().where(mv.in_population(selected))
     fine = session.observe({"v": metric})
     query = fine.top(0, by=fine["v"])
     trace = capture_source(monkeypatch)
-    with pytest.raises(MaterializationError, match=expected):
+    with pytest.raises(MaterializationError, match="non-null complete identity keys"):
         query.compute()
-    assert trace.returned_rows == [3 if boundary == "target_attributes" else 1]
+    assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
 
 
-def test_relationship_member_count_keeps_its_actual_member_input(
+@pytest.mark.parametrize("size", (100, 10_000))
+@pytest.mark.parametrize("with_sum", (False, True))
+def test_relationship_member_count_returns_completed_count(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    size: int,
+    with_sum: bool,
 ) -> None:
-    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=size)
     orders = session.members(session.catalog.entities.get("sales.orders"))
     path = (
         session.catalog.relationships.get("sales.order_links"),
@@ -156,17 +181,282 @@ def test_relationship_member_count_keeps_its_actual_member_input(
         by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),),)
     )
     selected = orders.preimage(targets, via=path)
+    metrics = {"n": selected.count()}
+    if with_sum:
+        metrics["v"] = session.catalog.metrics.get("sales.revenue")
     query = session.observe(
-        {"n": selected.count(), "v": session.catalog.metrics.get("sales.revenue")},
-        where=mv.in_population(selected),
+        metrics,
+        where=mv.in_population(selected) if with_sum else None,
     )
+    trace = capture_source(monkeypatch, measure_cost=True)
     frame = query.compute().to_pandas()
-    assert frame[("value", "n")].tolist() == [500]
+    assert frame[("value", "n")].tolist() == [size // 2]
+    if with_sum:
+        assert frame[("value", "v")].tolist() == [size // 2]
+    assert sum(trace.returned_rows) <= 2
+    assert trace.uploaded_key_rows == []
+    assert sum(trace.returned_arrow_bytes) < 200
+    _save_trace(f"count-{size}-{with_sum}", size, trace, frame)
+
+
+def test_relationship_image_missing_source_uses_empty_set(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    missing = mv.coordinates(
+        by=(mv.identity(session.catalog.entities.get("sales.orders")),), keys=(((9999,),),)
+    )
+    selected = missing.image(
+        via=(
+            session.catalog.relationships.get("sales.order_links"),
+            session.catalog.relationships.get("sales.link_tags"),
+        )
+    )
+    assert session.frame(selected).compute().to_pandas().empty
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_source_member_count_zero_axes_preserves_empty_and_unit(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    empty: bool,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    if empty:
+        with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+            db.execute("DELETE FROM orders")
+    domain = session.members(session.catalog.entities.get("sales.orders")).project(by=())
+    trace = capture_source(monkeypatch)
+    result = session.observe({"n": domain.count()}).compute().to_pandas()
+    assert result[("value", "n")].tolist() == [0 if empty else 1]
+    assert sum(trace.returned_rows) <= 2
+    assert trace.uploaded_key_rows == []
+
+
+def test_source_member_counts_keep_complete_tuples_and_null_categories(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=100)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("UPDATE orders SET customer=NULL WHERE customer=0")
+    entity = session.catalog.entities.get("sales.orders")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    selected = session.members(entity).classify(by=(mv.identity(entity), customer))
+    categories = selected.project(by=(customer,))
+    trace = capture_source(monkeypatch)
+    grouped = session.observe({"n": selected.count()}, by=(customer,)).compute().to_pandas()
+    assert grouped[("value", "n")].tolist() == [10] * 10
+    assert grouped.iloc[:, 0].isna().sum() == 1
+    assert session.observe({"n": categories.count()}).compute().to_pandas()[
+        ("value", "n")
+    ].tolist() == [10]
+    assert sum(trace.returned_rows) <= 11
+    assert trace.uploaded_key_rows == []
+
+
+def test_source_member_count_projection_preserves_identity_check(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("INSERT INTO orders VALUES (NULL,0,1)")
+    domain = session.members(session.catalog.entities.get("sales.orders")).project(by=())
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError, match="non-null complete identity keys"):
+        session.observe({"n": domain.count()}).compute()
+    assert sum(trace.returned_rows) <= 2
+
+
+@pytest.mark.parametrize("size", (100, 10_000))
+def test_source_output_coverage_returns_bounded_actual_missing_keys(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    size: int,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=size)
+    identifier = session.catalog.fields.get("sales.orders.id")
+    output = mv.coordinates(by=(identifier,), keys=((0,),))
+    query = session.observe({"v": session.catalog.metrics.get("sales.revenue")}, by=output)
+    trace = capture_source(monkeypatch, measure_cost=True)
+    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
+        query.top(0, by=query["v"]).compute()
+    assert error.value.stage == "population_coverage"
+    assert "'key.0': 1" in error.value.received
+    assert "'key.0': 6" in error.value.received
+    assert "'key.0': 0" not in error.value.received
+    assert trace.returned_rows == [6]
+    assert trace.uploaded_key_rows == []
+    _save_trace(f"coverage-failure-{size}", size, trace, error=error.value)
+
+
+def test_member_read_preserves_missing_requested_identity_as_null(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch)
+    domain = mv.coordinates(
+        by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),), ((999,),))
+    )
+    rows = (
+        session.read(domain, {"label": session.catalog.fields.get("sales.tags.label")})
+        .compute()
+        .to_pandas()
+    )
+    assert rows.iloc[:, 0].tolist() == [1, 999]
+    assert rows[("value", "label")].iloc[0] == "A"
+    assert rows[("value", "label")].isna().tolist() == [False, True]
+
+
+@pytest.mark.parametrize("dialect", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
+def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> None:
+    import ibis
+    import ibis.expr.operations as ops
+
+    from marivo.analysis.compiler.graph_lowering import LoweredRead
+    from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceRead
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.materialization.query_key_fusion import (
+        NativeQueryRelation,
+        _attach_relation_checks,
+    )
+    from marivo.semantic._numeric_lowering import NumericCheck
+
+    table = ibis.table(
+        {"key.0": "int64", "a": "float64", "b": "float64", "bad_a": "boolean", "bad_b": "boolean"},
+        name="facts",
+    )
+    columns = (DataColumn("key.0", "id", ScalarDataType("int64"), False),)
+    stage = SourceRead(
+        "read",
+        "facts",
+        (),
+        columns,
+        ("key.0",),
+        ProjectionRead((("key.0", "key.0"),)),
+        (),
+        (),
+        None,
+    )
+    source = LoweredRead(
+        "read",
+        table,
+        tuple(
+            (name, NumericCheck(table[name], "finite values", name)) for name in ("bad_a", "bad_b")
+        ),
+    )
+    native = NativeQueryRelation(
+        table,
+        frozenset({"read"}),
+        (source,),
+        tuple(NumericCheck(table[name] < 0, "nonnegative values", name) for name in ("a", "b")),
+    )
+    expression, _, checks = _attach_relation_checks(
+        table.limit(0), native, QueryPlan((stage,), (), "read")
+    )
+    summaries = tuple(
+        node
+        for node in expression.op().find(ops.Aggregate)
+        if any(name.startswith("__query_") for name in node.metrics)
+    )
+    assert len(summaries) == 2
+    assert all(len(summary.metrics) == 2 for summary in summaries)
+    assert len(checks) == 4
+    assert all(f"{alias}.witness.0" in expression.columns for alias, _ in checks)
+    sql = str(ibis.to_sql(expression, dialect=dialect))
+    assert "facts" in sql and "LIMIT 1" in sql
 
 
 @pytest.mark.parametrize(
     "backend,profile",
-    source_params([("postgres", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]),
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "innodb-table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "mergetree"),
+        ]
+    ),
+)
+def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    profile: str,
+) -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from tests.analysis.numeric.test_remote_numeric_query import DATA, _project
+    from tests.datasource.source_cases import SourceData, source_case
+
+    labels = ("A", "a", "Á", "A ", "a ", "", None, "A")
+    rows = [
+        {
+            "id": index,
+            "tenant": "t",
+            "category": label,
+            "amount": Decimal("1"),
+            "big": 1,
+            "weight": 1,
+            "day": date(2026, 7, 1),
+        }
+        for index, label in enumerate(labels)
+    ]
+    data = SourceData(
+        DATA.columns,
+        ",".join(
+            f"({index},'t',{'NULL' if label is None else repr(label)},1,1,1,DATE '2026-07-01')"
+            for index, label in enumerate(labels)
+        ),
+        DATA.clickhouse_columns,
+        rows,
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("exact-native-count", timezone="UTC")
+        entity = session.catalog.entities.get("sales.facts")
+        category = session.catalog.fields.get("sales.facts.category")
+        members = session.members(entity)
+        classified = members.classify(by=(mv.identity(entity), category))
+        categories = classified.project(by=(category,))
+        trace = capture_source(monkeypatch)
+        grouped = session.observe({"n": classified.count()}, by=(category,)).compute().to_pandas()
+        assert {
+            None if pd.isna(key) else key: value
+            for key, value in grouped.itertuples(index=False, name=None)
+        } == {"A": 2, "a": 1, "Á": 1, "A ": 1, "a ": 1, "": 1, None: 1}
+        assert session.observe({"n": members.count()}).compute().to_pandas()[
+            ("value", "n")
+        ].tolist() == [8]
+        assert session.observe({"n": categories.count()}).compute().to_pandas()[
+            ("value", "n")
+        ].tolist() == [7]
+        assert sum(trace.returned_rows) == 9
+        assert trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("postgres", "table"),
+            ("mysql", "innodb-table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "mergetree"),
+        ]
+    ),
 )
 def test_remote_relationship_domains_and_explicit_frame_targets(
     semantic_project_factory: Callable[..., SemanticProject],
@@ -247,6 +537,28 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             session.catalog.relationships.get("sales.link_tags"),
         )
         image = source.image(via=path)
+        one_tag = mv.coordinates(
+            by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),),)
+        )
+        counted = source.preimage(one_tag, via=path)
+        with monkeypatch.context() as count_patch:
+            count_trace = capture_source(count_patch, measure_cost=True)
+            for metrics in (
+                {"n": counted.count()},
+                {"n": counted.count(), "v": session.catalog.metrics.get("sales.revenue")},
+            ):
+                result = (
+                    session.observe(
+                        metrics, where=mv.in_population(counted) if "v" in metrics else None
+                    )
+                    .compute()
+                    .to_pandas()
+                )
+                assert result[("value", "n")].tolist() == [500]
+                if "v" in metrics:
+                    assert result[("value", "v")].tolist() == [500]
+            assert sum(count_trace.returned_rows) <= 3
+            assert count_trace.uploaded_key_rows == []
         trace = capture_source(monkeypatch)
         assert len(session.frame(image).compute().to_pandas()) == 2
         count = (
@@ -281,7 +593,10 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             )
             assert frame[("value", "v")].tolist() == [expected]
         if backend != "postgres":
-            assert trace.uploaded_key_rows == [1, 0]
+            assert trace.uploaded_key_rows == [1, 0], {
+                "rows": trace.returned_rows,
+                "sql": trace.native_sql,
+            }
         category = session.catalog.fields.get("sales.tags.label")
         allocation = mv.membership(category, via=(path,), unmatched="exclude")
         incomplete = mv.coordinates(by=(category,), keys=(("A",),))
@@ -296,7 +611,10 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         assert error.value.stage == "population_coverage"
         assert "B" in error.value.received
         if backend != "postgres":
-            assert trace.uploaded_key_rows == [1, 0]
+            assert trace.uploaded_key_rows == [1, 0], {
+                "rows": trace.returned_rows,
+                "sql": trace.native_sql,
+            }
 
 
 def test_output_coverage_survives_source_population_fusion_and_empty_top(

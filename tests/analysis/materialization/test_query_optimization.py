@@ -263,7 +263,7 @@ def test_repeated_consumers_share_complete_input_without_mutation(
     assert rows[("value", "right.right")].tolist() == [100, 200, 300]
 
 
-def test_source_attributes_keep_complete_keys_and_lookup_checks(
+def test_source_attributes_keep_complete_keys_and_inherited_checks(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
@@ -291,7 +291,7 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
         assert read_projections(stage) == read_projections(original)
         assert after_actual[stage.stage_id] == before_actual[stage.stage_id]
         assert stage.preparation_checks == original.preparation_checks
-        assert stage.preparation_checks
+        assert stage.preparation_checks == ()
 
     assert query.compute().to_pandas()[("value", "kept")].tolist() == [10, 30]
 

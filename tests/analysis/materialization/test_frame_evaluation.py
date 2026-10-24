@@ -48,6 +48,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session as membership_session
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.json import arr, checked
+from tests.support.source_trace import capture_source
 
 
 @pytest.fixture
@@ -781,6 +782,152 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         for column in directory.schema.values
         if column.name in boundary_names
     } == {name: TimestampDataType("us", "UTC") for name in boundary_names}
+
+
+@pytest.mark.parametrize("descending", (True, False))
+def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
+    session: Session, monkeypatch: pytest.MonkeyPatch, descending: bool
+) -> None:
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("UPDATE facts SET numerator=NULL WHERE tenant='t1' AND id=2")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    pending = session.read(members, {"score": numerator})
+    trace = capture_source(monkeypatch, measure_cost=True)
+    result = pending.top(4, by=pending["score"], descending=descending).compute().to_pandas()
+    assert result.iloc[:, 0].tolist() == (
+        [("t1", 1), ("t2", 1), ("t2", 2), ("t1", 2)]
+        if descending
+        else [("t2", 1), ("t2", 2), ("t1", 1), ("t1", 2)]
+    )
+    assert result[("value", "score")].iloc[-1] is pd.NA
+    assert str(result[("value", "score")].dtype) == "int64[pyarrow]"
+    assert trace.returned_rows == [4]
+    trace.returned_rows.clear()
+    trace.native_sql.clear()
+    top = pending.top(1, by=pending["score"], descending=descending).compute().to_pandas()
+    assert top.iloc[:, 0].tolist() == ([("t1", 1)] if descending else [("t2", 1)])
+    assert trace.returned_rows == [1]
+    assert trace.uploaded_key_rows == []
+    assert "ORDER BY" in trace.native_sql[0] and trace.native_sql[0].rstrip().endswith("LIMIT 1")
+
+
+def test_fixed_and_reopened_read_top_are_source_free(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    fixed = session.read(members, {"score": numerator}).compute()
+    stored = fixed.persist()
+    assert isinstance(stored._backing, StoredFrameBacking)
+    reopened = session.persisted_frame(stored._backing.artifact_id)
+    (session.project_root / "frame-source.duckdb").unlink()
+    trace = capture_source(monkeypatch)
+    for frame in (fixed, stored, reopened):
+        result = frame.top(1, by=frame["score"]).compute().to_pandas()
+        assert result.iloc[0].tolist() == [("t1", 1), 450]
+        assert frame.top(0, by=frame["score"]).compute().to_pandas().empty
+    assert trace.returned_rows == [] and trace.uploaded_key_rows == []
+
+
+def test_pending_read_top_does_not_truncate_another_consumer(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    pending = session.read(members, {"score": numerator})
+    top = pending.top(1, by=pending["score"])
+    combined = top.align(pending, on=((top.axes[0], pending.axes[0]),))
+    trace = capture_source(monkeypatch)
+    rows = combined.compute().to_pandas()
+    assert rows.iloc[:, 0].tolist() == [("t1", 1), ("t1", 2), ("t2", 1), ("t2", 2)]
+    assert rows["presence", "left_present"].tolist() == [True, False, False, False]
+    assert rows["presence", "right_present"].tolist() == [True, True, True, True]
+    assert trace.returned_rows == [4]
+    assert trace.uploaded_key_rows == []
+
+
+def test_pending_read_top_preserves_an_empty_source(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    pending = session.read(members, {"score": numerator})
+    trace = capture_source(monkeypatch)
+    result = pending.top(1, by=pending["score"]).compute().to_pandas()
+    assert result.empty
+    assert str(result[("value", "score")].dtype) == "int64[pyarrow]"
+    assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize("n", (0, 1))
+def test_pending_read_top_preserves_full_input_nonfinite_error(
+    session: Session, monkeypatch: pytest.MonkeyPatch, n: int
+) -> None:
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER numerator TYPE DOUBLE")
+        connection.execute("UPDATE facts SET numerator='Infinity' WHERE tenant='t2' AND id=2")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    denominator = session.catalog.fields.get("sales.facts.denominator")
+    pending = session.read(members, {"score": denominator, "invalid": numerator})
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        pending.top(n, by=pending["score"]).compute()
+    assert failure.value.stage == "numeric_value"
+    assert "finite" in str(failure.value.expected)
+    assert "'key.0': 't2', 'key.1': 2" in failure.value.received
+    assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize("n", (0, 1))
+def test_pending_read_top_preserves_full_output_key_integrity(
+    session: Session, monkeypatch: pytest.MonkeyPatch, n: int
+) -> None:
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("INSERT INTO facts VALUES ('t2',2,'Store',75,0,3)")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    pending = session.read(members, {"score": numerator})
+    trace = capture_source(monkeypatch)
+    with pytest.raises(MaterializationError) as failure:
+        pending.top(n, by=pending["score"]).compute()
+    assert failure.value.stage == "stage_output"
+    assert "unique stage key" in failure.value.expected
+    assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("size", (100, 10000))
+def test_pending_read_top_transport_does_not_grow_with_source(
+    session: Session, monkeypatch: pytest.MonkeyPatch, size: int
+) -> None:
+    with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(f"INSERT INTO facts SELECT 't1',i,'Web',i,1,i FROM range({size}) t(i)")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    pending = session.read(members, {"score": numerator})
+    trace = capture_source(monkeypatch, measure_cost=True)
+    result = pending.top(1, by=pending["score"]).compute().to_pandas()
+    assert result.iloc[0].tolist() == [("t1", size - 1), size - 1]
+    assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
+    print(
+        json.dumps(
+            {
+                "provider": "duckdb",
+                "version": duckdb.__version__,
+                "input_rows": size,
+                "returned_rows": trace.returned_rows,
+                "returned_arrow_bytes": trace.returned_arrow_bytes,
+                "returned_pandas_bytes": trace.returned_pandas_bytes,
+                "uploaded_key_rows": trace.uploaded_key_rows,
+                "sql": trace.native_sql,
+            }
+        )
+    )
 
 
 @pytest.mark.parametrize("unmatched", ("exclude", "null"))

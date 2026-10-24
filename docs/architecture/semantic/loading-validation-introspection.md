@@ -101,8 +101,10 @@ Source health with checks omitted tests connectivity and schema/capability
 metadata without a business-data query, and needs no data scope. Explicit
 ms.source_check rules for missingness, enum, uniqueness, freshness, relationship
 matches or cardinality require a bounded scope when reading rows. Results report
-that actual scope and remain ephemeral. A passing relationship check does not
-authorize an unrelated consumer's required-match assumption.
+that actual scope and remain ephemeral. Analysis trusts declared identity,
+relationship cardinality and version grain without automatically running these
+checks. Missing scalar matches follow the consuming operator's NULL policy;
+explicit source_check is the route for validating source matching expectations.
 
 Temporal previews intentionally publish dedicated artifacts because the source
 values define executable semantic authority. Their exhaustive certification and

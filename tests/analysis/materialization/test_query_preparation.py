@@ -372,8 +372,9 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
     result = compute(session, {"sum": amount.sum()}, by=(group,))
     assert sorted(result.table["value.0"].tolist()) == [10, 20]
     missing = region.via((buyer,)).at(session.instant("2025-01-02T00:00:00+00:00"))
-    with pytest.raises(MaterializationError, match="exactly one matching"):
-        compute(session, {"sum": amount.sum()}, by=(missing,))
+    output = compute(session, {"sum": amount.sum()}, by=(missing,)).table
+    assert output["key.0"].isna().all()
+    assert output["value.0"].tolist() == [30]
 
 
 @pytest.mark.parametrize("prepared_session", ["parsed_validity"], indirect=True)

@@ -74,6 +74,7 @@ def _native_float(
             series = frame[name]
             if (
                 invalid_key
+                and str(name).startswith("key.")
                 and pa.types.is_integer(pa.array(series).type)
                 and not series.isna().any()
             ):
@@ -271,16 +272,22 @@ def test_native_invalid_integer_keys_and_pruned_numeric_failures_publish_nothing
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with monkeypatch.context() as patch:
-        _native_float(patch, invalid_key=True)
-        with pytest.raises(MaterializationError, match="integer keys"):
+        calls = _native_float(patch, invalid_key=True)
+        with pytest.raises(MaterializationError, match="integer keys") as failure:
             source = _read(session)
-            source.top(0, by=source["big"]).compute()
+            # Corrupt a returned business key; Top-0 carries only diagnostics.
+            source.top(1, by=source["big"]).compute()
+        assert calls == [1] and failure.value.stage == "stage_output"
     assert terminal_runs(session) == ()
     with monkeypatch.context() as patch:
-        _native_float(patch, nonfinite=True)
+        calls = _native_float(patch, nonfinite=True)
         source = _read(session)
-        with pytest.raises(MaterializationError, match="finite"):
-            source.top(0, by=source["big"]).compute()
+        # This local select consumes the full returned nullable carrier before
+        # Top-0, so driver-injected Infinity remains an actual input value.
+        selected = source.select({"big": source["big"]})
+        with pytest.raises(MaterializationError, match="finite") as failure:
+            selected.top(0, by=selected["big"]).compute()
+        assert calls == [4] and failure.value.stage == "stage_output"
     big = session.catalog.fields.get("sales.facts.big")
     source = session.observe({"strict": big.sum(nulls="error")})
     with pytest.raises(MaterializationError, match="non-NA"):

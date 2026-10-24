@@ -208,7 +208,7 @@ def provider() -> DisclosureProvider:
             Population,
             "classify",
             "Population",
-            "Read one identity Entity's fields into correlated coordinates; existing-axis-only classification is projection.",
+            "Read correlated fields, trusting source declarations; missing matches yield NULL. Existing-axis-only classification is projection.",
             "result = population.classify(by=(region,))",
             ("population", "region"),
         ),

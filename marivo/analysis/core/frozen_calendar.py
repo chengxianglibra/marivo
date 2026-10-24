@@ -159,6 +159,7 @@ def read_direct_mapping(
         _fail("exactly one ordered direct mapping row per origin bucket", repr(origins))
     columns = schema.values[:-1]
     arrays = tuple(_array(rows, column) for column in columns)
+    target_keys = _key_rows(columns, arrays, len(rows))
     reasons = _array(rows, schema.values[-1])
     result: list[FrozenDirectEntry] = []
     targets: set[FrozenKey] = set()
@@ -173,7 +174,7 @@ def read_direct_mapping(
         elif any(nulls) or reason is not None:
             _fail("one complete target key or one absent reason", repr((nulls, reason)))
         else:
-            target_key = frozen_key_rows(rows.iloc[i : i + 1], columns)[0]
+            target_key = target_keys[i]
             if target_key in targets:
                 _fail("unique direct target keys", repr(target_key))
             targets.add(target_key)
@@ -281,6 +282,7 @@ def read_comparison_mapping(
         _fail("exactly one ordered comparison map row per current bucket", repr(keys))
     columns = schema.values[:-1]
     arrays = tuple(_array(rows, column) for column in columns)
+    target_keys = _key_rows(columns, arrays, len(rows))
     reasons = _array(rows, schema.values[-1])
     domain = {bucket.key for bucket in baseline.buckets}
     seen: set[FrozenKey] = set()
@@ -298,7 +300,7 @@ def read_comparison_mapping(
                 "one complete baseline key or one absent comparison reason", repr((nulls, reason))
             )
         else:
-            target = frozen_key_rows(rows.iloc[index : index + 1], columns)[0]
+            target = target_keys[index]
             if target not in domain or target in seen:
                 _fail("unique comparison targets resolving in the baseline directory", repr(target))
             seen.add(target)
@@ -516,35 +518,29 @@ def _layout(schema: DataSchema, rows: pd.DataFrame) -> None:
         _fail("complete coordinate table in exact slot order", repr(tuple(rows.columns)))
 
 
-def _scalar(values: pa.Array, index: int) -> FrozenScalar | None:
-    if not values[index].is_valid:
-        return None
-    # Arrow validity, rather than pandas scalar NaT, is the null authority.
-    value: object = values[index].as_py()
-    if isinstance(value, float) and not isfinite(value):
-        _fail("finite typed coordinate values", repr(value))
-    if isinstance(value, (bool, str, int, float, date, Decimal)):
-        return value
-    _fail("a closed exact physical coordinate scalar", repr(value))
-
-
-def frozen_key_rows(rows: pd.DataFrame, columns: tuple[DataColumn, ...]) -> tuple[FrozenKey, ...]:
-    """Read dtype-tagged keys using Arrow validity and exact temporal ticks."""
-    arrays: list[pa.Array] = []
-    for column in columns:
-        values = _array(rows, column)
+def _key_rows(
+    columns: tuple[DataColumn, ...], arrays: tuple[pa.Array, ...], length: int
+) -> tuple[FrozenKey, ...]:
+    components: list[list[FrozenScalar | None]] = []
+    for column, values in zip(columns, arrays, strict=True):
         if isinstance(column.dtype, (TimestampDataType, DurationDataType)):
             values = values.cast(pa.int64())
         elif column.dtype == ScalarDataType("date"):
             values = values.cast(pa.int32())
-        arrays.append(values)
+        elif pa.types.is_floating(values.type) and pc.any(pc.invert(pc.is_finite(values))).as_py():
+            _fail("finite typed coordinate values", column.slot_id)
+        # The exact Arrow carrier admits only FrozenScalar values. Converting
+        # each column once also preserves validity for minimum temporal ticks.
+        components.append(values.to_pylist())
     return tuple(
-        tuple(
-            (column.dtype, _scalar(values, i))
-            for column, values in zip(columns, arrays, strict=True)
-        )
-        for i in range(len(rows))
+        tuple((column.dtype, values[i]) for column, values in zip(columns, components, strict=True))
+        for i in range(length)
     )
+
+
+def frozen_key_rows(rows: pd.DataFrame, columns: tuple[DataColumn, ...]) -> tuple[FrozenKey, ...]:
+    """Read dtype-tagged keys using Arrow validity and exact temporal ticks."""
+    return _key_rows(columns, tuple(_array(rows, column) for column in columns), len(rows))
 
 
 def frozen_key_table(
@@ -832,7 +828,7 @@ def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
 
 def validate_frozen_coordinates(
     schema: DataSchema, rows: pd.DataFrame, attachments: tuple[FrozenAttachment, ...]
-) -> None:
+) -> tuple[FrozenKey, ...]:
     """Validate complete coordinate closure, all attachments and primary references."""
     validate_presence(schema, rows)
     layouts = coordinate_attachment_schemas(schema)
@@ -844,11 +840,26 @@ def validate_frozen_coordinates(
         if tables[name].schema != expected:
             _fail("the exact required coordinate attachment schema", name)
     _layout(schema, rows)
-    _unique(frozen_key_rows(rows, tuple(c for axis in schema.axes for c in axis.columns)), "row")
+    columns = tuple(c for axis in schema.axes for c in axis.columns)
+    complete_keys = frozen_key_rows(rows, columns)
+    _unique(complete_keys, "row")
+    positions = {column.slot_id: index for index, column in enumerate(columns)}
+    primary_keys = {
+        axis.token: tuple(
+            tuple(key[positions[column.slot_id]] for column in axis.columns)
+            for key in complete_keys
+        )
+        for axis in schema.axes
+    }
+    directories: dict[
+        CalendarDataAxis | IntervalDataAxis, FrozenCalendarDirectory | FrozenIntervalDirectory
+    ] = {}
 
     def read(
         axis: CalendarDataAxis | IntervalDataAxis,
     ) -> FrozenCalendarDirectory | FrozenIntervalDirectory:
+        if axis in directories:
+            return directories[axis]
         assert axis.frozen is not None
         attachment = tables[axis.frozen.directory_name]
         directory = (
@@ -864,6 +875,7 @@ def validate_frozen_coordinates(
             )
             table = tables[direct.mapping_name]
             read_direct_mapping(axis, table.schema, table.rows, origin, directory)
+        directories[axis] = directory
         return directory
 
     for axis in schema.axes:
@@ -876,7 +888,7 @@ def validate_frozen_coordinates(
             domain = {bucket.key for bucket in read(axis).buckets}
         else:
             continue
-        primary = frozen_key_rows(rows, axis.columns)
+        primary = primary_keys[axis.token]
         if any(key not in domain for key in primary):
             _fail("every primary coordinate key resolving in its frozen attachment", axis.token)
         if isinstance(axis, PairedDataAxis):
@@ -900,12 +912,13 @@ def validate_frozen_coordinates(
             )
             if any(
                 key in absent and present[index].as_py() is True
-                for index, key in enumerate(frozen_key_rows(rows, current.columns))
+                for index, key in enumerate(primary_keys[current.token])
             ):
                 _fail(
                     "row presence consistent with absent comparison endpoints",
                     repr((*fact.namespace, fact.alias, fact.baseline_presence.path)),
                 )
+    return complete_keys
 
 
 def require_matchable_calendar_directory(directory: FrozenCalendarDirectory) -> None:

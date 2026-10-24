@@ -1519,12 +1519,31 @@ def _validate_source_checks(
             continue
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
+            finish = read_finish(stage)
+            witness_slots = (
+                dict(finish.frame_top.numeric_witnesses).get(name)
+                if finish is not None and finish.frame_top is not None
+                else None
+            )
+            witness_slots = witness_slots or tuple(
+                sorted(
+                    (column for column in frame.columns if column.startswith(name + ".witness.")),
+                    key=lambda column: int(column.rsplit(".", 1)[1]),
+                )
+            )
+            coordinates = (
+                frame.loc[violation, list(witness_slots)]
+                .head(1)
+                .rename(columns=dict(zip(witness_slots, stage.keys, strict=False)))
+                if witness_slots
+                else frame.loc[violation, list(stage.keys)].head(6)
+            )
             _source_check_failure(
                 stage,
                 name,
                 check.expected,
                 check.received,
-                frame.loc[violation, list(stage.keys)].head(6),
+                coordinates,
             )
 
 
@@ -1542,19 +1561,22 @@ def _source_check_failure(
         f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
     )
     if any(name == column for column, _, _ in stage.preparation_checks):
-        raise MaterializationError(
-            expected=expected,
-            received=received,
-            repair=(
-                "Include every observed output coordinate in by=Population, or explicitly filter contributions before choosing that output domain."
-                if name == "__query_population_uncovered"
-                else "Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry."
-            ),
-            stage="population_coverage"
-            if name == "__query_population_uncovered"
-            else "scalar_field_lookup",
-            help_target="analysis_frame.compute",
-        )
+        if expected == "an output Population covering every required complete coordinate":
+            raise MaterializationError(
+                expected=expected,
+                received=received,
+                repair="Include every observed output coordinate in by=Population, or explicitly filter contributions before choosing that output domain.",
+                stage="population_coverage",
+                help_target="analysis_frame.compute",
+            )
+        if expected == "non-null complete identity keys":
+            raise MaterializationError(
+                expected=expected,
+                received=received,
+                repair="Supply every non-null primary-key component for each represented Entity identity.",
+                stage="population_identity",
+                help_target="analysis_frame.compute",
+            )
     numeric_failure(expected, received)
 
 
@@ -1600,28 +1622,6 @@ def _complete_source_frame(
     from marivo.semantic._numeric_lowering import numeric_failure
 
     retained_checks = {column.slot_id for column in stage.columns}
-    for name in (
-        "__numeric_present",
-        "__sample_present",
-        *(name for name, _ in numeric_checks),
-    ):
-        if name in retained_checks and name in frame.columns:
-            frame[name] = frame[name].astype("boolean").fillna(False)
-    for name, check in numeric_checks:
-        if name in retained_checks:
-            continue
-        if frame[name].fillna(False).any():
-            coordinates = frame.loc[frame[name].fillna(False), list(stage.keys)].head(6)
-            received = f"{check.received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
-            if any(name == column for column, _, _ in stage.preparation_checks):
-                raise MaterializationError(
-                    expected=check.expected,
-                    received=received,
-                    repair="Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry.",
-                    stage="scalar_field_lookup",
-                    help_target="analysis_frame.compute",
-                )
-            numeric_failure(check.expected, received)
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].fillna(False)]
     if read_finish(stage) is not None:
@@ -2299,12 +2299,8 @@ def prepare_attribute_sources(
                 memberships=parent_memberships,
             )
             reader = probe_engine_timezone(owner._backend)
-            scoped = prepare_fields(
-                baseline, prepared.entities, state, reader, trust_declarations=True
-            )
-            classified = prepare_fields(
-                merged, prepared.entities, state, reader, trust_declarations=True
-            )
+            scoped = prepare_fields(baseline, prepared.entities, state, reader)
+            classified = prepare_fields(merged, prepared.entities, state, reader)
             scoped_map, assigned_map = dict(scoped.columns), dict(classified.columns)
             parent_paths = tuple(
                 path for read in parent_reads for path in coordinate_read_keys(read)

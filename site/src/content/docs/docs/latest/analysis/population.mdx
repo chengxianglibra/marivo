@@ -32,6 +32,8 @@ assert requested_count.to_pandas()[("value", "members")].tolist() == [4]
 
 Order 999 is requested but absent from the tutorial source. Literal membership still counts it. Keys do not prove source records exist. `keys=()` is empty; for `by=()`, `keys=((),)` is the one-element zero-axis domain.
 
+Source analysis trusts declared identities, relationship cardinality and version grain. Reads do not recheck uniqueness or matching-record existence: missing scalar matches yield Null, and read/classify retain requested identities with Null attributes. Relationship traversal follows its actual joins and set semantics. Use explicit `source_check` for data-quality expectations. Identity outputs must still be non-null; numeric checks, strict Null policies, output Population coverage and stored-result integrity remain enforced.
+
 ## Identity grouping: `mv.identity`
 
 | Parameter | Required | Default | Meaning |

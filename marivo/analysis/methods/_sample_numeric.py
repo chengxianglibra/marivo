@@ -59,13 +59,28 @@ def reduce_samples(
         return result
 
     records: list[dict[str, object]] = []
-    for _, coordinate in domain.iterrows():
-        selected = pd.Series(True, index=frame.index)
-        for key in keys:
-            value = coordinate[key]
-            selected &= frame[key].isna() if pd.isna(value) else (frame[key] == value).fillna(False)
-        group = frame.loc[selected]
-        record: dict[str, object] = {key: coordinate[key] for key in keys}
+    # Build the complete-key index once. Arrow scalars retain exact integers,
+    # Decimal values and temporal ticks, including valid minimum time values.
+    sample_arrays: list[pa.Array] = []
+    domain_arrays: list[pa.Array] = []
+    for key in keys:
+        samples = pa.array(frame[key], from_pandas=True)
+        coordinates = pa.array(domain[key], from_pandas=True)
+        carrier = coordinates.type if pa.types.is_null(samples.type) else samples.type
+        sample_arrays.append(samples.cast(carrier, safe=True))
+        domain_arrays.append(coordinates.cast(carrier, safe=True))
+
+    def key_at(arrays: list[pa.Array], position: int) -> tuple[pa.Scalar | None, ...]:
+        return tuple(
+            cell if cell.is_valid else None for array in arrays for cell in (array[position],)
+        )
+
+    groups: dict[tuple[pa.Scalar | None, ...], list[int]] = {}
+    for sample_position in range(len(frame)):
+        groups.setdefault(key_at(sample_arrays, sample_position), []).append(sample_position)
+    for domain_position in range(len(domain)):
+        group = frame.iloc[groups.get(key_at(domain_arrays, domain_position), [])]
+        record: dict[str, object] = {key: domain[key].iloc[domain_position] for key in keys}
         for name, _, _ in inherited:
             record[name] = bool(group[name].astype("boolean").fillna(False).any())
         record.update(

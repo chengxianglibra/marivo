@@ -85,12 +85,6 @@ class SourceInputContract:
     time_authorities: tuple[SourceTimeAuthority, ...]
 
 
-def scalar_field(value: ir.Value) -> ir.Scalar:
-    """Retain the single checked field row without a backend-specific FIRST aggregate."""
-    assert isinstance(value, ir.Column)
-    return value.any() if isinstance(value, ir.BooleanColumn) else value.min()
-
-
 def prepare_fields(
     contribution: ContributionBinding,
     entities: Mapping[str, ir.Table],
@@ -98,9 +92,8 @@ def prepare_fields(
     reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
-    trust_declarations: bool = False,
 ) -> PreparedFields:
-    """Prepare expressions and checked many-to-one joins without reading values."""
+    """Prepare expressions and declared many-to-one joins without reading values."""
     registry = state.registry
     from marivo.analysis.compiler.source_time import entity_engine
     from marivo.analysis.core.domain_captures import DomainPreparationError
@@ -537,21 +530,8 @@ def prepare_fields(
                     dependencies.append(expression)
                     originals.append((slot, expression))
                     target = target.mutate(**{slot: expression}, **time_columns(expression))
-                right_keys = tuple(right for _, right in keys)
                 prefix = f"__route_{index}_{step_index}_"
-                count = unique(prefix + "count")
-                grouped = (
-                    target
-                    if trust_declarations
-                    else target.group_by(*right_keys).aggregate(
-                        **{
-                            name: scalar_field(target[name])
-                            for name in target.columns
-                            if name not in right_keys
-                        },
-                        **{count: target.count()},
-                    )
-                )
+                grouped = target
                 renamed = {name: unique(prefix + name) for name in grouped.columns}
                 grouped = grouped.rename(**{new: old for old, new in renamed.items()})
                 joined = table.left_join(
@@ -559,12 +539,6 @@ def prepare_fields(
                     [table[current[left]] == grouped[renamed[right]] for left, right in keys],
                 )
                 table = joined.select(table, *(grouped[name] for name in grouped.columns))
-                if not trust_declarations:
-                    check = unique(f"__prepare_check_{len(checks)}")
-                    table = table.mutate(**{check: table[renamed[count]].fill_null(0) != 1})
-                    checks.append(
-                        (check, "exactly one matching scalar field row", field_read_key(read))
-                    )
                 current = renamed
                 if final:
                     table = table.mutate(

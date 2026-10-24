@@ -268,7 +268,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_numeric_attribute_cardinality_failure_survives_empty_top(
+def test_numeric_attribute_output_key_failure_survives_empty_top(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -293,10 +293,10 @@ def test_numeric_attribute_cardinality_failure_survives_empty_top(
         )
         filtered = source.where(source["amount"] > 100.5)
         query = filtered.top(0, by=filtered["amount"])
-        with pytest.raises(MaterializationError, match="exactly one attribute row"):
+        with pytest.raises(MaterializationError, match="complete unique stage key"):
             query.compute()
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match="exactly one attribute row"):
+        with pytest.raises(MaterializationError, match="complete unique stage key"):
             query.compute()
 
 

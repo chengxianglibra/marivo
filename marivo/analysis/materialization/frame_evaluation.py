@@ -19,6 +19,7 @@ from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
     plan_frame,
 )
+from marivo.analysis.compiler.frame_top import bound_pending_frame_top
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -250,6 +251,13 @@ def _evaluate_frame(
         inputs = prepared.inputs
         operations = prepared.operations
         compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
+        compiled = bound_pending_frame_top(
+            compiled,
+            {
+                input_id: source.source.provider.name
+                for input_id, source in prepared_by_input.items()
+            },
+        )
         source_stage_ids = dict(compiled.source_stages)
         operation_inputs = {
             id(expression): identifier for identifier, expression in expressions.items()

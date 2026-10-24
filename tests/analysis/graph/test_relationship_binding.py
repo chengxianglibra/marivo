@@ -255,7 +255,7 @@ def test_classification_scope_and_complete_components(
 
 
 @pytest.mark.parametrize("explicit", (False, True))
-def test_classification_read_requires_owner_for_its_complete_input_scope(
+def test_classification_read_preserves_missing_owner_as_null(
     analysis_dsl_case_factory: DslCaseFactory,
     explicit: bool,
 ) -> None:
@@ -267,13 +267,23 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     route = session.catalog.relationships.get(LINE_PRODUCT.path)
     if explicit:
         category = category.via((route,))
-    with pytest.raises(MaterializationError) as missing:
+    attributes = (
         session.read(
             session.members(session.catalog.entities.get(LINE.path)), {"category": category}
-        ).persist()
-    assert missing.value.expected and missing.value.received and missing.value.repair
-    assert not hasattr(missing.value, "run_ref")
-    assert terminal_runs(session) == ()
+        )
+        .persist()
+        .to_pandas()
+    )
+    assert attributes.iloc[:, 0].tolist() == ["a1", "a2", "a3", "b1", "c1", "outside"]
+    assert attributes[("value", "category")].iloc[:5].tolist() == [
+        "book",
+        "book",
+        "game",
+        "game",
+        "book",
+    ]
+    assert attributes[("value", "category")].isna().tolist() == [False] * 5 + [True]
+    assert len(terminal_runs(session)) == 1
     # The separate observation consumes only August contributions, so a bad July
     # relationship is outside this read scope.
     frame = (
@@ -397,7 +407,6 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
 def test_timed_classification_cannot_remove_consumed_contributions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
 
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)

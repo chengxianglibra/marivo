@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
@@ -62,7 +61,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
     assert inferred.equals(explicit)
 
 
-def test_related_field_null_is_counted_and_missing_owner_is_rejected(
+def test_related_field_null_is_counted_and_missing_owner_remains_null(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -85,9 +84,8 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
     before = terminal_runs(session)
-    with pytest.raises(AnalysisError):
-        values.where(values["value"] == "east").persist()
-    assert terminal_runs(session) == before
+    assert values.where(values["value"] == "east").persist().to_pandas().empty
+    assert len(terminal_runs(session)) == len(before) + 1
     assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
 

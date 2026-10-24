@@ -42,7 +42,7 @@ def prepare_member_fields(
     from marivo._definition.observations import ContributionBinding
     from marivo._definition.types import field_read_key
     from marivo.analysis.materialization.population_preparation import _domain_table
-    from marivo.analysis.materialization.query_preparation import prepare_fields, scalar_field
+    from marivo.analysis.materialization.query_preparation import prepare_fields
     from marivo.datasource.timezone import probe_engine_timezone
 
     identities = prepare_population(node.operand, entities, state)
@@ -100,18 +100,18 @@ def prepare_member_fields(
     prepared_checks = prepared.checks
     columns = dict(prepared.columns)
     field_names = tuple(f"__classify_value_{index}" for index in range(len(fields)))
-    grouped = table.group_by(*contract.primary_key).aggregate(
+    attributes = table.select(
+        *contract.primary_key,
         **{
-            name: scalar_field(table[columns[field_read_key(read)]])
+            name: table[columns[field_read_key(read)]]
             for name, read in zip(field_names, fields, strict=True)
         },
-        __classify_count=table.count(),
-        **{name: table[name].any().fill_null(False) for name, _, _ in prepared_checks},
+        **{name: table[name] for name, _, _ in prepared_checks},
     )
     joined = domain.left_join(
-        grouped,
+        attributes,
         [
-            domain[slot].identical_to(grouped[key])
+            domain[slot].identical_to(attributes[key])
             for key, slot in zip(contract.primary_key, identities.key_groups[0], strict=True)
         ],
     )
@@ -125,13 +125,11 @@ def prepare_member_fields(
                 for name, slot in zip(group, identities.key_groups[0], strict=True)
             )
         else:
-            values[group[0]] = grouped[field_names[field_index]]
+            values[group[0]] = attributes[field_names[field_index]]
             field_index += 1
-    check = "__population_classify_invalid"
     output = joined.select(
         **values,
-        **{check: grouped.__classify_count.fill_null(0) != 1},
-        **{name: grouped[name].fill_null(False) for name, _, _ in prepared_checks},
+        **{name: attributes[name].fill_null(False) for name, _, _ in prepared_checks},
     )
     presence = None
     if identities.checks:
@@ -150,7 +148,6 @@ def prepare_member_fields(
         groups,
         (
             *identities.checks,
-            (check, "exactly one attribute row for every requested identity", entity),
             *prepared_checks,
         ),
         presence,
@@ -186,13 +183,6 @@ def prepare_relationship_population(
             ),
             state=state,
         )
-    missing = operand.table.anti_join(
-        source,
-        [
-            operand.table[slot] == source[key]
-            for key, slot in zip(contract.primary_key, operand.key_groups[0], strict=True)
-        ],
-    )
     # The receiver limits the relation before traversal; this never discovers
     # additional source identities outside the requested finite domain.
     allocation = source.inner_join(
@@ -271,16 +261,18 @@ def prepare_relationship_population(
             for slot, column in zip(key_groups[0], result_columns, strict=True)
         },
     ).distinct()
-    check = "__population_image_missing_source"
-    invalid_rows = missing.select(
-        **{slot: ibis.literal(None, type=output[slot].type()) for slot in key_groups[0]},
-        **{check: ibis.literal(True)},
-    )
-    output = output.mutate(**{check: ibis.literal(False)}).union(
-        invalid_rows.select(*output.columns, check)
-    )
+    presence = None
+    if operand.checks:
+        summary = operand.table.aggregate(
+            **{name: operand.table[name].any().fill_null(False) for name, _, _ in operand.checks}
+        )
+        presence = "__population_relation_present"
+        output = summary.left_join(
+            output.mutate(**{presence: ibis.literal(True)}), ibis.literal(True)
+        )
     return PreparedPopulation(
         output,
         key_groups,
-        ((check, "a source relationship row for every requested identity", axis.entity.ref.key),),
+        operand.checks,
+        presence,
     )

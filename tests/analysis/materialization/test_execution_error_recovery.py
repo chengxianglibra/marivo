@@ -60,7 +60,12 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         record for record in execution_records(case.root) if record["event"] == "query.submitted"
     ]
     assert submitted
-    assert all("LIMIT" not in str(record["sql"]).upper() for record in submitted)
+    import sqlglot
+
+    assert all(
+        sqlglot.parse_one(str(record["sql"]), read="duckdb").args.get("limit") is None
+        for record in submitted
+    )
     capsys.readouterr()
     captured.show(n=1)
     preview = capsys.readouterr().out

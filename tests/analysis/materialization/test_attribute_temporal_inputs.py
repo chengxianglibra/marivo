@@ -484,11 +484,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     assert calls == []
 
 
-def test_calendar_pre_predicate_check_keeps_real_failure_scope(
-    session: Session, tmp_path: Path
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
+def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: Path) -> None:
     amount = session.catalog.fields.get("sales.otherfacts.amount")
     day = session.catalog.fields.get("sales.otherfacts.day")
     channel = session.catalog.fields.get("sales.facts.channel")
@@ -497,10 +493,12 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
     parent = session.observe({"q": metric}, by=(calendar,), where=channel == "A").compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id=2")
-    with pytest.raises(MaterializationError) as ordinary:
-        session.observe({"q": metric}, where=channel == "A", by=(calendar, channel)).compute()
-    assert ordinary.value.location == "dataset.scalar_field_lookup"
-    assert ordinary.value.repair is not None
+    ordinary = (
+        session.observe({"q": metric}, where=channel == "A", by=(calendar, channel))
+        .compute()
+        .to_pandas()
+    )
+    assert ordinary[("value", "q")].tolist() == [260]
     result = parent.attribute(by=(channel,)).compute().to_pandas()
     assert result[("value", "total.q")].tolist() == [260]
 

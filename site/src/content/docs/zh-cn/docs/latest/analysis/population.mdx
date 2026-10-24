@@ -32,6 +32,8 @@ assert requested_count.to_pandas()[("value", "members")].tolist() == [4]
 
 订单 999 被显式请求，但教程来源中不存在；字面成员计数仍包含它。键不证明来源记录存在。`keys=()` 表示空域；当 `by=()` 时，`keys=((),)` 表示有一个元素的零轴域。
 
+来源分析信任声明的身份、关系基数和版本粒度，不复核唯一性或匹配记录是否存在：scalar 匹配缺失时产生 Null，read/classify 保留请求身份并返回 Null 属性；关系遍历遵循实际连接与集合语义。使用显式 `source_check` 检查数据质量。身份输出仍须非空；数值检查、严格 Null 策略、输出 Population 覆盖和保存结果完整性继续执行。
+
 ## 身份分组：`mv.identity`
 
 | 参数 | 必填 | 默认值 | 语义 |

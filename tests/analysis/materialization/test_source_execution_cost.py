@@ -221,7 +221,5 @@ def test_population_source_execution_cost(
     for measurement in measurements:
         assert measurement["values"] == [expected]
         assert measurement["uploaded_key_rows"] == ([1] if scenario == "query_preimage" else [])
-        assert measurement["source_rows"] == (
-            [1, facts, facts // 2] if scenario == "query_preimage" else [1]
-        )
+        assert measurement["source_rows"] == [1]
     _save(scenario, session, database, facts, measurements)

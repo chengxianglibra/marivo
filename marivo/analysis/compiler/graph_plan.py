@@ -673,7 +673,11 @@ def _plan_query(
         folded_mean = mean_folds.get(contribution.logical_occurrence or contribution.occurrence)
         if (
             folded_mean is not None
-            and schema.provider in {"duckdb", "trino"}
+            and (
+                schema.provider in {"duckdb", "trino"}
+                if folded_mean[2] == "mean"
+                else schema.provider in {"duckdb", "postgres", "mysql", "trino", "clickhouse"}
+            )
             and reduction.duration is None
             and reduction.window_key is None
             and observation is not None
@@ -694,7 +698,7 @@ def _plan_query(
                 sample_path == reduction.time_column
                 and lower_row(contribution.definition.operand, fields).value.type().is_float64()
             ):
-                reduction = replace(reduction, mean_fold=(sample_key, folded_mean[1]))
+                reduction = replace(reduction, mean_fold=(sample_key, *folded_mean[1:]))
         if reduction.mean_fold is None:
             folded_mean = None
         expression, numeric_checks = lower_observation(

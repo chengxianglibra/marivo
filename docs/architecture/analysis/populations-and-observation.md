@@ -38,6 +38,16 @@ exact instant anchor; the observation's later period cannot supply membership
 time implicitly. Literal identity coordinates state requested keys without
 proving source records exist. See [versioning](../semantic/semantic-object-model.md#versioning-snapshot-and-validity).
 
+Source analysis trusts declared identity, relationship cardinality and version
+grain. Scalar reads join directly without rechecking uniqueness or requiring a
+matching record. Missing scalar matches produce NULL; read/classify retain the
+requested identity domain with NULL attributes. Relationship traversal uses its
+actual joins and set semantics when a source record is absent. Invalid declared
+uniqueness can multiply contributions; analysis does not repair it by choosing an
+arbitrary row. Use explicit source_check for source data-quality expectations.
+Actual identity outputs must still be non-null complete keys, and type, numeric,
+operation-specific coverage and stored-output integrity checks remain required.
+
 project selects/reorders existing axes and deduplicates complete projected
 tuples. classify reads explicit attributes from one identity Entity when new
 fields are needed; existing-axis classification is projection. product combines
@@ -67,8 +77,8 @@ A member without fact contributions has sum zero and count zero; a member with
 facts whose values are all NULL has sum NULL and a positive contribution count.
 Use a contribution count, not count(value) or the completed Frame row count,
 to distinguish them. Mean/min/max remain NULL without valid samples. Empty
-Population output has no rows. Lookup and source failures are errors, not empty
-contributions. In per(P).mean(), zero-valued no-fact members participate; unknown
+Population output has no rows. Source execution failures remain errors. Missing
+scalar matches follow the NULL policy above. In per(P).mean(), zero-valued no-fact members participate; unknown
 member values are skipped unless strict sample NULL checks are requested. Thus
 an ignore-NULL mean is not a complete-Population mean when any member is unknown.
 
@@ -86,6 +96,16 @@ attribute, classify while retaining identity first. Projecting identity away
 counts distinct resulting categories. Fact conditions/windows do not reselect a
 captured count denominator; ineffective count-only conditions/windows reject.
 Time coordinates broadcast a timeless count or match its existing frozen axis.
+
+Qualified same-source counts on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse
+count distinct complete Population tuples in the source, carrying required
+check summaries instead of downloading unused identity domains. Companion
+Metrics can retain independent bounded reads. Calendars and internal-sample
+domains keep their separate qualifications. When the necessary contribution
+keys and output Population are source-representable, a NULL-safe anti-join
+checks complete-tuple coverage before cropping and returns bounded failure
+coordinates. Fixed and cross-source domains retain local coverage checks and
+are not implicitly uploaded.
 
 A TimeScope in by is an interval coordinate, not a separate during keyword on
 observe. Ordinary source reductions can omit time constraints. Internal temporal

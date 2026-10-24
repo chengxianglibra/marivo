@@ -267,10 +267,14 @@ def test_terminal_relation_returns_only_selected_rows(
         if operation == "read":
             assert rows["value", "amount"].iloc[:3].tolist() == [10, 30, 20]
             assert pd.isna(rows["value", "amount"].iloc[3])
-    assert trace.returned_rows == [4]
+    assert trace.returned_rows == [2 if operation == "top" else 4]
     assert len(trace.native_sql) == len(reads) == len(outputs) == 1
     assert isinstance(reads[0][0].program, NativeRead)
-    assert reads[0][0].program.finish is None
+    if operation == "top":
+        assert reads[0][0].program.finish is not None
+        assert reads[0][0].program.finish.frame_top is not None
+    else:
+        assert reads[0][0].program.finish is None
     assert tuple(outputs[0].table.columns) == ("key.0", "value.0", "value.1")
     assert tuple(str(dtype) for dtype in outputs[0].table.dtypes) == (
         "int64[pyarrow]",
@@ -287,7 +291,7 @@ def test_terminal_relation_returns_only_selected_rows(
         assert len(tops) == 1
         stage, inputs, output = tops[0]
         assert stage.inputs == (reads[0][0].stage_id,)
-        assert inputs[0].table.iloc[:, 0].tolist() == [1, 2, 3, 4]
+        assert inputs[0].table.iloc[:, 0].tolist() == [2, 3]
         assert output.table.iloc[:, 0].tolist() == [2, 3]
     assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
@@ -306,19 +310,22 @@ def test_top_and_where_keep_call_order(
         3,
         1,
     ]
-    assert trace.returned_rows == [4, 4]
+    assert trace.returned_rows == [2, 4]
     assert len(trace.native_sql) == len(reads) == len(outputs) == 2
     assert trace.uploaded_key_rows == []
-    assert all(
-        isinstance(stage.program, NativeRead) and stage.program.finish is None for stage, _ in reads
-    )
+    assert all(isinstance(stage.program, NativeRead) for stage, _ in reads)
+    first = reads[0][0].program
+    assert isinstance(first, NativeRead) and first.finish is not None
+    assert first.finish.frame_top is not None
+    second = reads[1][0].program
+    assert isinstance(second, NativeRead) and second.finish is None
     tops = [
         (inputs[0].table.iloc[:, 0].tolist(), output.table.iloc[:, 0].tolist())
         for stage, inputs, output in locals_
         if isinstance(stage.program, (FrameProgram, ResultProgram))
         and isinstance(stage.program.operation, TopValues)
     ]
-    assert tops == [([1, 2, 3, 4], [2, 3]), ([1, 3], [3, 1])]
+    assert tops == [([2, 3], [2, 3]), ([1, 3], [3, 1])]
 
 
 @pytest.mark.parametrize("operation", ("union", "intersection", "difference"))
@@ -508,28 +515,28 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
     assert trace.uploaded_key_rows == [1]
 
 
-def test_empty_selection_retains_full_identity_checks(
+def test_empty_selection_retains_nonnull_identity_checks(
     source_query_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
     filtered = source.where(source["amount"] > 100)
     query = filtered.top(0, by=filtered["amount"])
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
-        db.execute("INSERT INTO orders VALUES (1,'different',99,0)")
+        db.execute("INSERT INTO orders VALUES (NULL,'different',99,0)")
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    with pytest.raises(MaterializationError, match="exactly one attribute row") as caught:
+    with pytest.raises(MaterializationError, match="non-null complete identity keys") as caught:
         query.compute()
-    assert caught.value.stage == "scalar_field_lookup"
-    assert caught.value.expected == "exactly one attribute row for every requested identity"
-    assert caught.value.location == "dataset.scalar_field_lookup"
+    assert caught.value.stage == "population_identity"
+    assert caught.value.expected == "non-null complete identity keys"
+    assert caught.value.location == "dataset.population_identity"
     assert len(reads) == len(trace.native_sql) == 1
     assert isinstance(reads[0][0].program, NativeRead)
     assert reads[0][0].program.finish is None
     assert reads[0][1].numeric_checks
     assert outputs == []
     assert locals_ == []
-    assert trace.returned_rows == [4]
+    assert sum(trace.returned_rows) <= 6
     assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
 

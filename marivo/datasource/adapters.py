@@ -620,6 +620,33 @@ class SourceSession:
                             )
                             array = pa.array(values, type=arrow_type, from_pandas=True)
                             result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+                elif self.provider.name == "clickhouse" and all(
+                    requirement.method_id == "query.source_read" and requirement.version == 1
+                    for requirement in proof.requirements
+                ):
+                    # Ibis' pandas reader rounds nullable Int64 through float64;
+                    # its Arrow reader also rejects ClickHouse's UInt8 booleans.
+                    # Decode the same issued SQL from native Python columns first.
+                    external = self._backend._collect_in_memory_tables(table, {})
+                    external_data = self._backend._normalize_external_tables(external)
+                    batches: list[pa.RecordBatch] = []
+                    with self._backend.con.query_column_block_stream(
+                        proof.sql, external_data=external_data
+                    ) as blocks:
+                        for block in blocks:
+                            arrays: list[pa.Array] = []
+                            for field, values in zip(proof.schema, block, strict=True):
+                                if pa.types.is_boolean(field.type):
+                                    values = [
+                                        None if value is None else bool(value) for value in values
+                                    ]
+                                arrays.append(pa.array(values, type=field.type, from_pandas=True))
+                            batches.append(pa.RecordBatch.from_arrays(arrays, schema=proof.schema))
+                    result = pa.Table.from_batches(batches, schema=proof.schema).to_pandas(
+                        types_mapper=lambda dtype: (
+                            pd.ArrowDtype(dtype) if pa.types.is_integer(dtype) else None
+                        )
+                    )
                 elif self.provider.name in {"duckdb", "trino"} or (
                     self.provider.name == "postgres"
                     and all(

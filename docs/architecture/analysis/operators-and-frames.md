@@ -43,6 +43,10 @@ field reads check actual NaN/Infinity before selection, ordering or a pandas
 carrier can hide them. A pandas missing-value encoding remains NULL; an Arrow
 valid NaN is a nonfinite value, not NULL.
 
+Source declaration trust does not remove these numeric checks. A missing scalar
+join produces NULL without a separate required-match audit; the consuming
+operator's captured NULL policy still applies, including strict rejection.
+
 ## Physical numeric and temporal carriers
 
 Admitted physical columns use signed int64, finite float64, Decimal(p,s) with
@@ -119,6 +123,14 @@ Ordered first/last uses a unique declared time order after completing each child
 sample. It must not substitute an unordered backend first/last. include_null and
 strict sample policy remain attached to the original occurrence. Window overlap,
 per-sample keys and ordered sampling checks survive any legal optimization.
+
+Qualified direct min/max of Float64 time-sample means completes each child mean
+before the outer source aggregate on DuckDB, PostgreSQL, MySQL, Trino and
+ClickHouse. Strict NULL, finite-value and scheduled-clock coverage checks remain
+attached to their original domains; only bounded output summaries cross the
+boundary. This does not admit arbitrary nested samples, Decimal/Duration or
+ordered first/last to the same optimization. The existing guarded mean-of-mean
+route retains its numeric qualification and original-sample fallback.
 
 ## Current cells, original Metrics and windows
 

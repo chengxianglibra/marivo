@@ -7,7 +7,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import NoReturn
@@ -656,3 +656,60 @@ def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
     raw_sql.assert_called_once_with(read.sql)
     cursor.fetchall.assert_called_once_with()
     assert session.submissions[-1].state == "succeeded"
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_clickhouse_issued_blocks_preserve_exact_nullable_native_carriers(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch, empty: bool
+) -> None:
+    session._backend.raw_sql("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN enabled BOOLEAN")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN day DATE")
+    session._backend.raw_sql("ALTER TABLE facts ADD COLUMN instant TIMESTAMPTZ")
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("query.source_read", 1, frozenset({"scan", "project"}))
+    )
+    read = session.compile(
+        qualified,
+        bound.relation,
+        purpose="query.source_read",
+        expected_schema=bound.relation.schema().to_pyarrow(),
+    )
+    exact = 2**53 + 1
+    instant = datetime(2026, 10, 8, 12, 34, 56, 123456, tzinfo=timezone.utc)
+    block = (
+        [exact, None],
+        [Decimal("9007199254740993.01"), None],
+        [1, None],
+        [date(2026, 10, 8), None],
+        [instant, None],
+    )
+    stream = Mock(return_value=nullcontext([] if empty else [block]))
+    client = Mock(query_column_block_stream=stream)
+    monkeypatch.setattr(session, "provider", provider_for("clickhouse"))
+    monkeypatch.setattr(session._backend, "con", client)
+    monkeypatch.setattr(
+        session._backend, "_collect_in_memory_tables", Mock(return_value={}), raising=False
+    )
+    monkeypatch.setattr(
+        session._backend, "_normalize_external_tables", Mock(return_value=None), raising=False
+    )
+    ordinary = Mock(side_effect=AssertionError("native blocks must precede pandas conversion"))
+    monkeypatch.setattr(session._backend, "execute", ordinary)
+    monkeypatch.setattr(session._backend, "to_pyarrow", ordinary)
+    rows = session.execute(read)
+    assert rows.id.dtype == pd.ArrowDtype(pa.int64())
+    assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+    if empty:
+        assert rows.empty
+    else:
+        assert rows.id.tolist() == [exact, pd.NA]
+        assert rows.amount.tolist() == [Decimal("9007199254740993.01"), None]
+        assert rows.enabled.tolist() == [True, None]
+        assert rows.day.tolist() == [date(2026, 10, 8), None]
+        assert rows.instant.iloc[0] == instant
+        assert pd.isna(rows.instant.iloc[1])
+    stream.assert_called_once_with(read.sql, external_data=None)
+    ordinary.assert_not_called()
+    assert len(session.submissions) == 1 and session.submissions[0].state == "succeeded"

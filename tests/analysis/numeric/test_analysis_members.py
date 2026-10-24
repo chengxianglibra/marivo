@@ -15,7 +15,6 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
@@ -197,7 +196,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"east": 10}
 
 
-def test_mixed_predicate_checks_scalar_condition_before_member_selection(
+def test_mixed_predicate_uses_nullable_missing_scalar_matches(
     members_session: Session,
 ) -> None:
     session = members_session
@@ -212,14 +211,12 @@ def test_mixed_predicate_checks_scalar_condition_before_member_selection(
         .at(session.instant("2026-09-01"))
     )
     metric = session.catalog.metrics.get(f"{prefix}.observed_total")
-    # B is outside selected, but its missing September row is still required
-    # by the field leaf on the original contribution domain.
     for condition in (
         mv.in_population(selected) & (later == "east"),
         (later == "east") | mv.in_population(selected),
     ):
-        with pytest.raises(MaterializationError, match="exactly one matching scalar field row"):
-            session.observe({"value": metric}, where=condition).compute()
+        rows = session.observe({"value": metric}, where=condition).compute().to_pandas()
+        assert rows[("value", "value")].tolist() == [10]
 
 
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
@@ -287,10 +284,13 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     assert _values(
         _read(session, chosen, f"{prefix}.snapshot.amount", at=september, via=route).compute()
     ) == [30]
-    with pytest.raises(MaterializationError) as missing:
-        _read(session, members, f"{prefix}.snapshot.amount", at=september, via=route).compute()
-    assert missing.value.expected and missing.value.received and missing.value.repair
-    assert not hasattr(missing.value, "run_ref")
+    missing = (
+        _read(session, members, f"{prefix}.snapshot.amount", at=september, via=route)
+        .compute()
+        .to_pandas()
+    )
+    assert missing[("value", "value")].iloc[0] == 30
+    assert missing[("value", "value")].isna().tolist() == [False, True]
     assert terminal_runs(session) == ()
 
 

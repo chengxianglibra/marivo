@@ -80,7 +80,7 @@ class ReductionInput:
     native_quantile_value: bool = False
     coverage: tuple[SampleCoverage, ...] = ()
     provider: str = "duckdb"
-    mean_fold: tuple[str, str] | None = None
+    mean_fold: tuple[str, str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,9 +422,32 @@ def lower_observation(
         )
         result = normal.union(coverage)
     if prepared.mean_fold:
-        from marivo.analysis.compiler.sampled_mean import compact_mean
+        from marivo.analysis.compiler.sampled_mean import compact_extrema, compact_mean
 
-        result = compact_mean(prepared, result, tuple(name for name, _ in checks))
+        if prepared.mean_fold[2] == "mean":
+            result = compact_mean(prepared, result, tuple(name for name, _ in checks))
+        else:
+            result = compact_extrema(prepared, result, tuple(name for name, _ in checks))
+            checks.extend(
+                (
+                    (
+                        "sample_check.null",
+                        NumericCheck(
+                            result["sample_check.null"],
+                            "non-NA internal samples",
+                            f"{prepared.mean_fold[2]}(nulls='error')",
+                        ),
+                    ),
+                    (
+                        "sample_check.coverage",
+                        NumericCheck(
+                            result["sample_check.coverage"],
+                            "complete scheduled state samples",
+                            "missing state sample on the captured time axis",
+                        ),
+                    ),
+                )
+            )
     return result, tuple(checks)
 
 

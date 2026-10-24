@@ -767,29 +767,19 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
 
 
 @pytest.mark.parametrize(
-    "selected_region,corruption,expected",
-    (
-        ("A", "null", "non-null complete identity keys"),
-        ("absent", "null", "non-null complete identity keys"),
-        ("A", "duplicate", "exactly one attribute row for every requested identity"),
-    ),
+    "selected_region",
+    ("A", "absent"),
 )
 def test_source_read_frame_bridge_checks_source_contracts_before_selection(
     result_session: Session,
     monkeypatch: pytest.MonkeyPatch,
     selected_region: str,
-    corruption: str,
-    expected: str,
 ) -> None:
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
-        connection.execute(
-            "UPDATE orders SET id=NULL WHERE id=4"
-            if corruption == "null"
-            else "INSERT INTO orders SELECT * FROM orders WHERE id=4"
-        )
+        connection.execute("UPDATE orders SET id=NULL WHERE id=4")
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
     members = session.members(session.catalog.entities.get("sales.orders"))
@@ -807,7 +797,7 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    with pytest.raises(AnalysisError, match=expected):
+    with pytest.raises(AnalysisError, match="non-null complete identity keys"):
         session.observe({"total": amount.sum()}, where=mv.in_population(selected)).compute()
     assert len(statements) == 1
 
@@ -990,8 +980,9 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     missing = session.read(
         mv.coordinates(by=(mv.identity(orders),), keys=(((999,),),)), {"region": region}
     )
-    with pytest.raises(AnalysisError):
-        missing.compute()
+    missing_rows = missing.compute().to_pandas()
+    assert missing_rows.iloc[:, 0].tolist() == [999]
+    assert missing_rows[("value", "region")].isna().tolist() == [True]
 
 
 def test_explicit_source_aggregation_and_current_row_statistics(result_session: Session) -> None:

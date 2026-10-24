@@ -325,6 +325,66 @@ def test_postgres_arrow_integer_transport_preserves_mixed_values_and_bounds(
     assert all(item.connection_disconnected for item in owner.submissions)
 
 
+def test_clickhouse_query_blocks_preserve_nullable_mixed_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instant = datetime(2026, 10, 8, 12, 34, 56, 123456, tzinfo=timezone.utc)
+    data = SourceData(
+        "",
+        "",
+        "id Int64, exact Nullable(Int64), amount Nullable(Decimal(18,2)), enabled Nullable(Bool), day Nullable(Date), instant Nullable(DateTime64(6,'UTC'))",
+        [
+            {
+                "id": 1,
+                "exact": 2**53 + 1,
+                "amount": Decimal("9007199254740993.01"),
+                "enabled": True,
+                "day": date(2026, 10, 8),
+                "instant": instant,
+            },
+            {"id": 2, "exact": None, "amount": None, "enabled": None, "day": None, "instant": None},
+        ],
+    )
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
+        owner = case.session
+        bound = owner.bind(case.source, source_identity="clickhouse-exact-mixed")
+        qualified = owner.qualify(
+            bound,
+            PhysicalRequirement(
+                "query.source_read", 1, frozenset({"scan", "project", "filter", "sort"})
+            ),
+        )
+        expression = bound.relation.order_by("id")
+        read = owner.compile(
+            qualified,
+            expression,
+            purpose="query.source_read",
+            expected_schema=expression.schema().to_pyarrow(),
+        )
+        rows = owner.execute(read)
+        assert rows.exact.tolist() == [2**53 + 1, pd.NA]
+        assert rows.exact.dtype == pd.ArrowDtype(pa.int64())
+        assert rows.amount.tolist() == [Decimal("9007199254740993.01"), None]
+        assert rows.enabled.tolist() == [True, None]
+        assert rows.day.tolist() == [date(2026, 10, 8), None]
+        assert rows.instant.iloc[0] == instant and pd.isna(rows.instant.iloc[1])
+        assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+        assert len(owner.submissions) == 1 and owner.submissions[0].sql == read.sql
+        empty_expression = expression.filter(expression.id < 0)
+        empty = owner.compile(
+            qualified,
+            empty_expression,
+            purpose="query.source_read",
+            expected_schema=empty_expression.schema().to_pyarrow(),
+        )
+        empty_rows = owner.execute(empty)
+        assert empty_rows.empty and empty_rows.exact.dtype == pd.ArrowDtype(pa.int64())
+        assert len(owner.submissions) == 2
+    assert all(
+        item.connection_disconnected and item.state == "succeeded" for item in owner.submissions
+    )
+
+
 @pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )

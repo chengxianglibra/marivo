@@ -360,7 +360,6 @@ def test_unknown_physical_leaf_fails_before_business_read(
         reader: DatasourceEngineTimezone,
         *,
         root_table: ir.Table | None = None,
-        trust_declarations: bool = False,
     ) -> query_preparation.PreparedFields:
         result = original(
             contribution,
@@ -368,7 +367,6 @@ def test_unknown_physical_leaf_fails_before_business_read(
             state,
             reader,
             root_table=root_table,
-            trust_declarations=trust_declarations,
         )
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))
@@ -963,11 +961,9 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
 
 
 @pytest.mark.parametrize("case", ("missing", "missing_outside_where", "ambiguous_predicate"))
-def test_original_scalar_lookup_check_domain_owner_and_repair(
+def test_original_scalar_lookup_trusts_declared_matches(
     session: Session, tmp_path: Path, case: str
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-
     value = session.catalog.fields.get("sales.otherfacts.value")
     identifier = session.catalog.fields.get("sales.otherfacts.id")
     channel = session.catalog.fields.get("sales.facts.channel")
@@ -998,21 +994,8 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
             leaf = root.layout.leaves[0]
             assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
         return
-    with pytest.raises(MaterializationError) as ordinary:
-        session.observe({"q": value.sum()}, by=(channel,), where=where).compute()
-    assert ordinary.value.location == "dataset.scalar_field_lookup"
-    assert ordinary.value.repair is not None
-    if case == "ambiguous_predicate":
-        # The pending receiver still owns ordinary Observe validation.
-        with pytest.raises(MaterializationError, match="scalar_field_lookup"):
-            evaluate_attribute_inputs(
-                _level_inputs(
-                    session.observe({"q": value.sum()}, where=where, by=()), by=(channel,)
-                )
-            )
-        return
-    # Attribute trusts the same declared relationship; explicit/other operations
-    # retain their existing independently owned checks.
+    rows = session.observe({"q": value.sum()}, by=(channel,), where=where).compute().to_pandas()
+    assert rows[("value", "q")].sum() == (30 if case == "ambiguous_predicate" else 40)
     output = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
     )

@@ -84,8 +84,13 @@ def _fail(
 
 
 def _index(
-    frame: pd.DataFrame, columns: tuple[DataColumn, ...]
+    frame: pd.DataFrame,
+    columns: tuple[DataColumn, ...],
+    validated_keys: tuple[Key, ...] | None = None,
 ) -> tuple[list[Key], dict[Key, int]]:
+    if validated_keys is not None:
+        keys = list(validated_keys)
+        return keys, {key: index for index, key in enumerate(keys)}
     components: list[tuple[DataType, list[object]]] = []
     for column in columns:
         values = pa.array(frame[column.slot_id], from_pandas=True)
@@ -103,6 +108,14 @@ def _index(
     return keys, index
 
 
+def _ordered_keys(
+    keys: tuple[Key, ...], schema: DataSchema, columns: tuple[DataColumn, ...]
+) -> tuple[Key, ...]:
+    """Reorder already validated complete keys without reading unchanged cells."""
+    positions = {slot: index for index, slot in enumerate(schema.key_fields)}
+    return tuple(tuple(key[positions[column.slot_id]] for column in columns) for key in keys)
+
+
 def _take(frame: pd.DataFrame, slot: str, indices: list[int | None]) -> pd.Series:
     values = pa.array(frame[slot], from_pandas=True)
     return pd.Series(pd.arrays.ArrowExtensionArray(values.take(pa.array(indices, type=pa.int64()))))
@@ -116,11 +129,14 @@ def combine_frame_data(
     """Resolve frozen coordinates, then reuse the complete joint-key/value kernel."""
     if len(inputs) != 2 or len(attachments) != 2:
         _fail("two complete Frame inputs with their attachments", str(len(inputs)))
+    validated: list[tuple[Key, ...] | None] = []
     for schema, rows, tables in zip(
         (program.left_schema, program.right_schema), inputs, attachments, strict=True
     ):
-        validate_frozen_coordinates(
-            schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in tables)
+        validated.append(
+            validate_frozen_coordinates(
+                schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in tables)
+            )
         )
     sources = tuple({table.name: table for table in group} for group in attachments)
     output_attachments: list[OutputAttachment] = []
@@ -149,6 +165,7 @@ def combine_frame_data(
                     for bucket in merged.buckets
                 }
                 for side, interval_directory in enumerate((li, ri)):
+                    validated[side] = None
                     interval_lookup = {
                         bucket.key: identities[(bucket.start, bucket.end, bucket.timezone)]
                         for bucket in interval_directory.buckets
@@ -226,6 +243,7 @@ def combine_frame_data(
                 rows[column.slot_id] = encoded[column.slot_id]
         output_attachments.append(OutputAttachment(output.mapping_name, map_schema, rows))
         for side, endpoint in enumerate((left, right)):
+            validated[side] = None
             lookup = {
                 key: index
                 for index, pair in enumerate(mapping)
@@ -264,10 +282,14 @@ def combine_frame_data(
         right_schema=numeric_schema(program.right_schema, tuple(right_axes)),
     )
     resolved, carried = _resolve_comparison_facts(program, attachments, tuple(output_attachments))
-    return combine_frames(mapped, tuple(frames)), carried, resolved
+    return combine_frames(mapped, tuple(frames), tuple(validated)), carried, resolved
 
 
-def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+def combine_frames(
+    program: FrameCombineProgram,
+    inputs: tuple[pd.DataFrame, ...],
+    validated_keys: tuple[tuple[Key, ...] | None, ...] | None = None,
+) -> pd.DataFrame:
     """Pair full actual keys in left-first order and calculate every named value."""
     if len(inputs) != 2:
         _fail("two explicit complete inputs", str(len(inputs)))
@@ -276,8 +298,14 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
     partners = dict(program.operation.pairs)
     left_columns = tuple(c for axis in a.axes for c in axis.columns)
     right_columns = tuple(c for i in range(len(a.axes)) for c in b.axes[partners[i]].columns)
-    left_keys, left_index = _index(left, left_columns)
-    right_keys, right_index = _index(right, right_columns)
+    left_known = validated_keys[0] if validated_keys is not None else None
+    right_known = validated_keys[1] if validated_keys is not None else None
+    left_keys, left_index = _index(left, left_columns, left_known)
+    right_keys, right_index = _index(
+        right,
+        right_columns,
+        _ordered_keys(right_known, b, right_columns) if right_known is not None else None,
+    )
     keys = left_keys + [key for key in right_keys if key not in left_index]
     left_rows = [left_index.get(key) for key in keys]
     right_rows = [right_index.get(key) for key in keys]
@@ -458,14 +486,16 @@ def compare_frame_data(
     """Compare all named baselines against one current actual full-key index."""
     if len(inputs) != len(program.input_schemas) or len(attachments) != len(inputs):
         _fail("one current input followed by every named baseline", str(len(inputs)))
-    for schema, rows, group in zip(program.input_schemas, inputs, attachments, strict=True):
+    validated = tuple(
         validate_frozen_coordinates(
             schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in group)
         )
+        for schema, rows, group in zip(program.input_schemas, inputs, attachments, strict=True)
+    )
     current = program.input_schemas[0]
     output = program.output_schema
     current_columns = tuple(column for axis in current.axes for column in axis.columns)
-    current_keys, current_index = _index(inputs[0], current_columns)
+    current_keys, current_index = _index(inputs[0], current_columns, validated[0])
     all_keys = list(current_keys)
     known_keys = set(all_keys)
     indices = [current_index]
@@ -602,7 +632,13 @@ def compare_frame_data(
             encoded = frozen_key_table(right.columns, tuple(reverse[key] for key in actual))
             for column in right.columns:
                 frame[column.slot_id] = encoded[column.slot_id]
-        keys, baseline_index = _index(frame, columns)
+        keys, baseline_index = _index(
+            frame,
+            columns,
+            _ordered_keys(validated[len(indices)], schema, columns)
+            if not isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding))
+            else None,
+        )
         for key in keys:
             if key not in known_keys:
                 all_keys.append(key)

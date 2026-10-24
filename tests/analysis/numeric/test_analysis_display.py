@@ -524,9 +524,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     assert (~paired[("presence", "right_present")]).any()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
-    with pytest.raises(AnalysisError) as caught:
-        query.compute()
-    assert caught.value.expected == "exactly one attribute row for every requested identity"
+    assert query.compute().to_pandas().equals(terminal.to_pandas())
 
 
 def test_empty_original_domain_and_numeric_view_continuations(

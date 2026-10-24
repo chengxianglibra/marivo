@@ -872,8 +872,11 @@ def test_scalar_relationship_preparation(warehouse_session: Session, invalid: st
     finally:
         connection.close()
     if invalid:
-        with pytest.raises(MaterializationError, match="exactly one matching"):
-            _compute(session, {"sum": amount.sum()}, by=(segment,))
+        output = _compute(session, {"sum": amount.sum()}, by=(segment,)).table
+        assert {
+            None if pd.isna(key) else key: value
+            for key, value in output.itertuples(index=False, name=None)
+        } == ({"retail": 50, None: 10} if invalid == "missing" else {"other": 60, "retail": 60})
     else:
         output = _compute(session, {"sum": amount.sum()}, by=(segment,), where=segment == "retail")
         assert output.table["key.0"].tolist() == ["retail"]

@@ -19,11 +19,13 @@ from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     Statistic,
+    TopValues,
     ValueBinary,
     ValueLiteral,
     ValueSlot,
 )
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
+from marivo.analysis.compiler.frame_top import _bounded_read, bound_pending_frame_top
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -89,6 +91,38 @@ def _schema() -> DataSchema:
     key = DataColumn("key", "key", ScalarDataType("int64"), False)
     value = DataColumn("amount", "amount", ScalarDataType("int64"), True, "CNY")
     return DataSchema((DataAxis("key", (key,), name="key"),), (value,), value_paths=(("amount",),))
+
+
+@pytest.mark.parametrize("provider", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
+def test_pending_field_top_dialects_have_outer_order_and_limit(provider: str) -> None:
+    import sqlglot
+
+    schema = _schema()
+    table = ibis.table({"key": "int64", "amount": "int64"}, name="native_top")
+    stage = SourceRead(
+        "source", "source", (), schema.columns, schema.key_fields, NativeRead(()), (), (), None
+    )
+    _, lowered = _bounded_read(
+        stage, LoweredRead("source", table), schema, TopValues(1, ValueSlot(0), True), provider
+    )
+    compiled = sqlglot.parse_one(
+        str(ibis.to_sql(lowered.expression, dialect=provider)), read=provider
+    )
+    assert compiled.args.get("order") is not None
+    assert compiled.args["limit"].expression.this == "1"
+
+
+def test_fixed_top_declines_native_rewrite_with_an_internal_reason() -> None:
+    compiled = plan_frame(
+        FrameOperation((FixedFrameInput("fixed", _schema()),), TopValues(1, ValueSlot(0), True)),
+        {},
+    )
+    rewritten = bound_pending_frame_top(compiled, {})
+    assert rewritten.lowered.reads == ()
+    assert rewritten.lowered.plan.stages == compiled.lowered.plan.stages
+    (decision,) = rewritten.lowered.plan.optimization_decisions
+    assert decision.rule == "pending_frame_top" and decision.status == "refused"
+    assert "direct pending source field read" in decision.reason
 
 
 def _filter_stage(

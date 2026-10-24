@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
@@ -15,15 +16,17 @@ import pandas as pd
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import (
+    DeclaredMetricRef,
     EntityCount,
     MemberCount,
     MetricExpression,
+    MetricNode,
     PerReduce,
     PerWeightedMean,
     PredicateExpression,
     SourceAggregate,
 )
-from marivo._definition.graph import computation_fingerprint, walk
+from marivo._definition.graph import children, computation_fingerprint, walk
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
@@ -52,6 +55,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    population_keys,
     sample_population,
 )
 from marivo._definition.types import AxisBinding
@@ -70,11 +74,18 @@ from marivo.analysis.compiler.graph_plan import (
     read_finish,
     read_members,
     read_native_reductions,
+    read_presence,
+    read_projections,
     read_reduction,
     require_reduction,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
-from marivo.analysis.compiler.observation import FormulaProgram, PopulationInput, ReductionInput
+from marivo.analysis.compiler.observation import (
+    FormulaInput,
+    FormulaProgram,
+    PopulationInput,
+    ReductionInput,
+)
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
@@ -263,7 +274,9 @@ def _population_relation(
     def project(value: _NativePopulation, positions: tuple[int, ...]) -> _NativePopulation | str:
         selected = tuple(key for position in positions for key in value.groups[position])
         if not selected:
-            return "zero-axis Population algebra retains checked unit presence"
+            return _NativePopulation(
+                value.expression.select(__population_unit=ibis.literal(True)).distinct(), ()
+            )
         keys = tuple(f"key.{index}" for index in range(len(selected)))
         expression = _distinct(
             value.expression.select(
@@ -378,8 +391,12 @@ def _population_relation(
         return result
     source_keys = tuple(key for group in result.groups for key in group)
     output_keys = tuple(key for group in program.output_groups for key in group)
-    return result.expression.select(
-        **dict(zip(output_keys, (result.expression[key] for key in source_keys), strict=True))
+    return (
+        result.expression.select(
+            **dict(zip(output_keys, (result.expression[key] for key in source_keys), strict=True))
+        )
+        if output_keys
+        else result.expression.select(__population_unit=ibis.literal(True)).distinct()
     )
 
 
@@ -532,6 +549,108 @@ def _physical_owner(
     }
     leaves = set(expression.op().find(physical))
     return bool(leaves) and leaves <= allowed | allowed_parameters
+
+
+def _native_member_counts(
+    program: FormulaProgram,
+    relations: dict[str, ir.Table],
+    keys: tuple[str, ...],
+    providers: Mapping[str, str],
+) -> tuple[FormulaProgram, dict[str, ir.Table]] | str:
+    """Complete distinct member tuples before composing ordinary count formulas."""
+    if (
+        program.calendar is not None
+        or program.output_population is not None
+        or program.parent_scope
+    ):
+        return "member count retains a calendar, explicit output or parent domain"
+    closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
+    if any(isinstance(node, (PerReduce, PerWeightedMean)) for node in closure.order):
+        return "member count within samples retains its independent sample domain"
+    values = list(program.values)
+    declarations = dict(program.declared)
+
+    def include(node: MetricNode, occurrence: tuple[int, ...]) -> str | None:
+        if isinstance(node, MemberCount):
+            count = next(item for item in program.counts if item.definition == node.population)
+            binding = next(
+                (item for item in program.populations if item.definition == count.population), None
+            )
+            if binding is None or binding.stage_id not in relations:
+                return "member count has no exact prepared Population relation"
+            table = relations[binding.stage_id]
+            provider = providers[binding.stage_id]
+
+            def exact_distinct(
+                node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
+            ) -> ops.Node:
+                rewritten = node.__recreate__(kwargs) if kwargs else node
+                if isinstance(rewritten, ops.Distinct):
+                    parent = rewritten.parent.to_expr()
+                    assert isinstance(parent, ir.Table)
+                    return _distinct(parent, provider).op()
+                return rewritten
+
+            exact = table.op().map(exact_distinct)[table.op()].to_expr()
+            assert isinstance(exact, ir.Table)
+            table = exact
+            mapping = dict(zip(count.keys, binding.keys, strict=True))
+            selected = tuple(
+                mapping[name]
+                for axis in program.axes
+                for name in count.axis_mapping[coordinate_position(count.population.axes, axis)][1]
+            )
+            if len(selected) != len(keys):
+                return "member count output does not match its complete coordinates"
+            table = _distinct(
+                table.select(*binding.keys)
+                if binding.keys
+                else table.select(__population_unit=ibis.literal(True)),
+                provider,
+            )
+            slot = "__member_count_" + "_".join(str(index) for index in occurrence)
+            identifier = binding.stage_id + ":" + slot
+            grouped = {
+                f"__member_group_{index}" if table[name].type().is_string() else key: _string_bytes(
+                    table[name], provider
+                )
+                if table[name].type().is_string()
+                else table[name]
+                for index, (key, name) in enumerate(zip(keys, selected, strict=True))
+            }
+            relations[identifier] = table.aggregate(
+                **{slot: table.count()},
+                **{
+                    key: table[name].min()
+                    for key, name in zip(keys, selected, strict=True)
+                    if table[name].type().is_string()
+                },
+                by=grouped,
+            ).select(*keys, slot)
+            values.append(
+                FormulaInput(
+                    occurrence,
+                    identifier,
+                    DataColumn(slot, slot, ScalarDataType("int64"), False),
+                    True,
+                    keys=keys,
+                )
+            )
+            return None
+        if isinstance(node, DeclaredMetricRef):
+            return include(declarations[node.ref], (*occurrence, 0))
+        for edge in children(node):
+            if isinstance(edge.child, MetricNode):
+                issue = include(edge.child, (*occurrence, edge.index))
+                if issue is not None:
+                    return issue
+        return None
+
+    for index, (_, node) in enumerate(program.outputs):
+        issue = include(node, (index,))
+        if issue is not None:
+            return issue
+    return replace(program, values=tuple(values), counts=(), populations=()), relations
 
 
 def native_query_relation(
@@ -693,7 +812,7 @@ def native_query_relation(
                     ),
                 ),
             )
-        if not stage.columns:
+        if not stage.columns and not (isinstance(stage, SourceRead) and read_presence(stage)):
             return "zero-column unit domains retain their checked presence/cardinality boundary"
         if isinstance(stage, SourceRead):
             read = lowered.read(identifier)
@@ -759,12 +878,18 @@ def native_query_relation(
                 )
                 if issue is not None:
                     return issue
-            admitted = {"__identity_null", "__population_classify_invalid"}
+            admitted = {"__identity_null"}
             reduction = read_reduction(stage)
             if reduction is None:
                 if owner.provider.name == "postgres" and any(
                     (
-                        column.slot_id not in integer_identities.get(identifier, set())
+                        not (
+                            column.dtype == ScalarDataType("int64")
+                            and (
+                                column.slot_id in integer_identities.get(identifier, set())
+                                or identifier in field_inputs
+                            )
+                        )
                         and column.dtype != ScalarDataType("string")
                     )
                     or isinstance(column.dtype, DecimalDataType)
@@ -837,15 +962,19 @@ def native_query_relation(
             expression = read.expression
             if "__numeric_present" in expression.columns:
                 expression = expression.filter(expression["__numeric_present"].fill_null(False))
-            expression = expression.select(
-                **{
-                    column.slot_id: string_without_collation(
-                        expression[column.slot_id], owner.provider.name
-                    )
-                    if expression[column.slot_id].type().is_string()
-                    else expression[column.slot_id]
-                    for column in stage.columns
-                }
+            expression = (
+                expression.select(
+                    **{
+                        column.slot_id: string_without_collation(
+                            expression[column.slot_id], owner.provider.name
+                        )
+                        if expression[column.slot_id].type().is_string()
+                        else expression[column.slot_id]
+                        for column in stage.columns
+                    }
+                )
+                if stage.columns
+                else expression.select(__population_unit=ibis.literal(True)).distinct()
             )
             return NativeQueryRelation(
                 expression, frozenset({identifier}), (read,), parameters=stage.parameters
@@ -881,6 +1010,17 @@ def native_query_relation(
         parameters = tuple(parameter_map.values())
         if isinstance(stage.program, FormulaProgram):
             formula = stage.program
+            relations = dict(zip(stage.inputs, (value.expression for value in inputs), strict=True))
+            if formula.counts:
+                folded = _native_member_counts(
+                    formula,
+                    relations,
+                    stage.keys,
+                    {binding.stage_id: owner.provider.name for binding in formula.populations},
+                )
+                if isinstance(folded, str):
+                    return folded
+                formula, relations = folded
             if formula.values:
                 arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
                 if len(formula.values) != 1 and not arithmetic:
@@ -894,15 +1034,12 @@ def native_query_relation(
                     return "aggregate producer retains local Metric arithmetic finishing"
                 from marivo.analysis.compiler.native_formula import lower_native_formula
 
-                relations = dict(
-                    zip(stage.inputs, (value.expression for value in inputs), strict=True)
-                )
                 # Common source blocks keep logical binding ids while their
                 # positional inputs point at the shared physical head.
                 relations.update(
                     (binding.stage_id, value.expression)
                     for binding, value in zip(
-                        formula.values, inputs[: len(formula.values)], strict=True
+                        stage.program.values, inputs[: len(stage.program.values)], strict=True
                     )
                 )
                 native_formula = lower_native_formula(
@@ -1197,36 +1334,147 @@ def _attach_relation_checks(
     plan: QueryPlan,
     preparation: tuple[tuple[str, str, str], ...] = (),
     numeric: tuple[tuple[str, NumericCheck], ...] = (),
+    *,
+    prepared: PreparedSources | None = None,
 ) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], tuple[tuple[str, NumericCheck], ...]]:
     """Keep full parent checks visible even when the selected relation is empty."""
     prepared_checks = list(preparation)
     checks = list(numeric)
     for source in native.sources:
-        for name, check in source.numeric_checks:
-            alias = f"__query_preparation_{len(checks)}"
-            summary = source.expression.aggregate(
-                **{alias: source.expression[name].any().fill_null(False)}
+        if not source.numeric_checks:
+            continue
+        aliases = tuple(
+            f"__query_preparation_{len(checks) + index}"
+            for index in range(len(source.numeric_checks))
+        )
+        summary = source.expression.aggregate(
+            **{
+                alias: source.expression[name].any().fill_null(False)
+                for alias, (name, _) in zip(aliases, source.numeric_checks, strict=True)
+            }
+        )
+        source_stage = plan.source_read(source.stage_id)
+        for alias, (name, _check) in zip(aliases, source.numeric_checks, strict=True):
+            scope = source.expression
+            source_keys = source_stage.keys
+            witness_keys = tuple(
+                column for column in scope.columns if column.startswith(name + ".witness.")
             )
-            if "__numeric_present" not in expression.columns:
-                expression = expression.mutate(__numeric_present=ibis.literal(True))
-            expression = summary.left_join(expression, ibis.literal(True))
+            if witness_keys:
+                source_keys = tuple(
+                    sorted(witness_keys, key=lambda column: int(column.rsplit(".", 1)[1]))
+                )
+            elif any(name == item[0] for item in source_stage.preparation_checks):
+                raw = (
+                    prepared.relations.get(
+                        source.stage_id, prepared.relations.get(source_stage.source_id)
+                    )
+                    if prepared is not None and not source_stage.parameters
+                    else None
+                )
+                if raw is None or name not in raw.columns:
+                    continue
+                projection = dict(read_projections(source_stage))
+                reduction = read_reduction(source_stage)
+                if reduction is not None:
+                    fields = dict(source_stage.field_columns)
+                    projection.update(
+                        (slot, fields[path]) for slot, path in reduction.axes if path in fields
+                    )
+                if any(key not in projection for key in source_keys):
+                    continue
+                source_keys = tuple(projection[key] for key in source_keys)
+                scope = raw
+            if not source_keys:
+                continue
+            failed = scope.filter(scope[name].fill_null(False))
+            witness = (
+                failed.order_by(*(failed[key].asc(nulls_first=False) for key in source_keys))
+                .limit(1)
+                .select(
+                    **{
+                        f"{alias}.witness.{index}": failed[key]
+                        for index, key in enumerate(source_keys)
+                    }
+                )
+            )
+            summary = summary.left_join(witness, ibis.literal(True))
+        if "__numeric_present" not in expression.columns:
+            expression = expression.mutate(__numeric_present=ibis.literal(True))
+        expression = summary.left_join(expression, ibis.literal(True))
+        for alias, (name, check) in zip(aliases, source.numeric_checks, strict=True):
             checks.append((alias, NumericCheck(summary[alias], check.expected, check.received)))
             if any(
                 name == item[0] for item in plan.source_read(source.stage_id).preparation_checks
             ):
                 prepared_checks.append((alias, check.expected, check.received))
-    for check in native.checks:
-        alias = f"__query_numeric_{len(checks)}"
-        summary = check.violation.any().fill_null(False).name(alias).as_table()
+    grouped: dict[frozenset[ops.Relation], list[tuple[str, NumericCheck]]] = {}
+    for index, check in enumerate(native.checks):
+        alias = f"__query_numeric_{len(checks) + index}"
+        grouped.setdefault(check.violation.op().relations, []).append((alias, check))
+    for relations, batch in grouped.items():
+        if len(relations) == 1:
+            relation = next(iter(relations)).to_expr()
+            assert isinstance(relation, ir.Table)
+            summary = relation.aggregate(
+                **{alias: check.violation.any().fill_null(False) for alias, check in batch}
+            )
+            keys = tuple(
+                sorted(
+                    (
+                        column
+                        for column in relation.columns
+                        if column.startswith("key.") and column.removeprefix("key.").isdigit()
+                    ),
+                    key=lambda column: int(column.removeprefix("key.")),
+                )
+            )
+            if keys:
+                for alias, check in batch:
+                    failed = relation.filter(check.violation.fill_null(False))
+                    witness = (
+                        failed.order_by(*(failed[key].asc(nulls_first=False) for key in keys))
+                        .limit(1)
+                        .select(
+                            **{
+                                f"{alias}.witness.{index}": failed[key]
+                                for index, key in enumerate(keys)
+                            }
+                        )
+                    )
+                    summary = summary.left_join(witness, ibis.literal(True))
+        else:
+            # Scalar checks have no row relation; independent multi-relation
+            # scopes cannot be combined into an inferred common relation.
+            summary = batch[0][1].violation.any().fill_null(False).name(batch[0][0]).as_table()
+            for alias, check in batch[1:]:
+                other = check.violation.any().fill_null(False).name(alias).as_table()
+                summary = summary.cross_join(other)
         if "__numeric_present" not in expression.columns:
             expression = expression.mutate(__numeric_present=ibis.literal(True))
         expression = summary.left_join(expression, ibis.literal(True))
-        checks.append((alias, NumericCheck(summary[alias], check.expected, check.received)))
+        checks.extend(
+            (alias, NumericCheck(summary[alias], check.expected, check.received))
+            for alias, check in batch
+        )
     return expression, tuple(prepared_checks), tuple(checks)
 
 
 def finish_native_query(finish: NativeQueryFinish, frame: pd.DataFrame) -> pd.DataFrame:
     """Restore deterministic union order after the qualified source read."""
+    if finish.frame_top is not None:
+        from marivo.analysis.materialization.errors import MaterializationError
+
+        for name, expected, received in finish.frame_top.integrity_checks:
+            if frame[name].astype("boolean").fillna(False).any():
+                raise MaterializationError(
+                    expected=expected,
+                    received=received,
+                    repair="Correct the source field type or stage layout; Marivo does not cast lossy values back.",
+                    stage="stage_output",
+                    help_target="analysis_frame.compute",
+                )
+        frame = frame.loc[frame[finish.frame_top.presence].astype("boolean").fillna(False)]
     return (
         frame.sort_values(list(finish.order), kind="stable", na_position="last")
         .loc[:, [column.slot_id for column in finish.columns]]
@@ -1361,7 +1609,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                     endpoint.program.output_layout,
                 )
         expression, preparation, checks = _attach_relation_checks(
-            native.expression, native, lowered.plan
+            native.expression, native, lowered.plan, prepared=prepared
         )
         source_id = lowered.plan.source_read(native.sources[0].stage_id).source_id
         keep_top = isinstance(endpoint.program, ResultProgram) and isinstance(
@@ -1567,7 +1815,7 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
             numeric = read.numeric_checks
             if index == 0:
                 expression, preparation, numeric = _attach_relation_checks(
-                    expression, native, lowered.plan, preparation, numeric
+                    expression, native, lowered.plan, preparation, numeric, prepared=prepared
                 )
             if "__numeric_present" not in expression.columns:
                 expression = expression.mutate(__numeric_present=ibis.literal(True))
@@ -1817,6 +2065,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             lowered.plan,
             lowered.plan.source_read(original.stage_id).preparation_checks,
             original.numeric_checks,
+            prepared=prepared,
         )
         producers = {
             parameter.stage_id
@@ -2001,6 +2250,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             lowered.plan,
             lowered.plan.source_read(carrier.stage_id).preparation_checks,
             carrier.numeric_checks,
+            prepared=prepared,
         )
         stage = replace(
             lowered.plan.source_read(carrier.stage_id),
@@ -2073,9 +2323,427 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
     return lowered
 
 
+def _fold_member_count_reads(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
+    """Keep count completion native even when companion Metrics finish locally."""
+    for candidate in tuple(lowered.plan.stages):
+        if (
+            not isinstance(candidate, LocalCompute)
+            or not isinstance(candidate.program, FormulaProgram)
+            or not candidate.program.counts
+            or local_steps(candidate)
+        ):
+            continue
+        program = candidate.program
+        natives: dict[str, NativeQueryRelation] = {}
+        relations: dict[str, ir.Table] = {}
+        providers: dict[str, str] = {}
+        allowed = frozenset(stage.stage_id for stage in lowered.plan.stages)
+        for count in program.counts:
+            population_binding = next(
+                (item for item in program.populations if item.definition == count.population), None
+            )
+            if population_binding is None:
+                break
+            stage = next(
+                item for item in lowered.plan.stages if item.stage_id == population_binding.stage_id
+            )
+            if not isinstance(stage, SourceRead):
+                break
+            owner = prepared.sources.get(stage.source_id, prepared.source)
+            if not qualified_query_provider(owner):
+                break
+            native = native_query_relation(
+                prepared,
+                lowered,
+                population_binding.stage_id,
+                owner,
+                shared=True,
+                allowed_consumers=allowed,
+            )
+            if isinstance(native, str) or native.parameters or not native.sources:
+                break
+            closure = walk((count.population,), resolve=lambda _: None).order
+            inherited = tuple(
+                lowered.read(item.stage_id)
+                for item in lowered.plan.stages
+                if isinstance(item, SourceRead)
+                and not item.parameters
+                and prepared.sources.get(item.source_id, prepared.source) is owner
+                and any(
+                    binding.stage_id == item.stage_id and binding.definition in closure
+                    for binding in program.populations
+                )
+                and lowered.read(item.stage_id).numeric_checks
+            )
+            native = replace(
+                native,
+                sources=tuple(
+                    {item.stage_id: item for item in (*native.sources, *inherited)}.values()
+                ),
+            )
+            natives[population_binding.stage_id] = native
+            relations[population_binding.stage_id] = native.expression
+            providers[population_binding.stage_id] = owner.provider.name
+        else:
+            folded = _native_member_counts(program, relations, candidate.keys, providers)
+            if isinstance(folded, str):
+                continue
+            updated, relations = folded
+            added: list[SourceRead] = []
+            reads: list[LoweredRead] = []
+            for binding in updated.values[len(program.values) :]:
+                original_id = binding.stage_id.rsplit(":__member_count_", 1)[0]
+                native = natives[original_id]
+                expression, preparation, checks = _attach_relation_checks(
+                    relations[binding.stage_id], native, lowered.plan, prepared=prepared
+                )
+                added.append(
+                    SourceRead(
+                        binding.stage_id,
+                        lowered.plan.source_read(native.sources[0].stage_id).source_id,
+                        (),
+                        (
+                            *tuple(
+                                column
+                                for column in candidate.columns
+                                if column.slot_id in candidate.keys
+                            ),
+                            binding.column,
+                        ),
+                        candidate.keys,
+                        NativeRead(()),
+                        (),
+                        (),
+                        None,
+                        preparation_checks=preparation,
+                        native_reads=_logical_reads(
+                            tuple(
+                                lowered.plan.source_read(read.stage_id) for read in native.sources
+                            )
+                        ),
+                    )
+                )
+                reads.append(LoweredRead(binding.stage_id, expression, checks))
+            compute = replace(
+                candidate,
+                program=updated,
+                inputs=tuple(binding.stage_id for binding in updated.values),
+            )
+            rewritten: dict[str, QueryStage] = {
+                stage.stage_id: stage for stage in (*lowered.plan.stages, *added)
+            }
+            rewritten[candidate.stage_id] = compute
+            retained: set[str] = set()
+
+            def keep(
+                identifier: str,
+                retained: set[str] = retained,
+                rewritten: dict[str, QueryStage] = rewritten,
+            ) -> None:
+                if identifier not in retained:
+                    retained.add(identifier)
+                    for dependency in rewritten[identifier].inputs:
+                        keep(dependency)
+
+            keep(lowered.plan.publish)
+            scheduled: list[QueryStage] = []
+            for item in lowered.plan.stages:
+                if item.stage_id == candidate.stage_id:
+                    scheduled.extend(added)
+                    scheduled.append(compute)
+                elif item.stage_id in retained:
+                    scheduled.append(item)
+            stages = tuple(scheduled)
+            plan = replace(
+                lowered.plan,
+                stages=stages,
+                consumers=_consumers(stages),
+                optimization_decisions=(
+                    *lowered.plan.optimization_decisions,
+                    RuleDecision(
+                        "source_member_count",
+                        "adopted",
+                        tuple(stage.stage_id for stage in added),
+                        "Distinct complete Population tuples are counted at source; companion Metrics retain their own numeric finish.",
+                    ),
+                ),
+            )
+            plan = replace(plan, required_slots=required_slots(plan))
+            lowered = LoweredQuery(
+                plan, tuple(read for read in (*lowered.reads, *reads) if read.stage_id in retained)
+            )
+    return lowered
+
+
+def _coverage_domain(
+    prepared: PreparedSources,
+    lowered: LoweredQuery,
+    stage: LocalCompute,
+    owner: SourceSession,
+) -> ir.Table | None:
+    """Represent the exact caller-selected tuples without uploading a key domain."""
+    program = stage.program
+    assert isinstance(program, FormulaProgram) and program.output_population is not None
+    finite = population_keys(program.output_population)
+    if finite is not None:
+        columns = {
+            column.slot_id: column for column in stage.columns if column.slot_id in stage.keys
+        }
+        unit = ibis.literal(True).name("__population_unit").as_table()
+        rows: list[ir.Table] = []
+        for row in finite:
+            flattened = tuple(
+                component
+                for axis, value in zip(program.output_population.axes, row, strict=True)
+                for component in (
+                    value
+                    if isinstance(axis, AxisBinding)
+                    and axis.role == "identity"
+                    and isinstance(value, tuple)
+                    else (value,)
+                )
+            )
+            rows.append(
+                unit.select(
+                    **{
+                        key: ibis.literal(value, type=ibis_type(columns[key].dtype))
+                        for key, value in zip(stage.keys, flattened, strict=True)
+                    }
+                )
+                if stage.keys
+                else unit
+            )
+        if rows:
+            return ibis.union(rows[0], *rows[1:])
+        return (
+            unit.select(
+                **{key: ibis.null().cast(ibis_type(columns[key].dtype)) for key in stage.keys}
+            )
+            if stage.keys
+            else unit
+        ).filter(ibis.literal(False))
+    binding = next(
+        (item for item in program.populations if item.definition == program.output_population), None
+    )
+    if binding is None:
+        return None
+    native = native_query_relation(
+        prepared,
+        lowered,
+        binding.stage_id,
+        owner,
+        shared=True,
+        allowed_consumers=frozenset(item.stage_id for item in lowered.plan.stages),
+    )
+    if isinstance(native, str) or native.parameters:
+        return None
+    return native.expression.select(
+        **dict(zip(stage.keys, (native.expression[key] for key in binding.keys), strict=True))
+    )
+
+
+def _required_coordinates(
+    prepared: PreparedSources,
+    lowered: LoweredQuery,
+    source: SourceRead,
+    keys: tuple[str, ...],
+    owner: SourceSession,
+) -> ir.Table | None:
+    """Retain contribution coordinates before internal selection and output cropping."""
+    read = lowered.read(source.stage_id)
+    if source.parameters or not _physical_owner(read.expression, owner, prepared):
+        return None
+    expression = read.expression
+    if any(key not in expression.columns for key in keys):
+        return None
+    marker = next(
+        (
+            name
+            for name in (f"__sample_scope_{len(keys)}", "__sample_present", "__numeric_present")
+            if name in expression.columns
+        ),
+        None,
+    )
+    if marker is not None:
+        expression = expression.filter(expression[marker].fill_null(False))
+    if "__coverage_row" in expression.columns:
+        expression = expression.filter(~expression["__coverage_row"].fill_null(False))
+    if keys:
+        return expression.select(*keys).distinct()
+    if marker is not None:
+        return expression.select(__population_unit=ibis.literal(True)).distinct()
+    # An ungrouped reduction always returns one row, even without facts. Its
+    # zero-axis coverage obligation comes from the actual filtered source rows.
+    reduction = read_reduction(source)
+    table = prepared.relations.get(source.stage_id, prepared.relations.get(source.source_id))
+    if reduction is None or table is None or not _physical_owner(table, owner, prepared):
+        return None
+    if reduction.calendar or reduction.calendars or reduction.window_key is not None:
+        return None
+    if source.period is not None and not source.period.predicate_prepared:
+        from marivo.analysis.compiler.observation import temporal_bound
+
+        period = source.period
+        time = table[period.column]
+        table = table.filter(time < temporal_bound(time, period.end, period.timezone))
+        if period.start is not None:
+            table = table.filter(time >= temporal_bound(time, period.start, period.timezone))
+    from marivo.analysis.compiler.predicate import lower_condition
+
+    fields = {path: table[name] for path, name in source.field_columns}
+    if source.predicates:
+        table = table.filter(
+            *(lower_condition(predicate, fields).value for predicate in source.predicates)
+        )
+    return table.select(__population_unit=ibis.literal(True)).distinct()
+
+
+def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
+    """Check complete output tuples at their existing source, with six witnesses."""
+    for candidate in tuple(lowered.plan.stages):
+        if not isinstance(candidate, LocalCompute) or not isinstance(
+            candidate.program, FormulaProgram
+        ):
+            continue
+        program = candidate.program
+        if (
+            program.output_population is None
+            or program.population_checked
+            or not program.values
+            or program.calendar is not None
+            or program.counts
+        ):
+            continue
+        by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
+        sources: list[SourceRead] = []
+        for binding in program.values:
+            stage = by_id.get(binding.stage_id)
+            if (
+                not isinstance(stage, SourceRead)
+                or read_members(stage)
+                or read_components(stage) is not None
+            ):
+                break
+            if stage not in sources:
+                sources.append(stage)
+        else:
+            owner = prepared.sources.get(sources[0].source_id, prepared.source)
+            if not qualified_query_provider(owner) or any(
+                prepared.sources.get(stage.source_id, prepared.source) is not owner
+                for stage in sources
+            ):
+                continue
+            domain = _coverage_domain(prepared, lowered, candidate, owner)
+            if domain is None:
+                continue
+            required = tuple(
+                _required_coordinates(prepared, lowered, stage, candidate.keys, owner)
+                for stage in sources
+            )
+            if any(table is None for table in required):
+                continue
+            tables = tuple(table for table in required if table is not None)
+            needed = ibis.union(tables[0], *tables[1:]) if len(tables) > 1 else tables[0]
+            missing = needed.anti_join(
+                domain,
+                [_same_key(needed[key], domain[key], owner.provider.name) for key in candidate.keys]
+                or ibis.literal(True),
+            )
+            name = "__query_population_uncovered"
+            summary = missing.aggregate(**{name: missing.count() > 0})
+            witnesses = (
+                missing.order_by(
+                    *(missing[key].asc(nulls_first=False) for key in candidate.keys)
+                ).limit(6)
+                if candidate.keys
+                else missing.limit(1)
+            )
+            carrier = sources[0]
+            original = lowered.read(carrier.stage_id)
+            expression = original.expression
+            if "__numeric_present" not in expression.columns:
+                expression = expression.mutate(__numeric_present=ibis.literal(True))
+            checks = tuple(alias for alias, _ in original.numeric_checks)
+            failures = (
+                expression.aggregate(
+                    **{alias: expression[alias].any().fill_null(False) for alias in checks}
+                )
+                if checks
+                else None
+            )
+            diagnostics = summary.filter(summary[name]).cross_join(witnesses)
+            if failures is not None:
+                diagnostics = diagnostics.cross_join(failures)
+            diagnostics = diagnostics.select(
+                **{
+                    column: diagnostics[column]
+                    if column in candidate.keys or column in checks
+                    else ibis.literal(False)
+                    if expression[column].type().is_boolean()
+                    else ibis.null().cast(expression[column].type())
+                    for column in expression.columns
+                },
+                **{name: ibis.literal(True)},
+            )
+            expression = (
+                expression.semi_join(summary.filter(~summary[name]), ibis.literal(True))
+                .mutate(**{name: ibis.literal(False)})
+                .union(diagnostics)
+            )
+            expected = "an output Population covering every required complete coordinate"
+            received = "missing output coordinates"
+            updated_source = replace(
+                carrier,
+                preparation_checks=(*carrier.preparation_checks, (name, expected, received)),
+            )
+            updated_program = replace(program, population_checked=True)
+            stages = tuple(
+                replace(candidate, program=updated_program)
+                if stage.stage_id == candidate.stage_id
+                else updated_source
+                if stage.stage_id == carrier.stage_id
+                else stage
+                for stage in lowered.plan.stages
+            )
+            plan = replace(
+                lowered.plan,
+                stages=stages,
+                optimization_decisions=(
+                    *lowered.plan.optimization_decisions,
+                    RuleDecision(
+                        "source_output_population_coverage",
+                        "adopted",
+                        (candidate.stage_id, carrier.stage_id),
+                        "Complete required tuples are checked with a NULL-safe source anti-join; failures return at most six keys.",
+                    ),
+                ),
+            )
+            lowered = LoweredQuery(
+                plan,
+                tuple(
+                    replace(
+                        read,
+                        expression=expression,
+                        numeric_checks=(
+                            *read.numeric_checks,
+                            (name, NumericCheck(expression[name], expected, received)),
+                        ),
+                    )
+                    if read.stage_id == carrier.stage_id
+                    else read
+                    for read in lowered.reads
+                ),
+            )
+    return lowered
+
+
 def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Inline qualified source-key uses while retaining independently consumed producers."""
     if any(isinstance(stage, FrameKeysInput) for stage in lowered.plan.stages):
+        # An explicit bridge still completes before its source consumer. Its
+        # existing parameter can carry check summaries in that same read; this
+        # neither uploads additional keys nor rereads the fixed Frame.
+        lowered = _fold_population_checks(prepared, lowered)
         return replace(
             lowered,
             plan=replace(
@@ -2091,6 +2759,7 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                 ),
             ),
         )
+    lowered = _fold_member_count_reads(prepared, lowered)
     lowered = _fold_population_checks(prepared, lowered)
     lowered = _fuse_parameter_blocks(prepared, lowered)
     lowered = _fuse_shared_query_keys(prepared, lowered)
@@ -2185,6 +2854,7 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                 lowered.plan,
                 lowered.plan.source_read(current.stage_id).preparation_checks,
                 current.numeric_checks,
+                prepared=prepared,
             )
             parameters = tuple(
                 value
@@ -2272,4 +2942,7 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                     if item.stage_id not in removed
                 ),
             )
-    return replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions)))
+    return _fold_output_coverage(
+        prepared,
+        replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions))),
+    )

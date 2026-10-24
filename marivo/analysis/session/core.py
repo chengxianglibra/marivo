@@ -378,8 +378,9 @@ class Session:
         Example:
             ``attributes = session.read(customers, {'region': region}).compute()``.
 
-        Constraints: Checks Session ownership, scalar paths and captured time anchors; missing
-        attribute mappings fail at evaluation. Source construction does not read schema or
+        Constraints: Checks Session ownership, scalar paths and captured time anchors;
+        source declarations are trusted and missing attribute matches yield NULL.
+        Source construction does not read schema or
         business rows. Numeric inputs retain NULL and reject actual NaN/Infinity before
         Frame selection. Value names follow the Frame name rules.
         """

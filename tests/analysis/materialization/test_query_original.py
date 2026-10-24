@@ -263,7 +263,7 @@ def test_rollup_then_drill_keeps_per_identity_after_key_renumbering(
     assert result[("value", "value")].tolist() == [30, 155]
 
 
-def test_drill_attribute_template_keeps_versions_and_selected_fiber_checks(
+def test_drill_attribute_template_retains_complete_output_key_integrity(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
@@ -275,7 +275,7 @@ def test_drill_attribute_template_keeps_versions_and_selected_fiber_checks(
     assert rows[("value", "channel")].tolist() == ["Web", "Store"]
     assert rows[("value", "segment")].tolist() == ["Good", "Good"]
     west = session.members(session.catalog.entities.get("sales.orders"), where=region == "West")
-    with pytest.raises(AnalysisError, match="exactly one matching scalar field row"):
+    with pytest.raises(AnalysisError, match="complete unique stage key"):
         session.read(west, {"segment": segment}).compute()
 
 
