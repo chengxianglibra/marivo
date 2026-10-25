@@ -27,6 +27,7 @@ from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observations import ContributionBinding as ContributionBinding
 from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.observations import ObservationPeriod as ObservationPeriod
+from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.relations import (
     MembershipBinding,
     PopulationDependency,
@@ -369,10 +370,7 @@ def bind_observation(
                                     membership_reads(membership, root),
                                     strict=True,
                                 )
-                                if axis.field is not None
-                                and original.field.ref == axis.field.ref
-                                and original.entity.ref == axis.entity.ref
-                                and original.at == axis.at
+                                if coordinate_matches(field_axis(original), axis)
                             ),
                             None,
                         )
@@ -416,7 +414,11 @@ def bind_observation(
             )
             for layer_reads, layer_memberships in coordinate_layers:
                 allocated = tuple(
-                    read for item in layer_memberships for read in membership_reads(item, root)
+                    (original, read)
+                    for item in layer_memberships
+                    for original, read in zip(
+                        item.fields, membership_reads(item, root), strict=True
+                    )
                 )
                 for coordinate_read in layer_reads:
                     if isinstance(coordinate_read, (CalendarCoordinate, IntervalCoordinate)):
@@ -429,9 +431,10 @@ def bind_observation(
                         member = next(
                             (
                                 item
-                                for item in allocated
-                                if item.field.ref == coordinate_read.field.ref
-                                and item.at == coordinate_read.at
+                                for original, item in allocated
+                                if coordinate_matches(
+                                    field_axis(original), field_axis(coordinate_read)
+                                )
                             ),
                             None,
                         )

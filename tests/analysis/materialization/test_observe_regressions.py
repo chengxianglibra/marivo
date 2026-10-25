@@ -1,5 +1,6 @@
 """Observation binding and execution preserve explicit member and calendar domains."""
 
+from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
 from typing import Literal
 
 import pytest
@@ -7,6 +8,32 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
+
+
+@pytest.mark.parametrize("formula", (False, True))
+def test_decimal_observe_ignores_caller_context(
+    analysis_dsl_case_factory: DslCaseFactory, formula: bool
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    region = session.catalog.fields.get("sales.customer.region")
+    samples = mv.coordinates(
+        by=(region,), keys=(("east",), ("south",), ("west",), ("absent",), ("other",))
+    )
+    metric = revenue.per(samples).mean()
+    if formula:
+        # An explicit output domain keeps Decimal multiplication in the local recipe.
+        metric = revenue * Decimal("0.123")
+    query = session.observe({"v": metric}, by=mv.coordinates(by=(), keys=((),)))
+    with localcontext() as context:
+        context.prec = 1
+        context.rounding = ROUND_DOWN
+        context.traps[Inexact] = True
+        context.traps[Rounded] = True
+        before = repr(context)
+        rows = query.compute().to_pandas()
+        assert rows[("value", "v")].tolist() == [Decimal("145") if formula else Decimal("235")]
+        assert repr(context) == before
 
 
 @pytest.mark.parametrize("domain", ("source", "literal", "empty"))

@@ -85,7 +85,12 @@ ordinary integer arithmetic remains integer. Division/ratio returns float64;
 mean retains its method-declared type, with an explicit Decimal output cast.
 Local Decimal work keeps context precision 120 and converges once per bound result
 with HALF_UP (ties away from zero), including carry at precision 38. Explicit
-round retains its own semantics. Final carrier conversion is safe. Float64 admits
+round retains its own semantics. Local observation formulas, internal sample
+reducers and Frame comparison arithmetic own their Decimal context, including
+traps and exponent bounds. Caller context settings do not alter their results or
+turn permitted rounding into errors, and evaluation leaves that context unchanged.
+Invalid arithmetic and unrepresentable output still fail. Final carrier conversion
+is safe. Float64 admits
 binary approximation, integer low-bit loss beyond 2**53 and ordinary underflow;
 backend-native nonfinite results retain their floating carrier. Identity, count,
 time and Duration remain exact.

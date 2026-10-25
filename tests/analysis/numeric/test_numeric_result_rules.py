@@ -1,6 +1,6 @@
 """Bound result metadata and native execution have independent numeric oracles."""
 
-from decimal import Decimal, localcontext
+from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -96,10 +96,16 @@ def test_precision_38_rounding_and_accumulation_ignore_caller_context(sign: str)
     value = Decimal(sign + "9" * 35 + ".995")
     with localcontext() as context:
         context.prec = 6
+        context.Emin, context.Emax = -9, 9
+        context.rounding = ROUND_DOWN
+        context.traps[Inexact] = True
+        context.traps[Rounded] = True
+        before = repr(context)
         rounded = finish_decimal(pd.Series([value]), 38, 2)
         total = sum_values(
             [Decimal("12345678901234567890123456789.01"), Decimal("0.01")], pa.decimal128(31, 2)
         )
+        assert repr(context) == before
     assert rounded.iloc[0] == Decimal(sign + "1" + "0" * 35 + ".00")
     assert total == Decimal("12345678901234567890123456789.02")
 

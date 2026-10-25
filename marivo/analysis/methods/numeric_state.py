@@ -5,7 +5,16 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import (
+    ROUND_HALF_EVEN,
+    ROUND_HALF_UP,
+    Context,
+    Decimal,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+    localcontext,
+)
 from fractions import Fraction
 from typing import TypeAlias
 
@@ -19,13 +28,26 @@ from marivo.analysis.methods.physical import DecimalType, DurationType, ValueTyp
 Number: TypeAlias = int | float | Decimal
 
 
+def _decimal_context() -> Context:
+    """Own local arithmetic policy without inheriting caller traps or bounds."""
+    return Context(
+        prec=120,
+        rounding=ROUND_HALF_EVEN,
+        Emin=-999999,
+        Emax=999999,
+        capitals=1,
+        clamp=0,
+        flags=[],
+        traps=[InvalidOperation, DivisionByZero, Overflow],
+    )
+
+
 def checked_sum(values: Sequence[object], physical: pa.DataType) -> Number:
     """Accumulate exactly (or compensated float64), then check the stored type."""
     if pa.types.is_decimal(physical):
         if any(type(value) is not Decimal or not value.is_finite() for value in values):
             raise ValueError("Decimal state has a non-Decimal or nonfinite component")
-        with localcontext() as context:
-            context.prec = 120
+        with localcontext(_decimal_context()):
             result = sum((value for value in values if isinstance(value, Decimal)), Decimal(0))
         pa.scalar(result, type=physical)
         return result
@@ -64,8 +86,7 @@ def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
     from marivo.semantic._numeric_lowering import numeric_failure
 
     try:
-        with localcontext() as context:
-            context.prec = 120
+        with localcontext(_decimal_context()):
             rounded = [
                 None
                 if pd.isna(value)
@@ -88,8 +109,7 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
             raise OverflowError("Duration finish tick overflow")
         return ticks
     if isinstance(output, DecimalType):
-        with localcontext() as context:
-            context.prec = 120
+        with localcontext(_decimal_context()):
             value = (Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(
                 Decimal(1).scaleb(-output.scale), rounding=ROUND_HALF_UP
             )
@@ -134,8 +154,7 @@ def nullable_arithmetic(
         zero = b.notna() & ((b == 0) | (b == timedelta(0))).fillna(False)
         b = b.mask(zero, pd.NA)
     try:
-        with localcontext() as context:
-            context.prec = 120
+        with localcontext(_decimal_context()):
             if (
                 operation in ("add", "subtract", "multiply")
                 and all(pd.isna(value) or type(value) is int for value in (*a, *b))

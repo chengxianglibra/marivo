@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
-from decimal import Decimal, Inexact, localcontext
+from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +26,8 @@ from marivo.semantic.reader import SemanticProject
         ("38", "-0", "38", None),
         (None, "0", None, None),
         ("38", None, None, None),
+        ("4", "3", "1", 1 / 3),
+        ("1E-38", "2E-38", "0E-37", 0.0),
     ),
 )
 def test_decimal_compare_ignores_caller_precision_and_masks_zero(
@@ -49,6 +51,9 @@ def test_decimal_compare_ignores_caller_precision_and_masks_zero(
     with localcontext() as context:
         context.prec = 1
         context.traps[Inexact] = True
+        context.traps[Rounded] = True
+        context.rounding = ROUND_DOWN
+        before = repr(context)
         frame = (
             left.compare(
                 {"base": right}, on={"base": tuple(zip(left.axes, right.axes, strict=True))}
@@ -62,6 +67,7 @@ def test_decimal_compare_ignores_caller_precision_and_masks_zero(
         )
         assert pd.isna(delta) if absolute is None else delta == Decimal(absolute)
         assert pd.isna(change) if relative is None else change == relative
+        assert repr(context) == before
 
 
 @pytest.fixture

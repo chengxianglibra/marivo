@@ -12,6 +12,7 @@ import pyarrow.compute as pc
 
 from marivo._definition.expressions import PerReduce, PerWeightedMean
 from marivo.analysis.core.data_types import DataType, DecimalDataType
+from marivo.analysis.methods.numeric_state import _decimal_context
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
@@ -95,8 +96,7 @@ def reduce_samples(
         present = series.dropna().tolist()
         result: object = None
         try:
-            with localcontext() as context:
-                context.prec = 120
+            with localcontext(_decimal_context()):
                 if isinstance(node, PerWeightedMean):
                     weight = group[value_names[1]]
                     record["sample.null"] = node.nulls == "error" and bool(
@@ -179,8 +179,7 @@ def reduce_samples(
             and not record["sample.numeric"]
         ):
             try:
-                with localcontext() as context:
-                    context.prec = 120
+                with localcontext(_decimal_context()):
                     finished = Decimal(str(result)).quantize(
                         Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_UP
                     )

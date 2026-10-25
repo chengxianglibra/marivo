@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.query_key_fusion import _outer_join_value
 from marivo.semantic.reader import SemanticProject
@@ -131,9 +130,11 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
                 assert rows["value", baseline_value].iloc[index] == 3
                 if operation == "compare":
                     assert rows["value", "base.absolute.v"].iloc[index] == -1
-        invalid = left.align(right, on=on)
-        with pytest.raises(AnalysisError, match=r"exact|complete"):
-            invalid.top(0, by=invalid["left.v"]).compute()
+        aligned = left.align(right, on=on)
+        empty = aligned.top(0, by=aligned["left.v"]).compute()
+        assert empty.to_pandas().empty
+        assert empty.output_names == ("left.v", "right.v")
+        assert empty.presence_names == ("left_present", "right_present")
         assert trace.native_sql == [] and trace.uploaded_key_rows == []
         assert session.observe({"n": amount.count()}).compute().to_pandas()[
             "value", "n"

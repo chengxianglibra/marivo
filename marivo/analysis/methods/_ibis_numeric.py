@@ -13,6 +13,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo.analysis.methods.numeric_state import _decimal_context
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
@@ -64,8 +65,7 @@ def evaluate_numeric(
     ) -> pd.Series:
         a, b = visit(left), visit(right)
         result = constant(None)
-        with localcontext() as context:
-            context.prec = 120
+        with localcontext(_decimal_context()):
             for key in index[active]:
                 x, y = a.loc[key], b.loc[key]
                 if not _is_null(x) and not _is_null(y):
@@ -173,8 +173,7 @@ def evaluate_numeric(
                         )
                         return integer if -(2**63) <= integer < 2**63 else None
                     if node.to.is_decimal():
-                        with localcontext() as context:
-                            context.prec = 120
+                        with localcontext(_decimal_context()):
                             decimal = Decimal(str(value)).quantize(
                                 Decimal(1).scaleb(-(node.to.scale or 0)), rounding=ROUND_HALF_UP
                             )
