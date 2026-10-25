@@ -24,6 +24,7 @@ from marivo.analysis.core.data_validation import (
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeMethodPayload
+    from marivo.analysis.core.frame_data import CompletedFrameData
     from marivo.analysis.materialization.query_components import AttributeRootInputs, ComponentFrame
 
 
@@ -93,7 +94,7 @@ class CheckReceipt:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class StageOutput:
-    """Invocation-local typed pandas stage data; build only through ``from_frame``."""
+    """Invocation-local typed data, normalized on entry or copied from completed data."""
 
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
@@ -156,6 +157,20 @@ class StageOutput:
             attribute_inputs,
             attribute_methods,
             frame_schema,
+        )
+
+    @classmethod
+    def from_completed(cls, data: CompletedFrameData) -> StageOutput:
+        """Copy already validated immutable data without repeating its integrity scans."""
+        schema = data.schema
+        return cls(
+            schema.columns,
+            schema.key_fields,
+            data.copy_rows(),
+            _token=_NORMALIZED,
+            key_groups=tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
+            frame_attachments=data.copy_attachments(),
+            frame_schema=schema,
         )
 
     @classmethod

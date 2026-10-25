@@ -77,6 +77,19 @@ def _keys(frame: pd.DataFrame) -> list[str | None]:
     return [None if pd.isna(value) else str(value) for value in frame["key"]]
 
 
+def test_completed_stage_handoff_keeps_independent_typed_rows() -> None:
+    data = _data()
+    original = data.copy_rows()
+    output = StageOutput.from_completed(data)
+    pd.testing.assert_frame_equal(output.table, original)
+    assert output.columns == data.schema.columns
+    assert output.keys == data.schema.key_fields
+    assert output.frame_schema == data.schema
+    assert output.key_groups == (("key",),)
+    output.table.loc[0, "a"] = 99
+    pd.testing.assert_frame_equal(data.copy_rows(), original)
+
+
 def _run(
     data: CompletedFrameData, *operations: FrameOperationKind
 ) -> tuple[DataSchema, pd.DataFrame]:
@@ -266,18 +279,16 @@ def test_duration_mixed_units_and_overflow_are_checked() -> None:
         _run(data, SelectValues((("overflow", ValueBinary("mul", ValueSlot(0), ValueLiteral(2))),)))
 
 
-@pytest.mark.parametrize(
-    "operation", [TopValues(0, ValueSlot(0), True), SelectValues((("only_b", ValueSlot(1)),))]
-)
-def test_full_fixed_validation_cannot_be_pruned(operation: FrameOperationKind) -> None:
+def test_completed_data_validates_every_column_on_entry() -> None:
     data = _data()
-    data._rows["a"] = ["bad", "bad", "bad", "bad"]
+    rows = data.copy_rows()
+    rows["a"] = ["bad", "bad", "bad", "bad"]
     with pytest.raises(AnalysisError):
-        _run(data, operation)
+        CompletedFrameData(data.schema, rows)
 
 
 @pytest.mark.parametrize("corruption", ["duplicate_key", "missing_key", "missing_presence"])
-def test_full_key_and_nonnullable_presence_checks_precede_top_zero(corruption: str) -> None:
+def test_completed_data_validates_full_keys_and_nonnullable_presence(corruption: str) -> None:
     original = _data()
     axis = original.schema.axes[0]
     required_key = replace(axis.columns[0], nullable=False)
@@ -290,15 +301,14 @@ def test_full_key_and_nonnullable_presence_checks_precede_top_zero(corruption: s
     )
     rows = original.copy_rows().iloc[:3].copy()
     rows["present"] = [True, True, False]
-    data = CompletedFrameData(schema, rows)
     if corruption == "duplicate_key":
-        data._rows["key"] = ["same"] * 3
+        rows["key"] = ["same"] * 3
     elif corruption == "missing_key":
-        data._rows.loc[0, "key"] = None
+        rows.loc[0, "key"] = None
     else:
-        data._rows["present"] = pd.Series([pd.NA, True, False], dtype="boolean[pyarrow]")
+        rows["present"] = pd.Series([pd.NA, True, False], dtype="boolean[pyarrow]")
     with pytest.raises(AnalysisError):
-        _run(data, TopValues(0, ValueSlot(0), True))
+        CompletedFrameData(schema, rows)
 
 
 def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
@@ -384,7 +394,7 @@ def _calendar_directory(axis: CalendarDataAxis) -> OutputAttachment:
     )
 
 
-def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> None:
+def test_coordinate_attachments_are_validated_on_entry_and_copied_at_handoff() -> None:
     key = DataColumn("k", "bucket", ScalarDataType("int64"), False)
     axis = CalendarDataAxis(
         "calendar",
@@ -397,6 +407,7 @@ def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> N
     schema = DataSchema((axis,), (value,), value_paths=(("value",),))
     attachment = _calendar_directory(axis)
     data = CompletedFrameData(schema, pd.DataFrame({"k": [0], "v": [7]}), (attachment,))
+    original_attachment = data.copy_attachments()[0].rows
     compiled = plan_frame(
         FrameOperation(
             (FixedFrameInput("calendar", schema),), SelectValues((("copy", ValueSlot(0)),))
@@ -411,9 +422,10 @@ def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> N
         compiled, source_prepared={}, read_fixed=lambda stage: data, adapt_source=no_source
     )
     assert tuple(a.name for a in result.frame_attachments) == ("directory",)
-    data._attachments[0].rows["nominal_label"] = [99]
+    result.frame_attachments[0].rows["nominal_label"] = [99]
+    pd.testing.assert_frame_equal(data.copy_attachments()[0].rows, original_attachment)
     with pytest.raises(AnalysisError):
-        _run(data, TopValues(0, ValueSlot(0), True))
+        CompletedFrameData(schema, data.copy_rows(), result.frame_attachments)
 
 
 def _float_rows() -> tuple[DataSchema, pd.DataFrame]:
@@ -482,10 +494,9 @@ def test_fixed_typed_attachment_checks_finite_coordinate_keys(invalid: float) ->
     value = DataColumn("v", "value", ScalarDataType("int64"), True)
     schema = DataSchema((axis,), (value,), value_paths=(("value",),))
     attachment = _calendar_directory(axis)
-    data = CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
-    data._attachments[0].rows["k"] = [invalid]
+    attachment.rows["k"] = [invalid]
     with pytest.raises(AnalysisError, match="finite typed coordinate"):
-        _run(data, TopValues(0, ValueSlot(0), True))
+        CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
 
 
 def test_complete_float_validation_preserves_na() -> None:

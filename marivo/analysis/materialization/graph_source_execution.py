@@ -65,8 +65,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_data import CompletedFrameData, normalize_completed_data
+from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
@@ -2089,34 +2088,7 @@ def execute_numeric_query(
                 "Use this input's complete descriptor.",
                 "frame.input",
             )
-        rows, attachments = normalize_completed_data(
-            data.schema, data.copy_rows(), data.copy_attachments()
-        )
-        return complete(
-            StageOutput.from_frame(
-                rows,
-                stage.columns,
-                stage.keys,
-                key_groups=tuple(tuple(c.slot_id for c in a.columns) for a in stage.schema.axes),
-                frame_attachments=attachments,
-                frame_schema=data.schema,
-            )
-        )
-
-    def complete(output: StageOutput) -> StageOutput:
-        return replace(
-            output,
-            table=normalize_complete_frame(output.table, output.columns, output.keys),
-            frame_attachments=tuple(
-                replace(
-                    attachment,
-                    rows=normalize_complete_frame(
-                        attachment.rows, attachment.schema.columns, attachment.schema.key_fields
-                    ),
-                )
-                for attachment in output.frame_attachments
-            ),
-        )
+        return StageOutput.from_completed(data)
 
     def frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         output = run_local(stage, inputs)
@@ -2133,7 +2105,7 @@ def execute_numeric_query(
                     "Freeze the explicit source output.",
                     "frame.source",
                 )
-            output = complete(adapt_source(source_outputs[stage.stage_id], output))
+            output = adapt_source(source_outputs[stage.stage_id], output)
         return transport(stage.stage_id, output)
 
     result = run_query_plan(

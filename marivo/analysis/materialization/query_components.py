@@ -42,15 +42,8 @@ class ComponentFrame:
         expected = tuple(column.slot_id for column in self.layout.raw_columns)
         if tuple(self.table.columns) != expected:
             raise _invalid(f"original columns {tuple(self.table.columns)!r}; expected {expected!r}")
-        identity = [column.slot_id for column, _ in self.layout.identity]
-        if self.table.loc[:, identity].isna().any().any():
-            raise _invalid("missing contribution identity in original inputs")
-        if self.table.duplicated([*self.layout.keys, *identity]).any():
-            raise _invalid("duplicate complete contribution identity in one fine coordinate")
-        if self.domain is not None and (
-            tuple(self.domain.columns) != self.layout.keys
-            or (self.layout.keys and self.domain.duplicated(list(self.layout.keys)).any())
-        ):
+        # complete_components owns carrier, nullability and complete-key validation.
+        if self.domain is not None and tuple(self.domain.columns) != self.layout.keys:
             raise _invalid("original coordinate support differs from the complete fine keys")
 
     @property
@@ -87,8 +80,6 @@ def complete_components(
     }
     summary = [name for name in frame.columns if name not in raw_names]
     fine = frame.loc[:, summary].drop_duplicates().reset_index(drop=True)
-    if layout.keys and fine.duplicated(list(layout.keys)).any():
-        raise _invalid("different completed fine values for one coordinate")
     if not layout.keys and len(fine) != 1:
         raise _invalid("non-singleton completed scalar input")
     raw = frame.loc[
@@ -136,7 +127,7 @@ def complete_components(
     )
     domain_columns = tuple(column for column in layout.columns if column.slot_id in layout.keys)
     domain = normalize_stage_frame(
-        fine.loc[:, list(layout.keys)].drop_duplicates().reset_index(drop=True),
+        fine.loc[:, list(layout.keys)].reset_index(drop=True),
         domain_columns,
         layout.keys,
     )
@@ -387,10 +378,6 @@ def complete_attribute_inputs(
     else:
         fine = normalize_stage_frame(fine, layout.columns, layout.keys)
         parent = fine.iloc[:0].loc[:, parent_names].copy()
-    if layout.parent_keys and parent.duplicated(list(layout.parent_keys)).any():
-        input_failure("missing_component_proof", f"{stage_id}: duplicate complete parent totals")
-    if layout.keys and fine.duplicated(list(layout.keys)).any():
-        input_failure("missing_component_proof", f"{stage_id}: duplicate complete fine inputs")
     receipts = (
         *receipts,
         *(
@@ -439,8 +426,6 @@ def complete_attribute_parent_domain(
     selected = selected.loc[:, list(root.layout.parent_keys)]
     expected = tuple(frozen_key_rows(selected, parent_columns))
     actual = tuple(frozen_key_rows(root.parent, parent_columns))
-    if len(set(actual)) != len(actual):
-        raise _invalid("duplicate complete Attribute parent totals")
     if not root.layout.parent_keys and expected and not actual:
         from marivo.analysis.compiler.attribute_inputs import input_failure
 

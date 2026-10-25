@@ -79,6 +79,46 @@ def _case(
     return session
 
 
+@pytest.mark.parametrize("drop_axis", (False, True))
+def test_population_product_only_deduplicates_when_projection_drops_an_axis(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drop_axis: bool,
+) -> None:
+    import ibis
+    import ibis.expr.operations as ops
+
+    from marivo.analysis.materialization.population_preparation import prepare_population
+
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=4)
+    orders = session.members(session.catalog.entities.get("sales.orders"))
+    tags = session.members(session.catalog.entities.get("sales.tags"))
+    product = mv.product(orders, tags)
+    selected = product.project(by=(tags.axes[0],) if drop_axis else (tags.axes[0], orders.axes[0]))
+    prepared = prepare_population(
+        selected._definition,
+        {
+            "sales.orders": ibis.table({"id": "int64"}, name="orders"),
+            "sales.tags": ibis.table({"id": "int64"}, name="tags"),
+        },
+        session.catalog._state,
+    )
+    assert bool(prepared.table.op().find(ops.Distinct)) == drop_axis
+
+    trace = capture_source(monkeypatch)
+    rows = session.frame(selected).compute().to_pandas()
+    expected = (
+        {(1,), (2,), (3,)}
+        if drop_axis
+        else {(tag, order) for tag in (1, 2, 3) for order in range(4)}
+    )
+    assert set(rows.itertuples(index=False, name=None)) == expected
+    assert len(rows) == len(expected)
+    assert trace.native_sql
+    assert any("SELECT DISTINCT" in sql.upper() for sql in trace.native_sql) == drop_axis
+
+
 @pytest.mark.parametrize(
     "operation", ("image", "image_count", "literal_preimage", "query_preimage", "empty_query")
 )

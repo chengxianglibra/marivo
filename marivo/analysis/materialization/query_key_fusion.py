@@ -278,12 +278,11 @@ def _population_relation(
                 value.expression.select(__population_unit=ibis.literal(True)).distinct(), ()
             )
         keys = tuple(f"key.{index}" for index in range(len(selected)))
-        expression = _distinct(
-            value.expression.select(
-                **dict(zip(keys, (value.expression[key] for key in selected), strict=True))
-            ),
-            provider,
+        expression = value.expression.select(
+            **dict(zip(keys, (value.expression[key] for key in selected), strict=True))
         )
+        if len(positions) != len(value.groups):
+            expression = _distinct(expression, provider)
         groups: list[tuple[str, ...]] = []
         offset = 0
         for position in positions:
@@ -308,11 +307,8 @@ def _population_relation(
                 name: f"__population_match_{index}_{position}"
                 for position, name in enumerate(other.expression.columns)
             }
-            right = _distinct(
-                other.expression.select(
-                    **{name: other.expression[old] for old, name in renamed.items()}
-                ),
-                provider,
+            right = other.expression.select(
+                **{name: other.expression[old] for old, name in renamed.items()}
             ).mutate(**{marker: ibis.literal(True)})
             predicates = tuple(
                 _same_key(table[a], right[renamed[b]], provider)
@@ -380,7 +376,8 @@ def _population_relation(
                 offset += len(aliases)
             if combined is None:
                 return "empty Population product retains checked unit presence"
-            return _NativePopulation(_distinct(combined, provider), tuple(groups))
+            # Complete factor tuples remain unique in their Cartesian product.
+            return _NativePopulation(combined, tuple(groups))
         if isinstance(node, PopulationFilter):
             value = rows(node.operand)
             return value if isinstance(value, str) else matches(node.predicate, node.operand, value)

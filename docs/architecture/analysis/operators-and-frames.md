@@ -69,6 +69,10 @@ casting them back after loss. Datasource schema metadata remains authoritative
 when a provider exposes a different Timestamp or Duration carrier. Source
 admission and saved-output export are separate guarantees.
 
+Completed immutable Frame data already owns these integrity checks. Internal
+stage handoff copies its rows and attachments without repeating normalization;
+new stage results and newly read stored data retain their owning checks.
+
 Source arithmetic uses admitted native Ibis operations with explicit bound result
 casts. Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
 Both use one primary accumulation; count remains int64. Decimal add/subtract uses

@@ -472,12 +472,13 @@ def prepare_population(
                 key_groups,
                 presence="__population_unit",
             )
-        return PreparedPopulation(
-            table.select(
-                **{new: table[old_name] for new, old_name in zip(columns, old, strict=True)}
-            ).distinct(),
-            key_groups,
+        projected = table.select(
+            **{new: table[old_name] for new, old_name in zip(columns, old, strict=True)}
         )
+        # Selecting every complete axis only reorders an already unique tuple.
+        if len(node.positions) != len(source.key_groups):
+            projected = projected.distinct()
+        return PreparedPopulation(projected, key_groups)
     if isinstance(node, PopulationProduct):
         factors = tuple(prepare_population(factor, entities, state) for factor in node.factors)
         tables: list[ir.Table] = []
@@ -502,11 +503,12 @@ def prepare_population(
             table = table.cross_join(factor_table)
         if not columns:
             return PreparedPopulation(
-                table.select(__population_unit=ibis.literal(True)).distinct(),
+                table.select(__population_unit=ibis.literal(True)),
                 key_groups,
                 presence="__population_unit",
             )
-        return PreparedPopulation(table.select(*columns).distinct(), key_groups)
+        # Each factor is a set, and all factor keys survive the Cartesian product.
+        return PreparedPopulation(table.select(*columns), key_groups)
     if isinstance(node, PopulationClassify):
         from marivo.analysis.materialization.population_relations import prepare_member_fields
 

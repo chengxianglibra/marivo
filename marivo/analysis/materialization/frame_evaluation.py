@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import ExitStack
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import TracebackType
 from typing import TYPE_CHECKING
@@ -309,15 +310,10 @@ def _evaluate_frame(
                 from marivo.analysis.core.frame_derivation import key_checkpoint
 
                 declaration_keys[input_id] = key_checkpoint(completed)
-            return StageOutput.from_frame(
-                completed.copy_rows(),
-                schema.columns,
-                schema.key_fields,
+            return replace(
+                StageOutput.from_completed(completed),
                 receipts=output.receipts,
-                key_groups=tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
-                frame_attachments=completed.copy_attachments(),
                 attribute_inputs=output.attribute_inputs,
-                frame_schema=schema,
             )
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
