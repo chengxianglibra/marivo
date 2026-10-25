@@ -223,7 +223,11 @@ Private identity keys remain internal to definitions, dependencies and records.
 ``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
 exact ref, an entry owned by the current compiled catalog, or a catalog value.
 Inputs normalize immediately to refs; readiness results, preview evidence,
-persistence, and recovery remain ref-based. Published Metrics support bounded DuckDB ordinary source reductions and arithmetic
+persistence, and recovery remain ref-based. Preview ``limit`` must be an integer
+from 1 to 100 inclusive and bounds retained preview rows per result, independently
+from the ``scope.max_rows`` acquisition guard. Invalid limits raise a structured
+``SemanticRuntimeError`` before connection acquisition, with expected/received
+input and a repair. Published Metrics support bounded DuckDB ordinary source reductions and arithmetic
 previews through the shared nullable Row/Metric kernel. Population/sample
 and path/attribute-anchor preview preparation is unavailable and fails before opening a source. Published
 Measures still have no physical preview; published expression certification
@@ -298,9 +302,12 @@ Preview data display
 rows within a UTF-8 budget including the printed newline. ``render()`` accepts
 the same controls and returns text without a newline. ``n=0`` shows metadata
 and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
-``n``. Neither option reruns the preview or expands its source limit. Query
-truncation, scope coverage, sampling and warnings remain visible independently
-of display omissions. ``PreviewBatchResult`` remains a batch summary.
+``n``. Neither option reruns the preview or expands its source limit. The card's
+``preview_limit`` and ``preview_rows_truncated`` describe retained preview rows;
+``scope_coverage`` describes acquisition completeness. ``is_truncated=True`` can
+accompany successful exhaustive temporal certification when only the retained
+preview entries are bounded. Scope coverage, sampling and warnings remain visible
+independently of display omissions. ``PreviewBatchResult`` remains a batch summary.
 
 Returned authoring and report records
 -------------------------------------

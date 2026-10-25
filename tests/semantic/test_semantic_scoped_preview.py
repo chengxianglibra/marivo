@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import json
+import re
 import textwrap
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import ibis
 import pyarrow as pa
 import pytest
 
+import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import runtime as datasource_runtime
-from marivo.preview import PreviewLimitError
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DomainEntry,
@@ -86,6 +87,52 @@ def test_preview_requires_explicit_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     with pytest.raises(TypeError):
         catalog.preview(ms.ref.measure("sales.orders.amount"))  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("operation", ("preview", "preview_many"))
+@pytest.mark.parametrize("limit", (0, 101, "20", True))
+def test_invalid_preview_limits_are_structured_before_connection(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    limit: object,
+) -> None:
+    catalog, _root = scoped_catalog
+    amount = catalog.fields.get("sales.orders.amount")
+    monkeypatch.setattr(
+        "marivo.datasource.runtime.open_backend",
+        lambda *args, **kwargs: pytest.fail("invalid preview limit opened a connection"),
+    )
+
+    with pytest.raises(SemanticRuntimeError) as captured:
+        # Runtime invalid inputs deliberately bypass the annotated int contract.
+        if operation == "preview":
+            catalog.preview(amount, scope=default_scope(), limit=limit)  # type: ignore[arg-type]
+        else:
+            catalog.preview_many([amount], scope=default_scope(), limit=limit)  # type: ignore[arg-type]
+
+    error = captured.value
+    assert error.expected == "an integer preview limit from 1 to 100 inclusive"
+    assert error.received == f"{limit!r} ({type(limit).__name__})"
+    assert error.details["query_executed"] is False
+    assert error.hint is not None
+    assert "integer from 1 to 100 inclusive" in error.hint
+    assert "retained preview rows" in error.hint
+    assert "scope.max_rows separately guards source acquisition" in error.hint
+    assert error.repair is not None
+    assert "limit=20" in error.repair.action
+    assert error.repair.help_target.display == f"semantic.{operation}"
+    rendered = str(error)
+    assert f"hint: {error.hint}" in rendered
+    assert f"Retry catalog.{operation} with limit=20." in rendered
+    assert "metric bodies" not in rendered
+    assert "dataset references" not in rendered
+    assert "backend_factory" not in rendered
+    marivo.help(error.repair.help_target.display)
+    help_text = capsys.readouterr().out
+    assert "integer from 1 to 100 inclusive" in help_text
+    assert "scope.max_rows" in help_text
 
 
 def test_preview_value_and_ref_have_equivalent_current_results(scoped_catalog) -> None:
@@ -162,6 +209,9 @@ def test_scope_row_guard_reports_real_truncation(scoped_catalog) -> None:
     assert result.coverage.rows_observed == 3
     assert result.coverage.scope_exhaustion == "truncated"
     assert result.coverage.scope_exactness == "sample_only"
+    card = result.render()
+    assert "preview_rows_truncated: true" in card
+    assert "scope_coverage: truncated/sample_only" in card
 
 
 def test_time_dimension_reports_native_naive_parse_risk(scoped_catalog) -> None:
@@ -425,17 +475,76 @@ def test_temporal_artifact_certification_and_failed_previews(
         assert missing_kind in {issue.kind for issue in before.blockers}
         preview = catalog.preview(artifact_ref, scope=default_scope(max_rows=max_rows), limit=1)
         assert preview.returned_row_count == 1
+        assert preview.is_truncated is True
+        assert preview.coverage.scope_exhaustion == "exhaustive"
+        assert preview.coverage.scope_exactness == "scope_exact"
+        card = preview.render()
+        assert "preview_limit: 1" in card
+        assert "preview_rows_truncated: true" in card
+        assert "scope_coverage: exhaustive/scope_exact" in card
+        assert "query_truncated" not in card
         assert collection.get(as_ref(artifact_ref).path).details().snapshot_status == "current"
         assert missing_kind not in {
             issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
         }
 
-    with pytest.raises(PreviewLimitError):
+    assert catalog.period_calendars.get("sales.fiscal").period("week", "W2").start == date(
+        2026, 1, 3
+    )
+    assert catalog.temporal_sets.get("sales.named_campaigns").occurrence("incident").start == date(
+        2026, 3, 3
+    )
+
+    with pytest.raises(SemanticRuntimeError) as invalid_limit:
         catalog.preview(calendar_ref, scope=default_scope(max_rows=4), limit=0)
+    assert invalid_limit.value.expected == "an integer preview limit from 1 to 100 inclusive"
+    assert invalid_limit.value.details["query_executed"] is False
     assert (
         catalog.period_calendars.get(as_ref(calendar_ref).path).details().snapshot_status
         == "current"
     )
+
+
+def test_calendar_lookup_repairs_resolve_collection_paths_and_help(
+    tmp_path: Path,
+    semantic_project_factory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    catalog = certified_project(
+        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
+    )
+    calendar = catalog.period_calendars.get("sales.fiscal")
+
+    def repaired_calendar(error: SemanticRuntimeError, operation: str) -> PeriodCalendarEntry:
+        assert error.kind == "not_found"
+        assert error.details["operation"] == operation
+        assert error.repair is not None
+        match = re.search(r"catalog\.period_calendars\.get\('([^']+)'\)", error.repair.action)
+        assert match is not None
+        assert match.group(1) == "sales.fiscal"
+        entry = catalog.period_calendars.get(match.group(1))
+        assert entry is calendar
+        marivo.help(error.repair.help_target.display)
+        assert "Kind: callable" in capsys.readouterr().out
+        return entry
+
+    with pytest.raises(SemanticRuntimeError) as missing:
+        calendar.period_on("week", date(2026, 1, 3))
+    repair_entry = repaired_calendar(missing.value, "snapshot")
+    assert missing.value.details["snapshot_status"] == "missing"
+    catalog.preview(repair_entry, scope=default_scope(max_rows=4))
+    period = calendar.period_on("week", date(2026, 1, 3))
+    assert (period.start, period.end) == (date(2026, 1, 3), date(2026, 1, 5))
+
+    for operation, lookup in (
+        ("grain", lambda: calendar.grain("unknown")),
+        ("period", lambda: calendar.period("week", "unknown")),
+        ("period_on", lambda: calendar.period_on("week", date(2026, 1, 5))),
+        ("periods", lambda: calendar.periods("unknown")),
+    ):
+        with pytest.raises(SemanticRuntimeError) as invalid:
+            lookup()
+        assert repaired_calendar(invalid.value, operation).details().snapshot_status == "current"
 
 
 def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(

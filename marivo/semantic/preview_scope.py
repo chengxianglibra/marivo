@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._symbolic import EntitySymbol, native_symbol_ref
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
+from marivo.preview import PREVIEW_DEFAULT_LIMIT, PreviewLimitError, validate_preview_limit
 from marivo.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 
 if TYPE_CHECKING:
     from marivo.semantic.validator import Registry
@@ -21,6 +22,30 @@ PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple[EntitySymbol, Authorin
 PreviewSourceBindings: TypeAlias = Sequence[
     tuple[EntitySymbol, Mapping[str, QueryParamScalar | QueryParamScalarList]]
 ]
+
+
+def normalize_preview_limit(limit: int, *, operation: Literal["preview", "preview_many"]) -> int:
+    """Validate the retained-row limit at its semantic public boundary."""
+    try:
+        return validate_preview_limit(limit)
+    except PreviewLimitError as exc:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"catalog.{operation} received an invalid preview limit.",
+            cls=SemanticRuntimeError,
+            expected=f"an integer preview limit from {exc.min_limit} to {exc.max_limit} inclusive",
+            received=f"{limit!r} ({type(limit).__name__})",
+            details={"query_executed": False},
+            hint=(
+                f"Choose an integer from {exc.min_limit} to {exc.max_limit} inclusive for retained "
+                "preview rows; scope.max_rows separately guards source acquisition."
+            ),
+            repair_value=repair(
+                kind="reauthor",
+                canonical_id=operation,
+                action=f"Retry catalog.{operation} with limit={PREVIEW_DEFAULT_LIMIT}.",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

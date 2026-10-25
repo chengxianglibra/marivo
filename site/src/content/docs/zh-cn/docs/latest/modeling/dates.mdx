@@ -186,7 +186,7 @@ ms.period_calendar(
 
 ### 认证并读取
 
-保存为 `check_calendar.py` 并运行。完整范围有七行，行数上限设为八，以免截断。
+保存为 `check_calendar.py` 并运行。完整范围有七行源数据，设置 `scope.max_rows=8` 以允许完整采集。独立的 `limit=1` 仅保留一条预览记录，仍会认证完整日历。
 
 {/* example: calendar-read */}
 
@@ -196,14 +196,16 @@ import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
 ref = ms.ref.period_calendar("sales.fiscal")
-catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30))
+preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
+assert preview.is_truncated
+assert preview.coverage.scope_exhaustion == "exhaustive"
 calendar = catalog.period_calendars.get("sales.fiscal")
 period = calendar.period("week", "FY2026-W01")
 assert period.kind == "calendar_period"
 period.show()
 ```
 
-预期期间是 FY2026-W01，覆盖七个日期。把 max_rows 临时改成 1 会导致认证无法覆盖完整范围；恢复为 8 后重试。失败或截断不会发布替代证书。
+预期期间是 FY2026-W01，覆盖七个日期。这里 `is_truncated=True` 表示保留的预览记录被截断，exhaustive coverage 则确认采集完整。预览 `limit` 接受 1 至 100（含两端）的整数。把 `scope.max_rows` 临时改成 1 会导致认证无法覆盖完整范围；恢复为 8 后重试。采集失败或截断不会发布替代证书；当前证书状态见 `calendar.details().snapshot_status`。
 
 实际模型应提供经确认的所有业务期间和完整日期，不能靠相同标签推断边界。分析时使用 `calendar.grain("week")` 取得已认证粒度，而不是向普通粒度构造器传入猜测名称。
 

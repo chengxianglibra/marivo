@@ -100,11 +100,35 @@ class PreviewResult(_DataResult):
     columns: tuple[str, ...]
     types: dict[str, str]
     rows: tuple[dict[str, object], ...]
-    requested_limit: int
+    requested_limit: int = field(
+        metadata={
+            "meaning": (
+                "Maximum retained preview rows (an integer from 1 to 100 inclusive); "
+                "independent from the scope.max_rows acquisition guard and .show(n=...) "
+                "display omissions."
+            )
+        }
+    )
     returned_row_count: int
-    is_truncated: bool
+    is_truncated: bool = field(
+        metadata={
+            "meaning": (
+                "True when observed rows or certified temporal entries exceed the retained "
+                "preview rows. Read coverage for acquisition completeness: exhaustive "
+                "temporal certification can succeed while is_truncated is True."
+            )
+        }
+    )
     status: Literal["passed"]
-    coverage: PreviewCoverage
+    coverage: PreviewCoverage = field(
+        metadata={
+            "meaning": (
+                "Observed acquisition scope and completeness. exhaustive/scope_exact can "
+                "accompany is_truncated=True when a complete temporal snapshot was certified "
+                "and only its retained preview rows were bounded."
+            )
+        }
+    )
     warnings: tuple[PreviewWarning, ...] = field(default_factory=tuple)
     timezones: dict[str, PreviewTimezoneInfo] = field(default_factory=dict)
     sample_policy: PreviewSamplePolicy = field(
@@ -140,8 +164,8 @@ class PreviewResult(_DataResult):
             row_scope="returned preview rows; not full-source cardinality",
             facts=tuple(facts),
             boundaries=(
-                ("query_limit", str(self.requested_limit)),
-                ("query_truncated", str(self.is_truncated).lower()),
+                ("preview_limit", str(self.requested_limit)),
+                ("preview_rows_truncated", str(self.is_truncated).lower()),
                 (
                     "scope_coverage",
                     f"{self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}",

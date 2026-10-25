@@ -3251,7 +3251,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "publish their dedicated certified artifacts. Build scopes with "
                 "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
                 "md.partition (physical partition values), all with positive row/time guards. "
-                "For multiple dependency Entities, supply an exact Entity-ref-to-scope mapping."
+                "For multiple dependency Entities, supply an exact Entity-ref-to-scope mapping. "
+                "limit must be an integer from 1 to 100 inclusive and bounds retained preview "
+                "rows; scope.max_rows independently guards source acquisition. A temporal "
+                "preview can certify complete coverage while retaining fewer preview rows."
             ),
             kind="method",
             output="PreviewResult",
@@ -3276,7 +3279,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
             ),
             preconditions=("a current loaded SemanticCatalog",),
-            repair_kinds=("reconnect",),
+            repair_kinds=("reconnect", "reauthor"),
             public_entrypoint="catalog.preview",
             see_also=tuple(
                 LiveHelpTarget(surface="datasource", canonical_id=target)
@@ -3290,7 +3293,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "Run scoped data previews for a non-empty entry/ref sequence. Metric "
                 "previews aggregate at most 10,000 Entity output rows and report an "
                 "approximate result; period calendars and temporal sets "
-                "publish their dedicated certified artifacts."
+                "publish their dedicated certified artifacts through preview. limit must "
+                "be an integer from 1 to 100 inclusive and bounds retained preview rows "
+                "per result; scope.max_rows independently guards source acquisition."
             ),
             kind="method",
             output="PreviewBatchResult",
@@ -3321,7 +3326,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
             ),
             preconditions=("a current loaded SemanticCatalog",),
-            repair_kinds=("reconnect",),
+            repair_kinds=("reconnect", "reauthor"),
             public_entrypoint="catalog.preview_many",
         ),
         _capability(

@@ -243,8 +243,8 @@ def test_preview_result_renders_shared_card_shape() -> None:
     text = result.render()
     assert "Rows: 1 total; 1 shown; 0 omitted; scope=returned preview rows" in text
     assert "columns: id | country\ndata:\n1 | US" in text
-    assert "query_limit: 50" in text
-    assert "query_truncated: false" in text
+    assert "preview_limit: 50" in text
+    assert "preview_rows_truncated: false" in text
     assert "scope_coverage: exhaustive/scope_exact" in text
     assert "available:" not in text
 

@@ -45,7 +45,7 @@ def result(request: pytest.FixtureRequest) -> PreviewResult | RawSqlResult:
     )
 
 
-def test_all_small_result_rows_and_query_limits_are_independent(
+def test_all_small_result_rows_and_preview_limits_are_independent(
     result: PreviewResult | RawSqlResult, capsys: pytest.CaptureFixture[str]
 ) -> None:
     result.show()
@@ -53,9 +53,9 @@ def test_all_small_result_rows_and_query_limits_are_independent(
     assert "12 total; 12 shown" in text
     assert "9007199254740993.000011" in text
     if isinstance(result, PreviewResult):
-        assert "query_truncated: true" in text
+        assert "preview_rows_truncated: true" in text
     else:
-        assert "query_truncated" not in text
+        assert "preview_rows_truncated" not in text
     assert "not full-source cardinality" in text
     assert "Omitted:" not in text
     assert len(text.encode()) <= 8192
@@ -98,9 +98,9 @@ def test_empty_result_retains_columns_and_source_boundary(
     assert "0 total; 0 shown" in text
     assert "columns: amount" in text
     if isinstance(result, PreviewResult):
-        assert "query_truncated: true" in text
+        assert "preview_rows_truncated: true" in text
     else:
-        assert "query_truncated" not in text
+        assert "preview_rows_truncated" not in text
     assert "Omitted:" not in text
 
 

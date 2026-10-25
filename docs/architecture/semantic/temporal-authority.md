@@ -87,8 +87,13 @@ there is no runtime recurrence expansion.
 catalog.preview(ref, scope=...) reads the current datasource over complete
 declared coverage. The positive acquisition budget must admit all required
 columns and rows, with a sentinel to detect truncation and observed exhaustion.
-The display limit does not reduce certification coverage. A larger physical
-source may need a bounded upstream view/partition; sampling cannot certify it.
+The preview limit is an integer from 1 to 100 inclusive and bounds retained
+preview entries without reducing certification coverage. PreviewResult.is_truncated
+can be True after successful exhaustive certification: only the retained preview
+entries are cut off. Read coverage for acquisition completeness and the calendar
+or temporal-set entry's details().snapshot_status for the current certificate.
+A larger physical source may need a bounded upstream view/partition; sampling
+cannot certify it.
 Requested native query timeouts retain datasource support limits.
 
 Successful preview validates and atomically publishes an immutable normalized

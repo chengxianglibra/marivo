@@ -186,7 +186,7 @@ ms.period_calendar(
 
 ### Certify and read
 
-Save as `check_calendar.py` and run it. The complete range has seven rows; use a limit of eight to avoid truncation.
+Save as `check_calendar.py` and run it. The complete range has seven source rows; use `scope.max_rows=8` to allow complete acquisition. The separate `limit=1` retains one preview entry and still certifies the complete calendar.
 
 {/* example: calendar-read */}
 
@@ -196,14 +196,16 @@ import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
 ref = ms.ref.period_calendar("sales.fiscal")
-catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30))
+preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
+assert preview.is_truncated
+assert preview.coverage.scope_exhaustion == "exhaustive"
 calendar = catalog.period_calendars.get("sales.fiscal")
 period = calendar.period("week", "FY2026-W01")
 assert period.kind == "calendar_period"
 period.show()
 ```
 
-Expect FY2026-W01 covering seven dates. Temporarily setting max_rows to 1 makes certification unable to cover the whole range; restore 8 and retry. Failed or truncated certification does not publish a replacement certificate.
+Expect FY2026-W01 covering seven dates. `is_truncated=True` here describes the retained preview entries, while exhaustive coverage confirms complete acquisition. Preview `limit` accepts integers from 1 to 100 inclusive. Temporarily setting `scope.max_rows` to 1 makes certification unable to cover the whole range; restore 8 and retry. Failed or truncated acquisition does not publish a replacement certificate. Read `calendar.details().snapshot_status` for the current certificate.
 
 Real models need all approved business periods and complete dates. Equal labels do not establish boundaries. Use `calendar.grain("week")` for the certified grain, rather than passing a guessed name to a builtin grain constructor.
 

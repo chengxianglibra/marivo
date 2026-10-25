@@ -145,6 +145,7 @@ from marivo.semantic.preview_scope import (
     PreviewScope,
     PreviewSourceBindings,
     normalize_preview_batch_scopes,
+    normalize_preview_limit,
     normalize_preview_scope,
 )
 
@@ -1367,14 +1368,14 @@ def _raise_period_lookup(
         "grain": (
             LiveHelpTarget(surface="analysis", canonical_id="calendar.grain"),
             (
-                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
+                f"Inspect catalog.period_calendars.get({calendar_ref.path!r}).details() for "
                 "the exact declared levels, then retry calendar.grain(level) with one of them."
             ),
         ),
         "period": (
             LiveHelpTarget(surface="analysis", canonical_id="calendar.period"),
             (
-                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(), enumerate "
+                f"Inspect catalog.period_calendars.get({calendar_ref.path!r}).details(), enumerate "
                 "the level with calendar.periods(level), then retry calendar.period(level, key) "
                 "with one exact certified key."
             ),
@@ -1382,7 +1383,7 @@ def _raise_period_lookup(
         "period_on": (
             LiveHelpTarget(surface="analysis", canonical_id="calendar.period_on"),
             (
-                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details() for "
+                f"Inspect catalog.period_calendars.get({calendar_ref.path!r}).details() for "
                 "declared levels and certified coverage, then retry calendar.period_on(level, "
                 "value) with one covered civil date."
             ),
@@ -1390,7 +1391,7 @@ def _raise_period_lookup(
         "periods": (
             LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),
             (
-                f"Inspect catalog.period_calendars.get({calendar_ref.key!r}).details(), then retry "
+                f"Inspect catalog.period_calendars.get({calendar_ref.path!r}).details(), then retry "
                 "calendar.periods(level, limit=..., cursor=...) with a declared level, a limit in "
                 "[1, 100], and either no cursor or the cursor returned by the current snapshot."
             ),
@@ -1399,7 +1400,7 @@ def _raise_period_lookup(
             LiveHelpTarget(surface="semantic", canonical_id="preview"),
             (
                 f"Certify the current period-calendar snapshot with catalog.preview("
-                f"catalog.period_calendars.get({calendar_ref.key!r}), scope=...), then retry. "
+                f"catalog.period_calendars.get({calendar_ref.path!r}), scope=...), then retry. "
                 "If certification is blocked, inspect scoped catalog.readiness(...)."
             ),
         ),
@@ -3426,7 +3427,7 @@ class SemanticCatalog(RenderableResult):
                 for physical partition values; each requires row/time guards.
             source_bindings: Optional exact entity-to-parameter bindings for
                 parameterized JSON sources.
-            limit: Positive bounded preview row limit.
+            limit: Integer from 1 to 100 inclusive bounding retained preview rows.
             include_types: Include physical type facts in the result.
             context_columns: Optional context columns for field previews.
 
@@ -3442,10 +3443,12 @@ class SemanticCatalog(RenderableResult):
 
         Constraints:
             Input ownership and membership are checked before connection
-            acquisition or materialization. ``limit`` bounds returned preview
-            rows; metric previews independently aggregate at most 10,000 scoped
-            input rows and must be treated as approximate.
+            acquisition or materialization. ``limit`` is independent from the
+            ``scope.max_rows`` acquisition guard and does not reduce temporal
+            certification coverage. Metric previews independently aggregate at
+            most 10,000 scoped input rows and must be treated as approximate.
         """
+        limit = normalize_preview_limit(limit, operation="preview")
         target = _normalize_semantic_input(
             self,
             ref,
@@ -3488,7 +3491,7 @@ class SemanticCatalog(RenderableResult):
                 or exact entity-to-scope bindings otherwise.
             source_bindings: Optional exact entity-to-parameter bindings for
                 parameterized JSON sources.
-            limit: Positive bounded preview row limit per result.
+            limit: Integer from 1 to 100 inclusive bounding retained rows per result.
             include_types: Include physical type facts in each result.
 
         Returns:
@@ -3504,10 +3507,12 @@ class SemanticCatalog(RenderableResult):
 
         Constraints:
             The complete input sequence is normalized before any preview
-            begins. Duplicate canonical refs are rejected. ``limit`` bounds
-            returned rows per result; metric previews independently aggregate
-            at most 10,000 Entity output rows and must be treated as approximate.
+            begins. Duplicate canonical refs are rejected. ``limit`` is
+            independent from the ``scope.max_rows`` acquisition guard; metric
+            previews independently aggregate at most 10,000 Entity output rows
+            and must be treated as approximate.
         """
+        limit = normalize_preview_limit(limit, operation="preview_many")
         normalized_refs = tuple(
             _normalize_semantic_input(
                 self,

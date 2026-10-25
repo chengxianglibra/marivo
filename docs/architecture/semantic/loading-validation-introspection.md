@@ -85,8 +85,12 @@ and blockers stay on the same ReadinessReport.
 
 Build preview scopes with md.partition, md.time_range or md.unpruned. Positive
 row guards and requested native timeouts bound acquisition; a returned-row limit
-is not a scan bound or complete-call deadline. Multiple dependency Entities use
-an ordered sequence of `(EntitySymbol, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
+is not a scan bound or complete-call deadline. For catalog.preview and
+catalog.preview_many, limit must be an integer from 1 to 100 inclusive and
+bounds retained preview rows per result. The scope.max_rows acquisition guard
+is independent. Invalid limits raise a structured SemanticRuntimeError before
+connection acquisition, with the accepted bounds and a repair. Multiple dependency
+Entities use an ordered sequence of `(EntitySymbol, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
 source_bindings as `(EntitySymbol, parameter_mapping)` pairs. A single Entity scope
 still accepts one AuthoringScope; source_bindings always explicitly names its Entity.
 Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
@@ -109,6 +113,13 @@ explicit source_check is the route for validating source matching expectations.
 Temporal previews intentionally publish dedicated artifacts because the source
 values define executable semantic authority. Their exhaustive certification and
 staleness rules are owned by [Temporal authority](temporal-authority.md).
+PreviewResult.is_truncated reports whether the retained preview omits observed
+rows or certified temporal entries, independently from acquisition completeness
+in coverage. Its card labels preview_limit,
+preview_rows_truncated and scope_coverage separately. A successfully certified
+temporal snapshot can therefore have is_truncated=True with
+exhaustive/scope_exact coverage; the smaller retained preview does not invalidate
+the certificate. .show(n=...) only bounds display of those retained rows.
 
 ## Errors and implementation
 

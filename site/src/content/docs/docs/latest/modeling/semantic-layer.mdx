@@ -353,6 +353,7 @@ import marivo.datasource as md
 preview = catalog.preview(
     catalog.metrics.get("sales.revenue"),
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    limit=20,
 )
 ```
 
@@ -369,6 +370,8 @@ health.show()
 ```
 
 Loading checks project coherence. Readiness checks requested physical dependencies and required temporal artifacts without reading business data. Preview reads a bounded scope; ordinary preview does not change readiness. Source health checks connectivity/schema by default and only tests data expectations when explicitly requested.
+
+For `preview` and `preview_many`, `limit` must be an integer from 1 to 100 inclusive and bounds retained preview rows per result. `scope.max_rows` independently guards acquisition; invalid limits raise a structured semantic error before a connection opens. `preview.is_truncated` reports omitted preview rows, while `preview.coverage` reports acquisition completeness. `preview.show(n=...)` only changes how many retained rows are displayed.
 
 If connection testing fails, check the datasource path and credentials before retrying.
 

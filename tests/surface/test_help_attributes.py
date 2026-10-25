@@ -29,6 +29,27 @@ from marivo.analysis.core.frame_method_facts import (
 from tests.support.refs import as_ref
 
 
+def test_preview_help_distinguishes_retained_rows_from_acquisition() -> None:
+    for target in ("semantic.preview", "semantic.preview_many"):
+        text, _, _ = render_help_text(target)
+        assert "integer from 1 to 100 inclusive" in text
+        assert "retained preview rows" in text
+        assert "scope.max_rows" in text
+
+    text, _, _ = render_help_text("semantic.preview_result.is_truncated")
+    assert "Kind: attribute" in text
+    assert "retained preview rows" in text
+    assert "exhaustive temporal certification can succeed" in text
+    assert "Read coverage for acquisition completeness" in text
+    text, _, _ = render_help_text("semantic.preview_result.coverage")
+    assert "exhaustive/scope_exact" in text
+    assert "is_truncated=True" in text
+    text, _, _ = render_help_text("semantic.preview_result.requested_limit")
+    assert "integer from 1 to 100 inclusive" in text
+    assert "scope.max_rows" in text
+    assert ".show(n=...)" in text
+
+
 def test_grain_field_help_matches_runtime_variant_availability() -> None:
     builtin = mv.grain("day")
     calendar = ms.ref.period_calendar("sales.fiscal")

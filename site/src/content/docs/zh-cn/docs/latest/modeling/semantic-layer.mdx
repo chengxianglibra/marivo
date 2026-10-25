@@ -352,6 +352,7 @@ import marivo.datasource as md
 preview = catalog.preview(
     catalog.metrics.get("sales.revenue"),
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    limit=20,
 )
 ```
 
@@ -368,6 +369,8 @@ health.show()
 ```
 
 加载检查项目是否自洽。readiness 在不读业务数据的前提下检查所选物理依赖与必要时间产物。preview 读取有界范围，普通预览不改变 readiness。source health 默认检查连接与结构，只有显式要求时才检查数据预期。
+
+`preview` 与 `preview_many` 的 `limit` 必须是 1 至 100（含两端）的整数，限制每份结果保留的预览行数。`scope.max_rows` 独立约束采集；无效的 limit 会在打开连接前抛出结构化语义错误。`preview.is_truncated` 表示预览行被省略，`preview.coverage` 表示采集是否完整。`preview.show(n=...)` 只改变已保留行的显示数量。
 
 连接检查失败时，先检查数据源路径与凭据，再重试。
 
