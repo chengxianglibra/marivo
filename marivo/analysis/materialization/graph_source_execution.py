@@ -1674,6 +1674,7 @@ def _complete_source_frame(
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
     *,
     value_keys: tuple[str, ...] = (),
+    ordered: bool = True,
 ) -> StageOutput:
     """Complete one logical source occurrence and its original fine checks."""
     source_rows = len(frame)
@@ -1816,7 +1817,7 @@ def _complete_source_frame(
             except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
                 numeric_failure("lossless signed int64 Duration ticks", str(error))
     output = frame.loc[:, [c.slot_id for c in stage.columns]]
-    if stage.keys and read_finish(stage) is None:
+    if ordered and stage.keys and read_finish(stage) is None:
         output = output.sort_values(
             list(stage.keys), kind="stable", na_position="last"
         ).reset_index(drop=True)
@@ -1838,13 +1839,24 @@ def _complete_common_read(
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
 ) -> StageOutput:
-    """Split one issued physical block into its ordered logical occurrences."""
+    """Complete logical occurrences while retaining an unchanged joint row layout."""
     from marivo.analysis.compiler.observation import common_slot
     from marivo.analysis.materialization.query_components import ComponentFrame
 
+    members = read_members(stage)
+    same_rows = all(
+        read_components(member) is None
+        and read_finish(member) is None
+        and member.keys == stage.keys
+        and (
+            common_slot(index, "__numeric_present") not in frame.columns
+            or "__numeric_present" in {column.slot_id for column in member.columns}
+        )
+        for index, member in enumerate(members)
+    )
     tables: list[pd.DataFrame] = []
     components: list[ComponentFrame] = []
-    for index, member in enumerate(read_members(stage)):
+    for index, member in enumerate(members):
         assert read_reduction(member) is not None
         names = {
             column.slot_id: column.slot_id
@@ -1881,7 +1893,7 @@ def _complete_common_read(
             for name, check in numeric_checks
             if name.endswith(suffix)
         )
-        output = _complete_source_frame(member, local, checks)
+        output = _complete_source_frame(member, local, checks, ordered=not same_rows)
         components.extend(output.components)
         tables.append(
             output.table.rename(
@@ -1893,13 +1905,24 @@ def _complete_common_read(
                 }
             )
         )
-    result = tables[0]
-    for other in tables[1:]:
-        result = (
-            result.merge(other, on=list(stage.keys), how="outer", validate="one_to_one", sort=False)
-            if stage.keys
-            else result.join(other)
-        )
+    if same_rows:
+        # Every member finished the same physical rows without reordering or
+        # filtering. Preserve that joint layout instead of rebuilding it by key.
+        result = frame.loc[:, [column.slot_id for column in stage.columns]].reset_index(drop=True)
+        for table in tables:
+            for name in table.columns:
+                if name not in stage.keys:
+                    result[name] = table[name]
+    else:
+        result = tables[0]
+        for other in tables[1:]:
+            result = (
+                result.merge(
+                    other, on=list(stage.keys), how="outer", validate="one_to_one", sort=False
+                )
+                if stage.keys
+                else result.join(other)
+            )
     result = result.loc[:, [column.slot_id for column in stage.columns]]
     retained_checks = {name for name, _ in numeric_checks}
     retained_checks.update(

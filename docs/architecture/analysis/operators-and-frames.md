@@ -187,6 +187,12 @@ scale fail before clipping a finite coefficient to [-1, 1]. The numeric implemen
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
+Within one current-input evaluation, paired statistics reuse successful endpoint
+expression evaluation and typed conversion. A coefficient and its pair count
+share each group's common valid samples. Both endpoints still complete their
+expression and numeric checks before masking; the memo does not cross Frame
+operations or input domains.
+
 ## Partition statistics and current-value shares
 
 `frame.over(statistic, by=())` uses the same sum, mean, corr, pair_count and
@@ -204,6 +210,13 @@ Nested over evaluates its dependencies first: broadcast totals repeated on
 several rows remain repeated samples for an outer sum or mean. In where/top,
 each partition is evaluated before the operation selects rows. The selection
 cannot shrink an earlier statistic's denominator or bypass required checks.
+
+Repeated identical partition expressions share their successful broadcast result
+within that evaluation, including across selected outputs and arithmetic. Cache
+identity distinguishes literal carriers such as integer, float and Decimal.
+The broadcast reduction does not sort its intermediate groups; public reduce
+still returns canonical key order. Local Top(0) completes its score expression
+and then returns typed empty rows without sorting.
 
 `column.share(along=axes)` requires a nonempty tuple of
 distinct complete axes from that Column's input. All other input axes define

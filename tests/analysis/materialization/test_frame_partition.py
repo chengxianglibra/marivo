@@ -431,3 +431,88 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     assert continued[("value", "original_share")].tolist() == [1, 1]
     assert continued[("value", "total")].tolist() == [180, 230]
     assert continued[("value", "share")].tolist() == [1, 1]
+
+
+def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
+    from unittest.mock import patch
+
+    from marivo._definition.query import (
+        ReduceValues,
+        SelectValues,
+        Statistic,
+        ValueBinary,
+        ValuePartition,
+        ValueSlot,
+    )
+    from marivo.analysis.compiler.frame_plan import frame_program
+    from marivo.analysis.methods import frame_values
+
+    group = DataColumn("group", "group", INT64, True)
+    row = DataColumn("row", "row", INT64, False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("row", (row,), name="row")),
+        (DataColumn("x", "x", INT64, True),),
+        value_paths=(("x",),),
+    )
+    source = pd.DataFrame(
+        {"group": [2, 1, 2, None], "row": [0, 1, 2, 3], "x": [10, 20, 30, 40]}, dtype=object
+    )
+    total = ValuePartition(Statistic("sum", ValueSlot(0)), (0,))
+    # Separately constructed equal expressions also share the completed result.
+    denominator = ValuePartition(Statistic("sum", ValueSlot(0)), (0,))
+    program = frame_program(
+        schema,
+        SelectValues((("total", total), ("share", ValueBinary("div", ValueSlot(0), denominator)))),
+    )
+    with patch.object(
+        frame_values, "partition_series", wraps=frame_values.partition_series
+    ) as partition:
+        with patch.object(
+            pd.DataFrame, "sort_values", side_effect=AssertionError("broadcast sorted")
+        ):
+            result = frame_values.evaluate_frame(program, (source,))
+        assert partition.call_count == 1
+        assert result[program.output_schema.values[0].slot_id].tolist() == [40, 20, 40, 40]
+        assert result[program.output_schema.values[1].slot_id].tolist() == [0.25, 1, 0.75, 1]
+        changed = source.copy()
+        changed["x"] = [1, 2, 3, 4]
+        again = frame_values.evaluate_frame(program, (changed,))
+        assert partition.call_count == 2
+        assert again[program.output_schema.values[0].slot_id].tolist() == [4, 2, 4, 4]
+    reduced = frame_values.evaluate_frame(
+        frame_program(schema, ReduceValues((("sum", Statistic("sum", ValueSlot(0))),), (0,))),
+        (source,),
+    )
+    assert pd.isna(reduced["group"].iloc[0])
+    assert reduced["group"].iloc[1:].tolist() == [1, 2]
+
+
+def test_partition_cache_distinguishes_literal_carriers(local: LocalFrameServices) -> None:
+    frame = _frame(local, (1, 3))
+    x = frame["x"]
+    rows = (
+        frame.select(
+            {
+                "integer": frame.over((x + 1).sum()),
+                "float": frame.over((x + 1.0).sum()),
+                "decimal": frame.over((x + Decimal("1")).sum()),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "integer")].tolist() == [Decimal(6), Decimal(6)]
+    assert rows[("value", "float")].tolist() == [6.0, 6.0]
+    assert "decimal" in str(rows[("value", "integer")].dtype)
+    assert "double" in str(rows[("value", "float")].dtype)
+    assert "decimal" in str(rows[("value", "decimal")].dtype)
+
+
+def test_top_zero_checks_score_without_sorting(local: LocalFrameServices) -> None:
+    from unittest.mock import patch
+
+    frame = _frame(local, (1, 3, None))
+    with patch.object(pd.DataFrame, "sort_values", side_effect=AssertionError("empty Top sorted")):
+        result = frame.top(0, by=frame["x"]).compute().to_pandas()
+    assert result.empty
+    assert str(result[("value", "x")].dtype) == "int64[pyarrow]"

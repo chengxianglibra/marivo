@@ -400,7 +400,7 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
         tuple(NumericCheck(table[name] < 0, "nonnegative values", name) for name in ("a", "b")),
     )
     expression, _, checks = _attach_relation_checks(
-        table.limit(0), native, QueryPlan((stage,), (), "read")
+        table.limit(0), native, QueryPlan((stage,), (), "read"), provider=dialect
     )
     summaries = tuple(
         node
@@ -408,11 +408,15 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
         if any(name.startswith("__query_") for name in node.metrics)
     )
     assert len(summaries) == 2
-    assert all(len(summary.metrics) == 2 for summary in summaries)
+    assert all(
+        len(summary.metrics) == (4 if dialect in ("duckdb", "trino", "clickhouse") else 2)
+        for summary in summaries
+    )
     assert len(checks) == 4
     assert all(f"{alias}.witness.0" in expression.columns for alias, _ in checks)
     sql = str(ibis.to_sql(expression, dialect=dialect))
-    assert "facts" in sql and "LIMIT 1" in sql
+    assert "facts" in sql
+    assert ("LIMIT 1" in sql) is (dialect not in ("duckdb", "trino", "clickhouse"))
 
 
 @pytest.mark.parametrize(
@@ -686,3 +690,207 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     assert error.value.stage == "population_coverage"
     assert "B" in error.value.received
     assert trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize("dialect", ("duckdb", "trino", "clickhouse"))
+def test_tuple_check_summary_candidate_compiles(dialect: str) -> None:
+    import ibis
+
+    from marivo.analysis.materialization.query_key_fusion import _check_summary
+
+    table = ibis.table({"key.0": "int64", "key.1": "string", "bad": "boolean"}, name="facts")
+    summary = _check_summary(
+        table, (("bad", table.bad, ("key.0", "key.1")),), combined=True, provider=dialect
+    )
+    sql = str(ibis.to_sql(summary, dialect=dialect))
+    assert ("LIMIT 1" in sql) is (dialect == "duckdb")
+    assert summary.columns == ("bad", "bad.witness.0", "bad.witness.1")
+
+
+@pytest.mark.parametrize("collation_scope", ("column", "connection"))
+def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_scope: str) -> None:
+    import ibis
+
+    from marivo.analysis.compiler.graph_lowering import LoweredRead
+    from marivo.analysis.compiler.graph_plan import NativeRead, QueryPlan, SourceRead
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.materialization.query_key_fusion import (
+        NativeQueryRelation,
+        _attach_relation_checks,
+    )
+    from marivo.semantic._numeric_lowering import NumericCheck
+
+    connection = ibis.duckdb.connect(threads=1)
+    try:
+        collation = " COLLATE NOCASE" if collation_scope == "column" else ""
+        if collation_scope == "connection":
+            connection.raw_sql("SET default_collation='nocase'")
+        connection.raw_sql(
+            f'CREATE TABLE facts ("key.0" VARCHAR{collation}, "key.1" BIGINT, bad BOOLEAN)'
+        )
+        connection.raw_sql(
+            "INSERT INTO facts VALUES ('a',2,true),('a',1,true),('B',0,true),(NULL,0,true),('0',0,false)"
+        )
+        table = connection.table("facts")
+        keys = ("key.0", "key.1")
+        columns = (
+            DataColumn(keys[0], "label", ScalarDataType("string"), True),
+            DataColumn(keys[1], "id", ScalarDataType("int64"), False),
+        )
+        stage = SourceRead("read", "facts", (), columns, keys, NativeRead(()), (), (), None)
+        check = NumericCheck(table.bad, "valid inputs", "invalid input")
+        native = NativeQueryRelation(
+            table,
+            frozenset({"read"}),
+            (LoweredRead("read", table, (("bad", check),)),),
+            (check,),
+        )
+        expression, _, checks = _attach_relation_checks(
+            table.limit(0), native, QueryPlan((stage,), (), "read"), provider="duckdb"
+        )
+        result = expression.execute()
+        assert len(result) == 1
+        assert pd.isna(result["__numeric_present"].iloc[0])
+        assert len(checks) == 2
+        for alias, _ in checks:
+            assert result[alias].iloc[0]
+            assert (
+                result[f"{alias}.witness.0"].iloc[0],
+                result[f"{alias}.witness.1"].iloc[0],
+            ) == ("a", 1)
+    finally:
+        connection.disconnect()
+
+
+@pytest.mark.parametrize("key_type", ("BIGINT", "VARCHAR"))
+@pytest.mark.parametrize("selection", ("mixed", "all", "none", "empty"))
+def test_combined_check_summary_preserves_real_null_safe_failure_tuple(
+    selection: str, key_type: str
+) -> None:
+    import ibis
+
+    from marivo.analysis.materialization.query_key_fusion import _check_summary
+
+    connection = ibis.duckdb.connect(threads=1)
+    try:
+        connection.raw_sql(
+            f'CREATE TABLE witness_probe ("key.0" BIGINT, "key.1" {key_type}, a BOOLEAN, b BOOLEAN)'
+        )
+        connection.raw_sql(
+            "INSERT INTO witness_probe VALUES (2,'1',true,false),(1,'9',true,false),(NULL,'2',true,true),(NULL,NULL,true,true),(0,'8',false,false)"
+        )
+        table = connection.table("witness_probe")
+        if selection == "empty":
+            table = table.filter(ibis.literal(False))
+        if selection in ("all", "none"):
+            table = table.mutate(
+                a=ibis.literal(selection == "all"), b=ibis.literal(selection == "all")
+            )
+        flags = (table.a, table.b)
+        specs = tuple(
+            (name, flag, ("key.0", "key.1")) for name, flag in zip(("a", "b"), flags, strict=True)
+        )
+        combined = _check_summary(table, specs, combined=True, provider="duckdb")
+        original = _check_summary(table, specs, combined=False)
+        actual = combined.execute()
+        pd.testing.assert_frame_equal(actual, original.execute())
+        row = actual.iloc[0]
+        if selection == "mixed":
+            assert (row["a.witness.0"], row["a.witness.1"]) == (
+                1,
+                9 if key_type == "BIGINT" else "9",
+            )
+            assert pd.isna(row["b.witness.0"])
+            assert row["b.witness.1"] == (2 if key_type == "BIGINT" else "2")
+        elif selection == "all":
+            assert (row["a.witness.0"], row["a.witness.1"]) == (
+                0,
+                8 if key_type == "BIGINT" else "8",
+            )
+        else:
+            assert not row["a"] and not row["b"]
+            assert pd.isna(row["a.witness.0"]) and pd.isna(row["a.witness.1"])
+        plan = connection.raw_sql(
+            "EXPLAIN " + str(ibis.to_sql(combined, dialect="duckdb"))
+        ).fetchone()[1]
+        if key_type == "BIGINT":
+            if selection != "empty":
+                assert plan.count("SEQ_SCAN") == 1
+            assert "TOP_N" not in plan and "ORDER_BY" not in plan
+    finally:
+        connection.disconnect()
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("trino", "iceberg"), ("clickhouse", "mergetree")])
+)
+def test_remote_tuple_check_summary_preserves_nulls_and_real_rows(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ibis
+
+    from marivo.analysis.materialization.query_key_fusion import _check_summary
+    from marivo.datasource.ir import TableSourceIR
+    from tests.datasource.environment import clickhouse_analysis, trino_analysis
+    from tests.datasource.source_cases import SourceData, source_case
+
+    data = SourceData(
+        "k0 BIGINT, k1 VARCHAR, a BOOLEAN, b BOOLEAN",
+        "(2,'a',true,false),(1,'z',true,false),(NULL,'b',true,true),(NULL,NULL,true,true),(0,'x',false,false)",
+        "k0 Nullable(Int64), k1 Nullable(String), a Bool, b Bool",
+        [
+            dict(zip(("k0", "k1", "a", "b"), row, strict=True))
+            for row in (
+                (2, "a", True, False),
+                (1, "z", True, False),
+                (None, "b", True, True),
+                (None, None, True, True),
+                (0, "x", False, False),
+            )
+        ],
+    )
+
+    def native_rows(sql: str) -> list[tuple[object, ...]]:
+        if backend == "trino":
+            with trino_analysis.connection() as connection:
+                cursor = connection.cursor()
+                try:
+                    return [tuple(row) for row in cursor.execute(sql).fetchall()]
+                finally:
+                    cursor.close()
+        with clickhouse_analysis.connection() as client:
+            return [tuple(row) for row in client.query(sql).result_rows]
+
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        assert isinstance(case.source, TableSourceIR)
+        for selection in ("mixed", "all", "none", "empty", "nonnullable_none", "nonnullable_empty"):
+            table = ibis.table(
+                {"k0": "int64", "k1": "string", "a": "boolean", "b": "boolean"},
+                name=case.source.table,
+            )
+            if selection.startswith("nonnullable"):
+                table = table.mutate(k0=table.k0.fill_null(-1), k1=table.k1.fill_null(""))
+            if selection.endswith("empty"):
+                table = table.filter(ibis.literal(False))
+            if selection in ("all", "none", "nonnullable_none"):
+                table = table.mutate(
+                    a=ibis.literal(selection == "all"), b=ibis.literal(selection == "all")
+                )
+            summary = _check_summary(
+                table,
+                tuple((name, table[name], ("k0", "k1")) for name in ("a", "b")),
+                combined=True,
+                provider=backend,
+            )
+            rows = native_rows(str(ibis.to_sql(summary, dialect=backend)))
+            expected = (
+                (True, True, 1, "z", None, "b")
+                if selection == "mixed"
+                else (True, True, 0, "x", 0, "x")
+                if selection == "all"
+                else (False, False, None, None, None, None)
+            )
+            assert rows == [expected]

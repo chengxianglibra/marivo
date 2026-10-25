@@ -35,6 +35,7 @@ from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.model import reject
+from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, sum_values
 from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
@@ -120,7 +121,11 @@ def _timestamp_awareness(values: pd.Series) -> bool | None:
 
 
 def expression_series(
-    expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram | FrameProgram
+    expression: ValueExpression,
+    frame: pd.DataFrame,
+    program: ResultProgram | FrameProgram,
+    *,
+    evaluation: FrameEvaluation | None = None,
 ) -> pd.Series:
     if isinstance(expression, ValuePartition):
         if not isinstance(program, FrameProgram):
@@ -132,7 +137,12 @@ def expression_series(
             )
         from marivo.analysis.methods.frame_values import partition_series
 
-        return partition_series(expression, frame, program)
+        if evaluation is None:
+            evaluation = FrameEvaluation()
+        key = expression_key(expression)
+        if key not in evaluation.partitions:
+            evaluation.partitions[key] = partition_series(expression, frame, program, evaluation)
+        return evaluation.partitions[key]
     if isinstance(expression, ValueSlot):
         columns = (
             program.input_schema.values
@@ -170,7 +180,7 @@ def expression_series(
         )
         return pd.Series([literal] * len(frame), dtype=object)
     if isinstance(expression, ValueUnary):
-        values = expression_series(expression.operand, frame, program)
+        values = expression_series(expression.operand, frame, program, evaluation=evaluation)
         if expression.operation == "is_null":
             return values.isna().astype("boolean")
         if expression.operation == "not":
@@ -220,8 +230,8 @@ def expression_series(
             ],
             dtype=object,
         )
-    left = expression_series(expression.left, frame, program)
-    right = expression_series(expression.right, frame, program)
+    left = expression_series(expression.left, frame, program, evaluation=evaluation)
+    right = expression_series(expression.right, frame, program, evaluation=evaluation)
     if expression.operation in ("add", "sub", "mul", "div"):
         from marivo.analysis.methods.numeric_state import duration_arithmetic, nullable_arithmetic
 

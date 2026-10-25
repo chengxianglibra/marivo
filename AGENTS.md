@@ -95,6 +95,10 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 - Run only relevant Runtime tests during development. Full release acceptance
   belongs to release preparation and publishing CI; do not run it or start
   MinIO for ordinary commit preparation.
+- Agents may use Colima to start backend services needed for relevant Runtime
+  validation without requesting additional permission. Follow
+  `tests/datasource/environment/README.md`, use the dedicated
+  `marivo-multisource` environment, and reuse already-running services.
 - Repair failures caused by the change and rerun relevant checks. Report what
   actually ran and any blockers; distinguish static, local, Runtime, and release
   evidence.

@@ -708,3 +708,17 @@ def test_unfinished_statistics_preserve_binding_and_reusable_row_count(
         for other in (second, foreign):
             with pytest.raises(AnalysisError):
                 other.reduce({"value": statistic})
+
+
+@pytest.mark.parametrize("method", ("pearson", "spearman"))
+def test_correlate_converts_each_endpoint_once(local: LocalFrameServices, method: Method) -> None:
+    from unittest.mock import patch
+
+    from marivo.analysis.methods import frame_values
+
+    frame = _pairs(local, (1, 2, None, 4), (2, None, 6, 8))
+    with patch.object(frame_values, "_pair_values", wraps=frame_values._pair_values) as convert:
+        result = frame.correlate(frame["x"], frame["y"], method=method).compute().to_pandas()
+    assert convert.call_count == 2
+    assert result[("value", "coefficient")].iloc[0] == pytest.approx(1)
+    assert result[("value", "n_pairs")].iloc[0] == 2

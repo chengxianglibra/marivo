@@ -94,7 +94,7 @@ def _schema() -> DataSchema:
 
 
 @pytest.mark.parametrize("provider", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
-def test_pending_field_top_dialects_have_outer_order_and_limit(provider: str) -> None:
+def test_pending_field_top_dialects_use_direct_ordered_limit(provider: str) -> None:
     import sqlglot
 
     schema = _schema()
@@ -108,8 +108,12 @@ def test_pending_field_top_dialects_have_outer_order_and_limit(provider: str) ->
     compiled = sqlglot.parse_one(
         str(ibis.to_sql(lowered.expression, dialect=provider)), read=provider
     )
-    assert compiled.args.get("order") is not None
-    assert compiled.args["limit"].expression.this == "1"
+    assert not list(compiled.find_all(sqlglot.exp.Window))
+    bounded = [node for node in compiled.find_all(sqlglot.exp.Select) if node.args.get("limit")]
+    assert len(bounded) == 1
+    assert bounded[0].args.get("order") is not None
+    assert bounded[0].args["limit"].expression.this == "1"
+    assert "__frame_top_duplicate" in lowered.expression.columns
 
 
 def test_fixed_top_declines_native_rewrite_with_an_internal_reason() -> None:

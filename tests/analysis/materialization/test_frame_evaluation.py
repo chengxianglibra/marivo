@@ -811,7 +811,21 @@ def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
     assert top.iloc[:, 0].tolist() == ([("t1", 1)] if descending else [("t2", 1)])
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
-    assert "ORDER BY" in trace.native_sql[0] and trace.native_sql[0].rstrip().endswith("LIMIT 1")
+    import sqlglot
+
+    compiled = sqlglot.parse_one(trace.native_sql[0], read="duckdb")
+    assert not list(compiled.find_all(sqlglot.exp.RowNumber))
+    # Collated string-key checks retain their own ordered witness limits.
+    # Count only the Top branch, whose leading order term is the score slot.
+    ordered_limits = [
+        node
+        for node in compiled.find_all(sqlglot.exp.Select)
+        if node.args.get("order") is not None
+        and node.args.get("limit") is not None
+        and node.args["order"].expressions[0].this.name == pending._schema.values[0].slot_id
+    ]
+    assert len(ordered_limits) == 1
+    assert ordered_limits[0].args["limit"].expression.this == "1"
 
 
 def test_fixed_and_reopened_read_top_are_source_free(

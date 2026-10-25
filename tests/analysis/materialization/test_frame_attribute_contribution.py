@@ -114,6 +114,23 @@ def test_additive_exact_values_and_independent_role_reads(
     )
     pending.show(n=0)
     assert reads == []
+    from unittest.mock import patch
+
+    from marivo.analysis.core.attribute import AttributeContributionProgram, AttributeMethodPayload
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.methods import frame_attribute_contribution
+
+    contribute = frame_attribute_contribution.attribute_contribution_data
+
+    def preserve_order(
+        program: AttributeContributionProgram, inputs: tuple[StageOutput, ...]
+    ) -> tuple[pd.DataFrame, AttributeMethodPayload]:
+        with patch.object(
+            pd.DataFrame, "sort_values", side_effect=AssertionError("contribution sorted")
+        ):
+            return contribute(program, inputs)
+
+    monkeypatch.setattr(frame_attribute_contribution, "attribute_contribution_data", preserve_order)
     result = pending.compute().to_pandas()
     assert len(reads) == 6
     assert result[("value", "contribution.q")].tolist() == [60, -20]

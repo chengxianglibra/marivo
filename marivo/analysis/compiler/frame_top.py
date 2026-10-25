@@ -96,26 +96,30 @@ def _bounded_read(
             for key in stage.keys
         ),
     )
-    ranked = data.select(*(column.slot_id for column in stage.columns)).mutate(
-        __frame_top_order=ibis.row_number().over(order_by=order),
-        __frame_top_present=ibis.literal(True),
+    selected = (
+        data.order_by(*order)
+        .limit(operation.n)
+        .select(
+            *(column.slot_id for column in stage.columns),
+            __frame_top_present=ibis.literal(True),
+        )
     )
     if provider == "clickhouse":
         # Preserve absent payloads even with the server's join_use_nulls=0.
-        ranked = ranked.select(
+        selected = selected.select(
             **{
-                name: ops.Cast(ranked[name], to=ranked[name].type().copy(nullable=True)).to_expr()
-                for name in ranked.columns
+                name: ops.Cast(
+                    selected[name], to=selected[name].type().copy(nullable=True)
+                ).to_expr()
+                for name in selected.columns
             }
         )
-    selected = ranked.order_by(ranked["__frame_top_order"]).limit(operation.n)
+    # The existing local Top restores presentation order over at most K rows.
+    # The left join retains the full-input summaries even for Top(0).
     bounded = summary.left_join(selected, ibis.literal(True))
-    bounded = bounded.order_by(bounded["__frame_top_order"].asc(nulls_first=False)).limit(
-        max(1, operation.n)
-    )
     finish = NativeQueryFinish(
         stage.columns,
-        ("__frame_top_order",),
+        (),
         None,
         NativeFrameTopFinish("__frame_top_present", tuple(integrity), tuple(witnesses)),
     )
@@ -201,7 +205,7 @@ def bound_pending_frame_top(
                                 "pending_frame_top",
                                 "adopted",
                                 (source.stage_id, top.stage_id),
-                                f"{provider} returns ordered bounded rows after full-input numeric and Frame integrity summaries.",
+                                f"{provider} returns bounded rows after full-input numeric and Frame integrity summaries; local Top restores order.",
                             )
                         )
                         continue

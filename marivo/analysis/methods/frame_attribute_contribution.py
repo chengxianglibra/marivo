@@ -949,8 +949,7 @@ def attribute_contribution_data(
             paired_parent_methods.append(root_method)
     for column in program.output_schema.presence:
         rows[column.slot_id] = prepared.table[column.slot_id]
-    for key_slot in reversed(program.output_schema.key_fields):
-        rows = rows.sort_values(key_slot, na_position="first", kind="stable")
+    # Filling value columns preserves the prepared canonical key-domain order.
     coordinates = tuple(
         FrameMethodCoordinate(
             a.name,

@@ -1285,6 +1285,64 @@ def native_query_relation(
     return lower(producer, None if terminal or shared else consumers[0])
 
 
+def _check_summary(
+    relation: ir.Table,
+    checks: tuple[tuple[str, ir.BooleanValue, tuple[str, ...]], ...],
+    *,
+    combined: bool,
+    provider: str = "",
+) -> ir.Table:
+    """Aggregate flags and select actual complete failure tuples from one scope."""
+    # DuckDB struct comparison drops string collations that scalar ORDER BY
+    # preserves. Ibis types cannot prove a key's physical/session collation;
+    # only the qualified remote providers admit strings in the tuple path.
+    combined = combined and (
+        provider in ("trino", "clickhouse")
+        or not any(relation[key].type().is_string() for _, _, keys in checks for key in keys)
+    )
+    metrics: dict[str, ir.Value] = {
+        alias: violation.any().fill_null(False) for alias, violation, _ in checks
+    }
+    if combined:
+        for alias, violation, keys in checks:
+            if not keys:
+                continue
+            payload = ibis.struct({f"k{i}": relation[key] for i, key in enumerate(keys)})
+            # Explicit null flags preserve lexicographic ASC NULLS LAST without
+            # constructing a nonexistent tuple from independent column minima.
+            order = ibis.struct(
+                {
+                    name: value
+                    for i, key in enumerate(keys)
+                    for name, value in ((f"n{i}", relation[key].isnull()), (f"k{i}", relation[key]))
+                }
+            )
+            metrics[f"{alias}.tuple"] = payload.argmin(order, where=violation.fill_null(False))
+        summary = relation.aggregate(**metrics)
+        return summary.select(
+            *(alias for alias, _, _ in checks),
+            **{
+                # Some engines return default tuple fields for an empty argmin.
+                f"{alias}.witness.{i}": summary[alias].ifelse(
+                    summary[f"{alias}.tuple"][f"k{i}"], ibis.null()
+                )
+                for alias, _, keys in checks
+                for i in range(len(keys))
+            },
+        )
+    summary = relation.aggregate(**metrics)
+    for alias, violation, keys in checks:
+        if not keys:
+            continue
+        failed = relation.filter(violation.fill_null(False))
+        witness = failed.order_by(*(failed[key].asc(nulls_first=False) for key in keys)).limit(1)
+        witness = witness.select(
+            **{f"{alias}.witness.{i}": witness[key] for i, key in enumerate(keys)}
+        )
+        summary = summary.left_join(witness, ibis.literal(True))
+    return summary
+
+
 def _attach_relation_checks(
     expression: ir.Table,
     native: NativeQueryRelation,
@@ -1293,10 +1351,17 @@ def _attach_relation_checks(
     numeric: tuple[tuple[str, NumericCheck], ...] = (),
     *,
     prepared: PreparedSources | None = None,
+    provider: str = "",
 ) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], tuple[tuple[str, NumericCheck], ...]]:
     """Keep full parent checks visible even when the selected relation is empty."""
     prepared_checks = list(preparation)
     checks = list(numeric)
+    if prepared is not None and native.sources:
+        source_id = plan.source_read(native.sources[0].stage_id).source_id
+        provider = prepared.sources.get(source_id, prepared.source).provider.name
+    # Other providers retain the qualified branch until actual execution and
+    # cost evidence admits the tuple aggregate on their native carriers.
+    combined = provider in ("duckdb", "trino", "clickhouse")
     for source in native.sources:
         if not source.numeric_checks:
             continue
@@ -1304,12 +1369,8 @@ def _attach_relation_checks(
             f"__query_preparation_{len(checks) + index}"
             for index in range(len(source.numeric_checks))
         )
-        summary = source.expression.aggregate(
-            **{
-                alias: source.expression[name].any().fill_null(False)
-                for alias, (name, _) in zip(aliases, source.numeric_checks, strict=True)
-            }
-        )
+        direct: dict[str, tuple[str, ...]] = {}
+        external: list[tuple[str, str, ir.Table, tuple[str, ...]]] = []
         source_stage = plan.source_read(source.stage_id)
         for alias, (name, _check) in zip(aliases, source.numeric_checks, strict=True):
             scope = source.expression
@@ -1344,18 +1405,50 @@ def _attach_relation_checks(
                 scope = raw
             if not source_keys:
                 continue
-            failed = scope.filter(scope[name].fill_null(False))
-            witness = (
-                failed.order_by(*(failed[key].asc(nulls_first=False) for key in source_keys))
-                .limit(1)
-                .select(
-                    **{
-                        f"{alias}.witness.{index}": failed[key]
-                        for index, key in enumerate(source_keys)
-                    }
+            if scope.op() == source.expression.op():
+                direct[alias] = source_keys
+            else:
+                external.append((alias, name, scope, source_keys))
+        summary = _check_summary(
+            source.expression,
+            tuple(
+                (alias, source.expression[name], direct.get(alias, ()))
+                for alias, (name, _) in zip(aliases, source.numeric_checks, strict=True)
+            ),
+            combined=combined,
+            provider=provider,
+        )
+        if combined:
+            raw_groups: dict[ops.Relation, list[tuple[str, str, tuple[str, ...]]]] = {}
+            for alias, name, scope, source_keys in external:
+                raw_groups.setdefault(scope.op(), []).append((alias, name, source_keys))
+            for raw_relation, raw_checks in raw_groups.items():
+                raw_scope = raw_relation.to_expr()
+                assert isinstance(raw_scope, ir.Table)
+                witness = _check_summary(
+                    raw_scope,
+                    tuple((alias, raw_scope[name], keys) for alias, name, keys in raw_checks),
+                    combined=True,
+                    provider=provider,
+                ).select(
+                    *(
+                        f"{alias}.witness.{i}"
+                        for alias, _, keys in raw_checks
+                        for i in range(len(keys))
+                    )
                 )
-            )
-            summary = summary.left_join(witness, ibis.literal(True))
+                summary = summary.left_join(witness, ibis.literal(True))
+        else:
+            for alias, name, scope, source_keys in external:
+                # Raw preparation evidence can belong to a different row domain.
+                failed = scope.filter(scope[name].fill_null(False))
+                witness = failed.order_by(
+                    *(failed[key].asc(nulls_first=False) for key in source_keys)
+                ).limit(1)
+                witness = witness.select(
+                    **{f"{alias}.witness.{i}": witness[key] for i, key in enumerate(source_keys)}
+                )
+                summary = summary.left_join(witness, ibis.literal(True))
         if "__numeric_present" not in expression.columns:
             expression = expression.mutate(__numeric_present=ibis.literal(True))
         expression = summary.left_join(expression, ibis.literal(True))
@@ -1373,9 +1466,6 @@ def _attach_relation_checks(
         if len(relations) == 1:
             relation = next(iter(relations)).to_expr()
             assert isinstance(relation, ir.Table)
-            summary = relation.aggregate(
-                **{alias: check.violation.any().fill_null(False) for alias, check in batch}
-            )
             keys = tuple(
                 sorted(
                     (
@@ -1386,20 +1476,12 @@ def _attach_relation_checks(
                     key=lambda column: int(column.removeprefix("key.")),
                 )
             )
-            if keys:
-                for alias, check in batch:
-                    failed = relation.filter(check.violation.fill_null(False))
-                    witness = (
-                        failed.order_by(*(failed[key].asc(nulls_first=False) for key in keys))
-                        .limit(1)
-                        .select(
-                            **{
-                                f"{alias}.witness.{index}": failed[key]
-                                for index, key in enumerate(keys)
-                            }
-                        )
-                    )
-                    summary = summary.left_join(witness, ibis.literal(True))
+            summary = _check_summary(
+                relation,
+                tuple((alias, check.violation, keys) for alias, check in batch),
+                combined=combined,
+                provider=provider,
+            )
         else:
             # Scalar checks have no row relation; independent multi-relation
             # scopes cannot be combined into an inferred common relation.
@@ -1432,11 +1514,9 @@ def finish_native_query(finish: NativeQueryFinish, frame: pd.DataFrame) -> pd.Da
                     help_target="analysis_frame.compute",
                 )
         frame = frame.loc[frame[finish.frame_top.presence].astype("boolean").fillna(False)]
-    return (
-        frame.sort_values(list(finish.order), kind="stable", na_position="last")
-        .loc[:, [column.slot_id for column in finish.columns]]
-        .reset_index(drop=True)
-    )
+    if finish.order:
+        frame = frame.sort_values(list(finish.order), kind="stable", na_position="last")
+    return frame.loc[:, [column.slot_id for column in finish.columns]].reset_index(drop=True)
 
 
 def _same_key(left: ir.Value, right: ir.Value, provider: str) -> ir.BooleanValue:

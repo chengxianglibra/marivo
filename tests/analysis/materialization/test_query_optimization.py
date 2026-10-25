@@ -1163,3 +1163,41 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
         (1, "x"),
         (999, "unconfirmed"),
     ]
+
+
+def test_grouped_common_completion_preserves_joint_rows_without_merge(
+    optimization_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization import graph_source_execution as execution
+    from marivo.semantic._numeric_lowering import NumericCheck
+
+    session = optimization_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    region = session.catalog.fields.get("sales.orders.region")
+    query = session.observe({"sum": amount.sum(), "count": amount.count()}, by=(region,))
+    complete = execution._complete_common_read
+    observed: list[int] = []
+    sort_values = pd.DataFrame.sort_values
+
+    def complete_joint(
+        stage: SourceRead, frame: pd.DataFrame, numeric_checks: tuple[tuple[str, NumericCheck], ...]
+    ) -> StageOutput:
+        # A nondefault index must not turn positional completion into label alignment.
+        frame = frame.set_axis(range(10, 10 + len(frame)))
+        with (
+            patch.object(pd.DataFrame, "merge", side_effect=AssertionError("joint result merged")),
+            patch.object(
+                pd.DataFrame, "sort_values", autospec=True, side_effect=sort_values
+            ) as sort,
+        ):
+            result = complete(stage, frame, numeric_checks)
+        observed.append(sort.call_count)
+        return result
+
+    monkeypatch.setattr(execution, "_complete_common_read", complete_joint)
+    result, _, _, _ = _execute(session, query, optimized=True)
+    assert observed == [1]
+    assert result.table["value.0"].iloc[:2].tolist() == [40, 20]
+    assert pd.isna(result.table["value.0"].iloc[2])
+    assert result.table["value.1"].tolist() == [2, 1, 0]
