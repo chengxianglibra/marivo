@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -259,11 +260,13 @@ def test_timestamp_comparison_retains_pandas_literal_nanoseconds(session: Sessio
     frame = _frame(
         session, TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC"), [0, 1, 2, None]
     )
-    result = (
-        frame.select({"one": frame["value"] == pd.Timestamp(1, unit="ns", tz="UTC")})
-        .compute()
-        .to_pandas()
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        result = (
+            frame.select({"one": frame["value"] == pd.Timestamp(1, unit="ns", tz="UTC")})
+            .compute()
+            .to_pandas()
+        )
     assert pa.array(result["value", "one"]).to_pylist() == [False, True, False, None]
 
 
@@ -286,7 +289,9 @@ def test_temporal_comparison_keeps_native_pandas_literal_extrema(
         # the kernel still preserves their native pandas representation.
         return
     frame = _frame(session, dtype, physical, [-(2**63), 0, 2**63 - 1, None])
-    output = frame.select({"maximum": frame["value"] == literal}).compute().to_pandas()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        output = frame.select({"maximum": frame["value"] == literal}).compute().to_pandas()
     assert pa.array(output["value", "maximum"]).to_pylist() == [False, False, True, None]
 
 

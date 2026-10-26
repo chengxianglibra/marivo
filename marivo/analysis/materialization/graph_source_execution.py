@@ -1691,7 +1691,7 @@ def _complete_source_frame(
 
     retained_checks = {column.slot_id for column in stage.columns}
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
-        frame = frame.loc[frame["__numeric_present"].fillna(False)]
+        frame = frame.loc[frame["__numeric_present"].astype("boolean").fillna(False)]
     if read_finish(stage) is not None:
         from marivo.analysis.materialization.query_key_fusion import finish_native_query
 

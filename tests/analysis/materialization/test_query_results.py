@@ -866,6 +866,7 @@ def test_float_nan_attribute_selection_is_distinct_from_null(
     assert len(statements) == 2
 
 
+@pytest.mark.filterwarnings("error:Discarding nonzero nanoseconds in conversion:UserWarning")
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1277,6 +1278,12 @@ def test_population_counts_are_independent_of_fact_conditions(result_session: Se
         session.observe({"p": p.count()}, where=amount > 15)
 
 
+@pytest.mark.filterwarnings(
+    "error:Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated:FutureWarning"
+)
+@pytest.mark.filterwarnings(
+    "error:The behavior of DataFrame concatenation with empty or all-NA entries is deprecated:FutureWarning"
+)
 def test_count_domains_follow_their_own_internal_samples(result_session: Session) -> None:
     session = result_session
     entity = session.catalog.entities.get("sales.orders")

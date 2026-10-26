@@ -55,7 +55,7 @@ def test_exported_ratio_na_limits_pandas_statistical_input(
     assert frame.value.iloc[0] == 1 and frame.value.iloc[1:].isna().all()
     before = run_ids(case.session)
     if family == "association":
-        assert pd.isna(frame.value.astype(float).corr(frame.value.astype(float)))
+        assert pd.isna(frame.value.astype(float).corr(frame.value.astype(float), min_periods=2))
     else:
         with pytest.raises(ValueError, match="too short"):
             forecast(frame.value.dropna())

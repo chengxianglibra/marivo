@@ -10,6 +10,7 @@ from typing import Literal
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
+import pandas as pd
 
 from marivo._definition.query import (
     CoordinateSlot,
@@ -90,6 +91,7 @@ def expression_value(
     keys: tuple[ir.Value, ...],
     *,
     partition_type: Callable[[ValuePartition], DataType] | None = None,
+    for_type_inference: bool = False,
 ) -> ir.Value:
     """Resolve only the finite result grammar over typed scalar placeholders."""
     if isinstance(expression, ValuePartition):
@@ -124,9 +126,20 @@ def expression_value(
             return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
         from marivo._numeric_types import bind_numeric_literal
 
-        return bind_numeric_literal(ibis.literal(expression.value))
+        literal = expression.value
+        if for_type_inference and isinstance(literal, pd.Timestamp) and literal.nanosecond:
+            # Match Ibis's inferred microsecond type without normalizing the
+            # original literal used by local execution.
+            literal = literal.floor("us")
+        return bind_numeric_literal(ibis.literal(literal))
     if isinstance(expression, ValueUnary):
-        value = expression_value(expression.operand, values, keys, partition_type=partition_type)
+        value = expression_value(
+            expression.operand,
+            values,
+            keys,
+            partition_type=partition_type,
+            for_type_inference=for_type_inference,
+        )
         if expression.operation == "is_null":
             return value.isnull()
         if expression.operation == "not":
@@ -134,8 +147,20 @@ def expression_value(
         if expression.operation == "abs":
             return value.abs()
         return -value
-    left = expression_value(expression.left, values, keys, partition_type=partition_type)
-    right = expression_value(expression.right, values, keys, partition_type=partition_type)
+    left = expression_value(
+        expression.left,
+        values,
+        keys,
+        partition_type=partition_type,
+        for_type_inference=for_type_inference,
+    )
+    right = expression_value(
+        expression.right,
+        values,
+        keys,
+        partition_type=partition_type,
+        for_type_inference=for_type_inference,
+    )
     if expression.operation in ("add", "sub", "mul", "div"):
         if not all(
             value.type().is_numeric() or value.type().is_interval() for value in (left, right)

@@ -377,6 +377,7 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
                 values,
                 coordinates,
                 partition_type=lambda node: expression_type(schema, node),
+                for_type_inference=True,
             ).type()
         )
     except (TypeError, ValueError) as error:

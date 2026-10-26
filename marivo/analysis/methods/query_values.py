@@ -277,7 +277,11 @@ def expression_series(
             coordinates = tuple(
                 ibis.param(ibis_type(by_slot[group[0]].dtype)) for group in program.key_groups
             )
-            target = data_type(expression_value(expression, placeholders, coordinates).type())
+            target = data_type(
+                expression_value(
+                    expression, placeholders, coordinates, for_type_inference=True
+                ).type()
+            )
         if isinstance(target, DecimalDataType):
             return finish_decimal(computed, target.precision, target.scale)
         if target == ScalarDataType("float64"):

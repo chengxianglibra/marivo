@@ -73,12 +73,13 @@ def _rank(
         na_position="last",
     ).copy()
     method: Literal["first", "dense", "min", "max"] = "first" if ties == "ordinal" else ties
+    ranking_values = result["value"].astype(object)
     if partition_by:
-        result["rank"] = result.groupby(list(partition_by), dropna=False)["value"].rank(
-            method=method, ascending=order == "ascending"
-        )
+        result["rank"] = ranking_values.groupby(
+            [result[name] for name in partition_by], dropna=False
+        ).rank(method=method, ascending=order == "ascending")
     else:
-        result["rank"] = result["value"].rank(method=method, ascending=order == "ascending")
+        result["rank"] = ranking_values.rank(method=method, ascending=order == "ascending")
     return result.reset_index(drop=True)
 
 
@@ -226,6 +227,9 @@ def test_public_rank_table_source_and_fixed(
 @pytest.mark.parametrize(
     "physical,parquet",
     [("BIGINT", True), ("DOUBLE", True), ("DECIMAL(30,6)", True), ("duration_ns", True)],
+)
+@pytest.mark.filterwarnings(
+    "error:Specifying null_placement in RankOptions is deprecated:FutureWarning"
 )
 def test_display_precision_matrix(
     analysis_dsl_case_factory: DslCaseFactory,

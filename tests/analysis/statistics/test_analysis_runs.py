@@ -87,6 +87,9 @@ def test_offline_runs_keep_calendar_cold_recovery(
 
 
 @pytest.mark.parametrize("fixed", [False, True])
+@pytest.mark.filterwarnings(
+    "error:Specifying null_placement in RankOptions is deprecated:FutureWarning"
+)
 def test_new_grid_after_subject_selection(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
 ) -> None:
@@ -111,6 +114,8 @@ def test_new_grid_after_subject_selection(
     assert frame[("value", "value")].tolist() == [60, 0, 0]
     before = len(terminal_runs(session))
     assert segments(frame)["count"].tolist() == [1]
-    ranked = frame.assign(rank=frame[("value", "value")].rank(method="dense", ascending=False))
+    ranked = frame.assign(
+        rank=frame[("value", "value")].astype(object).rank(method="dense", ascending=False)
+    )
     assert ranked[("value", "value")].loc[ranked["rank"] == 1].tolist() == [60]
     assert len(terminal_runs(session)) == before

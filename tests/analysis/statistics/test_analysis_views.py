@@ -19,6 +19,9 @@ from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
 @pytest.mark.parametrize("method", ("deviation", "runs", "association", "forecast"))
+@pytest.mark.filterwarnings(
+    "error:Specifying null_placement in RankOptions is deprecated:FutureWarning"
+)
 def test_complete_export_supports_pandas_views_without_new_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -61,24 +64,24 @@ def test_complete_export_supports_pandas_views_without_new_reads(
         assert output.value.tolist() == frame.value.tolist()
         selected = output.loc[output.score > 0]
         assert selected.reference.nunique() == 1
-        rank = selected.score.rank(method="dense", ascending=False)
+        rank = selected.score.astype(object).rank(method="dense", ascending=False)
     elif method == "association":
         output = frame[["value"]].astype(float).assign(other=frame.value.astype(float)).corr()
         assert output.iloc[0, 1] == 1
-        rank = output.iloc[0].rank(method="dense", ascending=False)
+        rank = output.iloc[0].astype(object).rank(method="dense", ascending=False)
     elif method == "forecast":
         output = forecast(frame.value)
         assert len(output) == 2
         assert (output.lower <= output.prediction).all() and (
             output.upper >= output.prediction
         ).all()
-        rank = output.prediction.rank(method="dense", ascending=False)
+        rank = output.prediction.astype(object).rank(method="dense", ascending=False)
     else:
         mask = frame.value > 0
         group = mask.ne(mask.shift(fill_value=False)).astype(int).cumsum()
         output = frame.loc[mask].groupby(group[mask]).agg(count=("value", "size"))
         assert output["count"].sum() == int(mask.sum())
-        rank = output["count"].rank(method="dense", ascending=False)
+        rank = output["count"].astype(object).rank(method="dense", ascending=False)
     assert rank.min() == 1
     assert run_ids(case.session) == before
     assert callable(artifact.correlate)

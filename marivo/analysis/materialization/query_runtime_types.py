@@ -400,7 +400,9 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
         )
         if duration is not None:
             return duration.output
-        return data_type(expression_value(expression, values, coordinates).type())
+        return data_type(
+            expression_value(expression, values, coordinates, for_type_inference=True).type()
+        )
 
     if isinstance(operation, SelectValues):
         selected = {

@@ -288,7 +288,7 @@ def _combine_program(
                     observed, on=[*remaining_keys, clock], how="left", validate="one_to_one"
                 )
                 complete[coverage.key] = complete["__observed_sample"].where(
-                    complete["__wall_present"].fillna(False), complete[coverage.key]
+                    complete["__wall_present"].notna(), complete[coverage.key]
                 )
                 complete["__wall_missing"] = complete["__wall_present"].isna()
                 wall_requirements[(binding.occurrence, coverage)] = (
@@ -386,11 +386,15 @@ def _combine_program(
         member_coordinates = count_coordinates(count, member_data)
         if keys and forced_domain is None:
             member_coordinates = member_coordinates.loc[:, keys].drop_duplicates()
-            domain = (
-                pd.concat([domain, member_coordinates], ignore_index=True)
-                .drop_duplicates()
-                .reset_index(drop=True)
-            )
+            if not member_coordinates.empty:
+                if domain.empty:
+                    domain = member_coordinates.reset_index(drop=True)
+                else:
+                    domain = (
+                        pd.concat([domain, member_coordinates], ignore_index=True)
+                        .drop_duplicates()
+                        .reset_index(drop=True)
+                    )
 
     domain = parent_scoped(domain)
     if program.output_population is not None:
@@ -658,7 +662,7 @@ def _combine_program(
         checks = []
         aligned = merged if keys else frame.reset_index(drop=True).iloc[: len(domain)]
         for key, (column_name, expected, received) in zip(check_names, binding.checks, strict=True):
-            physical[key] = aligned[column_name].fillna(False).astype(object)
+            physical[key] = aligned[column_name].astype("boolean").fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))
         for key, coverage in zip(coverage_names, active_coverage, strict=True):
             if coverage.wall_timezone is not None:

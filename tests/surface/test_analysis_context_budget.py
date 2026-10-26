@@ -165,9 +165,10 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help("analysis.analysis_frame.select")
     trace.help(mv.AnalysisFrame.compute)
     exported = amounts.compute().to_pandas()
-    association = exported[("value", "count")].corr(
-        exported[("value", "revenue")], method="spearman"
-    )
+    with pytest.warns(Warning, match="An input array is constant"):
+        association = exported[("value", "count")].corr(
+            exported[("value", "revenue")], method="spearman"
+        )
     trace.read("pandas association", lambda: print(association))
     # All four August counts equal1; represented Spearman is undefined.
     assert pd.isna(association)
