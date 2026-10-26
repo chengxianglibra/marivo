@@ -152,11 +152,26 @@ class RuleScale(Generic[_RuleT]):
     side: Literal["left", "right"]
 
 
+@dataclass(frozen=True, slots=True)
+class RuleDivide(Generic[_RuleT]):
+    operand: _RuleT
+    scalar: FixedScalar
+
+
+@dataclass(frozen=True, slots=True)
+class RuleRescale(Generic[_RuleT]):
+    operand: _RuleT
+    scalar: FixedScalar
+    unit: str
+
+
 LinearOperation: TypeAlias = (
     RuleAdd["AttributeRule"]
     | RuleSubtract["AttributeRule"]
     | RuleNegate["AttributeRule"]
     | RuleScale["AttributeRule"]
+    | RuleDivide["AttributeRule"]
+    | RuleRescale["AttributeRule"]
 )
 
 
@@ -168,6 +183,8 @@ class AdditiveRule:
         | RuleSubtract[AdditiveRule]
         | RuleNegate[AdditiveRule]
         | RuleScale[AdditiveRule]
+        | RuleDivide[AdditiveRule]
+        | RuleRescale[AdditiveRule]
     )
 
 
@@ -357,6 +374,12 @@ def build_attribute_rule(
         elif isinstance(operation.operand, AdditiveRule):
             if isinstance(operation, RuleNegate):
                 return AdditiveRule(RuleNegate(operation.operand))
+            if isinstance(operation, RuleDivide):
+                return AdditiveRule(RuleDivide(operation.operand, operation.scalar))
+            if isinstance(operation, RuleRescale):
+                return AdditiveRule(
+                    RuleRescale(operation.operand, operation.scalar, operation.unit)
+                )
             return AdditiveRule(RuleScale(operation.operand, operation.scalar, operation.side))
         return LinearRule(operation)
 
@@ -452,7 +475,9 @@ def build_attribute_rule(
             from marivo._definition.deferred import RescaleResolver
 
             if isinstance(value, RescaleResolver):
-                return recipe(BinaryOperator(operator.truediv, value.recipe, Just(value.divisor)))
+                scalar = recipe(Just(value.divisor))
+                assert isinstance(scalar, FixedScalar)
+                return combine(RuleRescale(rule(recipe(value.recipe)), scalar, value.unit))
             if type(value) is Variable:
                 for index, operand in enumerate(item.operands):
                     if value.name == f"slot_{index}":
@@ -478,6 +503,10 @@ def build_attribute_rule(
                 if value.func is operator.sub:
                     return combine(RuleSubtract(rule(left), rule(right)))
                 if value.func is operator.truediv:
+                    if isinstance(right, FixedScalar) and not isinstance(left, FixedScalar):
+                        if right.value == 0:
+                            fail(path, "a zero fixed divisor")
+                        return combine(RuleDivide(left, right))
                     return ratio(left, right)
                 if value.func is operator.mul:
                     if isinstance(left, FixedScalar) and not isinstance(right, FixedScalar):
@@ -590,6 +619,14 @@ def _signature(rule: AttributeRule) -> tuple[object, ...]:
             _signature(operation.left),
             _signature(operation.right),
         )
+    if isinstance(operation, (RuleDivide, RuleRescale)):
+        return (
+            kind,
+            type(operation).__name__,
+            operation.scalar.token,
+            operation.unit if isinstance(operation, RuleRescale) else None,
+            _signature(operation.operand),
+        )
     if isinstance(operation, RuleScale):
         return (
             kind,
@@ -612,6 +649,17 @@ def require_rules_match(left: AttributeRule, right: AttributeRule, *, metric: st
     def visit(a: AttributeRule, b: AttributeRule, path: tuple[int, ...]) -> None:
         x, y = a.operation, b.operation
         same = type(a) is type(b) and type(x) is type(y)
+        if (
+            same
+            and isinstance(x, (RuleDivide, RuleRescale))
+            and isinstance(y, (RuleDivide, RuleRescale))
+            and x.scalar.token == y.scalar.token
+            and (
+                not isinstance(x, RuleRescale) or (isinstance(y, RuleRescale) and x.unit == y.unit)
+            )
+        ):
+            visit(x.operand, y.operand, (*path, 0))
+            return
         if (
             same
             and isinstance(x, (RuleAdd, RuleSubtract))
@@ -646,8 +694,8 @@ def require_rules_match(left: AttributeRule, right: AttributeRule, *, metric: st
             path,
             type(x).__name__,
             type(y).__name__,
-            x.scalar if isinstance(x, RuleScale) else None,
-            y.scalar if isinstance(y, RuleScale) else None,
+            x.scalar if isinstance(x, (RuleScale, RuleDivide, RuleRescale)) else None,
+            y.scalar if isinstance(y, (RuleScale, RuleDivide, RuleRescale)) else None,
         )
         raise AttributeRuleError(
             reason="unsupported_expression",

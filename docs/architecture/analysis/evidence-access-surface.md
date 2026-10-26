@@ -76,6 +76,11 @@ path, level/absolute/relative kind and role-to-output mapping even for an empty
 parent domain. Parent metrics preserve observed_total separately from the freshly
 read total, defined/zero_total share state and ordered typed rule/support trees.
 Level rules contain a genuine single endpoint; absolute/relative retain both.
+Division rules expose `divisor`, `operation` (divide or rescale) and the ordered
+child `method`; result columns retain the final unit. The original typed divisor
+is preserved rather than replaced by a reciprocal multiplication coefficient.
+Additive expressions containing division retain their ordered linear wrappers
+and nested division facts through publication and independent recovery.
 Parent support describes the independent parent read; fine support and presence
 describe the fine read. They do not certify matching source versions or identities.
 Audit records retain each actual source read and a separate local final-target
@@ -88,10 +93,11 @@ closure, without receipts certifying semantic identity or relationship declarati
 Historical receipts remain unchanged.
 
 Float64 method values are finite captured facts, not arithmetic identities to
-recompute. Validation skips floating ratio, linear, endpoint-difference and relative
+recompute. Validation skips floating ratio, linear, division, endpoint-difference and relative
 arithmetic before formula evaluation, with no second tolerance. Exact non-floating
 arithmetic, method structure, field bindings, types, units, finite values and stored
-payload digests remain checked. The public shape and Store format are unchanged.
+payload digests remain checked. Division uses closed one-endpoint and two-endpoint
+fact variants within the existing Store format.
 Output diagnostics retain original fine values, presence and applicable components
 and valid counts. Physical columns retain numeric carriers, units and precision. where/top/select/reduce retain the original explanation without
 changing its denominator or certifying derived arithmetic. Process-local source

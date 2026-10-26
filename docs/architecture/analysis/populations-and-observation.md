@@ -25,6 +25,15 @@ RawSqlResult are not source Metric operands. Session is the context for Catalog,
 execution owner, Store and frozen default timezone. Source-free descriptions and
 compositions at mv inherit their input owner when needed; cross-Session inputs fail.
 
+`session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
+not supply an observation time range. A time-related Metric does not universally
+require a scope. Time-sample reductions generally require a finite TimeScope or
+CalendarAxis in `by`, while qualified native mean reductions can evaluate without
+one. Metric-specific sample coverage requirements still apply. Some checks run
+only during `compute()` or `persist()`, so successful capture alone does not prove
+that an unbounded observation is supported. When a period is required, pass
+`by=(session.time_scope(start=..., end=...),)`.
+
 ## Population identity and set semantics
 
 Population represents finite complete coordinate tuples, with explicit source or
@@ -235,7 +244,12 @@ Remote original-input admission still requires direct physically nonnull integer
 or string identities and qualified string collations. Connector and engine
 restrictions, including ClickHouse Distributed join topology, also remain.
 Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
-rules retain their owning numeric semantics. Output carries contribution, total,
+rules retain their owning numeric semantics. Fixed division and Metric rescale
+retain the original typed divisor and division order, including native Float64
+division boundaries (operand conversion precedes division); rescale also retains
+its declared target unit. Pending
+ratio components disclose their own numerator and denominator units before reads.
+Output carries contribution, total,
 observed_total and contribution_share per target plus original fine diagnostics,
 components and presence. Zero defined totals retain signed contributions and give
 NA shares. Filtering the report preserves original totals and method facts.

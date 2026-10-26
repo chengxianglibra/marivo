@@ -143,7 +143,7 @@ def provider() -> DisclosureProvider:
             "observe",
             "AnalysisFrame",
             "result = session.observe(metrics, by=(calendar, field))",
-            "Evaluate named Metrics at an explicit output grain: overall, by time, by classification, or their combination.",
+            "Observe named Metrics overall, by time/classification, or both.",
         ),
         (
             Session,
@@ -266,7 +266,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "timezone"
                         else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
                         if name == "get_or_create" and n == "domains"
-                        else "Empty () is one zero-axis cell. Pass ordered fields, Grouping, TimeScope and membership rules, a Population P, or (P, rule, ...). Membership expands in place; non-first fields can locate interleaved axes. P fixes complete joint keys; cover necessary output keys before sampling; extra keys retain empty-input values. Internal per(P) permits subsets. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries coordinates without selected keys or allocations."
+                        else "Empty () is one zero-axis cell. Ordered fields, Grouping, TimeScope, memberships, Population P or (P, rule, ...). Memberships expand in place; non-first fields locate interleaved axes. P fixes joint keys: cover necessary output keys before sampling; extras retain empty-input values. Internal per(P) allows subsets. TimeScope adds an interval axis; CalendarAxis adds buckets. population.axes: coordinates only, no selected keys/allocations."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"

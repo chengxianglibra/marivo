@@ -18,7 +18,9 @@ from marivo.analysis.binding.attribute_rules import (
     NativeWeightedMean,
     RatioComponentRule,
     RuleAdd,
+    RuleDivide,
     RuleNegate,
+    RuleRescale,
     RuleScale,
     RuleSubtract,
     component_requests,
@@ -66,6 +68,18 @@ from marivo.semantic._numeric_lowering import numeric_failure
 class _Value:
     values: pd.Series
     column: DataColumn
+
+
+def _has_division(rule: AdditiveRule) -> bool:
+    """Keep scaling explanations inside otherwise collapsible additive rules."""
+    operation = rule.operation
+    if isinstance(operation, (RuleDivide, RuleRescale)):
+        return True
+    if isinstance(operation, (RuleAdd, RuleSubtract)):
+        return _has_division(operation.left) or _has_division(operation.right)
+    if isinstance(operation, (RuleNegate, RuleScale)):
+        return _has_division(operation.operand)
+    return False
 
 
 def _numeric_binary(
@@ -310,6 +324,7 @@ def attribute_contribution_data(
     """Consume all originals, required parent facts and checks before returning."""
     from marivo.analysis.core.frame_method_facts import (
         FrameAdditiveMethod,
+        FrameDivisionMethod,
         FrameLinearMethod,
         FrameLinearTerm,
         FrameMethodCoordinate,
@@ -527,6 +542,40 @@ def attribute_contribution_data(
                 scope,
                 output=output,
             )
+        if isinstance(operation, (RuleDivide, RuleRescale)):
+            value = evaluate(operation.operand, side, scope, original=original, path=(*path, 0))
+            divisor = _Value(
+                pd.Series([operation.scalar.value] * len(value.values), dtype=object),
+                _coefficient_column(operation.scalar.value),
+            )
+            if (output or _type("div", value.column, divisor.column)) == ScalarDataType("float64"):
+                # Native Metric division rounds operands into Float64 before
+                # dividing, including exact integer/Decimal additive masses.
+                value, divisor = (
+                    _Value(
+                        finish_float64(item.values, "Attribute division operand"),
+                        replace(item.column, dtype=ScalarDataType("float64")),
+                    )
+                    for item in (value, divisor)
+                )
+            divided = arithmetic(
+                "div",
+                value,
+                divisor,
+                rule,
+                side,
+                scope,
+                output=output,
+            )
+            return _Value(
+                divided.values,
+                replace(
+                    divided.column,
+                    unit=operation.unit
+                    if isinstance(operation, RuleRescale)
+                    else value.column.unit,
+                ),
+            )
         assert isinstance(operation, (RuleNegate, RuleScale))
         value = evaluate(operation.operand, side, scope, original=original, path=(*path, 0))
         scalar = -1 if isinstance(operation, RuleNegate) else operation.scalar.value
@@ -587,7 +636,7 @@ def attribute_contribution_data(
         index: int,
         totals: tuple[_Value, _Value] | None = None,
         path: tuple[int, ...] | None = None,
-    ) -> FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod:
+    ) -> FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod:
         if path is None:
             path = (metric_index,)
         a, b = totals or (
@@ -596,7 +645,17 @@ def attribute_contribution_data(
         )
         change = _binary("sub", a, b)
         common = (fact(a, index), fact(b, index), fact(change, index))
-        if isinstance(rule, AdditiveRule):
+        if isinstance(rule.operation, (RuleDivide, RuleRescale)):
+            division = rule.operation
+            assert isinstance(other_rule.operation, (RuleDivide, RuleRescale))
+            return FrameDivisionMethod(
+                "division",
+                *common,
+                division.scalar.value,
+                "rescale" if isinstance(division, RuleRescale) else "divide",
+                method(division.operand, other_rule.operation.operand, index, path=(*path, 0)),
+            )
+        if isinstance(rule, AdditiveRule) and not _has_division(rule):
             return FrameAdditiveMethod("additive", *common, supports(rule, index))
         if isinstance(rule, RatioComponentRule):
             components: list[FrameMethodValue] = []
@@ -664,6 +723,7 @@ def attribute_contribution_data(
 
     from marivo.analysis.core.frame_method_facts import (
         FrameLevelAdditiveMethod,
+        FrameLevelDivisionMethod,
         FrameLevelLinearMethod,
         FrameLevelLinearTerm,
         FrameLevelRatioMethod,
@@ -671,12 +731,20 @@ def attribute_contribution_data(
     )
 
     level_methods: list[
-        FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod
     ] = []
 
     def level_method(
         rule: AttributeRule, index: int, total: _Value | None = None, path: tuple[int, ...] = (0,)
-    ) -> FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod:
+    ) -> (
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod
+    ):
         value = fact(
             total
             if total is not None
@@ -698,7 +766,15 @@ def attribute_contribution_data(
             )
         support = tuple(dict.fromkeys(supporting))
         operation = rule.operation
-        if isinstance(rule, AdditiveRule):
+        if isinstance(operation, (RuleDivide, RuleRescale)):
+            return FrameLevelDivisionMethod(
+                "level_division",
+                value,
+                operation.scalar.value,
+                "rescale" if isinstance(operation, RuleRescale) else "divide",
+                level_method(operation.operand, index, path=(*path, 0)),
+            )
+        if isinstance(rule, AdditiveRule) and not _has_division(rule):
             return FrameLevelAdditiveMethod("level_additive", value, support)
         if isinstance(rule, RatioComponentRule):
             if isinstance(operation, DirectRatio):
@@ -739,7 +815,9 @@ def attribute_contribution_data(
 
     rows = prepared.table.loc[:, list(program.output_schema.key_fields)].copy()
     wanted = frozen_key_rows(rows, full_columns)
-    paired_parent_methods: list[FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod] = []
+    paired_parent_methods: list[
+        FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
+    ] = []
     for metric_index, ((name, left_rule), (_, right_rule)) in enumerate(
         zip(*program.operation.rules, strict=True)
     ):

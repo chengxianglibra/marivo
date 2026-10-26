@@ -211,6 +211,11 @@ Each target has ``contribution.<target>``, ``total.<target>``,
 freshly read original parent result; ``observed_total`` remains the receiver's
 old observation. Detail values and independent presence retain each endpoint;
 applicable numerator, denominator and valid-count diagnostics remain inspectable.
+Their own units are available on pending Columns before computation. Fixed
+constant division and Metric ``ms.rescale`` preserve the typed divisor and
+division order; rescale declares the result unit. Acquired division method facts
+expose ``divisor``, ``operation`` and the child ``method`` through
+``analysis.frame_division_method`` and ``analysis.frame_level_division_method`` Help.
 Relative contributions normalize absolute contributions by the absolute parent
 baseline. Defined zero totals retain signed contributions and NA shares.
 
@@ -220,8 +225,8 @@ calendar and paired parent bindings retain their complete correspondence and
 original endpoint scopes. Selected parents remain fixed when source values
 change; attribution does not rerun historical anomaly selection.
 
-Contribution requires the qualified native DuckDB physical-table route. Files
-and remote providers do not qualify through datasource accessibility. Original
+Contribution uses qualified native DuckDB, PostgreSQL, MySQL, Trino and ClickHouse
+physical-table routes, subject to each backend's method, type and source restrictions. Original
 parent and fine formulas, coverage, disjointness, unknown components and closure
 checks remain mandatory. Unsupported recipes fail explicitly. Investigate such
 Metrics through ``population_from`` and a new ``observe`` over complete parent

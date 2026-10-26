@@ -21,6 +21,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo.analysis.binding.attribute_rules import AttributeComponentRole, AttributeSourceRequest
+from marivo.analysis.binding.attribute_units import component_unit
 from marivo.analysis.compiler.graph_plan import (
     AttributeRead,
     read_components,
@@ -47,7 +48,6 @@ from marivo.semantic._numeric_lowering import (
 )
 
 if TYPE_CHECKING:
-    from marivo._definition.expressions import RowNode
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceRead
     from marivo.analysis.compiler.query_program import SourceParameter
@@ -118,10 +118,16 @@ def _native_nodes(
                     visit(node.operands[index], (*occurrence, index), child_path)
                     return
                 result.setdefault(child_path, (occurrence, MetricExpression(value, node.operands)))
-                if isinstance(value, BinaryOperator):
+                from marivo._definition.deferred import RescaleResolver
+
+                if isinstance(value, RescaleResolver):
+                    recipe(value.recipe, (*child_path, 0))
+                elif isinstance(value, BinaryOperator):
                     if value.func is operator.mul and isinstance(value.left, Just):
                         recipe(value.right, (*child_path, 0))
-                    elif value.func is operator.mul and isinstance(value.right, Just):
+                    elif value.func in (operator.mul, operator.truediv) and isinstance(
+                        value.right, Just
+                    ):
                         recipe(value.left, (*child_path, 0))
                     else:
                         recipe(value.left, (*child_path, 0))
@@ -170,91 +176,6 @@ def input_failure(
     reason: AttributeInputReason, received: str, *, context: AttributeFailureContext | None = None
 ) -> NoReturn:
     raise AttributeInputError(reason=reason, received=received, context=context)
-
-
-def _row_unit(node: RowNode) -> str | None:
-    """Read captured row units through the existing semantic unit algebra."""
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Just,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import attribute_name
-    from marivo._definition.expressions import MeasureAssertion, RowField
-    from marivo.semantic.expressions import _arith_unit
-    from marivo.semantic.unit_algebra import linear_unit
-
-    if isinstance(node, RowField):
-        return node.unit
-    if isinstance(node, MeasureAssertion):
-        return node.unit if node.unit is not None else _row_unit(node.operand)
-    inputs = tuple(_row_unit(item) for item in node.inputs)
-
-    def visit(recipe: Resolver) -> tuple[str | None, bool]:
-        from marivo._definition.deferred import RescaleResolver
-
-        if isinstance(recipe, RescaleResolver):
-            return recipe.unit, False
-        values: tuple[tuple[str | None, bool], ...]
-        if isinstance(recipe, Variable):
-            return inputs[int(recipe.name.removeprefix("slot_"))], False
-        if isinstance(recipe, Just):
-            return None, True
-        if isinstance(recipe, UnaryOperator):
-            return visit(recipe.arg)
-        if isinstance(recipe, BinaryOperator):
-            operation = recipe.func.__name__
-            values = (visit(recipe.left), visit(recipe.right))
-        elif isinstance(recipe, Call) and isinstance(recipe.func, Attr):
-            operation = attribute_name(recipe.func)
-            values = (visit(recipe.func.obj), *(visit(item) for item in recipe.args))
-        else:
-            input_failure("missing_component_proof", "uncaptured row unit recipe")
-            raise AssertionError("unreachable")
-        if operation in ("add", "sub", "mul", "truediv", "divide"):
-            left, right = values[:2]
-            operations: dict[str, Literal["add", "subtract", "multiply", "divide"]] = {
-                "add": "add",
-                "sub": "subtract",
-                "mul": "multiply",
-                "truediv": "divide",
-                "divide": "divide",
-            }
-            method = operations[operation]
-            return _arith_unit(
-                method,
-                left[0],
-                right[0],
-                constant="left" if left[1] else "right" if right[1] else None,
-                stage="Row",
-            ), False
-        selected = values[1:] if operation == "ifelse" else values
-        return linear_unit(tuple(unit for unit, scalar in selected if not scalar)), False
-
-    return visit(node.recipe)[0]
-
-
-def _component_unit(
-    node: SourceAggregate | SourceWeightedMean | EntityCount, role: str
-) -> str | None:
-    from marivo.semantic.unit_algebra import multiply_unit_states, render_unit, unit_state
-
-    if role in ("input_count", "effective_count", "valid_value_count", "pair_count") or isinstance(
-        node, EntityCount
-    ):
-        return "1"
-    if isinstance(node, SourceWeightedMean):
-        value, weight = _row_unit(node.value), _row_unit(node.weight)
-        if role == "pair_weight_sum":
-            return weight
-        if role == "pair_product_sum":
-            return render_unit(multiply_unit_states(unit_state(value), unit_state(weight)))
-        return value
-    return "1" if node.reducer in ("count", "count_distinct") else _row_unit(node.operand)
 
 
 def bundle_attribute_plan(
@@ -360,7 +281,7 @@ def bundle_attribute_plan(
                             c.dtype for c in member.columns if c.slot_id == reduction.value_slot
                         ),
                         True,
-                        _component_unit(reduction.node, role),
+                        component_unit(reduction.node, role),
                     ),
                 )
                 for role in request.roles
@@ -424,7 +345,7 @@ def bundle_attribute_plan(
                 )
             )
             columns[reduction.value_slot] = replace(
-                columns[reduction.value_slot], unit=_component_unit(reduction.node, "value")
+                columns[reduction.value_slot], unit=component_unit(reduction.node, "value")
             )
             columns[effective.slot_id] = replace(effective, unit="1")
             columns[support.slot_id] = replace(support, unit="1")

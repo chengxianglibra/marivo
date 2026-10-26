@@ -16,10 +16,13 @@ from marivo.analysis.binding.attribute_rules import (
     NativeWeightedMean,
     RatioComponentRule,
     RuleAdd,
+    RuleDivide,
     RuleNegate,
+    RuleRescale,
     RuleScale,
     RuleSubtract,
 )
+from marivo.analysis.binding.attribute_units import ratio_component_units, rule_unit
 from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
@@ -543,12 +546,16 @@ def pending_contribution_schema(
                 "denominator_left",
                 "denominator_right",
             ):
+                component_rule = operation.rules[0 if prefix.endswith("left") else 1][index][1]
+                assert isinstance(component_rule, RatioComponentRule)
+                component_units = ratio_component_units(component_rule)
                 paths.append((prefix, name))
                 values.append(
                     replace(
                         originals[0],
                         slot_id=f"attribute.result.{len(values)}",
                         name=f"{prefix}.{name}",
+                        unit=component_units[0 if prefix.startswith("numerator") else 1],
                     )
                 )
         if isinstance(rule.operation, NativeWeightedMean):
@@ -806,13 +813,20 @@ def _rule_column(
                 )
             )
         n, d = _component_columns(program, rule, side, scope=scope)
-        return replace(n, dtype=_type("div", n, d))
+        return replace(n, dtype=_type("div", n, d), unit=rule_unit(rule))
     if isinstance(operation, (RuleAdd, RuleSubtract)):
         a, b = (
             _rule_column(program, operation.left, side, scope=scope),
             _rule_column(program, operation.right, side, scope=scope),
         )
         return replace(a, dtype=_type("add" if isinstance(operation, RuleAdd) else "sub", a, b))
+    if isinstance(operation, (RuleDivide, RuleRescale)):
+        a = _rule_column(program, operation.operand, side, scope=scope)
+        return replace(
+            a,
+            dtype=_type("div", a, _coefficient_column(operation.scalar.value)),
+            unit=operation.unit if isinstance(operation, RuleRescale) else a.unit,
+        )
     if isinstance(operation, RuleNegate):
         return _rule_column(program, operation.operand, side, scope=scope)
     assert isinstance(operation, RuleScale)

@@ -1,6 +1,7 @@
 """Exact contribution uses the real Frame schedule and independent small oracles."""
 
 from collections.abc import Callable
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -28,6 +29,289 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
+
+
+@pytest.mark.parametrize("method", ["mean", "ratio", "weighted"])
+def test_pending_attribute_component_units_allow_direct_composition(
+    session: Session, method: str
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    metric = (
+        amount.mean()
+        if method == "mean"
+        else amount.sum() / amount.sum()
+        if method == "ratio"
+        else amount.weighted_mean(weight=session.catalog.fields.get("sales.facts.weight"))
+    )
+    pending = session.observe({"q": metric}).attribute(by=(channel,))
+    fixed = pending.compute()
+    for frame in (pending, fixed):
+        numerator = frame["component.value.numerator.q"]
+        denominator = frame["component.value.denominator.q"]
+        difference = numerator / denominator - frame["detail.value.q"]
+        rows = frame.select({"difference": difference}).compute().to_pandas()
+        assert rows[("value", "difference")].tolist() == pytest.approx([0, 0])
+    assert [(c.name, c.unit) for c in pending._schema.values] == [
+        (c.name, c.unit) for c in fixed._schema.values
+    ]
+    if method == "mean":
+        from marivo.analysis.errors import AnalysisError
+
+        with pytest.raises(AnalysisError, match="matching units"):
+            pending["component.value.denominator.q"] + pending["detail.value.q"]
+
+
+def test_pending_weighted_components_keep_dimensional_weight_unit(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    pending = session.observe({"q": amount.weighted_mean(weight=amount)}).attribute(by=(channel,))
+    for frame in (pending, pending.compute()):
+        assert frame["component.value.numerator.q"]._unit == "USD.USD"
+        assert frame["component.value.denominator.q"]._unit == "USD"
+
+
+@pytest.mark.parametrize(
+    ("rescale", "divisor"), [(False, 3), (True, 3), (False, 2.5), (True, 2.5), (False, -2)]
+)
+def test_attribute_constant_division_retains_original_operation(
+    session: Session, rescale: bool, divisor: int | float
+) -> None:
+    import marivo.semantic as ms
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    metric = (
+        ms.rescale(amount.mean(), divisor=divisor, unit="GiB/s")
+        if rescale
+        else amount.mean() / divisor
+    )
+    current = session.observe({"q": metric}, where=phase == "current")
+    baseline = session.observe({"q": metric}, where=phase == "base")
+    compared = current.compare({"base": baseline})
+    report = compared.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == pytest.approx([80 / divisor, 40 / divisor])
+    assert rows[("value", "contribution.base.absolute.q")].tolist() == pytest.approx(
+        [30 / divisor, -10 / divisor]
+    )
+    assert rows[("value", "contribution.base.relative.q")].tolist() == pytest.approx(
+        [0.3 if divisor > 0 else -0.3, -0.1 if divisor > 0 else 0.1]
+    )
+    assert report["total.q"]._unit == ("GiB/s" if rescale else "USD")
+
+
+@pytest.mark.parametrize("divisor", [3, 3.0, Decimal("3.00")])
+def test_attribute_division_rounds_operands_before_large_integer_cancellation(
+    session: Session, tmp_path: Path, divisor: int | float | Decimal
+) -> None:
+    import marivo.semantic as ms
+
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CASE WHEN channel='B' THEN 0 "
+            "WHEN phase='current' THEN 9007199254740993 ELSE 3 END, "
+            "weight=CASE WHEN channel='B' THEN 0 "
+            "WHEN phase='current' THEN 3002399751580331 ELSE 1 END"
+        )
+    amount = session.catalog.fields.get("sales.facts.amount")
+    weight = session.catalog.fields.get("sales.facts.weight")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    scaled = amount.sum() / divisor
+    rescaled = ms.rescale(amount.sum(), divisor=divisor, unit="GiB/s")
+    metrics = {
+        "scaled": scaled,
+        "rescaled": rescaled,
+        "residual": scaled - ms.rescale(weight.sum(), divisor=1, unit="USD"),
+    }
+    current = session.observe(metrics, where=phase == "current").compute()
+    report = current.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    # Float64 conversion rounds 2**53 + 1 down before division, not afterwards.
+    for name, expected in (
+        ("scaled", 3002399751580330.5),
+        ("rescaled", 3002399751580330.5),
+        ("residual", -0.5),
+    ):
+        assert rows[("value", f"contribution.{name}")].tolist() == [expected, 0.0]
+        assert rows[("value", f"detail.value.{name}")].tolist() == [expected, 0.0]
+        for role in ("total", "observed_total"):
+            assert rows[("value", f"{role}.{name}")].tolist() == [expected, expected]
+    assert report["contribution.scaled"]._unit == "USD"
+    assert report["contribution.rescaled"]._unit == "GiB/s"
+    baseline = session.observe(metrics, where=phase == "base")
+    compared = current.compare({"base": baseline})
+    changes = compared.select({"q": compared["base.absolute.residual"]})
+    rows = changes.attribute(by=(channel,)).compute().to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == [-0.5, 0.0]
+    assert rows[("value", "total.q")].tolist() == [-0.5, -0.5]
+
+
+@pytest.mark.parametrize("wrapper", ["multiply", "add", "subtract", "negate"])
+def test_nested_additive_scaling_retains_ordered_level_and_paired_facts(
+    session: Session, wrapper: str
+) -> None:
+    import marivo.semantic as ms
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    scaled = ms.rescale(amount.sum() / Decimal("3.00"), divisor=2, unit="GiB/s")
+    metric = (
+        2 * scaled
+        if wrapper == "multiply"
+        else scaled + scaled
+        if wrapper == "add"
+        else scaled - scaled
+        if wrapper == "subtract"
+        else -scaled
+    )
+    current = session.observe({"q": metric}, where=phase == "current")
+    baseline = session.observe({"q": metric}, where=phase == "base")
+    compared = current.compare({"base": baseline})
+    report = (
+        compared.select({"q": compared["q"], "change": compared["base.absolute.q"]})
+        .attribute(by=(channel,))
+        .compute()
+    )
+    methods = tuple(metric for facts in report.method_facts for metric in facts.parents[0].metrics)
+    assert {metric_fact.kind for metric_fact in methods} == {"level", "absolute"}
+    for metric_fact in methods:
+        method = metric_fact.method
+        assert method.kind in ("level_linear", "linear")
+        assert [term.coefficient for term in method.terms] == (
+            [2]
+            if wrapper == "multiply"
+            else [1, 1]
+            if wrapper == "add"
+            else [1, -1]
+            if wrapper == "subtract"
+            else [-1]
+        )
+        for term in method.terms:
+            outer = term.method
+            assert outer.kind in ("level_division", "division")
+            assert outer.operation == "rescale" and type(outer.divisor) is int
+            assert outer.divisor == 2
+            inner = outer.method
+            assert inner.kind in ("level_division", "division")
+            assert inner.operation == "divide" and type(inner.divisor) is Decimal
+            assert inner.divisor.as_tuple() == Decimal("3.00").as_tuple()
+            if outer.kind == "level_division":
+                assert outer.value.column.unit == "GiB/s"
+                assert inner.kind == "level_division" and inner.value.column.unit == "USD"
+            else:
+                assert outer.left.column.unit == "GiB/s"
+                assert inner.kind == "division" and inner.left.column.unit == "USD"
+    rows = report.to_pandas()
+    factor = 2 if wrapper in ("multiply", "add") else 0 if wrapper == "subtract" else -1
+    assert rows[("value", "total.q")].tolist() == [40.0 * factor] * 2
+    assert rows[("value", "contribution.change")].tolist() == pytest.approx(
+        [10 * factor, -10 / 3 * factor]
+    )
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_decimal_attribute_division_retains_operation_and_cold_facts(
+    session: Session, tmp_path: Path, nested: bool
+) -> None:
+    import os
+    import subprocess
+    import sys
+    from decimal import Decimal
+
+    import marivo
+    import marivo.semantic as ms
+
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER COLUMN amount TYPE DECIMAL(24,6)")
+        connection.execute(
+            "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 10 ELSE 20 END WHERE phase='current'"
+        )
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    metric = ms.rescale(amount.sum(), divisor=Decimal("3"), unit="GiB/s")
+    if nested:
+        metric = 2 * metric
+    observed = session.observe({"q": metric}, where=phase == "current").compute()
+    report = observed.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == (
+        [6.666666666666667, 13.333333333333334]
+        if nested
+        else [3.3333333333333335, 6.666666666666667]
+    )
+    assert rows[("value", "total.q")].tolist() == [20.0 if nested else 10.0] * 2
+    assert rows[("value", "observed_total.q")].tolist() == [20.0 if nested else 10.0] * 2
+    fact = report.method_facts[0].parents[0].metrics[0].method
+    if nested:
+        assert fact.kind == "level_linear" and fact.terms[0].coefficient == 2
+        fact = fact.terms[0].method
+    assert fact.kind == "level_division" and fact.divisor == Decimal("3")
+    assert type(fact.divisor) is Decimal and fact.operation == "rescale"
+    saved = report.persist()
+    checkout = Path(marivo.__file__).resolve().parents[1]
+    code = """
+import sys
+from decimal import Decimal
+from unittest.mock import patch
+import marivo
+import marivo.analysis as mv
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold facts attempted a source/model read')
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden):
+    saved = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
+    fact = saved.compute().method_facts[0].parents[0].metrics[0].method
+    if sys.argv[3] == 'True':
+        assert fact.kind == 'level_linear' and fact.value.value == 20.0
+        assert len(fact.terms) == 1 and fact.terms[0].coefficient == 2
+        fact = fact.terms[0].method
+    assert fact.kind == 'level_division' and type(fact.divisor) is Decimal
+    assert fact.divisor == Decimal('3') and fact.operation == 'rescale'
+    assert fact.value.value == 10.0
+    assert fact.method.value.value == Decimal('30')
+    assert fact.value.column.unit == 'GiB/s' and fact.method.value.column.unit == 'USD'
+    fact.show()
+    marivo.help('analysis.frame_level_division_method.divisor')
+"""
+    cold = subprocess.run(
+        [sys.executable, "-c", code, session.id, saved.artifact.id, str(nested)],
+        cwd=checkout,
+        env={**os.environ, "PYTHONPATH": str(checkout), "MARIVO_PROJECT_ROOT": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
+def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
+    import marivo.semantic as ms
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    metric = 2 * ms.rescale(amount.sum() / amount.sum(), divisor=3, unit="GiB/s")
+    report = session.observe({"q": metric}).attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    assert rows[("value", "contribution.q")].tolist() == pytest.approx([13 / 33, 3 / 11])
+    assert rows[("value", "total.q")].tolist() == pytest.approx([2 / 3] * 2)
+    assert report["total.q"]._unit == "GiB/s"
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.kind == "level_linear"
+    child = method.terms[0].method
+    assert child.kind == "level_division" and child.method.kind == "level_ratio_component"
+    assert child.method.value.column.unit == "1"
+    current = session.observe({"q": metric}, where=phase == "current")
+    baseline = session.observe({"q": metric}, where=phase == "base")
+    compared = current.compare({"base": baseline})
+    target = compared.select({"change": compared["base.absolute.q"]})
+    changes = target.attribute(by=(channel,)).compute().to_pandas()
+    assert changes[("value", "contribution.change")].tolist() == pytest.approx([1 / 9, -1 / 9])
 
 
 def _contribution(

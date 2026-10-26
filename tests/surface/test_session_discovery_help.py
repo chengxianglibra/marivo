@@ -66,9 +66,13 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
     assert "Input by: Empty () is one zero-axis cell" in text
-    assert "TimeScope contributes an interval axis" in text
-    assert "P fixes complete joint keys" in text
-    assert "CalendarAxis contributes calendar buckets" in text
+    assert "TimeScope adds an interval axis" in text
+    assert "P fixes joint keys" in text
+    assert "CalendarAxis adds buckets" in text
+    assert "by=() supplies no time range" in text
+    assert "finite TimeScope/CalendarAxis in by" in text
+    assert "qualified native means may omit it" in text
+    assert "Metric-specific sample coverage may still reject at compute/persist" in text
     assert "Input during:" not in text and "Input members:" not in text
     show_help("analysis.population.count")
     assert "declared identities without facts still count" in capsys.readouterr().out

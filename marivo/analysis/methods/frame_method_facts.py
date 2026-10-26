@@ -14,7 +14,9 @@ from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLevelAdditiveMethod,
+    FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
     FrameLinearMethod,
@@ -85,9 +87,27 @@ def _scale_equal(
     _equal(_numeric_binary("mul", _value(value), scalar, output=output.column.dtype), output)
 
 
-def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) -> None:
+def _division_equal(
+    value: FrameMethodValue, divisor: int | float | Decimal, output: FrameMethodValue
+) -> None:
+    if output.column.dtype == ScalarDataType("float64"):
+        return
+    scalar = _Value(pd.Series([divisor], dtype=object), _coefficient_column(divisor))
+    _equal(_numeric_binary("div", _value(value), scalar, output=output.column.dtype), output)
+
+
+def _method(
+    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod,
+) -> None:
     _binary_equal("sub", method.left, method.right, method.change, finish=False)
-    if isinstance(method, FrameRatioMethod):
+    if isinstance(method, FrameDivisionMethod):
+        _method(method.method)
+        for child, output in (
+            (method.method.left, method.left),
+            (method.method.right, method.right),
+        ):
+            _division_equal(child, method.divisor, output)
+    elif isinstance(method, FrameRatioMethod):
         for numerator, denominator, expected in (
             (method.numerator_left, method.denominator_left, method.left),
             (method.numerator_right, method.denominator_right, method.right),
@@ -122,9 +142,15 @@ def _method(method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod) 
 
 
 def _level(
-    method: FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod,
+    method: FrameLevelAdditiveMethod
+    | FrameLevelRatioMethod
+    | FrameLevelLinearMethod
+    | FrameLevelDivisionMethod,
 ) -> None:
-    if isinstance(method, FrameLevelRatioMethod):
+    if isinstance(method, FrameLevelDivisionMethod):
+        _level(method.method)
+        _division_equal(method.method.value, method.divisor, method.value)
+    elif isinstance(method, FrameLevelRatioMethod):
         _binary_equal("div", method.numerator, method.denominator, method.value)
     elif isinstance(method, FrameLevelLinearMethod):
         for term in method.terms:
@@ -155,7 +181,13 @@ def _level(
 def _target(metric: FrameAttributeMetric) -> None:
     method = metric.method
     if isinstance(
-        method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod)
+        method,
+        (
+            FrameLevelAdditiveMethod,
+            FrameLevelRatioMethod,
+            FrameLevelLinearMethod,
+            FrameLevelDivisionMethod,
+        ),
     ):
         _level(method)
         _equal(_value(method.value), metric.total)

@@ -42,9 +42,16 @@ session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sa
 
 非 `None` 的 `question`、`timezone`、`domains` 必须与保存值一致。比较前会规范化时区偏移，并对域名称排序去重。冲突会在恢复之前抛出 `SessionStateError`；读取 `error.expected`、`error.received` 和 `error.repair.candidates`（已有 Session ID）即可程序化处理。可省略冲突配置、传入一致的值，或选择新名称。恢复使用与 `mv.session.resume(session_id)` 相同的 writer guard，存在活动 writer 时仍会拒绝。没有待恢复工作时，重复获取保持 `updated_at` 不变。Help：`analysis.session.get_or_create`。
 
+`session.observe(metrics, by=())` 请求一个零轴的整体单元，不提供观察时间范围。
+并非所有涉及时间的 Metric 都必须传 scope。时间样本归约通常要求在 `by` 中提供有限的
+TimeScope 或 CalendarAxis；符合执行条件的原生均值归约可以不提供范围。
+指标自身的样本覆盖要求仍然适用。部分检查只在 `compute()` 或 `persist()` 时执行，
+因此成功构造 Frame 并不能证明支持无范围观测。需要范围时，传入
+`by=(session.time_scope(start=..., end=...),)`。
+
 ## 完整示例与后续输入
 
-保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。导入该文件会重新读取来源并创建新会话。
+保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。此示例每次执行都会在 Session 名称中使用新的 UUID；需要恢复已有 Session 时，向 `get_or_create` 传入稳定名称。
 
 {/* example: demo-analysis */}
 
@@ -165,6 +172,18 @@ assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, 
 <a id="调查变化"></a>
 
 ## attribute：解释来源贡献
+
+在观察前可以使用常数除法和 Metric `ms.rescale`：
+
+```python
+import marivo.semantic as ms
+
+scaled = ms.rescale(revenue, divisor=1000, unit="kCNY")
+source = session.observe({"revenue": scaled})
+report = source.attribute(by=(region,)).compute()
+```
+
+除法保留原始类型的除数和运算顺序，`rescale` 声明输出单位。获得的除法解释事实保留 `divisor`、`operation` 和子 `method`；pending 比率诊断列也已披露各自的分子、分母单位。
 
 `target.attribute(by=...)` 在新的业务分类上解释选定的受支持输出。它不仅给出分组观察，还返回贡献及解释这些贡献所需的方法事实。
 

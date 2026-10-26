@@ -81,6 +81,50 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
     return compared.select({"q": compared["base.absolute.q"]}).compute()
 
 
+@pytest.mark.parametrize("calendar", [False, True])
+def test_reused_temporal_baseline_keeps_each_alias_projection(
+    session: Session, calendar: bool
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    day = session.catalog.fields.get("sales.facts.day")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    current = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
+    left = session.observe(
+        {"q": amount.sum(time=day)},
+        by=(current.by(mv.grain("day")) if calendar else current,),
+        where=phase == "current",
+    )
+    right = session.observe(
+        {"q": amount.sum(time=day)},
+        by=(baseline.by(mv.grain("day")) if calendar else baseline,),
+        where=phase == "base",
+    )
+    compared = left.compare(
+        {"one": right, "two": right},
+        on={name: tuple(zip(left.axes, right.axes, strict=True)) for name in ("one", "two")},
+        match={name: mv.ordinal() for name in ("one", "two")},
+    ).compute()
+    report = compared.attribute(by=(channel,)).compute()
+    rows = report.to_pandas()
+    factor = 1 if calendar else 2
+    repetitions = 2 if calendar else 1
+    assert len(rows) == 2 * repetitions
+    assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == [
+        (key, channel) for key in compared.to_pandas().iloc[:, 0] for channel in ("A", "B")
+    ]
+    for alias in ("one", "two"):
+        for role, expected in (
+            ("baseline", [100 * factor, 100 * factor]),
+            ("absolute", [60 * factor, -20 * factor]),
+            ("relative", [0.3, -0.1]),
+        ):
+            assert rows[("value", f"contribution.{alias}.{role}.q")].tolist() == pytest.approx(
+                expected * repetitions
+            )
+
+
 @pytest.mark.release
 def test_plain_calendar_complete_parent_order_independent_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch

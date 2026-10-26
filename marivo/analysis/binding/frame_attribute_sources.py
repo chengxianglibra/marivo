@@ -18,6 +18,7 @@ class SourceGroupKey:
     axis_positions: tuple[tuple[int, int], ...]
     side: Literal["left", "right"]
     match: CalendarCorrespondence | None = None
+    comparison_alias: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,14 @@ def source_group_key(
         if actual == "right" and target is not None and target.pairing is not None
         else None
     )
-    return SourceGroupKey(id(metric.binding.graph), metric.axis_positions, actual, match)
+    alias = (
+        target.pairing.alias
+        if actual == "right"
+        and target is not None
+        and isinstance(target.pairing, NamedFrameComparison)
+        else None
+    )
+    return SourceGroupKey(id(metric.binding.graph), metric.axis_positions, actual, match, alias)
 
 
 def collect_source_groups(declaration: FrameDerivation) -> dict[SourceGroupKey, SourceMetricGroup]:

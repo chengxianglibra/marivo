@@ -26,6 +26,9 @@ if TYPE_CHECKING:
                         )
                     elif method.kind == "linear" or method.kind == "level_linear":
                         assert_type(method.terms[0].coefficient, int | float | Decimal)
+                    elif method.kind == "division" or method.kind == "level_division":
+                        assert_type(method.divisor, int | float | Decimal)
+                        assert_type(method.operation, Literal["divide", "rescale"])
                     else:
                         if method.kind == "level_ratio_component":
                             assert_type(

@@ -575,7 +575,9 @@ class AnalysisFrame:
 
         Constraints: Requires retained process-local source declarations for every
         direct Metric or admitted comparison target. Select and rename direct outputs;
-        define ratio/linear Metrics before observation. Completion freezes parent keys
+        define ratio/linear Metrics before observation. Fixed division retains its typed
+        divisor and division order; Metric rescale also declares the result unit.
+        Pending components expose their own units. Completion freezes parent keys
         and old values; parent and fine inputs are read independently without reranking
         or a shared-snapshot guarantee. Semantic identity, cardinality and version-grain
         declarations are trusted. Operation-specific membership/Population coverage,

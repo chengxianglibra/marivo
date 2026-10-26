@@ -16,7 +16,9 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLevelAdditiveMethod,
+    FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelLinearTerm,
     FrameLevelRatioMethod,
@@ -123,9 +125,11 @@ def provider() -> DisclosureProvider:
                 "frame_additive_method",
                 "frame_ratio_method",
                 "frame_linear_method",
+                "frame_division_method",
                 "frame_level_additive_method",
                 "frame_level_ratio_method",
                 "frame_level_linear_method",
+                "frame_level_division_method",
                 "frame_method_output",
             ),
         ),
@@ -163,7 +167,12 @@ def provider() -> DisclosureProvider:
             FrameLinearTerm,
             "frame_linear_term",
             "Read linear_method.terms in captured subexpression order; coefficient preserves its finite numeric type.",
-            ("frame_additive_method", "frame_ratio_method", "frame_linear_method"),
+            (
+                "frame_additive_method",
+                "frame_ratio_method",
+                "frame_linear_method",
+                "frame_division_method",
+            ),
         ),
         (
             FrameLinearMethod,
@@ -211,6 +220,7 @@ def provider() -> DisclosureProvider:
                 "frame_level_additive_method",
                 "frame_level_ratio_method",
                 "frame_level_linear_method",
+                "frame_level_division_method",
             ),
         ),
         (
@@ -218,6 +228,32 @@ def provider() -> DisclosureProvider:
             "frame_level_linear_method",
             "Read level target.method when kind is level_linear.",
             ("frame_method_value", "frame_level_linear_term"),
+        ),
+    )
+    fact_types += (
+        (
+            FrameDivisionMethod,
+            "frame_division_method",
+            "Read a paired division method's original typed divisor, operation and child method; result columns retain the declared units.",
+            (
+                "frame_method_value",
+                "frame_additive_method",
+                "frame_ratio_method",
+                "frame_linear_method",
+                "frame_division_method",
+            ),
+        ),
+        (
+            FrameLevelDivisionMethod,
+            "frame_level_division_method",
+            "Read a level division method's original typed divisor, operation and child method; result columns retain the declared units.",
+            (
+                "frame_method_value",
+                "frame_level_additive_method",
+                "frame_level_ratio_method",
+                "frame_level_linear_method",
+                "frame_level_division_method",
+            ),
         ),
     )
     for fact_owner, target, acquisition, nested in fact_types:
@@ -230,6 +266,16 @@ def provider() -> DisclosureProvider:
                 producers=("analysis_frame.method_facts",)
                 if fact_owner is FrameMethodFacts
                 else {
+                    FrameDivisionMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_linear_term.method",
+                        "frame_division_method.method",
+                    ),
+                    FrameLevelDivisionMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_level_linear_term.method",
+                        "frame_level_division_method.method",
+                    ),
                     FrameMethodTarget: ("frame_method_facts.targets",),
                     FrameMethodOutput: (
                         "frame_method_target.outputs",
@@ -240,15 +286,18 @@ def provider() -> DisclosureProvider:
                         "frame_level_ratio_method.support",
                     ),
                     FrameLevelAdditiveMethod: (
+                        "frame_level_division_method.method",
                         "frame_attribute_metric.method",
                         "frame_level_linear_term.method",
                     ),
                     FrameLevelRatioMethod: (
+                        "frame_level_division_method.method",
                         "frame_attribute_metric.method",
                         "frame_level_linear_term.method",
                     ),
                     FrameLevelLinearTerm: ("frame_level_linear_method.terms",),
                     FrameLevelLinearMethod: (
+                        "frame_level_division_method.method",
                         "frame_attribute_metric.method",
                         "frame_level_linear_term.method",
                     ),
@@ -267,11 +316,17 @@ def provider() -> DisclosureProvider:
                         "frame_ratio_method.support",
                     ),
                     FrameAdditiveMethod: (
+                        "frame_division_method.method",
                         "frame_attribute_metric.method",
                         "frame_linear_term.method",
                     ),
-                    FrameRatioMethod: ("frame_attribute_metric.method", "frame_linear_term.method"),
+                    FrameRatioMethod: (
+                        "frame_attribute_metric.method",
+                        "frame_linear_term.method",
+                        "frame_division_method.method",
+                    ),
                     FrameLinearMethod: (
+                        "frame_division_method.method",
                         "frame_attribute_metric.method",
                         "frame_linear_term.method",
                     ),

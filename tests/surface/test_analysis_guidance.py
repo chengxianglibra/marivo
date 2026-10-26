@@ -101,9 +101,9 @@ def test_grouping_is_the_public_observation_family() -> None:
         (
             "session.observe",
             (
-                "Grouping, TimeScope and membership",
+                "Grouping, TimeScope, memberships",
                 "population.axes",
-                "P fixes complete joint keys",
+                "P fixes joint keys",
             ),
         ),
     ),

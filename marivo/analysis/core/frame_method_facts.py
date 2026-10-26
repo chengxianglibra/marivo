@@ -47,7 +47,9 @@ from marivo.analysis.core.model import reject
 from marivo.semantic.unit_algebra import ratio_unit
 
 _MethodScalar: TypeAlias = bool | int | float | str | date | Decimal | None
-_Method: TypeAlias = "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod"
+_Method: TypeAlias = (
+    "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod"
+)
 
 
 def _fail(
@@ -331,7 +333,12 @@ def _supports(support: tuple[FrameMethodSupport, ...]) -> None:
 
 
 def _method(value: _Method) -> None:
-    if type(value) not in (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod):
+    if type(value) not in (
+        FrameAdditiveMethod,
+        FrameRatioMethod,
+        FrameLinearMethod,
+        FrameDivisionMethod,
+    ):
         _fail("a closed additive, ratio_component or linear method", type(value).__name__)
 
 
@@ -349,19 +356,27 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
                 method.denominator_right,
             ):
                 yield repr(value.value)
+        if isinstance(method, FrameDivisionMethod):
+            yield repr(method.divisor)
+            yield from method_values(method.method)
         if isinstance(method, FrameLinearMethod):
             for term in method.terms:
                 yield repr(term.coefficient)
                 yield from method_values(term.method)
 
     def target_values(method: _Method | _LevelMethod) -> Iterator[str]:
-        if isinstance(method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)):
+        if isinstance(
+            method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod)
+        ):
             yield from method_values(method)
         else:
             yield repr(method.value.value)
             if isinstance(method, FrameLevelRatioMethod):
                 yield repr(method.numerator.value)
                 yield repr(method.denominator.value)
+            elif isinstance(method, FrameLevelDivisionMethod):
+                yield repr(method.divisor)
+                yield from target_values(method.method)
             elif isinstance(method, FrameLevelLinearMethod):
                 for term in method.terms:
                     yield repr(term.coefficient)
@@ -385,7 +400,10 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
 
 def _method_lines(method: _Method) -> Iterator[str]:
     yield f"{method.kind}: left={_cell(method.left.value)}, right={_cell(method.right.value)}, change={_cell(method.change.value)}"
-    if isinstance(method, FrameLinearMethod):
+    if isinstance(method, FrameDivisionMethod):
+        yield f"{method.operation} divisor={_coefficient_text(method.divisor)}"
+        yield from _method_lines(method.method)
+    elif isinstance(method, FrameLinearMethod):
         for index, term in enumerate(method.terms):
             yield f"term[{index}] coefficient={_coefficient_text(term.coefficient)}"
             yield from _method_lines(term.method)
@@ -467,6 +485,56 @@ class FrameRatioMethod(_FactRecord):
         yield from _method_lines(self)
 
 
+def _divisor(value: int | float | Decimal, operation: str) -> None:
+    if (
+        type(value) not in (int, float, Decimal)
+        or (isinstance(value, float) and not isfinite(value))
+        or (isinstance(value, Decimal) and not value.is_finite())
+        or value == 0
+        or (operation == "rescale" and value < 0)
+    ):
+        _fail("a finite nonzero typed divisor, positive for rescale", repr(value))
+    if operation not in ("divide", "rescale"):
+        _fail("divide or rescale", operation)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameDivisionMethod(_FactRecord):
+    """Explain captured division. Args: kind, totals, divisor, operation, method.
+
+    Returns an inert ordered rule retaining the original typed divisor.
+    Example: read ``metric.method.divisor`` when kind is ``division``.
+    Constraints: divide retains child units; rescale declares the result unit.
+    """
+
+    kind: Literal["division"]
+    left: FrameMethodValue
+    right: FrameMethodValue
+    change: FrameMethodValue
+    divisor: int | float | Decimal
+    operation: Literal["divide", "rescale"]
+    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
+
+    def __post_init__(self) -> None:
+        if self.kind != "division":
+            _fail("kind='division'", repr(self.kind))
+        _totals(self.left, self.right, self.change)
+        _divisor(self.divisor, self.operation)
+        _method(self.method)
+        if self.operation == "divide" and self.method.left.column.unit != self.left.column.unit:
+            _fail("division preserving the child unit", self.left.column.name)
+        if self.operation == "rescale" and self.left.column.unit is None:
+            _fail("an explicit rescale result unit", self.left.column.name)
+
+    def _summary(self) -> str:
+        return (
+            f"kind=division, column={_short(self.left.column.name)!r}, operation={self.operation}"
+        )
+
+    def _lines(self) -> Iterator[str]:
+        yield from _method_lines(self)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameLinearTerm(_FactRecord):
     """Explain a consumed coefficient and subrule. Args: coefficient, method.
@@ -476,7 +544,7 @@ class FrameLinearTerm(_FactRecord):
     """
 
     coefficient: int | float | Decimal
-    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod
+    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
 
     def __post_init__(self) -> None:
         if (
@@ -616,9 +684,7 @@ class FrameLevelRatioMethod(_FactRecord):
         return f"kind=level_ratio_component, column={_short(self.value.column.name)!r}, roots={len(self.support)}"
 
 
-_LevelMethod: TypeAlias = (
-    "FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod"
-)
+_LevelMethod: TypeAlias = "FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod | FrameLevelDivisionMethod"
 
 
 def _level_method(method: _LevelMethod) -> None:
@@ -626,8 +692,44 @@ def _level_method(method: _LevelMethod) -> None:
         FrameLevelAdditiveMethod,
         FrameLevelRatioMethod,
         FrameLevelLinearMethod,
+        FrameLevelDivisionMethod,
     ):
         _fail("a closed one-endpoint rule", type(method).__name__)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameLevelDivisionMethod(_FactRecord):
+    """Explain one-endpoint division with its original divisor and child method.
+
+    Args: kind, value, divisor, operation, method. Returns immutable inert facts.
+    Example: read ``metric.method.divisor`` when kind is ``level_division``.
+    Constraints: divide preserves units; rescale retains its declared result unit.
+    """
+
+    kind: Literal["level_division"]
+    value: FrameMethodValue
+    divisor: int | float | Decimal
+    operation: Literal["divide", "rescale"]
+    method: (
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod
+    )
+
+    def __post_init__(self) -> None:
+        if self.kind != "level_division":
+            _fail("kind='level_division'", repr(self.kind))
+        _total(self.value)
+        _divisor(self.divisor, self.operation)
+        _level_method(self.method)
+        if self.operation == "divide" and self.method.value.column.unit != self.value.column.unit:
+            _fail("division preserving the child unit", self.value.column.name)
+        if self.operation == "rescale" and self.value.column.unit is None:
+            _fail("an explicit rescale result unit", self.value.column.name)
+
+    def _summary(self) -> str:
+        return f"kind=level_division, column={_short(self.value.column.name)!r}, operation={self.operation}"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -635,7 +737,12 @@ class FrameLevelLinearTerm(_FactRecord):
     """An original ordered coefficient and one-endpoint child rule."""
 
     coefficient: int | float | Decimal
-    method: FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod
+    method: (
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod
+    )
 
     def __post_init__(self) -> None:
         if (
@@ -785,9 +892,11 @@ class FrameAttributeMetric(_FactRecord):
         FrameLevelAdditiveMethod
         | FrameLevelRatioMethod
         | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod
         | FrameAdditiveMethod
         | FrameRatioMethod
         | FrameLinearMethod
+        | FrameDivisionMethod
     )
     observed_total: FrameMethodValue
     total: FrameMethodValue
@@ -808,13 +917,19 @@ class FrameAttributeMetric(_FactRecord):
         if self.kind == "level":
             if not isinstance(
                 self.method,
-                (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod),
+                (
+                    FrameLevelAdditiveMethod,
+                    FrameLevelRatioMethod,
+                    FrameLevelLinearMethod,
+                    FrameLevelDivisionMethod,
+                ),
             ):
                 _fail("a one-endpoint level rule", self.name)
             _level_method(self.method)
         elif self.kind in ("absolute", "relative"):
             if not isinstance(
-                self.method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)
+                self.method,
+                (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod),
             ):
                 _fail("a two-endpoint change rule", self.name)
             _method(self.method)
@@ -823,7 +938,9 @@ class FrameAttributeMetric(_FactRecord):
         support_by_root: dict[tuple[str, str], tuple[str, int, int]] = {}
 
         def supports(method: _Method | _LevelMethod) -> Iterator[tuple[str, str, str, int, int]]:
-            if isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
+            if isinstance(method, (FrameDivisionMethod, FrameLevelDivisionMethod)):
+                yield from supports(method.method)
+            elif isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
                 for term in method.terms:
                     yield from supports(term.method)
             elif isinstance(method, (FrameLevelAdditiveMethod, FrameLevelRatioMethod)):
@@ -1176,7 +1293,13 @@ class FrameMethodFacts(_FactRecord):
                 }
                 rule = metric.method
                 if isinstance(
-                    rule, (FrameLevelAdditiveMethod, FrameLevelRatioMethod, FrameLevelLinearMethod)
+                    rule,
+                    (
+                        FrameLevelAdditiveMethod,
+                        FrameLevelRatioMethod,
+                        FrameLevelLinearMethod,
+                        FrameLevelDivisionMethod,
+                    ),
                 ):
                     expected_columns = {"value": rule.value.column}
                     required_presence: tuple[str, ...] = ("present",)

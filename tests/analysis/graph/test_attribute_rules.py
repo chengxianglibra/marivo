@@ -51,6 +51,8 @@ from marivo.analysis.binding.attribute_rules import (
     NativeMean,
     NativeWeightedMean,
     RatioComponentRule,
+    RuleDivide,
+    RuleRescale,
     RuleScale,
     RuleSubtract,
     build_attribute_rule,
@@ -146,6 +148,39 @@ def test_additive_source_roles_are_explicit(node: MetricNode, support: str, dist
     assert request.roles == ("additive_value",)
     assert request.support == support
     assert request.binding.definition is node
+
+
+@pytest.mark.parametrize("divisor", [3, -3, 2.5, Decimal("3.000")])
+def test_fixed_division_keeps_typed_divisor_and_additivity(divisor: int | float | Decimal) -> None:
+    node = formula(BinaryOperator(operator.truediv, Variable("slot_0"), Just(divisor)), total())
+    rule = build(node)
+    assert isinstance(rule, AdditiveRule) and isinstance(rule.operation, RuleDivide)
+    assert type(rule.operation.scalar.value) is type(divisor)
+    assert rule.operation.scalar.value == divisor
+    assert len(component_requests(rule)) == 1
+    multiplied = build(
+        formula(BinaryOperator(operator.mul, Variable("slot_0"), Just(divisor)), total())
+    )
+    assert not rules_match(rule, multiplied)
+
+
+def test_fixed_zero_divisor_is_rejected_without_a_source_read() -> None:
+    node = formula(BinaryOperator(operator.truediv, Variable("slot_0"), Just(0)), total())
+    with pytest.raises(AttributeRuleError, match="zero fixed divisor") as caught:
+        build(node)
+    assert caught.value.reason == "unsupported_expression"
+
+
+def test_rescale_keeps_declared_unit_and_rule_identity() -> None:
+    from marivo._definition.deferred import RescaleResolver
+
+    def rescaled(unit: str) -> AttributeRule:
+        return build(formula(RescaleResolver(Variable("slot_0"), 3, unit), total()))
+
+    rule = rescaled("GiB/s")
+    assert isinstance(rule, AdditiveRule) and isinstance(rule.operation, RuleRescale)
+    assert rule.operation.unit == "GiB/s" and rule.operation.scalar.value == 3
+    assert not rules_match(rule, rescaled("By"))
 
 
 @pytest.mark.parametrize(

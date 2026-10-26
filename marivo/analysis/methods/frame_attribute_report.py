@@ -30,7 +30,9 @@ from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLevelAdditiveMethod,
+    FrameLevelDivisionMethod,
     FrameLevelLinearMethod,
     FrameLevelRatioMethod,
     FrameLinearMethod,
@@ -120,7 +122,9 @@ def _report_method(
         aligned = replace(captured.column, dtype=column.dtype, nullable=column.nullable)
         return _scalar(_report_value(_series(captured), aligned), 0)
 
-    if isinstance(method, (FrameLevelAdditiveMethod, FrameLevelLinearMethod)):
+    if isinstance(
+        method, (FrameLevelAdditiveMethod, FrameLevelLinearMethod, FrameLevelDivisionMethod)
+    ):
         return replace(method, value=value(method.value, "detail", "value"))
     if isinstance(method, FrameLevelRatioMethod):
         return replace(
@@ -207,7 +211,10 @@ def _closure(
         def precision_error(rule: _Method | _LevelMethod) -> float:
             captured = (
                 (rule.left, rule.right)
-                if isinstance(rule, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod))
+                if isinstance(
+                    rule,
+                    (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod),
+                )
                 else (rule.value,)
             )
             error = fsum(
@@ -218,6 +225,8 @@ def _closure(
                     abs(float(term.coefficient)) * precision_error(term.method)
                     for term in rule.terms
                 )
+            if isinstance(rule, (FrameDivisionMethod, FrameLevelDivisionMethod)):
+                error += precision_error(rule.method) / abs(float(rule.divisor))
             return error
 
         try:
@@ -229,7 +238,8 @@ def _closure(
             source_error = precision_error(method)
             if relative:
                 assert isinstance(
-                    method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod)
+                    method,
+                    (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod),
                 )
                 assert isinstance(method.right.value, (int, float, Decimal))
                 baseline = abs(float(method.right.value))
@@ -291,7 +301,11 @@ def report_attribute(
     *,
     paired_parent_methods: tuple[_Method, ...] = (),
     level_methods: tuple[
-        FrameLevelAdditiveMethod | FrameLevelRatioMethod | FrameLevelLinearMethod, ...
+        FrameLevelAdditiveMethod
+        | FrameLevelRatioMethod
+        | FrameLevelLinearMethod
+        | FrameLevelDivisionMethod,
+        ...,
     ] = (),
 ) -> tuple[pd.DataFrame, AttributeMethodPayload]:
     """Bind original parent observations, fresh totals and all report paths by exact keys."""
@@ -378,7 +392,9 @@ def report_attribute(
         mappings.append(presence_mapping[path[1]])
     descriptor = FrameMethodTarget(target.path, target.mode, tuple(mappings))
     methods: list[_Method | _LevelMethod] = []
-    paired_methods: list[FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod] = []
+    paired_methods: list[
+        FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
+    ] = []
     totals: list[FrameMethodValue] = []
     for index, _key in enumerate(parent_keys):
         method: _Method | _LevelMethod

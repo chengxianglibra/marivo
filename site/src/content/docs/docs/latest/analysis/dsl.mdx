@@ -42,9 +42,18 @@ The first call creates the Session; later calls recover the same name. No curren
 
 Non-None `question`, `timezone` and `domains` must match the saved values. Timezone offsets are normalized, and domain names are sorted and deduplicated before comparison. A conflict raises `SessionStateError` before recovery; inspect `error.expected`, `error.received` and `error.repair.candidates` (the existing Session ID). Omit the conflicting configuration, pass matching values or choose a new name. Recovery uses the same writer guard as `mv.session.resume(session_id)` and can reject an active writer. With no pending recovery work, repeated acquisition preserves `updated_at`. Help: `analysis.session.get_or_create`.
 
+`session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
+not supply an observation time range. A time-related Metric does not universally
+require a scope. Time-sample reductions generally require a finite TimeScope or
+CalendarAxis in `by`, while qualified native mean reductions can evaluate without
+one. Metric-specific sample coverage requirements still apply. Some checks run
+only during `compute()` or `persist()`, so successful capture alone does not prove
+that an unbounded observation is supported. When a period is required, pass
+`by=(session.time_scope(start=..., end=...),)`.
+
 ## Complete example and shared inputs
 
-Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. Importing this file rereads sources and creates a new Session.
+Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. This example uses a fresh UUID in the Session name on each execution. Use a stable name with `get_or_create` to recover an existing Session instead.
 
 {/* example: demo-analysis */}
 
@@ -165,6 +174,18 @@ July and August are paired deliberately by ordinal; region keys match exactly. E
 <a id="investigate-changes"></a>
 
 ## attribute — explain source contributions
+
+Fixed constant division and Metric `ms.rescale` are supported before observation:
+
+```python
+import marivo.semantic as ms
+
+scaled = ms.rescale(revenue, divisor=1000, unit="kCNY")
+source = session.observe({"revenue": scaled})
+report = source.attribute(by=(region,)).compute()
+```
+
+Division retains its original typed divisor and arithmetic order. `rescale` declares the output unit. Acquired division method facts retain `divisor`, `operation` and the child `method`. Pending ratio diagnostics already expose their own numerator and denominator units.
 
 `target.attribute(by=...)` explains selected admitted outputs on new business classifications. Unlike a grouped observation alone, it returns contributions together with the method facts needed to interpret them.
 

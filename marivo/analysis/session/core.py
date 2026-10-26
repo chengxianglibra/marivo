@@ -276,10 +276,10 @@ class Session:
         """Capture named Metric expressions as a lazy AnalysisFrame.
 
         Args:
-            metrics: Nonempty ordered mapping of names to resolved Metric expressions.
+            metrics: Nonempty ordered name-to-resolved-Metric mapping.
             by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
-                optionally followed by membership rules in a tuple. Empty () evaluates one cell.
-            where: Extra Deferred field and Population membership conditions on fact contributions.
+                optionally followed by membership rules in a tuple.
+            where: Extra Deferred field/Population membership conditions on contributions.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -287,10 +287,11 @@ class Session:
         Example:
             ``frame = session.observe({'revenue': revenue, 'aov': aov}).compute()``.
 
-        Constraints: Capture reads no source schema or business rows and creates no Run. Only
-        compute/persist evaluate; persist publishes the completed result. Artifact objects and
-        IDs are not Metric expressions. Value names are single nonempty segments without dots,
-        backslashes, controls or reserved presence names.
+        Constraints: Capture reads no source schema/data and creates no Run. compute/persist
+        evaluate; persist publishes. by=() supplies no time range. Time-sample reductions generally need a finite
+        TimeScope/CalendarAxis in by; qualified native means may omit it. Metric-specific sample
+        coverage may still reject at compute/persist. Names must be nonempty single segments
+        without dots, backslashes, controls or reserved presence names.
         """
         from ibis.common.deferred import Deferred
 
