@@ -716,7 +716,10 @@ def prepare_query_sources(
     from marivo.analysis.compiler.graph_plan import qualified_mean_fold
     from marivo.analysis.compiler.observation import duration_type
     from marivo.analysis.compiler.sampled_mean import mean_occurrences
-    from marivo.analysis.materialization.query_preparation import SourceInputContract
+    from marivo.analysis.materialization.query_preparation import (
+        SourceInputContract,
+        share_source_projections,
+    )
 
     source_bindings: dict[SourceInputContract, str] = {}
     mean_folds = mean_occurrences(graph.root.metrics, dict(graph.signature.declared_metrics))
@@ -728,7 +731,21 @@ def prepare_query_sources(
         ),
         None,
     )
-    for contribution in () if observation is None else observation.contributions:
+    contributions = () if observation is None else observation.contributions
+    contracts = tuple(
+        SourceInputContract.capture(
+            contribution,
+            source_owner=id(owners[contribution.root.ref.path]),
+            datasource=owners[contribution.root.ref.path].datasource.semantic_id,
+            source_fingerprint=normalize_target_entity(
+                registry, contribution.root.ref.path
+            ).dependency_fingerprint,
+        )
+        for contribution in contributions
+    )
+    contributions = share_source_projections(contributions, contracts)
+    for contribution, input_contract in zip(contributions, contracts, strict=True):
+        input_contract = replace(input_contract, reads=contribution.reads)
         root = contribution.root.ref.path
         mean_fold = mean_folds.get(contribution.logical_occurrence or contribution.occurrence)
         sample_coverage = mean_fold is None or mean_fold[2] != "mean"
@@ -752,30 +769,10 @@ def prepare_query_sources(
                             if DURATION_UNIT_METADATA_KEY in metadata:
                                 admit_source_type(raw, f"{root}: {physical.name}")
             table = prepared.table
-            source_contract = SourceInputContract(
-                id(owners[root]),
-                owners[root].datasource.semantic_id,
-                normalize_target_entity(registry, root).dependency_fingerprint,
-                contribution.root,
-                contribution.reads,
-                contribution.coordinates,
-                contribution.time,
-                contribution.period,
-                (
-                    *contribution.intrinsic_conditions,
-                    *(
-                        (contribution.common_condition,)
-                        if contribution.common_condition is not None
-                        else ()
-                    ),
-                ),
-                contribution.memberships,
-                contribution.population_reads,
-                contribution.window_key,
-                contribution.sample_axes,
-                contribution.calendars,
-                prepared.coverage,
-                prepared.time_authorities,
+            source_contract = replace(
+                input_contract,
+                coverage=prepared.coverage,
+                time_authorities=prepared.time_authorities,
             )
             schema = table.schema().to_pyarrow()
 

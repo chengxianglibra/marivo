@@ -26,6 +26,7 @@ from marivo._definition.types import (
 )
 from marivo.analysis.compiler.observation import (
     ReductionInput,
+    _reduction_axes,
     calendar_field,
     common_slot,
     lower_common_observations,
@@ -271,7 +272,7 @@ def lower_common_components(
     selected = tuple(lower_condition(node, fields).value for node in predicates)
     filtered = table.filter(*selected) if selected else table
     fields = {path: filtered[name] for path, name in field_columns.items()}
-    axes = {slot: fields[path] for slot, path in reductions[0].axes}
+    axes = _reduction_axes(reductions[0], fields)
     projections: dict[str, ir.Value] = {f"__original_{slot}": value for slot, value in axes.items()}
     for index, layout in enumerate(layouts):
         if layout is None:

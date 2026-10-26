@@ -185,6 +185,40 @@ def reduction_input(
     )
 
 
+def _reduction_axes(
+    prepared: ReductionInput, available: Mapping[str, ir.Value], window_slot: str | None = None
+) -> dict[str, ir.Value]:
+    """Bind the exact ordered grouping, including captured calendar buckets."""
+    result = {slot: available[path] for slot, path in prepared.axes}
+    calendars = prepared.calendars or (
+        (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
+    )
+    for slot, calendar in calendars:
+        if prepared.window_key is not None and calendar == prepared.calendar:
+            assert window_slot is not None
+            result[slot] = available[window_slot]
+            continue
+        captured = available.get(calendar_field(slot))
+        if captured is not None:
+            result[slot] = captured
+            continue
+        assert prepared.time_column is not None
+        time = available[prepared.time_column]
+        bucket: ir.Value = ibis.null().cast("int64")
+        cells = (
+            calendar.cells
+            if isinstance(calendar, CalendarCoordinate)
+            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+        )
+        for i, (_, _, start, end) in reversed(tuple(enumerate(cells))):
+            bucket = (
+                (time >= temporal_bound(time, start, calendar.timezone))
+                & (time < temporal_bound(time, end, calendar.timezone))
+            ).ifelse(i, bucket)
+        result[slot] = bucket
+    return dict(sorted(result.items(), key=lambda item: int(item[0].split(".")[1])))
+
+
 def lower_observation(
     prepared: ReductionInput,
     table: ir.Table,
@@ -213,37 +247,7 @@ def lower_observation(
         *(NumericCheck(table[name], expected, received) for name, expected, received in row_checks),
     )
 
-    def output_axes(available: Mapping[str, ir.Value]) -> dict[str, ir.Value]:
-        result = {slot: available[path] for slot, path in prepared.axes}
-        calendars = prepared.calendars or (
-            (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
-        )
-        for slot, calendar in calendars:
-            if prepared.window_key is not None and calendar == prepared.calendar:
-                assert window_slot is not None
-                result[slot] = available[window_slot]
-                continue
-            captured = available.get(calendar_field(slot))
-            if captured is not None:
-                result[slot] = captured
-                continue
-            assert prepared.time_column is not None
-            time = available[prepared.time_column]
-            bucket: ir.Value = ibis.null().cast("int64")
-            cells = (
-                calendar.cells
-                if isinstance(calendar, CalendarCoordinate)
-                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
-            )
-            for i, (_, _, start, end) in reversed(tuple(enumerate(cells))):
-                bucket = (
-                    (time >= temporal_bound(time, start, calendar.timezone))
-                    & (time < temporal_bound(time, end, calendar.timezone))
-                ).ifelse(i, bucket)
-            result[slot] = bucket
-        return dict(sorted(result.items(), key=lambda item: int(item[0].split(".")[1])))
-
-    predicate_axes = output_axes(fields)
+    predicate_axes = _reduction_axes(prepared, fields, window_slot)
     predicate_metrics = {
         f"predicate_check.{i}": check.violation.any().fill_null(False)
         for i, check in enumerate(predicate_checks)
@@ -292,7 +296,7 @@ def lower_observation(
     fields = {path: filtered[name] for path, name in columns.items()}
     if window_slot is not None:
         fields[window_slot] = filtered[window_slot]
-    axes = output_axes(fields)
+    axes = _reduction_axes(prepared, fields, window_slot)
     from marivo.analysis.compiler.quantiles import quantile_bounds
 
     bounds = quantile_bounds(prepared, fields)
@@ -424,8 +428,14 @@ def lower_observation(
         # remain numeric samples, but cannot satisfy any coverage requirement.
         from marivo.analysis.compiler.sampled_mean import coverage_selection
 
-        expected = coverage_selection(prepared.coverage, clocks, output_axes(fields))
-        observed = filtered.filter(expected).select(**output_axes(fields), **clocks).distinct()
+        expected = coverage_selection(
+            prepared.coverage, clocks, _reduction_axes(prepared, fields, window_slot)
+        )
+        observed = (
+            filtered.filter(expected)
+            .select(**_reduction_axes(prepared, fields, window_slot), **clocks)
+            .distinct()
+        )
         # Synthetic NULLs require matching nullable types in both union arms.
         normal = result.mutate(
             **{
@@ -495,12 +505,12 @@ def lower_common_observations(
     columns: Mapping[str, str],
     predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
-    """Emit admitted independent exact reductions in one native aggregate."""
+    """Emit independent reductions and their checks in one native aggregate."""
     fields = {path: table[name] for path, name in columns.items()}
     selected = tuple(lower_condition(node, fields) for node in predicates)
     predicate_checks = tuple(check for item in selected for check in item.checks)
     first = reductions[0]
-    predicate_axes = {slot: fields[path] for slot, path in first.axes}
+    predicate_axes = _reduction_axes(first, fields)
     predicate_metrics = {
         common_slot(index, f"predicate_check.{position}"): check.violation.any().fill_null(False)
         for index in range(len(reductions))
@@ -517,7 +527,7 @@ def lower_common_observations(
     )
     filtered = table.filter(*(item.value for item in selected)) if selected else table
     fields = {path: filtered[name] for path, name in columns.items()}
-    axes = {slot: fields[path] for slot, path in first.axes}
+    axes = _reduction_axes(first, fields)
     metrics: dict[str, ir.Value] = {}
     checks: list[tuple[str, NumericCheck]] = []
     for index, reduction in enumerate(reductions):

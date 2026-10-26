@@ -56,6 +56,7 @@ from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
+from tests.support.source_trace import capture_source
 
 
 @pytest.fixture
@@ -672,11 +673,58 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
     assert frame["base.present"].tolist() == [True, False, True]
 
 
-def test_float_source_reductions_have_no_exact_fusion_grant(optimization_session: Session) -> None:
+def test_float_source_reductions_share_aggregate_without_reassociation(
+    optimization_session: Session,
+) -> None:
     value = optimization_session.catalog.fields.get("sales.orders.approximate")
     query = optimization_session.observe({"a": value.sum(), "b": value.sum()})
     plan, _, _ = _same(optimization_session, query)
-    assert not any(group.law == "source_block" for group in plan.fusion_groups)
+    assert any(group.law == "source_block" for group in plan.fusion_groups)
+
+
+@pytest.mark.parametrize("domain", ("overall", "interval", "calendar"))
+@pytest.mark.parametrize("width", (5, 20))
+def test_observe_different_fields_share_one_actual_aggregate(
+    optimization_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    domain: str,
+    width: int,
+) -> None:
+    session = optimization_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    exact = session.catalog.fields.get("sales.orders.exact")
+    approximate = session.catalog.fields.get("sales.orders.approximate")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-04")
+    metrics = (amount.sum(), exact.sum(), approximate.mean(), amount.min(), approximate.max())
+    by = (
+        ()
+        if domain == "overall"
+        else (scope if domain == "interval" else scope.by(mv.grain("day")),)
+    )
+    query = session.observe({f"v{index}": metrics[index % 5] for index in range(width)}, by=by)
+    plan, _, _ = _same(session, query)
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
+    trace = capture_source(monkeypatch)
+    result = query.compute().to_pandas()
+    assert len(trace.native_sql) == 1
+    assert trace.uploaded_key_rows == []
+    if domain == "overall" and width == 20:
+        with duckdb.connect(str(tmp_path / "optimization.duckdb"), read_only=True) as connection:
+            physical_plan = connection.execute("EXPLAIN " + trace.native_sql[0]).fetchone()
+        assert physical_plan is not None
+        assert physical_plan[1].count("SEQ_SCAN") == 1
+    if domain == "calendar":
+        assert result["v0"].tolist() == [30, 30, 0]
+        assert result["v1"].tolist() == [Decimal("30.04"), Decimal("30.02"), Decimal(0)]
+        assert result["v2"].iloc[:2].tolist() == [15.0, 30.0]
+        assert pd.isna(result["v2"].iloc[2])
+    else:
+        assert result["v0"].tolist() == [60]
+        assert result["v1"].tolist() == [Decimal("60.06")]
+        assert result["v2"].tolist() == [20.0]
+        assert result["v3"].tolist() == [10]
+        assert result["v4"].tolist() == [30.0]
 
 
 def test_null_empty_policy_and_different_source_fibers_remain_independent(
@@ -704,6 +752,59 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     result, _, _, _ = _execute(session, query, optimized=True)
     assert result.table["value.0"].tolist() == [10]
     assert result.table["value.1"].tolist() == [30]
+
+
+def test_mixed_observation_executes_once_per_contribution_domain(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = optimization_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    exact = session.catalog.fields.get("sales.orders.exact")
+    query = session.observe(
+        {
+            "all": amount.sum(),
+            "exact": exact.sum(),
+            "selected": amount.sum().where(amount > 15),
+            "selected_exact": exact.sum().where(amount > 15),
+        }
+    )
+    plan, _, _ = _same(session, query)
+    assert any(
+        "predicates" in item.reason
+        for item in plan.optimization_decisions
+        if item.rule == "source_merge" and item.status == "refused"
+    )
+    trace = capture_source(monkeypatch)
+    result = query.compute().to_pandas()
+    # Terminal native fusion may carry both independently grouped reads in
+    # one statement; the common-aggregate planner still has exactly two groups.
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 2
+    assert len(trace.native_sql) <= 2
+    assert result.iloc[0].tolist() == [60, Decimal("60.06"), 50, Decimal("50.05")]
+
+
+@pytest.mark.parametrize("failure", ("strict_null", "overflow"))
+def test_joint_aggregate_preserves_each_metric_failure(
+    optimization_session: Session, tmp_path: Path, failure: str
+) -> None:
+    session = optimization_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    exact = session.catalog.fields.get("sales.orders.exact")
+    if failure != "strict_null":
+        with duckdb.connect(str(tmp_path / "optimization.duckdb")) as connection:
+            connection.execute("UPDATE orders SET exact=500000000000000000000000000000000000.00")
+    query = session.observe(
+        {
+            "a": amount.sum(nulls="error") if failure == "strict_null" else amount.sum(),
+            "b": exact.sum(nulls="error") if failure == "strict_null" else exact.sum(),
+        }
+    )
+    errors: list[tuple[type[BaseException], str]] = []
+    for optimized in (False, True):
+        with pytest.raises((AnalysisError, SemanticExpressionError)) as caught:
+            _execute(session, query, optimized=optimized)
+        errors.append((type(caught.value), str(caught.value)))
+    assert errors[0] == errors[1]
 
 
 @pytest.mark.parametrize("kind", ("per", "window"))

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._definition.expressions import PredicateExpression, TimeBinding
+from marivo._definition.expressions import (
+    EntityCount,
+    PredicateExpression,
+    SourceAggregate,
+    TimeBinding,
+)
 from marivo._definition.observations import ObservationPeriod, SampleCoverage
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
@@ -83,6 +88,82 @@ class SourceInputContract:
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...]
     coverage: tuple[SampleCoverage, ...]
     time_authorities: tuple[SourceTimeAuthority, ...]
+
+    @classmethod
+    def capture(
+        cls,
+        contribution: ContributionBinding,
+        *,
+        source_owner: int,
+        datasource: str,
+        source_fingerprint: str,
+    ) -> SourceInputContract:
+        """Capture a row domain and its requested projection before preparation."""
+        return cls(
+            source_owner,
+            datasource,
+            source_fingerprint,
+            contribution.root,
+            contribution.reads,
+            contribution.coordinates,
+            contribution.time,
+            contribution.period,
+            (
+                *contribution.intrinsic_conditions,
+                *(
+                    (contribution.common_condition,)
+                    if contribution.common_condition is not None
+                    else ()
+                ),
+            ),
+            contribution.memberships,
+            contribution.population_reads,
+            contribution.window_key,
+            contribution.sample_axes,
+            contribution.calendars,
+            (),
+            (),
+        )
+
+
+def share_source_projections(
+    contributions: tuple[ContributionBinding, ...], contracts: tuple[SourceInputContract, ...]
+) -> tuple[ContributionBinding, ...]:
+    """Union root projections while preserving every relationship read and row domain."""
+    groups: dict[SourceInputContract, list[int]] = {}
+    for index, (contribution, contract) in enumerate(zip(contributions, contracts, strict=True)):
+        node = contribution.definition
+        if (
+            contribution.sample_axes
+            or contribution.window_key is not None
+            or not (
+                isinstance(node, EntityCount)
+                or (
+                    isinstance(node, SourceAggregate)
+                    and node.reducer in ("sum", "count", "mean", "min", "max")
+                )
+            )
+        ):
+            continue
+        # Only direct root fields are projections. Path/version reads retain
+        # their exact identity because adding a join can change contributions.
+        domain = replace(
+            contract,
+            reads=tuple(
+                read
+                for read in contract.reads
+                if read.entity != contract.root or read.path or read.at is not None
+            ),
+        )
+        groups.setdefault(domain, []).append(index)
+    result = list(contributions)
+    for indexes in groups.values():
+        reads = tuple(
+            dict.fromkeys(read for index in indexes for read in contributions[index].reads)
+        )
+        for index in indexes:
+            result[index] = replace(result[index], reads=reads)
+    return tuple(result)
 
 
 def prepare_fields(

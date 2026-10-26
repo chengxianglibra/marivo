@@ -274,7 +274,13 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                         "source_merge",
                         "refused",
                         (prior.stage_id, stage.stage_id),
-                        "Ordered contribution occurrences, policies and source numeric checks are retained; no registered equivalence proves a common aggregate.",
+                        _source_merge_issue(prior)
+                        or _source_merge_issue(stage)
+                        or (
+                            "Different bound contribution domains (source, paths, time, predicates or membership)."
+                            if prior.binding_id != stage.binding_id
+                            else "Different grouping, NULL policy, physical layout or consumer boundary."
+                        ),
                     )
                 )
             source_roots[stage.source_id] = stage
@@ -368,6 +374,56 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     )
 
 
+def _source_merge_issue(stage: SourceRead) -> str | None:
+    """Explain the first physical boundary that prevents a common aggregate."""
+    reduction = require_reduction(stage)
+    node = reduction.node
+    value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
+    reasons = (
+        (not stage.binding_id, "No qualified shared source binding."),
+        (
+            bool(stage.inputs or stage.parameters),
+            "Dependent source parameters retain their execution boundary.",
+        ),
+        (
+            bool(stage.preparation_checks),
+            "Source-wide preparation checks retain their execution boundary.",
+        ),
+        (
+            reduction.window_key is not None,
+            "Window contributions retain their own period and grid.",
+        ),
+        (
+            bool(
+                reduction.sampled
+                or reduction.preserve_sample_presence
+                or reduction.coverage
+                or reduction.mean_fold
+            ),
+            "Sample coverage and presence retain their own grid.",
+        ),
+        (reduction.duration is not None, "Duration reductions retain their exact tick completion."),
+        (
+            not (
+                isinstance(node, EntityCount)
+                or (
+                    isinstance(node, SourceAggregate)
+                    and node.reducer in ("sum", "count", "mean", "min", "max")
+                )
+            ),
+            "Reducer has no common-aggregate qualification.",
+        ),
+        (
+            not (
+                value.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+                or isinstance(value.dtype, DecimalDataType)
+            ),
+            "Result carrier has no common-aggregate qualification.",
+        ),
+    )
+    return next((reason for refused, reason in reasons if refused), None)
+
+
 def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
     groups: dict[tuple[str, str, str, tuple[str, ...], bool], list[SourceRead]] = {}
@@ -377,26 +433,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
             continue
         reduction = require_reduction(stage)
         node = reduction.node
-        value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
-        eligible = (
-            bool(stage.binding_id)
-            and not stage.inputs
-            and not stage.parameters
-            and not stage.preparation_checks
-            and not reduction.calendar
-            and not reduction.calendars
-            and reduction.window_key is None
-            and not reduction.preserve_sample_presence
-            and not reduction.sampled
-            and reduction.duration is None
-            and (
-                isinstance(node, EntityCount)
-                or (isinstance(node, SourceAggregate) and node.reducer in ("sum", "count"))
-            )
-            and (value.dtype == ScalarDataType("int64") or isinstance(value.dtype, DecimalDataType))
-            and len(consumers.get(stage.stage_id, ())) == 1
-        )
-        if not eligible:
+        if _source_merge_issue(stage) is not None or len(consumers.get(stage.stage_id, ())) != 1:
             continue
         policy = node.nulls if isinstance(node, SourceAggregate) else "ignore"
         identity = (
@@ -415,9 +452,15 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
         if (
             prior.period == stage.period
             and prior.predicates == stage.predicates
-            and prior.field_columns == stage.field_columns
+            and all(
+                dict(prior.field_columns).get(path, column) == column
+                for path, column in stage.field_columns
+            )
             and prior.keys == stage.keys
             and require_reduction(prior).axes == reduction.axes
+            and require_reduction(prior).calendar == reduction.calendar
+            and require_reduction(prior).calendars == reduction.calendars
+            and require_reduction(prior).time_column == reduction.time_column
             and tuple(column for column in prior.columns if column.slot_id in prior.keys)
             == tuple(column for column in stage.columns if column.slot_id in stage.keys)
             and (
@@ -475,7 +518,14 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
                     for column in read.columns
                     if column.slot_id not in read.keys
                 )
-                stage = replace(stage, columns=columns, program=common_program(stage, block))
+                stage = replace(
+                    stage,
+                    columns=columns,
+                    field_columns=tuple(
+                        dict.fromkeys(item for read in block for item in read.field_columns)
+                    ),
+                    program=common_program(stage, block),
+                )
         elif isinstance(stage, LocalCompute):
             stage = replace(
                 stage,

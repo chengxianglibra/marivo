@@ -88,6 +88,16 @@ Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
 selects exactly its complete output keys, including those without facts.
 Population.axes carries coordinate rules, without the selected keys or allocation.
 
+Within one observation, compatible ordinary sum/count/mean/min/max contributions
+share a grouped SQL aggregate, including different root fields and matching
+calendar buckets. Compatibility includes the actual source, relationship and
+version reads, time role, contribution range, predicates, memberships, output
+keys and NULL policy. Logical occurrences retain independent values, types and
+checks. Sampling, windows, Duration and dependent input boundaries keep their
+own execution routes. Later native terminal composition may put independent
+aggregate blocks into one statement; statement count alone does not prove scan
+sharing. See [optimizer coverage](algebra-theory.md#实现编号与理论定律的对应).
+
 A member without fact contributions has sum zero and count zero; a member with
 facts whose values are all NULL has sum NULL and a positive contribution count.
 Use a contribution count, not count(value) or the completed Frame row count,
