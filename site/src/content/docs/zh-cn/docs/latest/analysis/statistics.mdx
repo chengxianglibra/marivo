@@ -17,6 +17,10 @@ description: 计算行汇总、占比与配对相关性。
 
 ## 汇总和归一化当前行
 
+直接单段值列的 sum/mean 和 row_count 可用单个统计量或非空 tuple 省略名称，
+固定名称为 `<name>_sum`、`<name>_mean` 和 `row_count`。业务名称、表达式或配对统计、
+多段值路径应使用显式 Mapping。重复候选名在捕获时拒绝；求值和持久化保留原名称及顺序。
+
 ```python
 from analysis import mv, current, saved
 ```
@@ -25,12 +29,13 @@ from analysis import mv, current, saved
 
 ```python
 summary = current.reduce(
-    {
-        "sum": current["revenue"].sum(),
-        "mean": current["revenue"].mean(),
-        "rows": mv.row_count(),
-    }
+    (current["revenue"].sum(), current["revenue"].mean(), mv.row_count())
 ).compute()
+assert summary.output_names == ("revenue_sum", "revenue_mean", "row_count")
+summary_rows = summary.to_pandas()
+assert summary_rows[("value", "revenue_sum")].tolist() == [800]
+assert summary_rows[("value", "revenue_mean")].tolist() == [400]
+assert summary_rows[("value", "row_count")].tolist() == [2]
 summary.show()
 ```
 

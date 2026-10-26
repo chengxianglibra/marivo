@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from json import dumps
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias, overload
 from uuid import uuid4
 
 import pandas as pd
@@ -508,31 +508,54 @@ class AnalysisFrame:
         return self._derive(TopValues(n, by._expression, descending))
 
     def reduce(
-        self, values: Mapping[str, _Statistic], *, by: tuple[FrameAxis, ...] = ()
+        self,
+        values: _Statistic | tuple[_Statistic, ...] | Mapping[str, _Statistic],
+        *,
+        by: tuple[FrameAxis, ...] = (),
     ) -> AnalysisFrame:
         """Aggregate current rows by retained complete axes, removing all presence.
 
         Args:
-            values: Nonempty ordered named unfinished-statistic mapping.
+            values: One statistic, a nonempty ordered tuple, or a named statistic mapping.
             by: Tuple of complete same-input FrameAxis handles, default ().
 
         Returns:
             A lazy current-row aggregate AnalysisFrame.
 
         Example:
-            ``mean = frame.reduce({'mean': frame['revenue'].mean()})``.
+            ``summary = frame.reduce((frame['revenue'].sum(), mv.row_count()))``.
 
         Constraints: Each named statistic produces one column with its independent
         NA mask. Use correlate for a coefficient and its matching pair count;
         corr/pair_count compose with sum/mean/row_count without inferred pairing.
         Sum/mean retain the current expression's unit without certifying original Metric
         additivity or rollup over removed axes. No original Metric regrouping or calendar coarsening.
+        Automatic names are <value>_sum, <value>_mean for direct single-segment value
+        paths, and row_count. Expressions, pair statistics and generated paths require
+        an explicit Mapping. Duplicate automatic names require distinct explicit names.
         """
-        if not isinstance(values, Mapping) or not values or type(by) is not tuple:
+        if isinstance(values, Mapping) and values:
+            named = True
+            items = tuple(values.items())
+        elif isinstance(values, _Statistic):
+            named = False
+            items = (("", values),)
+        elif type(values) is tuple and values:
+            named = False
+            items = tuple(("", statistic) for statistic in values)
+        else:
             reject(
-                "a nonempty statistic mapping and tuple of current axes",
+                "one statistic, a nonempty statistic tuple, or a nonempty named mapping",
                 type(values).__name__,
-                "Pass reduce({'rows': row_count()}, by=(frame.axes[0],)).",
+                "Pass reduce(row_count()) or reduce({'your_name': statistic}).",
+                "frame.reduce",
+                canonical_id="analysis_frame.reduce",
+            )
+        if type(by) is not tuple:
+            reject(
+                "a tuple of complete current axes",
+                type(by).__name__,
+                "Use by=() for a scalar result or a tuple of this Frame's complete axes.",
                 "frame.reduce",
                 canonical_id="analysis_frame.reduce",
             )
@@ -550,12 +573,49 @@ class AnalysisFrame:
             )
         from marivo.analysis.core.frame_structure import value_name
 
-        statistics = []
-        for name, value in values.items():
-            value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
+        statistics: list[tuple[str, Statistic | PairStatistic]] = []
+        candidates: dict[str, int] = {}
+        for position, (name, value) in enumerate(items, 1):
+            if named:
+                value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
             bound = self._bind_statistic(
                 value, location="frame.reduce", canonical_id="analysis_frame.reduce"
             )
+            if not named:
+                definition = bound._definition
+                if isinstance(definition, Statistic) and definition.method == "row_count":
+                    name = "row_count"
+                elif isinstance(definition, Statistic) and isinstance(definition.value, ValueSlot):
+                    path = self._schema.value_paths[definition.value.index]
+                    if len(path) != 1:
+                        reject(
+                            "a direct single-segment value path for an automatic statistic name",
+                            f"input {position}: {'.'.join(path)!r}",
+                            "Give this multi-segment path a single-segment output name with "
+                            "reduce({'your_name': statistic}).",
+                            "frame.reduce",
+                            canonical_id="analysis_frame.reduce",
+                        )
+                    name = f"{path[0]}_{definition.method}"
+                else:
+                    reject(
+                        "row_count() or sum/mean of a direct single-segment value Column",
+                        f"input {position}: {type(definition).__name__}",
+                        "Give this statistic an explicit name with "
+                        "reduce({'your_name': statistic}).",
+                        "frame.reduce",
+                        canonical_id="analysis_frame.reduce",
+                    )
+                value_name(name, location="frame.reduce", canonical_id="analysis_frame.reduce")
+            if name in candidates:
+                reject(
+                    "distinct statistic output names",
+                    f"{name!r} at input positions {candidates[name]} and {position}",
+                    "Give each statistic a distinct explicit name with reduce({'your_name': statistic}).",
+                    "frame.reduce",
+                    canonical_id="analysis_frame.reduce",
+                )
+            candidates[name] = position
             statistics.append((name, bound._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
@@ -866,43 +926,110 @@ class AnalysisFrame:
             self._local, schema, OperationFrameBinding(operation, (self, other))
         )
 
+    @overload
+    def compare(
+        self,
+        baselines: AnalysisFrame,
+        *,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
+        match: CalendarCorrespondence | None = None,
+    ) -> AnalysisFrame: ...
+
+    @overload
     def compare(
         self,
         baselines: Mapping[str, AnalysisFrame],
         *,
         on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None = None,
         match: Mapping[str, CalendarCorrespondence] | None = None,
+    ) -> AnalysisFrame: ...
+
+    def compare(
+        self,
+        baselines: AnalysisFrame | Mapping[str, AnalysisFrame],
+        *,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...]
+        | Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]]
+        | None = None,
+        match: CalendarCorrespondence | Mapping[str, CalendarCorrespondence] | None = None,
     ) -> AnalysisFrame:
-        """Compare current values with one or more explicitly named baseline Frames.
+        """Compare current values with one reference Frame or named baseline Frames.
 
         Args:
-            baselines: Nonempty ordered mapping of same-Session Frames; current is reserved.
-            on: Per-alias complete axis bijections. Omitted aliases require unique inference.
-            match: Per-alias closed time rules, consistent with any frozen direct relation.
+            baselines: One same-Session Frame, or a nonempty ordered mapping of them.
+                A bare Frame uses the alias reference; current is reserved.
+            on: A complete axis-pair tuple for a bare Frame; a per-alias Mapping for
+                named baselines. Omitted bindings require unique inference.
+            match: A closed time rule for a bare Frame; a per-alias Mapping for named
+                baselines. Rules must agree with any frozen direct relation.
 
         Returns:
             A lazy ordinary Frame with current values, named baseline/difference groups and presence.
 
         Example:
-            ``change = current.compare({"reference": baseline}, match={"reference": mv.ordinal()})``.
+            ``change = current.compare(baseline, match=mv.ordinal())``.
 
-        Constraints: Equal nonempty numeric value paths and units; no paired inputs. Relative
+        Constraints: Equal nonempty value paths with compatible numeric or matching-tick
+        Duration endpoints and matching units; no paired inputs. Relative
         change is (current-baseline)/abs(baseline). Missing rows and NA propagate; zero baselines return NA. Outer correspondence preserves missing-side rows.
         Ordinary-axis on declares caller business correspondence without checking original
         Entity/Field equality. Equal value names select pairs, not Metric identity or business comparability.
         No source replay or date inference from alias names.
+        Bare Frame and named Mapping forms cannot mix on/match parameter shapes.
+        The reference alias retains full reference.baseline/absolute/relative paths.
         """
         from marivo.analysis.core.frame_structure import validate_paths
 
-        if not isinstance(baselines, Mapping) or not baselines:
+        named_baselines: Mapping[str, AnalysisFrame]
+        named_on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None
+        named_match: Mapping[str, CalendarCorrespondence] | None
+        if isinstance(baselines, AnalysisFrame):
+            if on is not None and type(on) is not tuple:
+                reject(
+                    "a bare complete axis-pair tuple for a bare baseline Frame",
+                    type(on).__name__,
+                    "Pass a bare tuple of complete axis pairs, or omit on to request inference.",
+                    "frame.compare",
+                    canonical_id="analysis_frame.compare",
+                )
+            if match is not None and type(match) is not CalendarCorrespondence:
+                reject(
+                    "a bare calendar rule for a bare baseline Frame",
+                    type(match).__name__,
+                    "Pass compare(baseline, match=mv.ordinal()) or another closed time rule.",
+                    "frame.compare",
+                    canonical_id="analysis_frame.compare",
+                )
+            named_baselines = {"reference": baselines}
+            named_on = None if on is None else {"reference": on}
+            named_match = None if match is None else {"reference": match}
+        elif isinstance(baselines, Mapping) and baselines:
+            if on is not None and not isinstance(on, Mapping):
+                reject(
+                    "a per-alias on Mapping for named baseline Frames",
+                    type(on).__name__,
+                    f"Map complete axis-pair tuples under the actual aliases {tuple(baselines)!r}.",
+                    "frame.compare",
+                    canonical_id="analysis_frame.compare",
+                )
+            if match is not None and not isinstance(match, Mapping):
+                reject(
+                    "a per-alias match Mapping for named baseline Frames",
+                    type(match).__name__,
+                    f"Map closed calendar rules under the actual aliases {tuple(baselines)!r}.",
+                    "frame.compare",
+                    canonical_id="analysis_frame.compare",
+                )
+            named_baselines, named_on, named_match = baselines, on, match
+        else:
             reject(
-                "a nonempty named baseline Frame mapping",
-                repr(baselines),
-                "Pass compare({'reference': baseline}) even for one baseline.",
+                "one baseline Frame or a nonempty named baseline Frame mapping",
+                type(baselines).__name__,
+                "Pass compare(baseline), or give multiple baselines distinct explicit aliases.",
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
             )
-        names = tuple(baselines)
+        names = tuple(named_baselines)
         validate_paths(
             tuple((name,) for name in names),
             location="frame.compare.aliases",
@@ -916,7 +1043,7 @@ class AnalysisFrame:
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
             )
-        for mapping in (on, match):
+        for mapping in (named_on, named_match):
             if mapping is not None and (
                 not isinstance(mapping, Mapping) or set(mapping) - set(names)
             ):
@@ -927,20 +1054,20 @@ class AnalysisFrame:
                     "frame.compare",
                     canonical_id="analysis_frame.compare",
                 )
-        if on is not None and any(type(pairs) is not tuple for pairs in on.values()):
+        if named_on is not None and any(type(pairs) is not tuple for pairs in named_on.values()):
             reject(
                 "a complete axis-pair tuple for every explicitly supplied on alias",
-                repr(on),
+                repr(named_on),
                 "Omit an alias to request inference, or supply its complete axis-pair tuple.",
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
             )
-        if match is not None and any(
-            type(rule) is not CalendarCorrespondence for rule in match.values()
+        if named_match is not None and any(
+            type(rule) is not CalendarCorrespondence for rule in named_match.values()
         ):
             reject(
                 "a closed calendar rule for every explicitly supplied match alias",
-                repr(match),
+                repr(named_match),
                 "Omit an alias for direct inference or equality, or supply ordinal/offset.",
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
@@ -950,17 +1077,17 @@ class AnalysisFrame:
                 name,
                 self._axis_pairs(
                     baseline,
-                    on=None if on is None else on.get(name),
-                    match=None if match is None else match.get(name),
+                    on=None if named_on is None else named_on.get(name),
+                    match=None if named_match is None else named_match.get(name),
                     location="frame.compare",
                     canonical_id="analysis_frame.compare",
                 ),
-                None if match is None else match.get(name),
+                None if named_match is None else named_match.get(name),
             )
-            for name, baseline in baselines.items()
+            for name, baseline in named_baselines.items()
         )
         operation = CompareFrameValues(bindings)
-        inputs = (self, *baselines.values())
+        inputs = (self, *named_baselines.values())
         schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
 

@@ -231,14 +231,14 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "values",
-                    "Named sum/mean/corr/pair_count/row_count; separate NA masks, one column each. Names do not infer pairs; correlate supplies coefficient/count.",
+                    "Statistic, nonempty tuple or nonempty named Mapping. Direct single-segment sum/mean use <name>_sum/<name>_mean; row_count uses row_count. Expressions, multi-segment paths and corr/pair_count need Mapping.",
                 ),
                 P("by", "Retained complete axes; () gives one scalar coordinate."),
             ),
             "AnalysisFrame",
-            "Reduce current-value rows; keep selected complete axes and drop presence.",
+            "Reduce current-value rows; keep by axes and drop presence.",
             "selected = frame.where(frame['value'] > 0)\n"
-            "result = selected.reduce({'total': selected['value'].sum()}).compute()",
+            "result = selected.reduce(selected['value'].sum()).compute()",
             ("frame",),
             "frame.statistics",
         ),
@@ -305,20 +305,20 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "baselines",
-                    "Nonempty ordered named same-Session Frame mapping with matching nonempty value paths and units: compatible numeric or matching-tick exact Duration endpoints. Equal names select pairs without proving Metric identity or business comparability. current is reserved.",
+                    "Same-Session Frame (alias reference), or nonempty ordered alias-to-Frame Mapping. Require equal nonempty value paths/units: numeric or matching-tick Duration. Names certify no Metric identity/business comparability; current is reserved.",
                 ),
                 P(
                     "on",
-                    "Per-alias complete axis bijections declaring caller business correspondence, without checking original Entity/Field equality; omitted aliases infer only zero axes or one time axis.",
+                    "Bare Frame: bare tuple of complete axis pairs. Mapping: per-alias tuples. Caller owns business correspondence; Entity/Field identity is not checked. Omission infers only zero axes or one time axis.",
                 ),
                 P(
                     "match",
-                    "Per-alias explicit rules; omitted rules use compatible immediate frozen direct relations or equality.",
+                    "Bare Frame: CalendarCorrespondence. Mapping: per-alias rules. Omission uses compatible frozen direct relations or equality. Do not mix shapes.",
                 ),
             ),
             "AnalysisFrame",
-            "Retain current values and add <alias>.baseline.<name>, <alias>.absolute.<name> and <alias>.relative.<name>; relative divides the difference by the absolute baseline, with zero baseline yielding NA.",
-            "result = frame.compare({'reference': baseline})",
+            "Keep current axes/values; add <alias>.baseline.<name>, <alias>.absolute.<name>, <alias>.relative.<name>. Relative = difference / absolute baseline; zero gives NA.",
+            "result = frame.compare(baseline)",
             ("frame", "baseline"),
             "frame.compare",
         ),
@@ -422,7 +422,7 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Outer correspondence keeps the ordered union; presence is independent of value NA. Calendar ordinal requires complete nominal/actual buckets; offset also supports saved week/month/year bucket-start prefixes with exactly equal progress. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
                     if name == "align"
-                    else "Validate each named same-Session endpoint and complete on binding; on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Current axes and value paths stay unchanged. Outer correspondence preserves current order then mapped baseline-only keys in alias order. Reject baseline time rows outside the declared current time domain; use align for a general time union. Compatible direct shift relations may infer match; mismatched anchors or conflicting explicit rules reject. Prefix offset matching supports week/month/year with exact saved progress; ordinal requires complete buckets. current.present and <alias>.present are independent nonnullable row flags, distinct from value NA and inherited current.presence.* / <alias>.presence.*. Duration baseline/absolute preserve the original tick unit; relative is dimensionless. No missing value becomes zero; strict child errors remain required."
+                    else "reference.present. Alias omission infers no time relationship; collisions need alias/select, never numbering. on/outer cannot repair ownership, paired axes, axis count or key/time types. Outer order: current, then mapped baseline-only keys by alias. Baseline times must map into current domain; use align for unions. Direct shift may supply match; wrong anchors/conflicts reject. Calendar ordinal needs complete buckets; week/month/year bucket-start offset prefixes need exactly equal saved progress. Independent nonnullable current.present/<alias>.present differ from NA and inherited *.presence.*. Duration keeps ticks; relative is dimensionless (unit=None). Missing/NA stay NA; child errors remain."
                     if name == "compare"
                     else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
                     if name == "correlate"
@@ -432,22 +432,28 @@ def provider() -> DisclosureProvider:
                     if name == "over"
                     else "Equivalent to this Column divided by over(this Column.sum(), by=the complementary axes), with zero totals masked before division. Axis order normalizes to input order; empty along and zero-axis inputs reject. Numeric and legal Duration sum/divide types follow their existing kernels; boolean/string/date reject. NA propagates; zero totals give NA, including cancelling signed values. Ratios are not percentages and may lie outside [0,1]. Unit is '1' when known equal units cancel, otherwise None for unknown units. Filtering before share changes the denominator; filtering afterward preserves it. Current-value normalization does not certify source Metric additivity or contribution; it creates no method facts."
                     if name == "share"
-                    else "Example needs numeric frame['value']. Reacquire exact-input Columns/axes/statistics after where/top/select or carrier changes. No Artifact input. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Inventory/ratio sums remain row statistics."
+                    else "Example needs numeric frame['value']. Names use bound value slots/schema, never variables/dependencies. Reject duplicate/invalid names at capture; use distinct legal Mapping keys. Names/order stay fixed through compute/persist. Use exact-input statistics after derivation. Independent NA masks. Sum/mean retain expression units, not original Metric additivity or rollup."
                     if name == "reduce"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
                 effects=(
                     "Lazy; no source/schema reads."
-                    if name == "reduce"
+                    if name in ("reduce", "compare")
                     else "Capture a lazy result operation; no source or schema read."
                 ),
                 failures=(
                     "AnalysisError: follow its repair."
                     if name == "reduce"
+                    else "AnalysisError: follow its repair."
+                    if name == "compare"
                     else "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
-                related=("value_statistic",) if output == "_Statistic" else (),
+                related=("value_statistic",)
+                if output == "_Statistic"
+                else ("ordinal",)
+                if name == "compare"
+                else (),
                 discovery_group=group,
             )
         )

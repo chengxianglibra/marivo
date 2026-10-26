@@ -76,7 +76,13 @@ Paths must be explicit, contiguous and legal for the consumer.
 
 ## Observation domain, contributions and counts
 
-observe accepts a nonempty ordered mapping of names to completed Metric recipes.
+observe accepts one closed declared Metric, a nonempty tuple of them, or a
+nonempty ordered Mapping of explicit names to closed Metric expressions. Only
+the consumed root DeclaredMetricRef supplies a shorthand local name; added
+expressions and direct source reducers/counts require Mapping. Duplicate or
+invalid names reject at capture; tuple/Mapping order fixes output order. Names
+do not establish Metric identity or business comparability. The
+[Frame naming contract](analysis-frame.md#名称与-presence) owns these rules.
 by=() requests a zero-axis cell. An ordered tuple may contain fields, ordinary
 Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
 selects exactly its complete output keys, including those without facts.

@@ -146,8 +146,8 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     text = render_help_text("analysis.analysis_frame.compare")[0]
     assert text == render_help_text(mv.AnalysisFrame.compare)[0]
     assert text == render_help_text(current.compare)[0]
-    assert "compatible numeric or matching-tick exact Duration endpoints" in text
-    assert "Duration baseline/absolute preserve the original tick unit" in text
+    assert "numeric or matching-tick Duration" in text
+    assert "Duration keeps ticks" in text
     assert "relative is dimensionless" in text
     result = current.compare({"reference": baseline}).compute()
     data = result.to_pandas()

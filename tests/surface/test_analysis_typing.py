@@ -44,6 +44,8 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.where(True)  # invalid: ordinary boolean predicate
     query.select({'value': field})  # invalid: source field in result selection
     query.reduce({'value': query['value']})  # invalid: unfinished reduction shape
+    query.reduce([mv.row_count()])  # invalid: statistic list
+    query.reduce(({'rows': mv.row_count()},))  # invalid: named Mapping inside tuple
     query.attribute()  # invalid: missing fine domain
     query.attribute(by=query.axes)  # invalid: Frame axes are not source classifications
     query.attribute(by=(field,), baseline=query)  # invalid: receiver owns its baseline
@@ -56,7 +58,12 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.top('1', by=query['value'])  # invalid: rank count type
     query.top(1, by=field)  # invalid: source score at result
     query.compare({'reference': artifact})  # invalid: terminal compare endpoint
-    query.compare(query)  # invalid: retired bare baseline
+    query.compare(query, on={'reference': ()})  # invalid: named on for bare baseline
+    query.compare(query, match={'reference': mv.ordinal()})  # invalid: named match for bare baseline
+    query.compare({'reference': query}, on=())  # invalid: bare on for named baseline
+    query.compare({'reference': query}, match=mv.ordinal())  # invalid: bare match for named baseline
+    query.compare((query,))  # invalid: unnamed multiple baselines
+    query.compare([query])  # invalid: unnamed baseline list
     mv.previous_year()  # invalid: retired rule constructor
     mv.period_offset(-1)  # invalid: retired rule constructor
     mv.offset()  # invalid: missing offset
@@ -135,10 +142,15 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(query.where(query['revenue'] > 0), mv.AnalysisFrame)
     assert_type(query.top(3, by=query['revenue']), mv.AnalysisFrame)
     assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.AnalysisFrame)
+    assert_type(query.reduce(query['revenue'].sum()), mv.AnalysisFrame)
+    assert_type(query.reduce((query['revenue'].sum(), mv.row_count())), mv.AnalysisFrame)
     assert_type(query.over(query['revenue'].sum(), by=query.axes), mv.Column)
     assert_type(query.over(mv.row_count()), mv.Column)
     assert_type(query['revenue'].share(along=query.axes), mv.Column)
     assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}), mv.AnalysisFrame)
+    assert_type(query.compare(other), mv.AnalysisFrame)
+    assert_type(query.compare(other, on=((query.axes[0], other.axes[0]),)), mv.AnalysisFrame)
+    assert_type(query.compare(other, match=mv.ordinal()), mv.AnalysisFrame)
     assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """
     )

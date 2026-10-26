@@ -142,7 +142,7 @@ def provider() -> DisclosureProvider:
             Session,
             "observe",
             "AnalysisFrame",
-            "result = session.observe(metrics, by=(calendar, field))",
+            "result = session.observe(revenue)",
             "Observe named Metrics overall, by time/classification, or both.",
         ),
         (
@@ -223,7 +223,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
-        "metrics": "Pass a nonempty ordered mapping from output names to resolved Metric expressions; Artifact objects and IDs are rejected.",
+        "metrics": "Closed Metric or nonempty tuple/Mapping. Only consumed root DeclaredMetricRef supplies local names, including named formulas; other expressions need Mapping. Names: nonempty; no dots, backslashes, controls or left_present/right_present. Names/order survive compute/persist/reopen.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     for receiver, name, output, code, effect in operations:
@@ -266,13 +266,11 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "timezone"
                         else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
                         if name == "get_or_create" and n == "domains"
-                        else "Empty () is one zero-axis cell. Ordered fields, Grouping, TimeScope, memberships, Population P or (P, rule, ...). Memberships expand in place; non-first fields locate interleaved axes. P fixes joint keys: cover necessary output keys before sampling; extras retain empty-input values. Internal per(P) allows subsets. TimeScope adds an interval axis; CalendarAxis adds buckets. population.axes: coordinates only, no selected keys/allocations."
+                        else "Ordered fields/Grouping/TimeScope/memberships, Population P or (P, rule, ...); () gives one zero-axis cell. Memberships expand with interleaved fields. P fixes joint keys; population.axes carries axes only. Cover necessary output keys before sampling; extras keep empty values. TimeScope/CalendarAxis: intervals/buckets."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "TimeScope filters without grouping; CalendarAxis adds time buckets and must match an existing output calendar; None adds no time filter."
-                        if name == "observe" and n == "during"
-                        else "Pass a Deferred combining field and Population membership conditions restricting fact contributions. Captured Population.count domains are not reselected; count-only conditions reject."
+                        else "Deferred field/Population contribution condition. Population.count domains stay fixed; count-only conditions reject."
                         if name == "observe" and n == "where"
                         else acquisition[n],
                     )
@@ -300,6 +298,8 @@ def provider() -> DisclosureProvider:
                     if name == "get_or_create"
                     else "AnalysisError: read its fields and repair."
                     if name == "members"
+                    else "AnalysisError: follow its typed repair; no name cleaning/numbering."
+                    if name == "observe"
                     else "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
                 ),
                 example=ExampleInput(
@@ -314,7 +314,7 @@ def provider() -> DisclosureProvider:
                     if name == "persisted_frame"
                     else ("session", "frame", "target")
                     if name == "population_from"
-                    else ("session", "metrics", "calendar", "field")
+                    else ("session", "revenue")
                     if name == "observe"
                     else ("session", "population")
                     if name == "frame"

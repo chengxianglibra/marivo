@@ -135,8 +135,21 @@ if TYPE_CHECKING:
             ),
             mv.AnalysisFrame,
         )
+        assert_type(query.reduce(value.sum()), mv.AnalysisFrame)
+        assert_type(query.reduce((value.sum(), value.mean(), mv.row_count())), mv.AnalysisFrame)
         assert_type(query.align(other, on=((axis, other.axes[0]),)), mv.AnalysisFrame)
+        assert_type(query.compare(other), mv.AnalysisFrame)
+        assert_type(query.compare(other, on=((axis, other.axes[0]),)), mv.AnalysisFrame)
+        assert_type(query.compare(other, match=mv.ordinal()), mv.AnalysisFrame)
         assert_type(query.compare({"reference": other}), mv.AnalysisFrame)
+        assert_type(
+            query.compare(
+                {"named": other},
+                on={"named": ((axis, other.axes[0]),)},
+                match={"named": mv.ordinal()},
+            ),
+            mv.AnalysisFrame,
+        )
         return query.select({"ratio": value / 2})
 
     def explicit_identity(

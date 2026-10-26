@@ -83,8 +83,7 @@ def test_grouping_is_the_public_observation_family() -> None:
     for name in ("member", "MemberAxis", "MembershipAxis"):
         assert not hasattr(mv, name)
         assert name not in mv.__all__
-    with pytest.raises(TypeError):
-        mv.Grouping()
+    assert inspect.isabstract(mv.Grouping)
 
 
 @pytest.mark.parametrize(
@@ -101,7 +100,7 @@ def test_grouping_is_the_public_observation_family() -> None:
         (
             "session.observe",
             (
-                "Grouping, TimeScope, memberships",
+                "fields/Grouping/TimeScope/memberships",
                 "population.axes",
                 "P fixes joint keys",
             ),
@@ -232,8 +231,8 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
 
     page = rendered_help("analysis.analysis_frame.reduce")
     assert page == rendered_help(mv.AnalysisFrame.reduce)
-    assert "Sum/mean retain the current expression's unit" in page
-    assert "does not certify original Metric additivity or permit rollup over removed axes" in page
+    assert "Sum/mean retain expression units" in page
+    assert "not original Metric additivity or rollup" in page
     for target in ("analysis.column.sum", "analysis.column.mean"):
         assert "Retain the expression's unit without certifying" in rendered_help(target)
 
@@ -263,10 +262,13 @@ def test_partition_and_share_help_disclose_binding_denominators_and_discovery() 
 def test_frame_correspondence_help_separates_caller_intent_from_identity(method: str) -> None:
     page = rendered_help("analysis.analysis_frame." + method)
     assert page == rendered_help(getattr(mv.AnalysisFrame, method))
-    assert "declaring caller business correspondence" in page
-    assert "without checking original Entity/Field equality" in page
     if method == "compare":
-        assert "without proving Metric identity or business comparability" in page
+        assert "Caller owns business correspondence" in page
+        assert "Entity/Field identity is not checked" in page
+        assert "Names certify no Metric identity/business comparability" in page
+    else:
+        assert "declaring caller business correspondence" in page
+        assert "without checking original Entity/Field equality" in page
     axis = rendered_help("analysis.frame_axis")
     assert axis == rendered_help(mv.FrameAxis)
     assert "without original Entity/Field nominal bindings" in axis

@@ -67,12 +67,12 @@ amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({"revenue": revenue}, by=(july, region)).compute()
-current = session.observe({"revenue": revenue}, by=(august, region)).compute()
+baseline = session.observe(revenue, by=(july, region)).compute()
+current = session.observe(revenue, by=(august, region)).compute()
 change = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
 )
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
@@ -102,16 +102,29 @@ saved_artifact_id = saved.artifact.id
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `metrics` | Yes | — | Nonempty mapping from output names to closed Metric expressions; names cannot contain dots. |
+| `metrics` | Yes | — | One closed declared Metric, a nonempty tuple, or a nonempty output-name → closed Metric expression Mapping. |
 | `by` | No | `()` | Ordered semantic fields, TimeScopes, groupings, or one complete Population. `()` requests one cell. `by=P` retains exactly P’s complete output keys. |
 | `where` | No | `None` | Predicate on source contributions; `None` adds no contribution filter. Output selection in by is independent. |
+
+`session.observe(revenue)` uses the declared Metric’s local name, `revenue`;
+`session.observe((revenue, other_metric))` preserves tuple order. Only a consumed
+root `DeclaredMetricRef` supplies a default name. A declared formula has its own
+name, but arithmetic, filter, window, per or rescale added around a reference
+requires a Mapping, such as `session.observe({"scaled_revenue": revenue / 1000})`.
+Direct source reducers, Entity/Population counts and unnamed expressions also
+require explicit names. Python variable names and dependency leaves are not used.
+Repeated Metrics or equal local names from different domains collide; choose
+distinct Mapping keys. Names must be legal single segments, without dots or the
+reserved presence names `left_present`/`right_present`. Invalid names are not
+cleaned or numbered automatically. Names are fixed at capture, available through
+`output_names`, and unchanged by empty results, compute, persist or recovery.
 
 ### Read August revenue
 
 ```python
-regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+regional = session.observe(revenue, by=(august, region)).compute()
 regional.show()
-overall = session.observe({"revenue": revenue}, by=(august,)).compute()
+overall = session.observe(revenue, by=(august,)).compute()
 assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
 ```
 
@@ -140,23 +153,30 @@ TimeScopes use inclusive start and exclusive end. An explicitly selected Populat
 
 <a id="compare-and-align"></a>
 
-## compare — compare named baselines
+## compare — compare baselines
 
-Call `current.compare({"reference": baseline}, ...)` for one or more baselines in the same Session. Endpoints need matching nonempty numeric value paths and compatible units (exact Duration comparisons are also supported). Equal names choose pairs; the caller still establishes business comparability.
+Call `current.compare(baseline, ...)` for one baseline in the same Session; its fixed alias is `reference`. Use `current.compare({"prior": baseline}, ...)` to choose a business alias, and distinct Mapping keys for multiple baselines. Endpoints need matching nonempty numeric value paths and compatible units (exact Duration comparisons are also supported). Equal names choose pairs; the caller still establishes business comparability, including Metrics from different domains with the same local name.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `baselines` | Yes | — | Nonempty ordered alias → same-Session Frame mapping; `current` is reserved. |
-| `on` | No | `None` | Per-alias complete axis pairs. `None` permits inference only for zero axes or one time axis per side; ordinary axes require explicit mapping. |
-| `match` | No | `None` | Per-alias explicit temporal correspondence. `None` uses compatible frozen direct relations or coordinate equality, never an alias-derived date shift. |
+| `baselines` | Yes | — | One Frame (alias `reference`), or a nonempty ordered alias → same-Session Frame Mapping; `current` is reserved. |
+| `on` | No | `None` | Bare axis-pair tuple for a bare Frame; per-alias Mapping for baseline Mapping input. `None` infers only zero axes or one time axis per side; ordinary axes require complete explicit mapping. |
+| `match` | No | `None` | Bare CalendarCorrespondence for a bare Frame; per-alias Mapping for baseline Mapping input. `None` uses compatible frozen direct relations or coordinate equality. |
 
 Outputs retain current values and add `<alias>.baseline.<name>`, `<alias>.absolute.<name>` and `<alias>.relative.<name>`. `current.present` and `<alias>.present` report row presence independently of numeric NA.
 
+The bare form is equivalent to `{"reference": baseline}`, including
+`reference.baseline.revenue` and `reference.present`. Do not mix bare on/match
+with Mapping baselines, or per-alias parameters with a bare Frame. Multiple
+baselines require names. Alias omission infers no year-over-year, budget or date
+relationship. A `reference` path collision requires an explicit alias or select;
+names are never numbered, and values are never paired by their column position.
+
 ```python
 compared = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
 ).compute()
 compared.show()
 ```
@@ -291,7 +311,7 @@ The pairs are (200, 300) and (600, 700), so the example returns 1 with only two 
 
 ## align — pair complete coordinates
 
-`left.align(right, on=..., match=...)` brings two Frames into one coordinate correspondence for custom arithmetic. It keeps all values as `left.<name>` and `right.<name>` and adds `left.present` and `right.present`. Unlike compare, value names need not match.
+`left.align(right, on=..., match=...)` brings two Frames into one coordinate correspondence for custom arithmetic. It keeps all values as `left.<name>` and `right.<name>` and adds `left_present` and `right_present`. Unlike compare, value names need not match.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
@@ -349,8 +369,17 @@ The budget is east 250 and west 750; August variances are -50 and -150. The redu
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `values` | Yes | — | Nonempty output name → unfinished statistic mapping. Each sum/mean/corr/pair_count/row_count produces one column. |
+| `values` | Yes | — | One statistic, a nonempty tuple, or a nonempty output-name → statistic Mapping. Each statistic produces one column. |
 | `by` | No | `()` | Distinct complete axes retained from this Frame; `()` summarizes all represented rows. Omitted axes disappear. |
+
+A direct single-segment value’s sum/mean uses `<name>_sum` / `<name>_mean`;
+`mv.row_count()` uses `row_count`. For example,
+`current.reduce(current["revenue"].sum()).output_names` is `("revenue_sum",)`.
+Use a Mapping for business names, expression statistics, corr/pair_count and
+multi-segment values such as `left.revenue`. The receiver schema and bound value
+slot supply the name; arithmetic over one column does not inherit that column’s
+name. Repeated candidates reject, and tuple/Mapping order determines output order.
+Naming adds no aggregation authority and never relaxes exact Frame ownership.
 
 ```python
 summary = current.reduce(

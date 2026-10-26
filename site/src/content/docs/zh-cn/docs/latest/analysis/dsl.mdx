@@ -65,12 +65,12 @@ amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({"revenue": revenue}, by=(july, region)).compute()
-current = session.observe({"revenue": revenue}, by=(august, region)).compute()
+baseline = session.observe(revenue, by=(july, region)).compute()
+current = session.observe(revenue, by=(august, region)).compute()
 change = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
 )
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
@@ -100,16 +100,26 @@ saved_artifact_id = saved.artifact.id
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `metrics` | 是 | — | 输出名到闭合 Metric 表达式的非空映射；名称不能含点号。 |
+| `metrics` | 是 | — | 单个闭合命名 Metric、非空 tuple，或非空的输出名 → 闭合 Metric 表达式 Mapping。 |
 | `by` | 否 | `()` | 有序语义字段、TimeScope、分组规则或一个完整 Population；`()` 请求一个单元，`by=P` 保留 P 的完整输出键。 |
 | `where` | 否 | `None` | 来源贡献谓词；`None` 不添加贡献筛选，与 by 中的输出选择独立。 |
+
+`session.observe(revenue)` 继承声明 Metric 的本地名 `revenue`；
+`session.observe((revenue, other_metric))` 保留 tuple 顺序。仅消费后的根
+`DeclaredMetricRef` 提供默认名。命名公式有自己的声明名，但在引用外追加算术、
+filter、window、per 或 rescale 必须使用 Mapping，例如
+`session.observe({"scaled_revenue": revenue / 1000})`。直接 source reducer、
+Entity/Population count 和未命名表达式同样需要显式名称，不读取 Python 变量名或依赖叶子。
+重复 Metric 或不同域的同一本地名会冲突，应使用不同 Mapping 键。名称必须是合法单段，
+不能含点号或使用保留的 presence 名 `left_present`/`right_present`；非法名称不自动清洗或编号。
+名称在捕获时确定，可立即读取 `output_names`，空结果、compute、persist 和恢复都不重新命名。
 
 ### 读取 8 月收入
 
 ```python
-regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+regional = session.observe(revenue, by=(august, region)).compute()
 regional.show()
-overall = session.observe({"revenue": revenue}, by=(august,)).compute()
+overall = session.observe(revenue, by=(august,)).compute()
 assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
 ```
 
@@ -138,23 +148,28 @@ TimeScope 包含起点、不包含终点。显式选定的 Population 可以保�
 
 <a id="比较与对齐"></a>
 
-## compare：比较命名基准
+## compare：比较基准
 
-使用 `current.compare({"reference": baseline}, ...)` 比较同一 Session 内的一个或多个基准。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定。
+使用 `current.compare(baseline, ...)` 比较同一 Session 内的单个基准，固定别名为 `reference`。用 `current.compare({"prior": baseline}, ...)` 选择业务别名，多个基准使用不同 Mapping 键。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定，包括不同域中具有相同本地名的 Metric。
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `baselines` | 是 | — | 非空有序的别名 → 同 Session Frame 映射，`current` 为保留名。 |
-| `on` | 否 | `None` | 按别名指定完整轴配对。`None` 仅允许零轴或两端各一个时间轴时推导，普通轴须显式映射。 |
-| `match` | 否 | `None` | 按别名指定时间对应；`None` 使用兼容的冻结直接关系或坐标相等，不从别名推测日期偏移。 |
+| `baselines` | 是 | — | 单个 Frame（别名 `reference`），或非空有序的别名 → 同 Session Frame Mapping；`current` 为保留名。 |
+| `on` | 否 | `None` | 裸 Frame 使用轴对 tuple；基准 Mapping 使用按别名指定的 Mapping。`None` 仅推导零轴或两端各一个时间轴，普通轴须显式完整映射。 |
+| `match` | 否 | `None` | 裸 Frame 使用单个 CalendarCorrespondence；基准 Mapping 使用按别名指定的 Mapping。`None` 使用兼容的冻结直接关系或坐标相等。 |
 
 输出保留当前值，添加 `<alias>.baseline.<name>`、`<alias>.absolute.<name>` 和 `<alias>.relative.<name>`；`current.present` 与 `<alias>.present` 独立表示行是否存在，不等于数值是否为 NA。
 
+裸 Frame 等价于 `{"reference": baseline}`，包括 `reference.baseline.revenue` 和
+`reference.present`。裸 on/match 不能与基准 Mapping 混用，按别名的参数也不能用于裸 Frame。
+多个基准必须命名。省略别名不推断同比、预算或日期关系。`reference` 路径冲突时应显式改别名
+或先 select，不自动编号，也不按值列位置配对。
+
 ```python
 compared = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
 ).compute()
 compared.show()
 ```
@@ -289,7 +304,7 @@ association.show()
 
 ## align：对齐完整坐标
 
-`left.align(right, on=..., match=...)` 将两个 Frame 放到同一坐标对应中，以便自定义运算。所有值分别保留为 `left.<name>`、`right.<name>`，并添加 `left.present`、`right.present`。与 compare 不同，两端值名称无需相同。
+`left.align(right, on=..., match=...)` 将两个 Frame 放到同一坐标对应中，以便自定义运算。所有值分别保留为 `left.<name>`、`right.<name>`，并添加 `left_present`、`right_present`。与 compare 不同，两端值名称无需相同。
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
@@ -347,8 +362,15 @@ vs_budget.show()
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `values` | 是 | — | 非空输出名 → 待完成统计量映射，每个 sum/mean/corr/pair_count/row_count 生成一列。 |
+| `values` | 是 | — | 单个统计量、非空 tuple，或非空的输出名 → 统计量 Mapping；每个统计量生成一列。 |
 | `by` | 否 | `()` | 保留的当前 Frame 完整轴，不能重复；`()` 汇总全部已表示行，未列出的轴被移除。 |
+
+直接单段值列的 sum/mean 分别命名为 `<name>_sum` / `<name>_mean`；
+`mv.row_count()` 固定为 `row_count`。例如
+`current.reduce(current["revenue"].sum()).output_names` 为 `("revenue_sum",)`。
+业务名称、表达式统计、corr/pair_count 和 `left.revenue` 等多段值路径使用 Mapping。
+名称来自接收者 schema 与已绑定值槽，单列上的算术也不继承原列名。重复候选名会拒绝，
+tuple/Mapping 顺序决定输出顺序。命名不增加聚合权限，也不放宽精确 Frame 所有权。
 
 ```python
 summary = current.reduce(

@@ -999,6 +999,13 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
     assert len(baseline_tokens) == 2
     equivalent = current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-12)}).compute()
     assert equivalent.to_pandas()[("value", "yoy.absolute.amount")].tolist() == [8, 15]
+    bare = current.compare(yoy).compute()
+    bare_rows = bare.to_pandas()
+    assert bare_rows[("value", "reference.absolute.amount")].tolist() == [8, 15]
+    assert bare_rows[("value", "reference.relative.amount")].tolist() == [2.0, 3.0]
+    pd.testing.assert_frame_equal(
+        bare_rows, current.compare({"reference": yoy}).compute().to_pandas()
+    )
     with pytest.raises(AnalysisError, match="target intentions"):
         current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-1)}).select(
             {"ignored": 1}

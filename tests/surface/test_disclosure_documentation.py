@@ -118,7 +118,8 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             assert isinstance(result, mv.AnalysisFrame)
             assert result.axes == ()
             data = result.to_pandas()
-            assert data[("value", "total")].tolist() == [3]
+            assert result.output_names == ("value_sum",)
+            assert data[("value", "value_sum")].tolist() == [3]
             assert set(data.columns.get_level_values("kind")) == {"value"}
             assert data.attrs["axes"] == ()
         elif method == "over":
@@ -187,7 +188,11 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         "source-and-result-filters",
     )
     time_markers = ("period-comparison-query", "shifted-period-comparison-query")
-    statistics_markers = ("frame-partition-share", "pandas-paired-statistics")
+    statistics_markers = (
+        "query-result-statistics",
+        "frame-partition-share",
+        "pandas-paired-statistics",
+    )
     examples_by_language: dict[str, dict[str, str]] = {}
     for language in ("docs", "zh-cn/docs"):
         guides = root / "site/src/content/docs" / language / "latest"

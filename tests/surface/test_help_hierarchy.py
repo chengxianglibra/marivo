@@ -180,8 +180,12 @@ def test_count_choices_disclose_distinct_domains_and_completion(page: str) -> No
     ):
         assert fact in text
     assert "reduce/over" in text
-    assert REGISTRY.by_canonical_id("population.count").discovery_group == "source"
-    assert REGISTRY.by_canonical_id("row_count").discovery_group == "frame.statistics"
+    population_count = REGISTRY.by_canonical_id("population.count")
+    row_count = REGISTRY.by_canonical_id("row_count")
+    assert isinstance(population_count, CallableInput)
+    assert isinstance(row_count, CallableInput)
+    assert population_count.discovery_group == "source"
+    assert row_count.discovery_group == "frame.statistics"
 
 
 def test_analysis_pages_are_static_deterministic_and_keep_primary_ownership(
@@ -193,7 +197,7 @@ def test_analysis_pages_are_static_deterministic_and_keep_primary_ownership(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
-    monkeypatch.setattr(mv.session, "create", forbidden)
+    monkeypatch.setattr(mv.session, "get_or_create", forbidden)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     primary: Counter[str] = Counter()

@@ -35,6 +35,8 @@ from marivo.analysis.dsl.population import (
 )
 from marivo.analysis.dsl.source_capture import (
     ValueRow,
+    _metric_inputs,
+    _MetricInputs,
     capture_metrics,
     capture_population,
     capture_read,
@@ -163,7 +165,7 @@ def observe(
     local: LocalFrameServices,
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
-    metrics: Mapping[str, Deferred],
+    metrics: Mapping[str, Deferred] | _MetricInputs,
     *,
     by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
     where: Deferred | None = None,
@@ -173,10 +175,9 @@ def observe(
     _complete_calendar: bool = True,
     _endpoint_scope: TimeScope | None = None,
 ) -> AnalysisFrame:
-    for name in metrics:
-        value_name(name, location="frame.observe")
+    inputs = _metric_inputs(metrics) if isinstance(metrics, Mapping) else metrics
     frame_inputs = collect_frame_key_inputs(
-        *metrics.values(),
+        *(metric for _, metric in inputs),
         _parent_filter,
         where,
         *(
@@ -189,7 +190,7 @@ def observe(
         owner=local.owner,
     )
     graph = capture_metrics(
-        metrics,
+        inputs,
         local.owner,
         by=by,
         where=where,

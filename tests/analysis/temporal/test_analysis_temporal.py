@@ -777,9 +777,7 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     code = page.split("Example:\n", 1)[1].split("\nSee:", 1)[0]
     namespace: dict[str, object] = {
         "session": session,
-        "metrics": metrics,
-        "calendar": calendar,
-        "field": field,
+        "revenue": revenue,
     }
     exec(code, namespace)
     result = namespace["result"]
@@ -787,7 +785,10 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     overall = session.observe(metrics, by=(calendar,))
     detail = session.observe(metrics, by=(calendar, field))
     direct = overall.compute().to_pandas()
-    pd.testing.assert_frame_equal(result.compute().to_pandas(), detail.compute().to_pandas())
+    observed = result.compute()
+    assert observed.output_names == ("revenue",)
+    assert observed.axes == ()
+    assert observed.to_pandas()[("value", "revenue")].tolist() == [1176]
     assert direct[("value", "amount")].tolist() == [1000]
     assert direct[("value", "count")].tolist() == [3]
     assert direct[("value", "average")].tolist() == pytest.approx([1000 / 3])

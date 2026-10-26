@@ -18,6 +18,17 @@ literal rows, and ``frame`` binds general Population keys, including zero axes.
 outputs over new business classifications through a qualified source route.
 Construction and inspection perform no business read or publication.
 
+``session.observe`` accepts one closed declared Metric, a nonempty tuple, or a
+nonempty explicit name-to-expression Mapping. Shorthand takes the local name only
+from the consumed root ``DeclaredMetricRef`` in the frozen scope. A directly
+referenced declared formula retains its declaration name; arithmetic, filter,
+window, per or rescale added around that reference requires explicit naming.
+Direct source reducers, Entity/Population counts and unnamed expressions also
+require Mapping. Python variable names, reprs and dependency leaves supply no names.
+Duplicate local names, including repeated inputs, and invalid names reject during
+capture. Use distinct legal single-segment Mapping keys to repair them.
+Names do not establish Metric identity or business comparability.
+
 Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
 ``Population`` domain. ``identity(entity)`` declares one complete identity rule;
 ``coordinates(by=(identity(entity),), keys=((("C1",),),))`` declares a finite
@@ -63,6 +74,20 @@ Current data operations
 ``top`` is global and deterministic. ``reduce`` uses current represented cells,
 with independent valid masks per statistic. It does not recompute original
 Metrics. New facts or original overall questions require explicit source inputs.
+
+``reduce`` accepts one statistic, a nonempty tuple, or a nonempty explicit
+name-to-statistic Mapping. Direct single-segment value sum/mean use
+``<name>_sum`` / ``<name>_mean``; ``mv.row_count()`` uses ``row_count``.
+For example, ``frame.reduce((frame['revenue'].sum(), mv.row_count()))`` has
+``output_names == ('revenue_sum', 'row_count')``. Binding and the receiver schema
+determine these names, not expression dependencies. Arithmetic, pair statistics
+and multi-segment paths such as ``left.revenue`` require explicit single-segment
+Mapping names; naming does not make an otherwise invalid statistic legal.
+Repeated or invalid names reject without overwriting or numbering.
+Tuple and Mapping order fix output order before evaluation. Names are available
+through ``output_names`` at capture and remain unchanged for empty results,
+compute, persistence and independent recovery. Lists and arbitrary iterables are
+not shorthand inputs. Explicit Mapping remains available for business names.
 
 ``frame.over(statistic, by=())`` reduces each current partition and broadcasts its
 result as a Column on the exact same input, preserving complete keys and row order.
@@ -113,8 +138,10 @@ complete axes onto explicitly supplied Field/Entity bindings. ``on`` is required
 and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge.
 
 ``align`` preserves left/right values and general paired time unions.
-``compare`` accepts a nonempty ordered mapping of named same-Session Frames,
-including a single baseline. It retains current axes and values, then adds each
+``compare`` accepts one same-Session Frame with fixed alias ``reference``, or a
+nonempty ordered Mapping of named Frames. Multiple baselines require explicit
+aliases. ``current.compare(baseline)`` is equivalent to
+``current.compare({'reference': baseline})``. It retains current axes and values, then adds each
 alias's ``baseline``, ``absolute`` and ``relative`` groups. For example,
 ``current.compare({"yoy": baseline}, match={"yoy": mv.offset(years=-1)})``
 produces ``revenue`` and ``yoy.baseline.revenue``, ``yoy.absolute.revenue``,
@@ -124,9 +151,17 @@ value NA; inherited flags live below ``current.presence.*`` / ``yoy.presence.*``
 Zero baselines return relative NA. Missing rows/NA never become zero. Duration baseline/absolute retain their tick
 unit and relative is dimensionless; strict child policies remain required.
 
+For a bare baseline Frame, ``on`` is a bare axis-pair tuple and ``match`` is a
+bare CalendarCorrespondence, for example
+``current.compare(baseline, on=((current.axes[0], baseline.axes[0]),), match=mv.ordinal())``.
+For baseline Mapping input, both parameters are per-alias Mappings; the two
+parameter shapes cannot be mixed. Omitting the alias does not infer a date shift
+or business relationship. A generated ``reference`` path collision requires an
+explicit alias or prior select; no suffix is generated automatically.
+
 Each alias's ``on`` binds every complete axis, except zero axes or one sole
 interval/calendar axis permit unique structural inference. ``match`` is also
-alias-keyed. A compatible immediate frozen shift relationship can supply it;
+alias-keyed for Mapping input. A compatible immediate frozen shift relationship can supply it;
 wrong anchors and conflicting explicit rules reject. Fixed ``outer`` correspondence
 preserves current order then mapped baseline-only
 keys in alias order. Actual baseline time rows outside the declared current time

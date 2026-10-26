@@ -920,6 +920,8 @@ def test_comparison_path_collision_requires_explicit_rename(local: LocalFrameSer
     ).compute()
     with pytest.raises(AnalysisError, match="Select and rename"):
         first.compare({"reference": first}, on={"reference": ((first.axes[0], first.axes[0]),)})
+    with pytest.raises(AnalysisError, match="Select and rename"):
+        first.compare(first, on=((first.axes[0], first.axes[0]),))
 
 
 def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
@@ -1001,3 +1003,116 @@ def test_stage_completed_schema_requires_exact_columns_and_keys(local: LocalFram
     assert stage.frame_schema is schema
     with pytest.raises(MaterializationError, match="matching exact stage columns and keys"):
         StageOutput.from_frame(rows, schema.columns, (), frame_schema=schema)
+
+
+def test_bare_compare_preserves_outer_values_presence_and_reference_order(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = _memory(local, ["A", "B", "C", "E"], [12, None, 3, 8])
+    baseline = _memory(local, ["A", "B", "C", "D"], [-4, 2, 0, 7])
+    on = ((current.axes[0], baseline.axes[0]),)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("compare construction must not read rows or execute")
+
+    before = tuple(terminal_runs(local))
+    with monkeypatch.context() as construction:
+        construction.setattr(CompletedFrameData, "copy_rows", forbidden)
+        construction.setattr(
+            "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
+        )
+        pending = current.compare(baseline, on=on)
+        assert pending.output_names == (
+            "amount",
+            "reference.baseline.amount",
+            "reference.absolute.amount",
+            "reference.relative.amount",
+        )
+        assert pending.presence_names == ("current.present", "reference.present")
+    assert tuple(terminal_runs(local)) == before
+    result = pending.compute()
+    table = result.to_pandas()
+    assert table[("coordinate", "axis.0")].tolist() == ["A", "B", "C", "E", "D"]
+    assert table[("value", "amount")].tolist() == [12, pd.NA, 3, 8, pd.NA]
+    assert table[("value", "reference.baseline.amount")].tolist() == [-4, 2, 0, pd.NA, 7]
+    assert table[("value", "reference.absolute.amount")].tolist() == [16, pd.NA, 3, pd.NA, pd.NA]
+    assert table[("value", "reference.relative.amount")].tolist() == [
+        4.0,
+        pd.NA,
+        pd.NA,
+        pd.NA,
+        pd.NA,
+    ]
+    assert table[("presence", "current.present")].tolist() == [True, True, True, True, False]
+    assert table[("presence", "reference.present")].tolist() == [True, True, True, False, True]
+    explicit = current.compare({"reference": baseline}, on={"reference": on}).compute()
+    assert result._schema == explicit._schema
+    pd.testing.assert_frame_equal(table, explicit.to_pandas())
+
+
+def test_bare_compare_scalar_and_explicit_time_matching(local: LocalFrameServices) -> None:
+    from marivo.analysis.dsl.correspondence import ordinal
+
+    current = frame_sources.values(local, columns={"amount": "USD"}, rows=(((), {"amount": 12}),))
+    baseline = frame_sources.values(local, columns={"amount": "USD"}, rows=(((), {"amount": -4}),))
+    scalar = current.compare(baseline).compute()
+    assert scalar.axes == ()
+    scalar_table = scalar.to_pandas()
+    assert scalar_table.iloc[0].tolist() == [12, -4, 16, 4.0, True, True]
+    pd.testing.assert_frame_equal(
+        scalar_table, current.compare({"reference": baseline}).compute().to_pandas()
+    )
+    left, right = _interval(local, 1, 4, amount=8), _interval(local, 2, 5, amount=2)
+    timed = left.compare(right, match=ordinal()).compute()
+    assert timed._schema.axes == left._schema.axes
+    timed_table = timed.to_pandas()
+    assert timed_table[("value", "reference.absolute.amount")].tolist() == [6]
+    assert timed_table[("value", "reference.relative.amount")].tolist() == [3.0]
+    explicit = left.compare({"reference": right}, match={"reference": ordinal()}).compute()
+    pd.testing.assert_frame_equal(timed_table, explicit.to_pandas())
+
+
+def test_compare_rejects_mixed_parameter_shapes_and_unnamed_multiple_inputs(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.dsl.correspondence import ordinal
+
+    current, baseline = _memory(local, ["A"], [4]), _memory(local, ["A"], [2])
+    on = ((current.axes[0], baseline.axes[0]),)
+    mixed: tuple[Callable[[], AnalysisFrame], ...] = (
+        lambda: current.compare(baseline, on={"reference": on}),
+        lambda: current.compare(baseline, match={"reference": ordinal()}),
+        lambda: current.compare({"actual": baseline}, on=on),
+        lambda: current.compare({"actual": baseline}, match=ordinal()),
+    )
+    for call in mixed:
+        with pytest.raises(AnalysisError) as error:
+            call()
+        assert "bare" in error.value.expected or "per-alias" in error.value.expected
+        assert error.value.received in ("dict", "tuple", "CalendarCorrespondence")
+        assert error.value.repair.help_target.canonical_id == "analysis_frame.compare"
+        assert error.value.repair.action
+    for invalid in ((), [], {}, (baseline,), [baseline], iter((baseline,)), "baseline"):
+        with pytest.raises(AnalysisError) as error:
+            current.compare(invalid)
+        assert "one baseline Frame" in error.value.expected
+        assert "distinct explicit aliases" in error.value.repair.action
+    with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
+        current.compare(baseline)
+
+
+def test_bare_compare_preserves_ownership_names_and_unit_checks(
+    local: LocalFrameServices, tmp_path: Path
+) -> None:
+    current, baseline = _memory(local, ["A"], [4]), _memory(local, ["A"], [2])
+    other_local = DatasetRuntime.create(tmp_path / "other", "other", timezone="UTC").local
+    foreign = _memory(other_local, ["A"], [2])
+    with pytest.raises(AnalysisError) as error:
+        current.compare(foreign, on=((current.axes[0], foreign.axes[0]),))
+    assert error.value.expected == "Frame inputs from the same Store and Session"
+    renamed = baseline.select({"different": baseline["amount"]})
+    with pytest.raises(AnalysisError, match="value paths"):
+        current.compare(renamed, on=((current.axes[0], renamed.axes[0]),))
+    unitless = baseline.select({"amount": baseline["amount"] / baseline["amount"]})
+    with pytest.raises(AnalysisError, match="unit"):
+        current.compare(unitless, on=((current.axes[0], unitless.axes[0]),))

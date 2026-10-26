@@ -9,7 +9,7 @@ from typing import TypeAlias
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.expressions import MetricNode
+from marivo._definition.expressions import DeclaredMetricRef, MetricNode
 from marivo._definition.grouping import normalize_groupings
 from marivo._definition.query import (
     ResultQuery,
@@ -37,8 +37,15 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.observe import bind_observation
+from marivo.analysis.core.frame_structure import value_name
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
+from marivo.analysis.core.model import (
+    BoundQuantity,
+    BoundSignature,
+    CoreRuleError,
+    ResultQuantity,
+    reject,
+)
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
@@ -53,6 +60,40 @@ from marivo.semantic._deferred_semantics import (
 )
 
 ValueRow: TypeAlias = tuple[tuple[CoordinateValue, ...], Mapping[str, LiteralValue]]
+_MetricInputs: TypeAlias = tuple[tuple[str | None, Deferred], ...]
+
+
+def _metric_inputs(
+    metrics: Deferred | tuple[Deferred, ...] | Mapping[str, Deferred],
+) -> _MetricInputs:
+    """Freeze the closed observe input shapes before resolving a semantic scope."""
+    items: _MetricInputs
+    if isinstance(metrics, Deferred):
+        items = ((None, metrics),)
+    elif isinstance(metrics, Mapping) and metrics:
+        for name in metrics:
+            value_name(name, location="Session.observe", canonical_id="session.observe")
+        items = tuple(metrics.items())
+    elif isinstance(metrics, tuple) and metrics:
+        items = tuple((None, metric) for metric in metrics)
+    else:
+        reject(
+            "one Metric expression, a nonempty tuple, or a nonempty named Metric mapping",
+            type(metrics).__name__,
+            "Pass a named Metric, (revenue, order_count), or {'output': expression} with a user-chosen output name.",
+            "Session.observe",
+            canonical_id="session.observe",
+        )
+    for position, (_, metric) in enumerate(items, start=1):
+        if not isinstance(metric, Deferred):
+            reject(
+                "a Metric expression for each output",
+                f"input {position}: {type(metric).__name__}",
+                "Resolve a Metric expression; use persisted_frame(id) to read saved data.",
+                "Session.observe",
+                canonical_id="session.observe",
+            )
+    return items
 
 
 def capture_read(
@@ -251,7 +292,7 @@ def capture_values(
 
 
 def capture_metrics(
-    metrics: Mapping[str, Deferred],
+    metrics: _MetricInputs,
     owner: Owner,
     *,
     by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
@@ -263,26 +304,48 @@ def capture_metrics(
     _complete_calendar: bool = True,
     _endpoint_scope: TimeScope | None = None,
 ) -> BoundGraph:
-    if not isinstance(metrics, Mapping) or not metrics:
-        reject(
-            "a nonempty named mapping of Metric expressions",
-            type(metrics).__name__,
-            "Pass session.observe({'revenue': revenue}).",
-            "session.observe",
-        )
     quantities: list[BoundQuantity] = []
     definitions: dict[ExactRef, MetricNode] = {}
-    for name, metric in metrics.items():
-        if not isinstance(metric, Deferred):
-            reject(
-                "a Metric expression for each output",
-                type(metric).__name__,
-                "Resolve a Metric expression; Artifact objects and IDs are terminal outputs, not computation inputs.",
-                "session.observe",
-            )
+    names: dict[str, tuple[int, str]] = {}
+    for position, (name, metric) in enumerate(metrics, start=1):
         facts = (
             consume_metric_in_state(metric, state) if state is not None else consume_metric(metric)
         )
+        reference = (
+            facts.node.ref.ref.key
+            if isinstance(facts.node, DeclaredMetricRef)
+            else type(facts.node).__name__
+        )
+        if name is None:
+            if not isinstance(facts.node, DeclaredMetricRef):
+                reject(
+                    "a directly referenced declared Metric for automatic output naming",
+                    f"input {position}: {reference}",
+                    "Pass session.observe({'output': expression}) with a user-chosen output name.",
+                    "Session.observe",
+                    canonical_id="session.observe",
+                )
+            name = facts.node.ref.ref.path.rsplit(".", 1)[-1]
+            try:
+                value_name(name, location="Session.observe", canonical_id="session.observe")
+            except CoreRuleError as error:
+                reject(
+                    error.expected or "a valid single output name segment",
+                    f"input {position}: {reference} has local name {name!r}",
+                    "Pass session.observe({'output': metric}) with a user-chosen valid output name.",
+                    "Session.observe",
+                    canonical_id="session.observe",
+                )
+        if name in names:
+            previous, previous_reference = names[name]
+            reject(
+                "distinct output names in one observation",
+                f"{name!r} at inputs {previous} ({previous_reference}) and {position} ({reference})",
+                "Pass an explicit Mapping with distinct user-chosen output names for every Metric.",
+                "Session.observe",
+                canonical_id="session.observe",
+            )
+        names[name] = (position, reference)
         quantities.append(BoundQuantity(name, facts.node, facts.unit))
         definitions.update(facts._declared)
     if not isinstance(by, (tuple, Population)):

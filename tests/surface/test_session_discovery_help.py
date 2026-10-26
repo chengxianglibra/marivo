@@ -65,10 +65,9 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
 ) -> None:
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
-    assert "Input by: Empty () is one zero-axis cell" in text
-    assert "TimeScope adds an interval axis" in text
+    assert "() gives one zero-axis cell" in text
+    assert "TimeScope/CalendarAxis: intervals/buckets" in text
     assert "P fixes joint keys" in text
-    assert "CalendarAxis adds buckets" in text
     assert "by=() supplies no time range" in text
     assert "finite TimeScope/CalendarAxis in by" in text
     assert "qualified native means may omit it" in text
@@ -133,15 +132,23 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
         (catalog.fields, field_ref),
         (catalog.entities, entity_ref),
     ):
+        reference = as_ref(ref)
+        assert reference is not None
         collection.show()
-        assert as_ref(ref).path in capsys.readouterr().out
-        assert as_ref(ref) in collection._refs
+        assert reference.path in capsys.readouterr().out
+        assert reference in collection._refs
         catalog.describe(ref).show()
-        assert as_ref(ref).path in capsys.readouterr().out
+        assert reference.path in capsys.readouterr().out
 
-    metric = catalog.metrics.get(as_ref(metric_ref).path)
-    field = catalog.fields.get(as_ref(field_ref).path)
-    entity = catalog.entities.get(as_ref(entity_ref).path)
+    metric_reference = as_ref(metric_ref)
+    field_reference = as_ref(field_ref)
+    entity_reference = as_ref(entity_ref)
+    assert metric_reference is not None
+    assert field_reference is not None
+    assert entity_reference is not None
+    metric = catalog.metrics.get(metric_reference.path)
+    field = catalog.fields.get(field_reference.path)
+    entity = catalog.entities.get(entity_reference.path)
     assert isinstance(metric, Deferred)
     assert isinstance(field, Deferred)
     assert isinstance(entity, Entity)

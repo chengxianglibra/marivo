@@ -31,12 +31,12 @@ revenue = catalog.metrics.get("sales.revenue")
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 
-current = session.observe({"revenue": revenue}, by=(august, region)).compute()
-baseline = session.observe({"revenue": revenue}, by=(july, region)).compute()
+current = session.observe(revenue, by=(august, region)).compute()
+baseline = session.observe(revenue, by=(july, region)).compute()
 change = current.compare(
-    {"reference": baseline},
-    on={"reference": tuple(zip(current.axes, baseline.axes))},
-    match={"reference": mv.ordinal()},
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
 ).persist()
 change.show(n=10)
 change.artifact.show()

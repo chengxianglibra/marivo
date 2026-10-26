@@ -58,6 +58,87 @@ def test_simplified_policies_have_one_public_route() -> None:
     assert "(rule, customer, channel)" in membership and "(R,S,b,d)" in membership
 
 
+def test_output_naming_help_discloses_and_runs_both_entry_shapes(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    session = case.session
+    revenue = case.catalog.metrics.get("sales.revenue")
+    frame = session.values(by=(), columns={"value": None}, rows=(((), {"value": 6}),))
+    baseline = session.values(by=(), columns={"value": None}, rows=(((), {"value": 2}),))
+    namespace: dict[str, object] = {
+        "session": session,
+        "revenue": revenue,
+        "frame": frame,
+        "baseline": baseline,
+    }
+    registry = prepare()
+    for target, implementation, bound, expected_names in (
+        ("session.observe", mv.Session.observe, session.observe, ("revenue",)),
+        ("analysis_frame.reduce", mv.AnalysisFrame.reduce, frame.reduce, ("value_sum",)),
+        (
+            "analysis_frame.compare",
+            mv.AnalysisFrame.compare,
+            frame.compare,
+            (
+                "value",
+                "reference.baseline.value",
+                "reference.absolute.value",
+                "reference.relative.value",
+            ),
+        ),
+    ):
+        descriptor = registry.by_canonical_id(target)
+        assert isinstance(descriptor, CallableInput)
+        text = render_help_text("analysis." + target)[0]
+        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
+        assert "Mapping" in text
+        assert len(text) <= ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"].max_codepoints
+        exec(compile(descriptor.example.code, "<naming-help-example>", "exec"), namespace)
+        result = namespace["result"]
+        assert isinstance(result, mv.AnalysisFrame)
+        assert result.output_names == expected_names
+        if target == "analysis_frame.compare":
+            assert result._schema.values[-1].unit is None
+            comparison_rows = result.compute().to_pandas()
+            assert comparison_rows[("value", "reference.relative.value")].tolist() == [2]
+    observation = render_help_text("analysis.session.observe")[0]
+    for fact in ("nonempty tuple", "root DeclaredMetricRef", "business identity"):
+        assert fact in observation
+    assert "conflicts" in observation or "duplicate" in observation.lower()
+    for fact in (
+        "nonempty",
+        "dots",
+        "backslashes",
+        "controls",
+        "left_present/right_present",
+        "no name cleaning/numbering",
+    ):
+        assert fact in observation
+    reduction = render_help_text("analysis.analysis_frame.reduce")[0]
+    for fact in ("<name>_sum/<name>_mean", "multi-segment", "row_count", "bound value slots"):
+        assert fact in reduction
+    comparison = render_help_text("analysis.analysis_frame.compare")[0]
+    assert comparison.count("\nSignature:") == 2
+    for fact in ("bare tuple", "per-alias", "reference.present", "infers no time relationship"):
+        assert fact in comparison
+    for fact in (
+        "relative is dimensionless (unit=None)",
+        "Calendar ordinal needs complete buckets",
+        "week/month/year bucket-start offset prefixes",
+        "exactly equal saved progress",
+    ):
+        assert fact in comparison
+    assert "marivo.help('analysis.ordinal')" in comparison
+    ordinal = render_help_text("analysis.ordinal")[0]
+    assert "one declared record per side" in ordinal and "equal boundary timezones" in ordinal
+    main(["help", "analysis.analysis_frame.compare"])
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out.count("\nSignature:") == 2
+
+
 @pytest.mark.release
 def test_every_advertised_native_member_has_exact_help() -> None:
     registry = prepare()
@@ -286,7 +367,7 @@ def test_composition_help_is_static_bounded_and_matches_cli(
         raise AssertionError("Static Help executed an example or opened a source")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(mv.session, "create", forbidden)
+    monkeypatch.setattr(mv.session, "get_or_create", forbidden)
     monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)

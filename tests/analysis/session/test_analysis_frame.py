@@ -1,5 +1,6 @@
 """Private Frame data operations and lifecycle use the current fixed input."""
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -190,3 +191,121 @@ def test_new_operations_reject_foreign_handles_and_invalid_names(local: LocalFra
         first.select({"left.value": first["value"]})
     with pytest.raises(CoreRuleError, match="reserved presence"):
         first.reduce({"right_present": row_count()})
+
+
+def test_reduce_automatic_names_and_grouped_manual_values(local: LocalFrameServices) -> None:
+    root = _memory(local)
+    value = replace(root["value"], _name=None)
+    statistics = (value.sum(), value.mean(), row_count())
+    pending = root.reduce(statistics)
+    assert pending.output_names == ("value_sum", "value_mean", "row_count")
+    explicit = root.reduce(dict(zip(pending.output_names, statistics, strict=True)))
+    result = pending.compute()
+    table = result.to_pandas()
+    assert table[("value", "value_sum")].tolist() == [110]
+    assert table[("value", "value_mean")].tolist() == [55.0]
+    assert table[("value", "row_count")].tolist() == [2]
+    pd.testing.assert_frame_equal(table, explicit.compute().to_pandas())
+    assert result._schema.values == explicit._schema.values
+    assert result.axes == () and result.presence_names == ()
+    for name, statistic in zip(pending.output_names, statistics, strict=True):
+        single = root.reduce(statistic)
+        assert single.output_names == (name,)
+        assert (
+            single.compute().to_pandas()[("value", name)].tolist()
+            == table[("value", name)].tolist()
+        )
+    grouped = root.reduce(statistics, by=root.axes).compute()
+    groups = grouped.to_pandas()
+    assert grouped._schema.axes == root._schema.axes
+    assert groups[("coordinate", "axis.0")].tolist() == ["A", "B"]
+    assert groups[("value", "value_sum")].tolist() == [100, 10]
+    assert groups[("value", "value_mean")].tolist() == [100.0, 10.0]
+    assert groups[("value", "row_count")].tolist() == [1, 1]
+    assert grouped.presence_names == ()
+    repeated = result.reduce(result["value_sum"].sum())
+    assert repeated.output_names == ("value_sum_sum",)
+
+
+def test_reduce_automatic_names_preserve_empty_and_na_statistics(local: LocalFrameServices) -> None:
+    root = _memory(local)
+    empty = root.top(0, by=root["value"])
+    summary = empty.reduce((empty["value"].sum(), empty["value"].mean(), row_count())).compute()
+    assert summary.to_pandas().iloc[0].tolist() == [0, pd.NA, 0]
+    nullable = root.select({"value": root["value"] / 0}).compute()
+    result = nullable.reduce(
+        (nullable["value"].sum(), nullable["value"].mean(), row_count())
+    ).compute()
+    assert result.output_names == ("value_sum", "value_mean", "row_count")
+    assert result.to_pandas().iloc[0].tolist() == [pd.NA, pd.NA, 2]
+
+
+def test_reduce_automatic_name_rejections_are_structured_and_runless(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _memory(local)
+    aligned = root.align(root, on=((root.axes[0], root.axes[0]),))
+    unnamed = (
+        (root, (root["value"] + 1).sum()),
+        (root, root["value"].corr(root["value"], method="pearson")),
+        (root, root.over(root["value"].sum()).sum()),
+        (aligned, aligned["left.value"].sum()),
+    )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("naming must not execute or read rows")
+
+    monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
+    )
+    before = tuple(terminal_runs(local))
+    assert root.reduce(root["value"].sum()).output_names == ("value_sum",)
+    for receiver, statistic in unnamed:
+        with pytest.raises(CoreRuleError) as error:
+            receiver.reduce(statistic)
+        assert (
+            "explicit name" in error.value.repair.action
+            or "output name" in error.value.repair.action
+        )
+        assert error.value.repair.help_target.canonical_id == "analysis_frame.reduce"
+        assert error.value.expected and error.value.received
+        assert receiver.reduce({"your_name": statistic}).output_names == ("your_name",)
+    for statistic in (row_count(), root["value"].sum()):
+        with pytest.raises(CoreRuleError) as error:
+            root.reduce((statistic, statistic))
+        assert error.value.expected == "distinct statistic output names"
+        assert "input positions 1 and 2" in error.value.received
+        assert "explicit name" in error.value.repair.action
+        assert root.reduce({"first": statistic, "second": statistic}).output_names == (
+            "first",
+            "second",
+        )
+    for invalid in (
+        (),
+        {},
+        [],
+        set(),
+        iter(()),
+        "value",
+        1,
+        (root["value"],),
+        ({"name": row_count()},),
+        (("name", row_count()),),
+    ):
+        with pytest.raises(CoreRuleError) as error:
+            root.reduce(invalid)
+        assert error.value.repair.help_target.canonical_id == "analysis_frame.reduce"
+    assert tuple(terminal_runs(local)) == before
+
+
+def test_reduce_automatic_names_preserve_exact_frame_and_session_ownership(
+    local: LocalFrameServices, tmp_path: Path
+) -> None:
+    root = _memory(local)
+    other_local = DatasetRuntime.create(tmp_path / "other", "other", timezone="UTC").local
+    for other in (_memory(local), _memory(other_local)):
+        with pytest.raises(CoreRuleError) as error:
+            root.reduce(other["value"].sum())
+        assert error.value.expected == "a statistic from this exact Frame input"
+        assert "Reacquire" in error.value.repair.action

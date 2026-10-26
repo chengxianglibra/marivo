@@ -17,6 +17,12 @@ If current rows cannot answer an original Metric question, construct a new expli
 
 ## Summarize and normalize rows
 
+Single statistics and nonempty tuples can omit names for direct single-segment
+value sum/mean and row_count. Their fixed names are `<name>_sum`, `<name>_mean`
+and `row_count`. Use an explicit Mapping for business names, expression or pair
+statistics and multi-segment value paths. Duplicate candidates reject at capture;
+names and order remain stable through evaluation and persistence.
+
 ```python
 from analysis import mv, current, saved
 ```
@@ -25,12 +31,13 @@ from analysis import mv, current, saved
 
 ```python
 summary = current.reduce(
-    {
-        "sum": current["revenue"].sum(),
-        "mean": current["revenue"].mean(),
-        "rows": mv.row_count(),
-    }
+    (current["revenue"].sum(), current["revenue"].mean(), mv.row_count())
 ).compute()
+assert summary.output_names == ("revenue_sum", "revenue_mean", "row_count")
+summary_rows = summary.to_pandas()
+assert summary_rows[("value", "revenue_sum")].tolist() == [800]
+assert summary_rows[("value", "revenue_mean")].tolist() == [400]
+assert summary_rows[("value", "row_count")].tolist() == [2]
 summary.show()
 ```
 

@@ -268,15 +268,16 @@ class Session:
 
     def observe(
         self,
-        metrics: Mapping[str, Deferred],
+        metrics: Deferred | tuple[Deferred, ...] | Mapping[str, Deferred],
         *,
         by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
         where: Deferred | None = None,
     ) -> AnalysisFrame:
-        """Capture named Metric expressions as a lazy AnalysisFrame.
+        """Capture Metric expressions as a lazy AnalysisFrame with fixed output names.
 
         Args:
-            metrics: Nonempty ordered name-to-resolved-Metric mapping.
+            metrics: One directly named Metric, a nonempty tuple of named Metrics, or a
+                nonempty ordered name-to-resolved-Metric mapping for explicit output names.
             by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
                 optionally followed by membership rules in a tuple.
             where: Extra Deferred field/Population membership conditions on contributions.
@@ -285,39 +286,24 @@ class Session:
             An immutable pending AnalysisFrame owned by this Session.
 
         Example:
-            ``frame = session.observe({'revenue': revenue, 'aov': aov}).compute()``.
+            ``frame = session.observe((revenue, order_count)).compute()``.
 
         Constraints: Capture reads no source schema/data and creates no Run. compute/persist
         evaluate; persist publishes. by=() supplies no time range. Time-sample reductions generally need a finite
         TimeScope/CalendarAxis in by; qualified native means may omit it. Metric-specific sample
-        coverage may still reject at compute/persist. Names must be nonempty single segments
-        without dots, backslashes, controls or reserved presence names.
+        coverage may still reject at compute/persist. Names are valid single segments.
+        Direct named Metrics inherit local names; conflicts or expressions need a Mapping.
+        Names do not prove business identity.
         """
-        from ibis.common.deferred import Deferred
-
-        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
+        from marivo.analysis.dsl.source_capture import _metric_inputs
 
-        if not isinstance(metrics, Mapping) or not metrics:
-            reject(
-                "a nonempty named mapping of Metric expressions",
-                type(metrics).__name__,
-                "Pass session.observe({'revenue': revenue}).",
-                "session.observe",
-            )
-        for metric in metrics.values():
-            if not isinstance(metric, Deferred):
-                reject(
-                    "a Metric expression for each output",
-                    type(metric).__name__,
-                    "Resolve a Metric expression; use persisted_frame(id) to read saved data.",
-                    "session.observe",
-                )
+        inputs = _metric_inputs(metrics)
         return frame_sources.observe(
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
-            metrics,
+            inputs,
             by=by,
             where=where,
             timezone=self.timezone,

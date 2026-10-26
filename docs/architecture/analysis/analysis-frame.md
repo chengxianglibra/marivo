@@ -80,6 +80,22 @@ population_from 的目标由调用方声明；系统仍检查结构、单位、�
 用户在 observe/read/values/select/reduce 中声明的量名是单个非空名称段，不含点号、
 反斜线或控制字符，也不得使用 left_present/right_present。
 非法名在构造时给出重命名修复，不自动转义或静默改名。
+observe/reduce 接受单个对象、非空 tuple 或显式命名 Mapping；不接受 list、任意
+Iterable 或混合命名项。tuple 和 Mapping 的声明顺序决定输出顺序，先校验全部候选名
+再构造命名输入。重复名（包括重复对象）和非法名在构造时拒绝，不去重、不覆盖、不编号。
+名称在求值前确定，可立即从 output_names 读取；空数据、compute、persist 和独立恢复均不重新命名。
+
+observe 简写仅继承冻结 scope 消费后根节点 DeclaredMetricRef 的结构化路径本地名。
+命名 Metric 内部可包含复杂公式；直接引用仍使用声明名。引用外再加算术、filter、window、
+per 或 rescale 则要求 Mapping；直接 source reducer、Entity.count、Population.count
+和未命名表达式同样要求 Mapping。不读取 Python 变量名、repr、依赖叶子或 Catalog 反查。
+不同域的同一本地名在同次调用中冲突；未参与本次调用的同名 Metric 不影响推导。
+
+reduce 先验证精确 Frame/Session 统计绑定，再仅为直接 ValueSlot 且 schema 中恰好一个
+名称段的 sum/mean 生成 `<name>_sum` / `<name>_mean`；row_count 固定为 row_count。
+例如 revenue_sum 再 sum 得到 revenue_sum_sum。算术、条件、over、坐标、presence、
+PairStatistic 和 left.revenue 等多段值路径没有默认名；合法统计可用 Mapping 指定单段名。
+名称不赋予统计资格、原 Metric 可加性或跨输入对应权限，不能使原本非法的统计合法。
 生成列采用不可变名称段路径，点号仅作公开分隔符；__getitem__ 按完整名称精确查找，
 不按字符串后缀推断角色。内部槽 ID、名称路径及值/presence 分类是权威。
 
@@ -94,6 +110,7 @@ population_from 的目标由调用方声明；系统仍检查结构、单位、�
 
 output_names 仅含值，presence_names 仅含独立 presence，均按定义次序列出完整路径。
 compare 先列出全部当前值，再按命名映射声明顺序逐个输出该基期的三组值；各组依当前值次序。
+单个裸 Frame 基期固定使用 reference 别名，保留相同的 reference.* 完整路径和 reference.present。
 每端非空值路径集合须相同，按精确路径验证数值类型和单位，不因同名认定业务公式相同。
 生成路径冲突时拒绝并要求先 select 重命名，不覆盖或自动编号。别名为单段名称，current 保留。
 
@@ -140,10 +157,14 @@ sum/divide 合同。筛选前后的位置有意义：先筛选改变分母，后
 
 ## Correspondence and comparison
 
-align 接收另一 Frame；compare 始终接收非空有序命名 Frame 映射，单基期也必须命名。
+align 接收另一 Frame；compare 接收单个裸 Frame（固定别名 reference），或非空有序
+命名 Frame Mapping。多个基期必须命名；单基期也可显式选择业务别名。
 每端先验证同 Session、无 paired 轴、相等轴数与相容的完整键/角色/时间解释。
 零轴或双方唯一同种 interval/calendar 轴可唯一推导；含普通轴时必须显式完整双射。
-compare 的 on/match 按基期别名分别提供；未知别名拒绝，部分 on 不自动补足。
+裸 Frame 的 on 是完整轴对 tuple，match 是单个 CalendarCorrespondence；基期 Mapping
+的 on/match 按基期别名分别提供 Mapping。两种形态不能混用，不按 Mapping 长度猜测。
+未知别名拒绝，部分 on 不自动补足。reference 路径冲突要求显式别名或先 select，不自动编号。
+省略别名不推断同比、环比、预算或时间对应，也不按唯一值列的位置配对。
 FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
 普通轴显式 on 声明本次业务对应；检查只保证结构相容以及所选政策下的实际键域，
 不验证原 Entity/Field 相同。Customer/Product 的同类型身份键可以显式配对；结构检查成功不证明业务身份等价。
