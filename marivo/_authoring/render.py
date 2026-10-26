@@ -1,6 +1,26 @@
 """Shared rendering for domain-owned authoring effect declarations."""
 
-from marivo._authoring.model import AuthoringEffects, AuthoringRepair
+from marivo._authoring.model import AuthoringEffects, AuthoringInputRequirement, AuthoringRepair
+
+
+def input_lines(requirement: AuthoringInputRequirement) -> tuple[str, ...]:
+    """Render native input facts and acquisition without inferring producers."""
+    details: list[str] = []
+    if requirement.parameter_names:
+        details.append("parameters: " + ", ".join(requirement.parameter_names))
+    if requirement.exact_keys:
+        details.append("keys: " + ", ".join(requirement.exact_keys))
+    detail = f" ({'; '.join(details)})" if details else ""
+    optional = " optional" if requirement.min_count == 0 else ""
+    lines = [f"    {requirement.role}: {requirement.family}{optional}{detail}"]
+    if requirement.description:
+        lines.append(f"      {requirement.description}")
+    if requirement.acquisition:
+        lines.append(
+            "      Acquire: "
+            + ", ".join(f'marivo.help("{target.display}")' for target in requirement.acquisition)
+        )
+    return tuple(lines)
 
 
 def effect_lines(effects: AuthoringEffects) -> tuple[str, ...]:

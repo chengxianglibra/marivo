@@ -28,7 +28,16 @@ def _links(target: str) -> tuple[str, ...]:
 
 def test_global_roots_offer_only_the_owning_task_choices() -> None:
     assert _links("root") == ("authoring", "analysis")
-    assert _links("authoring") == ("datasource", "semantic", "ontology")
+    assert _links("authoring") == (
+        "semantic.load",
+        "semantic.catalog",
+        "datasource.connections",
+        "datasource.inspection",
+        "semantic.model",
+        "semantic.expressions",
+        "semantic.validation",
+        "ontology",
+    )
     assert _links("analysis") == (
         "analysis.inputs",
         "analysis.operators",
@@ -43,6 +52,9 @@ def test_retired_task_topics_fail_without_aliases() -> None:
     for target in (
         "datasource.authoring",
         "semantic.authoring",
+        "semantic.model.identity",
+        "semantic.model.fields",
+        "semantic.model.relationships",
         "semantic.builders",
         "semantic.builders.entity_history",
         "semantic.builders.field_metric_support",
@@ -85,7 +97,22 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -
     for path in (
         ("analysis", "analysis.operators", "analysis.population.count"),
         ("analysis", "analysis.inputs", "semantic.expressions", "semantic.metric"),
-        ("authoring", "semantic", "semantic.expressions", "semantic.rescale"),
+        ("authoring", "semantic.expressions", "semantic.rescale"),
+        ("authoring", "semantic.load"),
+        ("authoring", "semantic.catalog", "semantic.semantic_catalog.search"),
+        ("authoring", "semantic.model", "semantic.domain.define"),
+        ("authoring", "semantic.model", "semantic.entity.define"),
+        ("authoring", "semantic.model", "semantic.relationship.define"),
+        ("authoring", "semantic.model", "semantic.metric.define"),
+        ("authoring", "semantic.model", "semantic.measure", "semantic.measure.from_column"),
+        ("authoring", "semantic.model", "semantic.dimension", "semantic.dimension.from_column"),
+        (
+            "authoring",
+            "semantic.model",
+            "semantic.time_dimension",
+            "semantic.time_dimension.from_column",
+        ),
+        ("authoring", "datasource.inspection", "datasource.inspect"),
         ("analysis", "analysis.operators", "analysis.session.observe", "semantic.predicate"),
         ("analysis", "analysis.operators", "analysis.analysis_frame.attribute"),
         ("analysis", "analysis.operators", "analysis.session.values"),
@@ -311,3 +338,89 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
     data = comparison.to_pandas()
     assert data["reference.absolute.value"].tolist() == [90]
     assert data["reference.relative.value"].tolist() == [1]
+
+
+def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() -> None:
+    import inspect
+
+    from marivo.introspection.live.reflect import import_registered_callable
+    from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+
+    for target in (
+        "domain.define",
+        "entity.define",
+        "dimension.define",
+        "dimension.from_column",
+        "time_dimension.define",
+        "time_dimension.from_column",
+        "measure.define",
+        "measure.from_column",
+        "metric.define",
+        "relationship.define",
+        "period_calendar.define",
+        "temporal_set.define",
+        "load",
+    ):
+        descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)
+        assert descriptor.callable_path is not None
+        if target.endswith((".define", ".from_column")) and not target.startswith(
+            ("period_calendar", "temporal_set")
+        ):
+            assert "Example inputs:" in render_help_text("semantic." + target)[0]
+        signature = inspect.signature(import_registered_callable(descriptor.callable_path))
+        assert {
+            name
+            for requirement in descriptor.input_requirements
+            for name in requirement.parameter_names
+        } == set(signature.parameters)
+    expected = {
+        "entity.define": {
+            "datasource": "semantic.ref.datasource",
+            "source": "datasource.sources",
+            "versioning": "semantic.snapshot",
+        },
+        "measure.from_column": {
+            "entity": "semantic.ref.entity",
+            "column": "datasource.inspect",
+            "additivity": "semantic.measure",
+            "status_time_dimension": "semantic.time_dimension",
+        },
+        "time_dimension.from_column": {"parse": "semantic.time.parsing"},
+        "relationship.define": {"keys": "semantic.join_on"},
+    }
+    for target, parameters in expected.items():
+        descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)
+        for name, producer in parameters.items():
+            requirement = next(
+                r for r in descriptor.input_requirements if name in r.parameter_names
+            )
+            assert requirement.description
+            assert producer in {link.display for link in requirement.acquisition}
+            assert producer in _links("semantic." + target)
+    # Resolve every rendered parameter edge, including cross-surface producers.
+    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+
+    for backend in ("duckdb", "trino", "mysql", "postgres", "clickhouse"):
+        connection = DATASOURCE_REGISTRY.by_canonical_id(backend)
+        assert connection.callable_path is not None
+        signature = inspect.signature(import_registered_callable(connection.callable_path))
+        assert {
+            name
+            for requirement in connection.input_requirements
+            for name in requirement.parameter_names
+        } == set(signature.parameters)
+        for requirement in connection.input_requirements:
+            for name in requirement.parameter_names:
+                assert (requirement.min_count == 0) == (
+                    signature.parameters[name].default is not inspect.Parameter.empty
+                )
+
+    for surface, descriptors in (
+        ("semantic", SEMANTIC_REGISTRY.descriptors),
+        ("datasource", DATASOURCE_REGISTRY._descriptors),
+    ):
+        for descriptor in descriptors:
+            for requirement in descriptor.input_requirements:
+                for link in requirement.acquisition:
+                    assert link.display in _links(f"{surface}.{descriptor.canonical_id}")
+                    route_help_target(link.display)

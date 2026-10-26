@@ -494,3 +494,39 @@ def test_table_help_explains_string_projection_and_type_authority(
     assert "md.source_column" not in text
     source = md.table("orders", columns={"amount": "total"})
     assert dict(source.columns or ()) == {"amount": "total"}
+
+
+def test_authoring_help_examples_publish_a_cross_file_metric_from_empty_project(
+    semantic_project_factory: ProjectFactory,
+    tmp_path: Path,
+    orders_backend: Backend,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    empty = ms.load(workspace_dir=tmp_path)
+    assert not empty.search(kind="entity").items
+    assert empty.get("datasource:default").kind == "datasource"
+    semantic_project_factory(
+        {
+            "sales/_domain.py": _IMPORTS
+            + "accountable_owner = 'Mina Zhang'\n"
+            + _example("semantic.domain.define", capsys),
+            "sales/model.py": _IMPORTS
+            + _example("semantic.entity.define", capsys)
+            + _example("semantic.measure.from_column", capsys),
+            "sales/metrics.py": _IMPORTS
+            + "amount = ms.ref.measure('sales.orders.amount')\n@ms.metric()\ndef revenue():\n    return amount.sum()\n",
+        }
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    entry = catalog.get("metric:sales.revenue")
+    assert entry.kind == "metric"
+    assert catalog.search("sales.revenue", kind="metric").items[0].id == entry.id
+    assert catalog.readiness(refs=[ms.ref.measure("sales.orders.amount")]).analysis_ready_inputs
+    with patch_semantic_connections(catalog._project, lambda _datasource: orders_backend):
+        assert catalog.preview(entry, scope=md.unpruned(max_rows=10, timeout_seconds=30)).rows == (
+            {"value": 46},
+        )
+    # Question-scoped composition of closed values leaves the loaded directory fixed.
+    doubled = entry.value * 2
+    assert doubled is not entry.value
+    assert [item.id for item in catalog.search(kind="metric").items] == ["metric:sales.revenue"]

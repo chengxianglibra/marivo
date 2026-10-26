@@ -51,7 +51,7 @@ SEMANTIC_HELP_RENDER_BUDGETS: Mapping[
         "root": SemanticHelpRenderBudget(32, 3_000, 10, 0),
         "decision_hub": SemanticHelpRenderBudget(40, 4_000, 8, 0),
         "navigation": SemanticHelpRenderBudget(64, 6_000, 24, 0),
-        "exact_contract": SemanticHelpRenderBudget(72, 7_000, 8, 1),
+        "exact_contract": SemanticHelpRenderBudget(72, 7_000, 12, 1),
         "current_briefing": SemanticHelpRenderBudget(64, 6_000, 6, 1),
     }
 )
@@ -323,7 +323,16 @@ class SemanticCapabilityRegistry:
         descriptor = self._by_id[canonical_id]
         routes: tuple[LiveHelpTarget, ...]
         if isinstance(descriptor, SemanticNavigationTopic):
-            routes = tuple(member.target for member in descriptor.members)
+            routes = tuple(
+                target
+                for member in descriptor.members
+                for target in (
+                    (member.target, member.contract.construction_modes[0].target)
+                    if isinstance(member, SemanticObjectIndexEntry)
+                    and len(member.contract.construction_modes) == 1
+                    else (member.target,)
+                )
+            )
         elif isinstance(descriptor, SemanticBuilderTopic):
             routes = descriptor.members
         elif isinstance(descriptor, SemanticCheckTopic):
@@ -338,7 +347,14 @@ class SemanticCapabilityRegistry:
                 *(target for decision in descriptor.decisions for target in decision.next_targets),
             )
         else:
-            routes = descriptor.see_also
+            routes = (
+                *descriptor.see_also,
+                *(
+                    target
+                    for requirement in descriptor.input_requirements
+                    for target in requirement.acquisition
+                ),
+            )
         return tuple(dict.fromkeys(routes))
 
     def source_contract(self, canonical_id: str) -> AuthoringSourceContract | None:

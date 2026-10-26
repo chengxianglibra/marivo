@@ -23,6 +23,7 @@ from marivo._authoring.model import (
 from marivo._data_render import _display_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
+from marivo.semantic._capabilities.inputs import authoring_guidance, authoring_inputs
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     AuthoringSourceContract,
@@ -179,6 +180,8 @@ INPUT_FAMILIES = frozenset(
         "RelationshipName",
         "ColumnName",
         "TableName",
+        "EntitySourceIR",
+        "DateCoverage",
         "SqlText",
         "SqlDialect",
         "AggFunc",
@@ -343,9 +346,10 @@ def _capability(
         or (f"ms.{canonical_id}" if callable_path is not None else None),
         callable_path=callable_path,
         summary=summary,
-        input_requirements=inputs,
+        input_requirements=authoring_inputs(canonical_id, inputs),
         output_family=output,
         preconditions=preconditions,
+        guidance=authoring_guidance(canonical_id),
         effects=effects,
         constraints=constraints,
         minimal_example=example,
@@ -503,6 +507,19 @@ def _mode(
     return ConstructionMode(intent=intent, role=role, target=_target(target_id))
 
 
+# One primary discovery owner per supporting value; other object links remain
+# references. Keep parameter builders beneath the definitions they support.
+_SUPPORT_DISCOVERY_OWNERS: Mapping[SemanticKind, tuple[str, ...]] = MappingProxyType(
+    {
+        SemanticKind.DOMAIN: ("ai_context",),
+        SemanticKind.ENTITY: ("snapshot", "validity"),
+        SemanticKind.DIMENSION: ("bind",),
+        SemanticKind.MEASURE: ("additive_all", "additive", "non_additive"),
+        SemanticKind.RELATIONSHIP: ("join_on",),
+    }
+)
+
+
 def _object_contract(
     kind: SemanticKind,
     summary: str,
@@ -529,7 +546,10 @@ def _object_contract(
         decisions=decisions,
         construction_modes=construction_modes,
         relationships=relationships,
-        supporting_targets=tuple(_target(target_id) for target_id in supporting),
+        supporting_targets=tuple(
+            _target(target_id)
+            for target_id in dict.fromkeys((*supporting, *_SUPPORT_DISCOVERY_OWNERS.get(kind, ())))
+        ),
         check_targets=tuple(_target(target_id) for target_id in checks),
         check_guidance=check_guidance,
     )
@@ -1161,134 +1181,25 @@ def _navigation_descriptors(
     return (
         SemanticNavigationTopic(
             "model",
-            "Choose the missing reusable business definition or its supporting parameter.",
+            "Choose the missing reusable definition. Single-mode definitions link directly to construction; fields offer column or expression modes.",
             (
-                route(
-                    "identity and history",
-                    "model.identity",
-                    "Define a Domain or Entity and its history model.",
-                ),
-                route(
-                    "fields and row quantities",
-                    "model.fields",
-                    "Define a Dimension, TimeDimension, or Measure.",
-                ),
-                route(
-                    "directed relationships",
-                    "model.relationships",
-                    "Declare a relationship and complete join keys.",
-                ),
-                object_entry("metric"),
-                route(
-                    "publish a reusable Metric",
-                    "metric",
-                    "Declare reusable aggregation meaning and permissions.",
-                    owns=False,
-                ),
-                route(
-                    "definition rationale",
-                    "ai_context",
-                    "Supply business meaning and guardrails for a definition.",
-                ),
-            ),
-        ),
-        SemanticNavigationTopic(
-            "model.identity",
-            "Choose a business namespace, record identity, and supported history model.",
-            (
-                object_entry("domain"),
-                object_entry("entity"),
-                route(
-                    "define Domain",
-                    "domain",
-                    "Declare an accountable business namespace.",
-                    owns=False,
-                ),
-                route(
-                    "define Entity",
-                    "entity",
-                    "Declare the record grain, primary key, and source.",
-                    owns=False,
-                ),
-                route("snapshot history", "snapshot", "Select snapshot-versioned Entity history."),
-                route("validity history", "validity", "Select validity-interval Entity history."),
-            ),
-        ),
-        SemanticNavigationTopic(
-            "model.fields",
-            "Choose governed field meaning and its declaration mode; only Measures carry aggregation permission. bind is restricted to Ibis Dimension/TimeDimension declarations.",
-            (
-                object_entry("dimension"),
-                object_entry("time_dimension"),
-                object_entry("measure"),
                 *(
-                    route(label, target, summary, owns=False)
-                    for label, target, summary in (
-                        (
-                            "define Dimension",
-                            "dimension",
-                            "Compute a governed categorical or scalar field.",
-                        ),
-                        (
-                            "Dimension column",
-                            "dimension_column",
-                            "Map an existing physical field directly.",
-                        ),
-                        (
-                            "define TimeDimension",
-                            "time_dimension",
-                            "Compute a governed business time field.",
-                        ),
-                        (
-                            "TimeDimension column",
-                            "time_dimension_column",
-                            "Map a physical time field directly.",
-                        ),
-                        ("define Measure", "measure", "Compute a governed numeric row quantity."),
-                        (
-                            "Measure column",
-                            "measure_column",
-                            "Map a physical numeric quantity directly.",
-                        ),
+                    object_entry(kind)
+                    for kind in (
+                        "domain",
+                        "entity",
+                        "dimension",
+                        "time_dimension",
+                        "measure",
+                        "metric",
+                        "relationship",
                     )
                 ),
                 route(
-                    "fully additive Measure",
-                    "additive_all",
-                    "Declare permitted aggregation axes and explicit exceptions.",
-                ),
-                route(
-                    "selected additive axes",
-                    "additive",
-                    "Restrict a Measure's aggregation permission to selected axes.",
-                ),
-                route(
-                    "non-additive Measure",
-                    "non_additive",
-                    "Keep aggregation unavailable without an explicit allowed reduction.",
-                ),
-                route(
-                    "restricted field binding",
-                    "bind",
-                    "Bind a leaf field inside a retained Ibis field declaration.",
-                ),
-            ),
-        ),
-        SemanticNavigationTopic(
-            "model.relationships",
-            "Choose a directed relationship with complete keys; source matches do not decide business cardinality.",
-            (
-                object_entry("relationship"),
-                route(
-                    "define Relationship",
-                    "relationship",
-                    "Declare directed endpoints and governed cardinality.",
+                    "business calendars and events",
+                    "time.calendars",
+                    "Define finite business periods or occurrences.",
                     owns=False,
-                ),
-                route(
-                    "complete join keys",
-                    "join_on",
-                    "Pair the ordered source and target key fields.",
                 ),
             ),
         ),
@@ -1652,7 +1563,13 @@ def _discovery_members(descriptor: SemanticHelpDescriptor) -> tuple[LiveHelpTarg
     if isinstance(descriptor, SemanticCheckTopic):
         return tuple(target for route in descriptor.routes for target in route.targets)
     if isinstance(descriptor, SemanticObjectContract):
-        return tuple(mode.target for mode in descriptor.construction_modes)
+        return (
+            *(mode.target for mode in descriptor.construction_modes),
+            *(
+                _target(target)
+                for target in _SUPPORT_DISCOVERY_OWNERS.get(descriptor.semantic_kind, ())
+            ),
+        )
     if isinstance(descriptor, AuthoringCapability) and descriptor.canonical_id in {
         "ref",
         "source_check",
@@ -2038,6 +1955,16 @@ def _canonical_descriptor(row: SemanticHelpDescriptor) -> SemanticHelpDescriptor
             update={
                 "canonical_id": identity,
                 "see_also": tuple(_canonical_link(t) for t in row.see_also),
+                "input_requirements": tuple(
+                    requirement.model_copy(
+                        update={
+                            "acquisition": tuple(
+                                _canonical_link(t) for t in requirement.acquisition
+                            )
+                        }
+                    )
+                    for requirement in row.input_requirements
+                ),
             }
         )
     if isinstance(row, SemanticObjectContract):
@@ -2859,7 +2786,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             inputs=(
                 _parameter_input("mapping_key", "EntityName", "name", optional=True),
                 _parameter_input("dependency", "DatasourceSymbol", "datasource"),
-                _parameter_input("dependency", "TableName", "source"),
+                _parameter_input("dependency", "EntitySourceIR", "source"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -3095,7 +3022,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_values.join_on",
             "Build a join-key specification for a relationship.",
             output="JoinKey",
-            inputs=(_parameter_input("dependency", "ColumnName", "from_key", "to_key"),),
+            inputs=(
+                _parameter_input(
+                    "dependency", "DimensionSymbol | TimeDimensionSymbol", "from_key", "to_key"
+                ),
+            ),
             effects=_AUTHOR,
             example="ms.join_on(order_customer_id, customer_id)",
         ),
@@ -3172,7 +3103,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_values.snapshot",
             "Declare daily Entity snapshots with required partition_field and business timezone. The field owns encoding; date D applies from D midnight and exact missing days remain absent.",
             output="ValiditySpec",
-            inputs=(_parameter_input("dependency", "ColumnName", "partition_field"),),
+            inputs=(_parameter_input("dependency", "TimeDimensionSymbol", "partition_field"),),
             effects=_AUTHOR,
             constraints=("entity_versioning_valid",),
             example="ms.snapshot(partition_field=snapshot_date, timezone='Asia/Shanghai')",
@@ -3182,7 +3113,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_values.validity",
             "Declare validity bounds with required valid_from, valid_to, interval and open_end. DATE bounds require business timezone; timestamp bounds reject version timezone and use field parser/source authority.",
             output="ValiditySpec",
-            inputs=(_parameter_input("dependency", "ColumnName", "valid_from", "valid_to"),),
+            inputs=(
+                _parameter_input("dependency", "TimeDimensionSymbol", "valid_from", "valid_to"),
+            ),
             effects=_AUTHOR,
             example=(
                 "ms.validity(valid_from=valid_from, valid_to=valid_to, "

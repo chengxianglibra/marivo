@@ -65,6 +65,8 @@ class AuthoringInputRequirement(BaseModel):
     subject_refs: tuple[str, ...] = ()
     exact_keys: tuple[str, ...] = ()
     parameter_names: tuple[str, ...] = ()
+    description: str | None = None
+    acquisition: tuple[LiveHelpTarget, ...] = ()
     min_count: int = 1
     max_count: int | None = 1
 
@@ -120,6 +122,7 @@ class AuthoringCapability(BaseModel):
     input_requirements: tuple[AuthoringInputRequirement, ...] = ()
     output_family: str | None = None
     preconditions: tuple[str, ...] = ()
+    guidance: tuple[str, ...] = ()
     effects: AuthoringEffects | None = None
     constraints: tuple[str, ...] = ()
     minimal_example: str | None = None

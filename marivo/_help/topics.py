@@ -60,20 +60,29 @@ def render_root() -> str:
 
 
 def render_authoring() -> str:
+    from marivo.introspection.live.model import EnvironmentFingerprint
+    from marivo.introspection.live.render import render_fingerprint
+
+    routes = (
+        ("Start or load this project", "semantic.load"),
+        ("Find existing definitions", "semantic.catalog"),
+        ("Configure a connection", "datasource.connections"),
+        ("Inspect physical evidence", "datasource.inspection"),
+        ("Define reusable business meaning", "semantic.model"),
+        ("Compose governed expressions", "semantic.expressions"),
+        ("Choose validation or handoff", "semantic.validation"),
+        ("Optional contextual relations", "ontology"),
+    )
     return _bounded(
         "\n".join(
             (
                 "authoring",
-                "  Choose the surface that owns the unresolved authoring need.",
+                render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
+                "  Imports: import marivo.datasource as md; import marivo.semantic as ms",
+                "  Python files hold definitions; load returns their current Catalog.",
+                "  Enter known targets directly; otherwise choose the missing information.",
                 "",
-                "  Physical source definitions and evidence:",
-                '    marivo.help("datasource")',
-                "",
-                "  Executable reusable business semantics:",
-                '    marivo.help("semantic")',
-                "",
-                "  Optional non-executable contextual relations:",
-                '    marivo.help("ontology")',
+                *(f'  {label}: marivo.help("{target}")' for label, target in routes),
                 "",
                 "  Current result or structured error:",
                 "    result.show(); marivo.help(type(result))",
@@ -83,9 +92,5 @@ def render_authoring() -> str:
             )
         ),
         render_class="decision_hub",
-        outgoing_routes=(
-            "datasource",
-            "semantic",
-            "ontology",
-        ),
+        outgoing_routes=tuple(target for _, target in routes),
     )

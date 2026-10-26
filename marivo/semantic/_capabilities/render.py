@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
-from marivo._authoring.render import effect_lines
+from marivo._authoring.render import effect_lines, input_lines
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.render import bounded_help as _bounded
@@ -19,6 +19,7 @@ from marivo.semantic._capabilities.model import (
     SemanticCheckTopic,
     SemanticNavigationTopic,
     SemanticObjectContract,
+    SemanticObjectIndexEntry,
 )
 from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.constraints import iter_constraints
@@ -132,7 +133,7 @@ def render_root_help() -> str:
 
     lines = [
         "marivo.semantic",
-        render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
+        render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
         "",
         "Python imports:",
         f"  {_SEMANTIC_IMPORT}",
@@ -191,6 +192,12 @@ def _render_navigation_topic(
     for member in descriptor.members:
         summary = f": {member.summary} ->" if member.summary is not None else ":"
         lines.append(f"    {member.label}{summary} {_help_invocation(member.target)}")
+        if (
+            isinstance(member, SemanticObjectIndexEntry)
+            and len(member.contract.construction_modes) == 1
+        ):
+            mode = member.contract.construction_modes[0]
+            lines.append(f"      Construct: {_help_invocation(mode.target)}")
     if render_class == "decision_hub":
         lines.extend(
             (
@@ -347,20 +354,18 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.input_requirements:
         lines.append("  Input families:")
         for requirement in descriptor.input_requirements:
-            details: list[str] = []
-            if requirement.parameter_names:
-                details.append("parameters: " + ", ".join(requirement.parameter_names))
-            if requirement.exact_keys:
-                details.append("keys: " + ", ".join(requirement.exact_keys))
-            detail = f" ({'; '.join(details)})" if details else ""
-            optional = " optional" if requirement.min_count == 0 else ""
-            lines.append(f"    {requirement.role}: {requirement.family}{optional}{detail}")
+            lines.extend(input_lines(requirement))
     lines.append(f"  Output family: {descriptor.output_family or 'None'}")
     if descriptor.preconditions:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
     effects = descriptor.effects
     assert effects is not None
     lines.extend(effect_lines(effects))
+    if descriptor.telemetry:
+        lines.append(
+            "  Usage telemetry may write local .marivo/telemetry when enabled; effects above describe business operations."
+        )
+    lines.extend(f"  {line}" for line in descriptor.guidance)
     source_contract = REGISTRY.source_contract(descriptor.canonical_id)
     if source_contract is not None:
         lines.extend(

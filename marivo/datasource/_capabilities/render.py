@@ -6,7 +6,7 @@ import inspect
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
-from marivo._authoring.render import effect_lines
+from marivo._authoring.render import effect_lines, input_lines
 from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.datasource.constraints import iter_constraints
 from marivo.introspection.live.model import LiveHelpTarget
@@ -75,7 +75,7 @@ def render_root_help() -> str:
         "\n".join(
             (
                 "marivo.datasource",
-                render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
+                render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
                 "",
                 "Python imports:",
                 f"  {_DATASOURCE_IMPORT}",
@@ -123,15 +123,17 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.input_requirements:
         lines.append("  Input families:")
         for requirement in descriptor.input_requirements:
-            detail = f" ({', '.join(requirement.exact_keys)})" if requirement.exact_keys else ""
-            optional = " optional" if requirement.min_count == 0 else ""
-            lines.append(f"    {requirement.role}: {requirement.family}{detail}{optional}")
+            lines.extend(input_lines(requirement))
     lines.append(f"  Output family: {descriptor.output_family or 'None'}")
     if descriptor.preconditions:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
     effects = descriptor.effects
     assert effects is not None
     lines.extend(effect_lines(effects))
+    if descriptor.telemetry:
+        lines.append(
+            "  Usage telemetry may write local .marivo/telemetry when enabled; effects above describe business operations."
+        )
     if descriptor.minimal_example is not None:
         lines.append("  Example:")
         lines.extend(

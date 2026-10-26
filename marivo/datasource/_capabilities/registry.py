@@ -18,6 +18,7 @@ from marivo._authoring.model import (
     RepairKind,
 )
 from marivo._data_render import _display_help
+from marivo.datasource._capabilities.inputs import datasource_inputs
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,
     DatasourceNavigationRoute,
@@ -29,6 +30,8 @@ from marivo.introspection.live.targets import canonical_target
 
 INPUT_FAMILIES = frozenset(
     {
+        "WorkspaceRoot",
+        "ConnectionField",
         "CredentialResolver",
         "CredentialRequest",
         "SecretValue",
@@ -162,7 +165,7 @@ def _capability(
         or (f"md.{canonical_id}" if callable_path is not None else None),
         callable_path=callable_path,
         summary=summary,
-        input_requirements=inputs,
+        input_requirements=datasource_inputs(canonical_id, inputs),
         output_family=output,
         preconditions=preconditions,
         effects=effects,

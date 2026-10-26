@@ -40,8 +40,11 @@ Choose the exit before acquiring evidence:
   task, following the dependency flow below.
 
 The packaged skill groups decisions into task boundaries, reuse and business
-authority, evidence and validation choices, and delivery. Help navigation selects
-the missing modeling, expression, time, catalog or validation decision; it does
+authority, evidence and validation choices, and delivery. The authoring Help
+root links directly to load, Catalog reuse, connections,
+physical evidence, model definitions, expressions and validation. Single-mode
+model definitions expose direct construction; fields select column or expression
+construction. Parameters link to native producers or bounded choices. Help does
 not repeat that workflow. Supporting constructor values follow the definition
 they support. `semantic.validation` distinguishes what load, readiness, preview
 and source health can prove.

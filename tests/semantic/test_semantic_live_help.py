@@ -331,9 +331,12 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
     for target in (
         "semantic",
         "semantic.model",
-        "semantic.model.identity",
-        "semantic.model.fields",
-        "semantic.model.relationships",
+        "semantic.domain.define",
+        "semantic.entity.define",
+        "semantic.dimension",
+        "semantic.time_dimension",
+        "semantic.measure",
+        "semantic.relationship.define",
         "semantic.expressions",
         "semantic.time",
         "semantic.time.parsing",
@@ -829,15 +832,25 @@ def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
     )
     model = render_help_text("semantic.model")[0]
     for target in (
-        "semantic.model.identity",
-        "semantic.model.fields",
-        "semantic.model.relationships",
+        "semantic.domain.define",
+        "semantic.entity.define",
+        "semantic.dimension",
+        "semantic.time_dimension",
+        "semantic.measure",
+        "semantic.relationship.define",
         "semantic.metric",
         "semantic.metric.define",
-        "semantic.ai_context",
     ):
         assert f'marivo.help("{target}")' in model
         assert render_help_text(target)[0]
+    for owner, target in (
+        ("domain", "ai_context"),
+        ("entity", "snapshot"),
+        ("measure", "additive_all"),
+        ("relationship", "join_on"),
+    ):
+        assert f'marivo.help("semantic.{target}")' in render_help_text("semantic." + owner)[0]
+        assert f'marivo.help("semantic.{target}")' not in model
     validation = render_help_text("semantic.validation")[0]
     for target in ("load", "readiness", "preview", "preview_many", "source_health", "source_check"):
         assert f'marivo.help("semantic.{target}")' in validation

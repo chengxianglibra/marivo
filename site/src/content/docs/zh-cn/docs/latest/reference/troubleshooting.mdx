@@ -67,7 +67,7 @@ CLI 使用相同目标：`.venv/bin/python -m marivo help analysis`。已知返�
 
 已知目标可以直接查询。source 构造捕获显式问题，不读取业务数据；pending Frame 求值仍可能执行已捕获的来源依赖。完成或重开的 Frame 可以继续数据计算，但不会恢复原始来源声明。
 
-编写定义时从 `authoring` 选择 datasource、semantic 或 ontology。datasource 区分连接、来源、检查和语义交接；semantic 区分模型定义、表达式角色、时间、目录查询和校验。精确 API 保留其自身目标，共同前缀不一定是主题页。
+编写定义时，`authoring` 直接提供 `semantic.load`、目录复用、连接、物理证据、模型定义、表达式与校验入口，并保留可选的 ontology 上下文。空项目无需初始化即可加载，并包含内置 `default` 数据源。模型页为构造方式单一的定义直接提供构造入口；字段可选择列映射或表达式方式。精确参数说明省略含义，并链接到输入的获取方式或有界选择页。已知目标可以直接查询。
 
 执行导入使用 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv`。通过 `mv.session.get_or_create` 创建会话，没有顶层 `marivo.session` 别名。
 

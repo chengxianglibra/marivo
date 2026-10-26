@@ -183,9 +183,6 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
     assert REGISTRY.help_descriptors != REGISTRY.descriptors
     assert {
         "model",
-        "model.identity",
-        "model.fields",
-        "model.relationships",
         "time",
         "time.parsing",
         "time.calendars",

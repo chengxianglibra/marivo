@@ -54,9 +54,23 @@ statistic consumption or export access. They remain static text: rendering Help
 does not execute examples, create Sessions or read project/source data. Task
 pages link to the owning callable instead of maintaining another example set.
 
-Authoring routes datasource work through connections, sources, inspection and
-the semantic handoff. Semantic work selects model definitions, expression roles,
-time meaning, catalog lookup or validation according to the missing decision.
+Authoring offers direct project loading, Catalog reuse, connection setup,
+physical inspection, modeling, expressions and validation, with optional ontology
+context. Native datasource and semantic roots remain independent entry points.
+The authoring root and native roots reveal interpreter and package identity.
+Model navigation embeds registered object contracts and links single-mode
+objects directly to construction. Field objects choose column or expression
+construction; the retired identity/fields/relationships topic layer has no aliases.
+Exact authoring parameters own input meaning, omission and acquisition in their
+native registry. Literal and business-authority choices need rules rather than
+invented producers. Source descriptors and declared symbols remain distinct
+from raw names and closed Catalog values.
+`semantic.load` owns workspace selection, valid empty projects and model layout.
+Physical declarations require their documented loader placement. Naming a local
+Measure/Metric does not publish it; model collection during load publishes
+eligible top-level declarations from the model's own files. Exact pages explain
+both uses and identify example inputs. Authoring effects describe business
+operations; enabled usage telemetry may separately write `.marivo/telemetry`.
 An existing closed expression can be composed for one question through
 semantic.expressions without publishing a new Metric. Missing reusable meaning
 or aggregation authority requires authoring; a missing published name alone
