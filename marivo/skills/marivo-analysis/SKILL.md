@@ -241,6 +241,20 @@ through retries and continuations. Failure does not authorize sampling,
 truncation, relaxed precision, or an easier population. Disclose incomplete work
 and resolve any necessary change to the question before proceeding with it.
 
+### Working files
+
+When execution needs temporary scripts, intermediate exports or debug output,
+keep them under `<project_root>/.marivo/work/<task-name>/`, isolated by question.
+Reuse that task directory for continuations without overwriting another task's
+files. Create it only when files are needed; a simple answer need not produce files.
+Run scripts from the existing project root with its configuration and Session;
+do not create another Marivo project or `marivo.toml` just to hold working files.
+User-specified paths take precedence. Maintained code and requested deliverables
+belong at their intended destinations rather than in temporary working storage.
+Keep cleanup within the current task directory: `.marivo/` also holds persistent
+state, including the analysis Store. Working files do not replace persisted Frame
+identities for cross-process recovery.
+
 ## Completion and communication
 
 Finish when every requested analytical transformation and answer is supported
