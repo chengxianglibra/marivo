@@ -34,14 +34,16 @@
 
 ```
 marivo/
-  contracts/     # 共享域类型：ID、值对象、错误码
-  core/          # 纯域逻辑，零 I/O
-  runtime/       # 用例编排层
-  ports/         # Protocol 接口定义
-  adapters/      # Port 实现（local/server）
-  profiles/      # Profile 工厂（create_local_runtime / create_server_runtime）
-  transports/    # 传输层（CLI, MCP, HTTP API）
-  api/           # FastAPI HTTP 路由
+  datasource/    # 数据源 API 与引擎
+  semantic/      # 语义定义、加载与校验
+  analysis/      # 分析 API、Frame 与执行
+  ontology/      # 本体 API
+  introspection/ # 运行时检查
+  skills/        # 随包分发的 Agent skills
+tests/           # 按 datasource、semantic、analysis 等领域组织
+docs/            # 架构与 API 文档源文件
+site/            # 用户文档站点
+scripts/         # 开发与检查脚本
 ```
 
 ## 架构约束
@@ -68,9 +70,10 @@ marivo/
 .venv/bin/pre-commit run --all-files
 ```
 
-普通提交保留已安装的格式、lint、typing 和默认测试 hooks；不执行完整 Runtime
-验收，也不为提交启动 MinIO。已有检查通过且文件未变时，提交准备不再重复运行同一批
-检查，提交 hooks 仍照常执行。
+提交 hooks 执行 Ruff、通用文件检查，以及针对 Python 文件的 import-linter 和 mypy；当前
+配置不包含测试 hook。默认回归测试通过 `make test` 单独运行，`make check-agent` 也包含
+该目标。提交 hooks 不执行完整 Runtime 验收，也不为提交启动 MinIO。已有检查通过且
+文件未变时，提交准备不再重复运行同一批检查，提交 hooks 仍照常执行。
 
 ### 代码格式化
 在最终检查和候选版本摘要冻结前，只对本次修改的 Python 文件执行：
