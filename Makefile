@@ -1,5 +1,5 @@
-.PHONY: test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
-	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
+.PHONY: test runtime-test release-test typecheck lint format \
+	check release-check docs-api pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -24,7 +24,7 @@ PYTEST_WORKERS ?= 8
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
 MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
-AGENT_RUFF_FLAGS := --output-format concise
+RUFF_FLAGS := --output-format concise
 
 PYPI_DIST_DIR := dist/pypi
 
@@ -33,10 +33,6 @@ test:
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)
 
 runtime-test:
-	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
-
-runtime-test-agent:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m runtime -n $(if $(findstring ::,$(TESTS)),0,$(RUNTIME_WORKERS)) $(TESTS)
 
@@ -112,22 +108,16 @@ typecheck:
 lint:
 	@./scripts/require-venv.sh ruff
 	@$(VENV_RUFF) format --check $(LINT_TARGETS)
-	@$(VENV_RUFF) check $(LINT_TARGETS)
-	@$(VENV_LINT_IMPORTS)
-
-lint-agent:
-	@./scripts/require-venv.sh ruff
-	@$(VENV_RUFF) format --check $(LINT_TARGETS)
-	@$(VENV_RUFF) check $(AGENT_RUFF_FLAGS) $(LINT_TARGETS)
-	@agent_log=$$(mktemp "$${TMPDIR:-/tmp}/marivo-import-linter.XXXXXX"); \
-		if $(VENV_LINT_IMPORTS) >"$$agent_log" 2>&1; then \
-			rm -f "$$agent_log"; \
+	@$(VENV_RUFF) check $(RUFF_FLAGS) $(LINT_TARGETS)
+	@lint_log=$$(mktemp "$${TMPDIR:-/tmp}/marivo-import-linter.XXXXXX"); \
+		if $(VENV_LINT_IMPORTS) >"$$lint_log" 2>&1; then \
+			rm -f "$$lint_log"; \
 			echo "Import contracts passed"; \
 		else \
-			agent_status=$$?; \
-			cat "$$agent_log"; \
-			rm -f "$$agent_log"; \
-			exit "$$agent_status"; \
+			lint_status=$$?; \
+			cat "$$lint_log"; \
+			rm -f "$$lint_log"; \
+			exit "$$lint_status"; \
 		fi
 
 format:
@@ -137,19 +127,10 @@ format:
 
 check: lint typecheck test docs-api
 
-check-agent: lint-agent typecheck test docs-api-agent
-
 release-check:
 	@$(MAKE) check runtime-test release-test TESTS=
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
-	@./scripts/require-venv.sh sphinx-build
-	@rm -rf docs/api/api
-	@rm -rf site/public/api
-	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -W --keep-going -b html docs/api site/public/api
-	@echo "API docs built in site/public/api"
-
-docs-api-agent: ## Build the Sphinx Python API reference with compact output.
 	@./scripts/require-venv.sh sphinx-build
 	@rm -rf docs/api/api
 	@rm -rf site/public/api

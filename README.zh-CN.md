@@ -161,10 +161,10 @@ make check
 `make release-check` 执行；日常套件目标为三分钟以内。该 Make 目标默认使用 8 个
 pytest-xdist worker，可通过 `PYTEST_WORKERS=<count> make test` 覆盖；指定单个测试节点时仍串行执行。
 输出精简、traceback 较短，累计五项失败后停止。Runtime 和 release 用例使用单独入口。
-`make check` 和 `make check-agent` 合并本地测试、静态检查和 API 文档检查。
+`make check` 合并本地测试、静态检查和 API 文档检查。
 Runtime 与打包验收由 `make release-check` 执行。日常开发按需使用
 `make runtime-test TESTS='tests/datasource/test_source_profiles.py'`；
-`runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
+该入口使用精简输出，默认使用两个
 worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个
 测试节点仍串行执行。并发数限制针对每次调用，同机多个测试任务仍共享主机资源。
 测试采用 work-stealing 调度以减少慢模块拖尾。类型检查保持严格增量模式，

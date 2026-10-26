@@ -211,7 +211,7 @@ pytest-xdist workers; use `PYTEST_WORKERS=<count> make test` to override. A sing
 selected node runs serially. Output is compact, tracebacks are short, and the run
 stops after five failures. Runtime and release cases use separate entrypoints.
 `make typecheck` also uses compact output; all commands preserve check failures
-and exit status. `make check` and `make check-agent` combine the local suite,
+and exit status. `make check` combines the local suite,
 static checks, and API documentation checks. Ordinary commits keep their
 installed hooks and do not run the full Runtime suite.
 
@@ -226,9 +226,9 @@ invocations, while each case owns its tables, schemas and connections.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites. Use
 `make runtime-test TESTS='tests/datasource/test_source_profiles.py'` for focused
 native source checks when needed; daily development does not automatically run
-the full Runtime suite. `runtime-test-agent` provides compact output for the same
-selection. Both Runtime targets default to two workers to bound shared-service
-load; use `RUNTIME_WORKERS=4` to override after measuring available host capacity.
+the full Runtime suite. `make runtime-test` uses compact output and defaults to
+two workers to bound shared-service load; use `RUNTIME_WORKERS=4` to override
+after measuring available host capacity.
 An explicit test node id containing `::` runs serially. The limit applies per
 invocation, so concurrent test tasks share the host's remaining capacity.
 Tests use work-stealing across workers to avoid slow-module tails.

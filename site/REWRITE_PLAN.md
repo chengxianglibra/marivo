@@ -527,7 +527,7 @@ R2–R5 的每一篇中英文一起完成，不把另一语言留到所有正文
 | 检查 | 结果 |
 | --- | --- |
 | 文档示例聚焦测试：`make test TESTS='tests/surface/test_disclosure_documentation.py tests/semantic/test_semantic_help_examples.py'` | 43 passed |
-| 修改测试模块的 `make lint-agent` | 格式、lint 与 import contracts 通过 |
+| 修改测试模块的 `make lint` | 格式、lint 与 import contracts 通过 |
 | 修改测试模块的 `make typecheck` | 2 个模块通过 |
 | `npm run verify:content` | 必需站点文件检查通过 |
 | `npm run test:shared-docs` | 共享页面冷/暖生成与拒绝行为检查通过 |

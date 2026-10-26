@@ -71,7 +71,7 @@ scripts/         # 开发与检查脚本
 ```
 
 提交 hooks 执行 Ruff、通用文件检查，以及针对 Python 文件的 import-linter 和 mypy；当前
-配置不包含测试 hook。默认回归测试通过 `make test` 单独运行，`make check-agent` 也包含
+配置不包含测试 hook。默认回归测试通过 `make test` 单独运行，`make check` 也包含
 该目标。提交 hooks 不执行完整 Runtime 验收，也不为提交启动 MinIO。已有检查通过且
 文件未变时，提交准备不再重复运行同一批检查，提交 hooks 仍照常执行。
 
@@ -137,7 +137,7 @@ make test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 make runtime-test TESTS='tests/datasource/test_source_profiles.py'
 
 # Run fast daily tests, static checks, and API documentation checks
-make check-agent
+make check
 
 # Run a specific test file with compact output
 make test TESTS='tests/analysis/session/test_analysis_session_core.py'
@@ -157,9 +157,9 @@ make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_sess
 含 `::` 的单个测试节点仍串行执行。需要更多诊断时，仅对失败范围使用
 `.venv/bin/pytest` 并指定详细输出。
 日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整
-Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
+Runtime suite。`make runtime-test` 使用精简输出。
 
-Runtime Make targets default to two workers to bound load on shared external
+The Runtime Make target defaults to two workers to bound load on shared external
 datasource services. Use `RUNTIME_WORKERS=<count>` to override the
 per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
 containing `::` run serially. Account for other concurrent test tasks on the host.
@@ -170,7 +170,7 @@ containing `::` run serially. Account for other concurrent test tasks on the hos
 覆盖基本数据源能力和后端特有风险。相同数据源共享服务容器，每个用例独立管理
 自己的表、schema 和连接；pytest 不启停服务。
 
-`make check` 和 `make check-agent` 执行完整本地检查。发布准备与发布 CI 通过
+`make check` 执行完整本地检查。发布准备与发布 CI 通过
 `make release-check` 加上 Runtime、安装和打包检查。Runtime 不重复全部本地
 分析验收矩阵。Runtime coverage notes and local acceptance records are kept in the local-only `docs/testing/` directory.
 

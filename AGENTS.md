@@ -72,9 +72,9 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 | --- | --- |
 | Focused tests | `make test TESTS='tests/test_file.py'` |
 | Focused typing | `make typecheck TYPECHECK_TARGETS='marivo/path'` |
-| Focused lint | `make lint-agent LINT_TARGETS='marivo/path tests/test_file.py'` |
+| Focused lint | `make lint LINT_TARGETS='marivo/path tests/test_file.py'` |
 | Default tests | `make test` |
-| Broad regular gate | `make check-agent` |
+| Broad regular gate | `make check` |
 | Relevant Runtime tests | `make runtime-test TESTS='tests/test_file.py'` |
 | Full release acceptance | `make release-check` |
 
@@ -89,8 +89,8 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
   For documentation-only edits, validate affected content, paths, and diffs.
 - `make test` uses short tracebacks and stops after five failures. If needed,
   rerun only the failing scope with `.venv/bin/pytest` and suitable verbosity.
-- `make check-agent` covers the same lint, typing, default-test, and API-doc
-  stages as `make check`. Run it without narrowing variables for broad evidence.
+- `make check` covers lint, typing, default-test, and API-doc stages.
+  Run it without narrowing variables for broad evidence.
   Default tests exclude slow, Runtime, and release tests.
 - Run only relevant Runtime tests during development. Full release acceptance
   belongs to release preparation and publishing CI; do not run it or start
