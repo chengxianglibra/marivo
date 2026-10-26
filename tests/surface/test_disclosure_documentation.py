@@ -178,6 +178,7 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     tutorial_markers = ("demo-seed", "demo-datasource", "demo-model", "demo-analysis")
     guide_markers = (
         "compare-query",
+        "fixed-member-comparison",
         "aligned-absolute-only",
         "attribute-default-investigation",
         "attribute-contribution-facts",

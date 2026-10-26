@@ -70,7 +70,15 @@ saved configuration. Recovery without pending work preserves ``updated_at``.
 Current data operations
 -----------------------
 
-``select`` derives named values; ``where`` accepts a same-Frame boolean Column;
+``select`` derives named values; ``where`` accepts a same-Frame boolean Column.
+
+``fix(axis, key)`` selects one complete ordinary member and removes its axis
+without aggregation. Use a scalar for one key component or a complete tuple in
+``axis.key_names`` order. ``None`` selects nullable NULL; absent members yield empty
+Frames. Values, types, units, NA, presence and row order are retained. Calendar,
+interval and paired axes cannot be fixed. Reacquire handles from the result;
+remaining ordinary axes still require explicit ``on`` for compare.
+
 ``top`` is global and deterministic. ``reduce`` uses current represented cells,
 with independent valid masks per statistic. It does not recompute original
 Metrics. New facts or original overall questions require explicit source inputs.

@@ -62,6 +62,7 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_compare_schema,
     infer_frame_schema,
 )
+from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
@@ -422,6 +423,31 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.where",
             )
         return self._derive(FilterValues(predicate._expression))
+
+    def fix(self, axis: FrameAxis, key: LiteralValue | tuple[LiteralValue, ...]) -> AnalysisFrame:
+        """Fix one complete ordinary coordinate and remove its axis without aggregation.
+
+        Args:
+            axis: A field or identity axis from this exact Frame.
+            key: A scalar for one component or a complete tuple in key_names order.
+        Returns: A lazy Frame preserving selected values, presence and relative row order.
+        Example: ``bi1 = frame.fix(frame.axis('cluster'), 'bi1')``.
+        Constraints: None selects a nullable NULL key. Absent members yield an empty Frame,
+        including after removing the final axis. Time and paired axes cannot be fixed.
+        Remaining ordinary axes still require explicit on when comparing two Frames.
+        """
+        position = self._axis_index(axis, location="frame.fix", canonical_id="analysis_frame.fix")
+        single = len(self._schema.axes[position].columns) == 1
+        if single == isinstance(key, tuple):
+            reject(
+                "a scalar key" if single else "a complete tuple key",
+                repr(key),
+                "Use axis.key_names to supply every component in order.",
+                "frame.fix",
+                canonical_id="analysis_frame.fix",
+            )
+        keys = key if isinstance(key, tuple) else (key,)
+        return self._derive(FixFrameValues(position, keys))
 
     def select(self, values: Mapping[str, Column | LiteralValue]) -> AnalysisFrame:
         """Name current Columns or non-null supported literals, preserving the row domain.
@@ -1483,6 +1509,8 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
     if isinstance(operation, SelectValues):
         values = tuple((name, _value_summary(value, source)) for name, value in operation.values)
         return f"select(values={values!r})"
+    if isinstance(operation, FixFrameValues):
+        return f"fix(axis={source._schema.axes[operation.position].name!r}, key={operation.key!r})"
     if isinstance(operation, FilterValues):
         return f"where(predicate={_value_summary(operation.predicate, source)})"
     if isinstance(operation, TopValues):

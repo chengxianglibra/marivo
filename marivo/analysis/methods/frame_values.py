@@ -24,6 +24,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
 )
 from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_correlation import correlation
@@ -76,6 +77,15 @@ def _evaluate_frame(
     """Evaluate one unary Frame program; binary execution owns attachment handling."""
     operation = program.operation
     output = program.output_schema
+    if isinstance(operation, FixFrameValues):
+        axis = program.input_schema.axes[operation.position]
+        fixed_key = validate_fixed_key(axis, operation.key)
+        fixed_mask = [item == fixed_key for item in frozen_key_rows(source, axis.columns)]
+        return (
+            source.loc[fixed_mask, [c.slot_id for c in output.columns]]
+            .reset_index(drop=True)
+            .copy()
+        )
     if isinstance(operation, SelectValues):
         result = source.loc[
             :,

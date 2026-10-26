@@ -28,6 +28,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IntervalCoordinate,
+    LiteralValue,
     Owner,
     check_literal,
     invalid,
@@ -252,6 +253,8 @@ class AttributeKeys:
     side: Literal["left", "right"] = "left"
     how: Literal["exact", "outer"] = "exact"
     comparison_alias: str | None = None
+    fixed: tuple[tuple[AxisBinding, tuple[LiteralValue, ...]], ...] = ()
+    presence: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

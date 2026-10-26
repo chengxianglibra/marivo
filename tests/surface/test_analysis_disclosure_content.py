@@ -201,7 +201,10 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     # AnalysisFrame owns each result operation once, without legacy receiver-family projections.
     assert families == {}
     for owner, methods in (
-        (mv.AnalysisFrame, ("select", "where", "reduce", "over", "correlate", "align", "compare")),
+        (
+            mv.AnalysisFrame,
+            ("select", "where", "fix", "reduce", "over", "correlate", "align", "compare"),
+        ),
         (mv.Column, ("sum", "mean", "corr", "pair_count", "share", "is_null")),
     ):
         for method in methods:
@@ -635,3 +638,26 @@ def test_nested_metadata_help_keeps_read_boundaries() -> None:
     for target in ("time_scope_contract_v1", "data_schema", "bound_time_grid", "run_failure"):
         with pytest.raises((AnalysisError, MarivoHelpTargetError)):
             render_help_text("analysis." + target)
+
+
+def test_fix_help_matches_callable_and_runs_public_example(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    region = case.catalog.fields.get("sales.customer.region")
+    frame = case.session.values(
+        by=(region,),
+        columns={"value": "CNY"},
+        rows=((("east",), {"value": 120}), (("west",), {"value": 100})),
+    )
+    descriptor = prepare().by_canonical_id("analysis_frame.fix")
+    assert isinstance(descriptor, CallableInput)
+    text = render_help_text("analysis.analysis_frame.fix")[0]
+    assert text == render_help_text(mv.AnalysisFrame.fix)[0]
+    assert text == render_help_text(frame.fix)[0]
+    for phrase in ("without aggregating", "NULL", "empty", "explicit on", "complete tuple"):
+        assert phrase in text
+    namespace = {"frame": frame}
+    exec(descriptor.example.code, namespace)
+    assert namespace["result"].compute().to_pandas()["value"].tolist() == [120]
+    assert "analysis.analysis_frame.fix" in render_help_text("analysis.frame.rows")[0]

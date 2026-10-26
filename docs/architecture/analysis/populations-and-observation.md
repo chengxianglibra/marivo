@@ -312,3 +312,14 @@ and [attribute_rules.py](../../../marivo/analysis/binding/attribute_rules.py) ow
 endpoint and contribution rules. [compiler/populations.py](../../../marivo/analysis/compiler/populations.py)
 and [compiler/observation.py](../../../marivo/analysis/compiler/observation.py)
 compile their explicit dependencies into the shared schedule.
+
+### Fixed parent coordinates
+
+`AnalysisFrame.fix` retains each removed source axis as a typed complete fixed key in its
+process-local declaration. Attribute combines the remaining selected parent keys
+with a singleton domain over the fixed original axes. This condition retains exact
+axis paths and membership allocation authority; it does not reconstruct semantics
+from an output name. Fixed memberships remain parent allocations even when all of
+their output axes have been removed. Different fixed keys cannot share an endpoint
+source group. Missing selected endpoints are not recreated as zero-valued parents.
+The fixed keys do not restore declarations after independent reopen.

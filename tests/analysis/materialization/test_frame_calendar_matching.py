@@ -1325,3 +1325,27 @@ def test_retained_comparison_absence_rejects_true_exact_endpoint_presence(
             scalar = frame.select({"constant": 1})
             with pytest.raises(AnalysisError, match="absent comparison endpoints"):
                 scalar.top(0, by=scalar["constant"]).compute()
+
+
+@pytest.mark.parametrize("combine", ["compare", "align"])
+@pytest.mark.parametrize("member", ["east", "missing"])
+def test_fix_preserves_remaining_calendar_and_paired_attachments(
+    local: LocalFrameServices, combine: str, member: str
+) -> None:
+    left = memory(local, ("2026-08-01", "2026-08-02"), (0, 1), (120, 80), regions=("east", "west"))
+    right = memory(local, ("2026-08-01", "2026-08-02"), (0, 1), (100, 40), regions=("east", "west"))
+    pairs = tuple(zip(left.axes, right.axes, strict=True))
+    combined = (
+        left.compare({"reference": mv.baseline(right, on=pairs)})
+        if combine == "compare"
+        else left.align(right, on=pairs)
+    )
+    fixed = combined.fix(combined.axis("region"), member).compute()
+    assert len(fixed.axes) == 1
+    assert len(fixed.to_pandas()) == (1 if member == "east" else 0)
+    assert len(_memory_backing(fixed).data.copy_attachments()) > 0
+    with pytest.raises(AnalysisError, match="ordinary"):
+        fixed.fix(fixed.axes[0], 0)
+    if member == "east":
+        name = "reference.absolute.amount" if combine == "compare" else "left.amount"
+        assert fixed.to_pandas()[name].tolist() == [20 if combine == "compare" else 120]

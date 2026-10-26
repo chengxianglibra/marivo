@@ -220,7 +220,15 @@ def _projected(
         else ()
     )
     result: list[tuple[FrozenKey, tuple[FrozenScalar | None, ...] | None]] = []
+    presence_slot = (
+        schema.presence[schema.presence_paths.index(operation.presence)].slot_id
+        if operation.presence is not None
+        else None
+    )
     for i, key in enumerate(parent_keys):
+        if presence_slot is not None and not bool(rows[presence_slot].iloc[i]):
+            result.append((key, None))
+            continue
         values = tuple(v for group in groups for _, v in group[i])
         if operation.calendar is not None:
             mapped = calendar[calendar_rows[i]]

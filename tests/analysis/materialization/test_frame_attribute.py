@@ -700,3 +700,38 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
     assert rows.iloc[:, 0].tolist() == ["east"] * 4
     assert rows["calendar:day"].tolist() == ["2026-08-01", "2026-08-01", "2026-08-02", "2026-08-02"]
     assert rows["q"].tolist() == [1, 1, 1, 1]
+
+
+@pytest.mark.parametrize("fix_remaining", [False, True])
+def test_fix_keeps_allocated_parent_membership_for_attribute(
+    session: Session, fix_remaining: bool
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount").sum()
+    label = session.catalog.fields.get("sales.tags.label")
+    kind = session.catalog.fields.get("sales.tags.kind")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    route = (
+        session.catalog.relationships.get("sales.fact_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
+    frame = session.observe({"q": amount}, by=(membership, kind))
+    fixed = frame.fix(frame.axes[0], "x")
+    if fix_remaining:
+        fixed = fixed.fix(fixed.axes[0], "online")
+    report = fixed.attribute(by=(channel,)).compute().to_pandas()
+    assert report["contribution.q"].tolist() == [2, 100]
+    assert report["total.q"].tolist() == [102, 102]
+
+
+def test_fix_keeps_time_identity_for_attribute(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    day = session.catalog.fields.get("sales.facts.day")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    frame = session.observe({"q": amount.sum(time=day)}, by=(region, calendar))
+    fixed = frame.fix(frame.axes[0], "east")
+    report = fixed.attribute(by=(channel,)).compute().to_pandas()
+    assert report["contribution.q"].tolist() == [100, 2]
+    assert report["total.q"].tolist() == [100, 2]

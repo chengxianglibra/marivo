@@ -288,3 +288,57 @@ def test_mysql_attribute_rejects_nondeterministic_collation_before_business_read
         assert "collation" in caught.value.received
         # Native metadata qualification may run; no Attribute business query does.
         assert trace.native_sql == [] and trace.returned_rows == []
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_native_fixed_members_preserve_attribute_source_constraints(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    data = SourceData(
+        _columns(backend, "BIGINT"),
+        "(1,'east','A',100,1,1,DATE '2026-07-01'),"
+        "(2,'east','B',100,1,1,DATE '2026-07-01'),"
+        "(3,'west','A',160,1,1,DATE '2026-07-01'),"
+        "(4,'west','B',80,1,1,DATE '2026-07-01')",
+        "id Int64, tenant String, category String, amount Int64, big Int64, weight Int64, day Date",
+        [
+            {
+                "id": i,
+                "tenant": t,
+                "category": c,
+                "amount": a,
+                "big": 1,
+                "weight": 1,
+                "day": date(2026, 7, 1),
+            }
+            for i, t, c, a in (
+                (1, "east", "A", 100),
+                (2, "east", "B", 100),
+                (3, "west", "A", 160),
+                (4, "west", "B", 80),
+            )
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("native-fix", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        tenant = session.catalog.fields.get("sales.facts.tenant")
+        category = session.catalog.fields.get("sales.facts.category")
+        source = session.observe({"q": amount.mean()}, by=(tenant,)).compute()
+        current = source.fix(source.axes[0], "west")
+        baseline = source.fix(source.axes[0], "east")
+        report = (
+            current.compare({"base": mv.baseline(baseline)})
+            .attribute(by=(category,))
+            .compute()
+            .to_pandas()
+        )
+        assert report["contribution.base.absolute.q"].tolist() == pytest.approx([30, -10])
+        assert report["total.base.absolute.q"].tolist() == pytest.approx([20, 20])
+        assert report["contribution.base.relative.q"].tolist() == pytest.approx([0.3, -0.1])

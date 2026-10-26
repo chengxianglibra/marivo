@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._definition.types import literal_token
 from marivo.analysis.core.frame_data import SourceFrameBinding
 from marivo.analysis.core.frame_derivation import DerivationTarget, FrameDerivation, SourceMetric
 from marivo.analysis.core.frame_expression import NamedFrameComparison
@@ -19,6 +20,7 @@ class SourceGroupKey:
     side: Literal["left", "right"]
     match: CalendarCorrespondence | None = None
     comparison_alias: str | None = None
+    fixed_axes: tuple[tuple[int, tuple[tuple[str, str], ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +62,14 @@ def source_group_key(
         and isinstance(target.pairing, NamedFrameComparison)
         else None
     )
-    return SourceGroupKey(id(metric.binding.graph), metric.axis_positions, actual, match, alias)
+    return SourceGroupKey(
+        id(metric.binding.graph),
+        metric.axis_positions,
+        actual,
+        match,
+        alias,
+        tuple((i, tuple(literal_token(v) for v in key)) for i, key in metric.fixed_axes),
+    )
 
 
 def collect_source_groups(declaration: FrameDerivation) -> dict[SourceGroupKey, SourceMetricGroup]:

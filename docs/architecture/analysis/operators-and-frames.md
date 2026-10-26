@@ -280,3 +280,17 @@ completion and reductions. [frame_correlation.py](../../../marivo/analysis/metho
 owns paired statistics. [physical.py](../../../marivo/analysis/methods/physical.py)
 owns method/type/backend qualification; [_ibis_numeric.py](../../../marivo/analysis/methods/_ibis_numeric.py)
 owns source-native numerical construction.
+
+## Single-member coordinate restriction
+
+`AnalysisFrame.fix(axis, key)` restricts a complete ordinary axis to one typed key
+and removes that axis. This is an injective coordinate projection after restriction,
+not a current-row statistic. It preserves cells, types, units, NA, presence and order;
+empty selection remains empty even after the final axis is removed. It cannot be
+implemented with sum/mean/first, which have different type and empty-input contracts.
+
+Fix and pure direct value projection compose without aggregation. Top, partition
+statistics and share generally change meaning when moved across fix. Strict input
+errors remain required even when their rows are excluded. No new source predicate
+pushdown is implied. Cross-Frame comparison and correlation keep their existing
+coordinate correspondence requirements.

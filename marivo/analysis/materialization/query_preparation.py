@@ -664,9 +664,11 @@ def prepare_fields(
         if any(read in outer_reads for read in allocated):
             continue
         paths = {path for read in allocated for path in coordinate_read_keys(read)}
-        sample_positions[binding] = min(
-            int(slot.split(".")[1]) for slot, path in physical_axes if path in paths
-        )
+        positions = tuple(int(slot.split(".")[1]) for slot, path in physical_axes if path in paths)
+        # A fixed parent membership can survive only in the source condition.
+        # It still owns allocation, but has no remaining sample/output axis.
+        if positions:
+            sample_positions[binding] = min(positions)
     members = prepare_memberships(
         table,
         contribution.root,

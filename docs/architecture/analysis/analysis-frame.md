@@ -164,6 +164,26 @@ where/top 先计算其操作输入上的完整分区，再筛选或排序；下�
 sum/divide 合同。筛选前后的位置有意义：先筛选改变分母，后筛选保留已有分母。
 两者不重读来源、不生成新 method_facts，不认证原 Metric 的可加性或来源贡献。
 
+## Fixed coordinates
+
+`frame.fix(axis, key)` selects one complete field/identity member and removes that
+axis without aggregation. A single-component axis takes a scalar; a composite axis
+takes a complete tuple in `axis.key_names` order. None matches a nullable NULL
+coordinate; nonnullable identity components reject None. Calendar, interval and
+paired axes cannot be fixed. Other axes retain their roles and frozen attachments.
+
+Fix preserves selected physical values, units, NA, row presence, comparison value
+bindings and relative row order. The remaining complete key is unique because the
+removed coordinate is constant. Missing members return typed empty data. Removing
+the final axis produces zero or one row, including Frames without value columns.
+Acquire new handles from the result. Fix is lazy and retains required input checks.
+
+Fix retains process-local source declarations with their fixed original coordinate
+keys. Subsequent attribute uses those keys and the remaining selected parent domain;
+source grouping distinguishes different fixed members. Membership allocation paths
+remain owned by their original declarations. Independent reopen remains source-free.
+Fix does not change compare's explicit on requirement for remaining ordinary axes.
+
 ## Correspondence and comparison
 
 align 接收另一 Frame；compare 接收单个裸 Frame（固定别名 reference），或非空有序

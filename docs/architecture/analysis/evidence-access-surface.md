@@ -141,3 +141,8 @@ and [evidence](../../../marivo/analysis/evidence/) own public audit reads.
 [frame_method_facts.py](../../../marivo/analysis/core/frame_method_facts.py) owns
 immutable explanations; [materialization/frame_method_facts.py](../../../marivo/analysis/materialization/frame_method_facts.py)
 owns their saved payloads and receipts.
+
+`AnalysisFrame.fix` transports existing row presence and comparison explanations with the
+selected cells. Its evaluation records a `fix` operation without creating source
+method facts. Fixed source coordinates remain process-local declarations for an
+explicit later attribute request; they are not executable persisted provenance.

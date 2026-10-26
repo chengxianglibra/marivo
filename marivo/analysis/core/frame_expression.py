@@ -47,6 +47,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
 )
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
+from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
 from marivo.analysis.core.frame_structure import (
     AxisRole,
     PendingDataAxis,
@@ -65,7 +66,9 @@ from marivo.analysis.core.frozen_calendar import (
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 
-FrameUnaryOperationKind: TypeAlias = SelectValues | FilterValues | TopValues | ReduceValues
+FrameUnaryOperationKind: TypeAlias = (
+    SelectValues | FilterValues | TopValues | ReduceValues | FixFrameValues
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
@@ -140,6 +143,7 @@ class AttributeProjectValues:
     target_calendar: CalendarCoordinate | IntervalCoordinate | None = None
     how: Literal["exact", "outer"] = "exact"
     comparison_alias: str | None = None
+    presence: tuple[str, ...] | None = None
 
 
 FrameOperationKind: TypeAlias = (
@@ -192,6 +196,8 @@ def statistic_expressions(statistic: Statistic | PairStatistic) -> tuple[ValueEx
 
 
 def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ...]:
+    if isinstance(operation, FixFrameValues):
+        return ()
     if isinstance(operation, SelectValues):
         result = tuple(value for _, value in operation.values)
     elif isinstance(operation, FilterValues):
@@ -463,6 +469,15 @@ def infer_frame_schema(
 def infer_frame_schema(
     schema: DataSchema | PendingDataSchema, operation: FrameUnaryOperationKind
 ) -> DataSchema | PendingDataSchema:
+    if isinstance(operation, FixFrameValues):
+        validate_fixed_key(schema.axes[operation.position], operation.key)
+        if isinstance(schema, PendingDataSchema):
+            return replace(
+                schema, axes=tuple(a for i, a in enumerate(schema.axes) if i != operation.position)
+            )
+        return replace(
+            schema, axes=tuple(a for i, a in enumerate(schema.axes) if i != operation.position)
+        )
     values = expressions(operation)
     for operand in values:
         expression_unit(schema, operand)

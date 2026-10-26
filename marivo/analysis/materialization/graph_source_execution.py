@@ -2310,11 +2310,20 @@ def prepare_attribute_sources(
                 if observation.coordinates.parent_scope is None
                 else observation.coordinates.parent_scope.axes
             )
+            from marivo._definition.relations import AttributeKeys, PopulationProgram
+
+            scope = observation.coordinates.parent_scope
+            fixed_parent_axes = (
+                tuple(axis for axis, _ in scope.root.fixed)
+                if isinstance(scope, PopulationProgram) and isinstance(scope.root, AttributeKeys)
+                else ()
+            )
             parent_memberships = tuple(
                 rule
                 for rule in first.memberships
                 if all(
-                    AxisBinding(read.entity, read.field, read.path, "field", read.at) in parent_axes
+                    AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                    in (*parent_axes, *fixed_parent_axes)
                     for read in rule.fields
                 )
             )

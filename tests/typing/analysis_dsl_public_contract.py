@@ -205,3 +205,13 @@ if TYPE_CHECKING:
     ) -> None:
         assert_type(frame.attribute(by=(field,)), mv.AnalysisFrame)
         assert_type(frame.attribute(by=population), mv.AnalysisFrame)
+
+
+def fixed_frame_contract(frame: mv.AnalysisFrame) -> mv.AnalysisFrame:
+    from decimal import Decimal
+
+    assert_type(frame.fix(frame.axes[0], "east"), mv.AnalysisFrame)
+    assert_type(frame.fix(frame.axes[0], None), mv.AnalysisFrame)
+    assert_type(frame.fix(frame.axes[0], ("tenant", 1)), mv.AnalysisFrame)
+    assert_type(frame.fix(frame.axes[0], Decimal("1.2")), mv.AnalysisFrame)
+    return frame.fix(frame.axes[0], 1)

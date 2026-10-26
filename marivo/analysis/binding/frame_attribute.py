@@ -11,6 +11,7 @@ from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.relations import (
     AttributeKeys,
     FrameKeyAxis,
+    LiteralPopulation,
     MembershipBinding,
     ObserveQuery,
     PopulationProgram,
@@ -41,6 +42,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_derivation import DerivedOutput
 from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
     AttributeContributionValues,
     AttributeFrameValues,
     FrameAttributeTarget,
@@ -131,8 +133,11 @@ def source_inputs(
         original = source.graph
         observation = original.signature.observation
         assert observation is not None and isinstance(original.root, ObserveQuery)
-        source_axes = original.signature.axes
-        mappings = dict(metric.axis_positions)
+        original_axes = original.signature.axes
+        fixed_keys = dict(metric.fixed_axes)
+        retained = tuple(i for i in range(len(original_axes)) if i not in fixed_keys)
+        source_axes = tuple(original_axes[i] for i in retained)
+        mappings = {retained.index(i): position for i, position in metric.axis_positions}
         if set(mappings) != set(range(len(source_axes))) or set(mappings.values()) != set(
             range(len(parent._schema.axes))
         ):
@@ -152,7 +157,7 @@ def source_inputs(
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
         )
         if any(
-            _axis_identity(axis) in {_axis_identity(other) for other in source_axes}
+            _axis_identity(axis) in {_axis_identity(other) for other in original_axes}
             for axis in fine_axes
         ):
             reject(
@@ -179,6 +184,22 @@ def source_inputs(
             and (side == "right" or target.target.mode == "level")
             else None
         )
+        presence = None
+        if metric.fixed_axes:
+            for fact in parent._schema.comparisons:
+                for binding in fact.values:
+                    if binding.value_path == target.path:
+                        endpoint = (
+                            fact.baseline_presence
+                            if (
+                                binding.role == "baseline"
+                                or (binding.role in ("absolute", "relative") and side == "right")
+                            )
+                            else fact.current_presence
+                        )
+                        presence = endpoint.path
+            if isinstance(target.target.pairing, AlignFrameValues):
+                presence = (f"{projection_side}_present",)
         keys = AttributeKeys(
             parent._input_id,
             bindings,
@@ -187,6 +208,13 @@ def source_inputs(
             projection_side,
             "outer",
             comparison_alias,
+            tuple(
+                (axis, key)
+                for i, key in metric.fixed_axes
+                for axis in (original_axes[i],)
+                if isinstance(axis, AxisBinding)
+            ),
+            presence,
         )
         projection = Population(
             PopulationProgram(
@@ -211,9 +239,10 @@ def source_inputs(
             for axis in axes
         )
         # Qualified source bundling uses the complete joint parent_scope, including
-        # temporal coordinates. Source predicates retain only the original condition.
+        # temporal coordinates. Fixed coordinates additionally restrict their original
+        # complete membership domain without becoming new output axes.
         condition = observation.condition
-        if ordinary:
+        if ordinary or fixed_keys:
             import operator
 
             from ibis.common.deferred import BinaryOperator, Variable
@@ -223,6 +252,23 @@ def source_inputs(
             from marivo.semantic._deferred_semantics import consume_predicate
 
             ordinary_scope = projection.project(by=projection.axes[: len(ordinary)])
+            if fixed_keys:
+                fixed_axes = tuple(original_axes[i] for i in fixed_keys)
+                assert all(isinstance(axis, AxisBinding) for axis in fixed_axes)
+                literal_axes = tuple(axis for axis in fixed_axes if isinstance(axis, AxisBinding))
+                fixed_domain = Population(
+                    LiteralPopulation(
+                        literal_axes,
+                        (
+                            tuple(
+                                key if axis.role == "identity" else key[0]
+                                for axis, key in zip(literal_axes, fixed_keys.values(), strict=True)
+                            ),
+                        ),
+                        "coordinates-v1",
+                    )
+                )
+                ordinary_scope = product(ordinary_scope, fixed_domain)
             selected_condition = consume_predicate(in_population(ordinary_scope)).node
             condition = (
                 selected_condition
@@ -314,7 +360,7 @@ def source_inputs(
             fine._backing.root, SourceFrameBinding
         )
         parent_positions = tuple(
-            next(i for i, receiver in metric.axis_positions if receiver == position)
+            next(i for i, receiver in mappings.items() if receiver == position)
             for position in range(len(parent._schema.axes))
         )
         source_rules = tuple(

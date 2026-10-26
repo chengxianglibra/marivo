@@ -160,7 +160,13 @@ def plan_frame_keys(
         )
         program = AttributeProjectProgram(
             AttributeProjectValues(
-                keys.side, indices, calendar_index, keys.calendar, keys.how, keys.comparison_alias
+                keys.side,
+                indices,
+                calendar_index,
+                keys.calendar,
+                keys.how,
+                keys.comparison_alias,
+                keys.presence,
             ),
             schema,
             output,

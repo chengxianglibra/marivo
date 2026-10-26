@@ -208,6 +208,39 @@ def provider() -> DisclosureProvider:
             ),
         )
     )
+    descriptors.append(
+        operation(
+            "analysis_frame.fix",
+            "frame.fix",
+            AnalysisFrame.fix,
+            bindings=(bind(AnalysisFrame.fix, AnalysisFrame),),
+            summary="Fix one complete ordinary coordinate and remove its axis without aggregating values.",
+            parameters=(
+                P(
+                    "axis",
+                    "A field or identity FrameAxis from this exact input; time and paired axes reject.",
+                ),
+                P(
+                    "key",
+                    "One typed scalar for a single component, or a complete tuple in axis.key_names order. None matches a nullable NULL coordinate.",
+                ),
+            ),
+            output="AnalysisFrame",
+            constraints=(
+                "Return a new lazy Frame. Preserve selected values, physical types, units, NA, presence, remaining coordinates and relative row order. An absent member produces an empty typed result; removing the final axis produces zero or one row, including with no value columns.",
+                "Reacquire handles from the returned Frame. Retained source declarations preserve fixed parent keys for attribute; cold recovery does not restore declarations. Compare still requires explicit on for remaining ordinary axes.",
+            ),
+            effects="Capture only; no schema or business read. Evaluation consumes the complete input and retains its required checks.",
+            failures=(
+                "AnalysisError: supply a complete key matching the current axis types and nullability; acquire the axis from this exact Frame.",
+            ),
+            example=ExampleInput(
+                "result = frame.fix(frame.axes[0], 'east')", ("frame",), "result", "AnalysisFrame"
+            ),
+            discovery_group="frame.rows",
+            related=("analysis_frame.where", "analysis_frame.compare", "analysis_frame.reduce"),
+        )
+    )
     for owner, name, parameters, output, summary, code, requires, group in (
         (
             AnalysisFrame,

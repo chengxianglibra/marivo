@@ -192,6 +192,29 @@ July and August are paired deliberately by ordinal; region keys match exactly. E
 
 <a id="investigate-changes"></a>
 
+### Compare two members of one Frame
+
+Fix the region coordinate to obtain two Frames with only the interval axis:
+
+{/* example: fixed-member-comparison */}
+
+```python
+regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+east = regional.fix(regional.axes[1], "east")
+west = regional.fix(regional.axes[1], "west")
+member_change = west.compare({"east": mv.baseline(east)}).compute()
+assert member_change.to_pandas()["east.absolute.revenue"].tolist() == [400]
+```
+
+`fix` selects one member and removes its complete ordinary axis without aggregation.
+Values, types, units, NA, presence and relative row order are preserved. Use a scalar
+for one component, or a complete tuple in `axis.key_names` order for a composite key.
+`None` selects nullable NULL; an absent member yields an empty Frame, including after
+removing the last axis. Time and paired axes cannot be fixed. Obtain handles again
+from the returned Frame. If ordinary axes remain, compare still needs complete `on`.
+Retained source declarations preserve fixed members for a later attribute request.
+Help: `analysis.analysis_frame.fix`.
+
 ## attribute — explain source contributions
 
 Fixed constant division and Metric `ms.rescale` are supported before observation:

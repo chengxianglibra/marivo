@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 from marivo._definition.query import FilterValues, SelectValues, TopValues, ValueBinary, ValueSlot
 from marivo._definition.relations import ObserveQuery
+from marivo._definition.types import LiteralValue
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.frame_data import OperationFrameBinding, SourceFrameBinding
 from marivo.analysis.core.frame_expression import (
@@ -14,6 +15,7 @@ from marivo.analysis.core.frame_expression import (
     CompareFrameValues,
     NamedFrameComparison,
 )
+from marivo.analysis.core.frame_fix import FixFrameValues
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_audit import FrameResultMetadata
@@ -26,6 +28,7 @@ class SourceMetric:
     binding: SourceFrameBinding
     path: tuple[str, ...]
     axis_positions: tuple[tuple[int, int], ...]
+    fixed_axes: tuple[tuple[int, tuple[LiteralValue, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,57 @@ def derive_declaration(
     inputs = root.inputs
     declarations = tuple(frame._derivation for frame in inputs)
     first = declarations[0]
+    if isinstance(operation, FixFrameValues):
+        if first is None:
+            return None
+
+        def fixed(metric: SourceMetric) -> SourceMetric:
+            return replace(
+                metric,
+                axis_positions=tuple(
+                    (a, b - (b > operation.position))
+                    for a, b in metric.axis_positions
+                    if b != operation.position
+                ),
+                fixed_axes=tuple(
+                    sorted(
+                        (
+                            *metric.fixed_axes,
+                            *(
+                                (a, operation.key)
+                                for a, b in metric.axis_positions
+                                if b == operation.position
+                            ),
+                        )
+                    )
+                ),
+            )
+
+        def fix_target(value: DerivationTarget) -> DerivationTarget:
+            pairing = value.pairing
+            if pairing is not None:
+                # The receiver already uses current/left coordinates; source positions
+                # are transported separately for each endpoint.
+                removed = next(j for i, j in pairing.pairs if i == operation.position)
+                pairing = replace(
+                    pairing,
+                    pairs=tuple(
+                        (a - (a > operation.position), b - (b > removed))
+                        for a, b in pairing.pairs
+                        if a != operation.position
+                    ),
+                )
+            return replace(
+                value,
+                current=fixed(value.current),
+                baseline=None if value.baseline is None else fixed(value.baseline),
+                pairing=pairing,
+            )
+
+        return replace(
+            first,
+            outputs=tuple(replace(item, target=fix_target(item.target)) for item in first.outputs),
+        )
     if isinstance(operation, (FilterValues, TopValues)):
         return first
     if isinstance(operation, SelectValues):

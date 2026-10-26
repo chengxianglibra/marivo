@@ -13,6 +13,7 @@ import marivo.analysis as mv
 from marivo._grouping import Grouping
 from marivo.analysis.core.attribute import (
     AttributeFineFiber,
+    AttributeInputError,
     AttributeNumericWitness,
     AttributeParentFiber,
 )
@@ -1757,3 +1758,105 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
         text=True,
     )
     assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_fix_keeps_distinct_source_endpoints_for_attribute(
+    session: Session, complete: bool
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    frame = session.observe({"q": amount.mean()}, by=(phase,))
+    if complete:
+        frame = frame.compute()
+    current = frame.fix(frame.axes[0], "current")
+    baseline = frame.fix(frame.axes[0], "base")
+    result = current.compare({"base": mv.baseline(baseline)}).attribute(by=(channel,)).compute()
+    rows = result.to_pandas()
+    assert rows["contribution.q"].tolist() == pytest.approx([80, 40])
+    assert rows["contribution.base.absolute.q"].tolist() == pytest.approx([30, -10])
+    assert rows["contribution.base.relative.q"].tolist() == pytest.approx([0.3, -0.1])
+
+
+@pytest.mark.parametrize("stage", ["before", "after", "persist"])
+def test_fix_attribute_composition_and_absent_members(session: Session, stage: str) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    frame = session.observe({"q": amount.sum()}, by=(phase, region))
+    a = frame.fix(frame.axes[0], "current")
+    b = frame.fix(frame.axes[0], "base")
+    if stage == "before":
+        a = a.fix(a.axes[0], "east")
+        b = b.fix(b.axes[0], "east")
+        compared = a.compare({"base": mv.baseline(b)})
+    else:
+        compared = a.compare({"base": mv.baseline(b, on=((a.axes[0], b.axes[0]),))})
+        compared = compared.fix(compared.axes[0], "east")
+    if stage == "persist":
+        compared = compared.persist()
+    rows = compared.attribute(by=(channel,)).compute().to_pandas()
+    assert rows["contribution.base.absolute.q"].tolist() == [60, -20]
+    missing = frame.fix(frame.axes[0], "absent")
+    assert len(missing.attribute(by=(channel,)).compute().to_pandas()) == 0
+
+
+def test_fix_missing_comparison_endpoint_is_not_recreated_by_attribute(session: Session) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    frame = session.observe({"q": amount.sum()}, by=(phase,))
+    current = frame.fix(frame.axes[0], "current")
+    missing = frame.fix(frame.axes[0], "absent")
+    compared = current.compare({"base": mv.baseline(missing)})
+    selected = compared.select({"delta": compared["base.absolute.q"]})
+    from marivo.analysis.core.attribute import AttributeInputError
+
+    with pytest.raises(AttributeInputError) as caught:
+        selected.attribute(by=(channel,)).compute()
+    assert caught.value.reason == "undefined_input"
+    assert "no structural endpoint scope" in caught.value.received
+
+
+@pytest.mark.parametrize(
+    ("mode", "complete"),
+    [("levels", False), ("difference", True), ("missing_left", False), ("missing_right", True)],
+)
+def test_fix_after_align_preserves_attribute_endpoint_presence(
+    session: Session, mode: str, complete: bool
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    region = session.catalog.fields.get("sales.facts.region")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    left = session.observe(
+        {"q": amount.sum()},
+        by=(region,),
+        where=phase == ("absent" if mode == "missing_left" else "current"),
+    )
+    right = session.observe(
+        {"q": amount.sum()},
+        by=(region,),
+        where=phase == ("absent" if mode == "missing_right" else "base"),
+    )
+    aligned = left.align(right, on=((left.axes[0], right.axes[0]),))
+    if complete:
+        aligned = aligned.compute()
+    fixed = aligned.fix(aligned.axes[0], "east")
+    if mode == "levels":
+        selected = fixed.select({"current": fixed["left.q"], "baseline": fixed["right.q"]})
+        rows = selected.attribute(by=(channel,)).compute().to_pandas()
+        assert rows["contribution.current"].tolist() == [160, 80]
+        assert rows["contribution.baseline"].tolist() == [100, 100]
+    else:
+        selected = fixed.select({"delta": fixed["left.q"] - fixed["right.q"]})
+        if mode == "difference":
+            rows = selected.attribute(by=(channel,)).compute().to_pandas()
+            assert rows["contribution.delta"].tolist() == [60, -20]
+        else:
+            with pytest.raises(AttributeInputError) as caught:
+                selected.attribute(by=(channel,)).compute()
+            assert caught.value.reason == "undefined_input"
+            assert "no structural endpoint scope" in caught.value.received

@@ -10,7 +10,7 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.core.output_records import OutputEvidence, OutputFinding
 
 FrameOperationName: TypeAlias = Literal[
-    "source", "literal", "select", "where", "top", "reduce", "align", "compare", "attribute"
+    "source", "literal", "fix", "select", "where", "top", "reduce", "align", "compare", "attribute"
 ]
 
 
@@ -100,6 +100,7 @@ class EvaluationRecord:
                 "source",
                 "literal",
                 "select",
+                "fix",
                 "where",
                 "top",
                 "reduce",

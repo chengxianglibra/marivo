@@ -30,6 +30,7 @@ from marivo.analysis.core.frame_expression import (
     FrameOperation,
     SourceFrameInput,
 )
+from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 
@@ -106,6 +107,8 @@ def capture_frame_inputs(
                     if isinstance(root.operation, FilterValues)
                     else "top"
                     if isinstance(root.operation, TopValues)
+                    else "fix"
+                    if isinstance(root.operation, FixFrameValues)
                     else "reduce"
                 )
                 if isinstance(root.operation, AttributeContributionValues):
