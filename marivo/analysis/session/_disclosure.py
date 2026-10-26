@@ -84,7 +84,7 @@ def provider() -> DisclosureProvider:
             producers=("session.create", "session.resume"),
             constraints=(
                 "Source construction loads authored semantics on demand; retained reads do not require current sources.",
-                "session.domains is the persisted tuple[str, ...] or None for all domains; domains remain frozen after creation.",
+                "session.domains is the persisted tuple[str, ...] or None. None selects all authoring domain directories. Explicit names select only those directories, without dependency expansion; include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
             ),
         )
     )
@@ -220,7 +220,7 @@ def provider() -> DisclosureProvider:
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a new project-local name without surrounding whitespace.",
-        "domains": "Select an exact domain name or nonempty sequence on first creation; existing Sessions retain their persisted scope and reject conflicting explicit selections.",
+        "domains": "None selects all authoring domain directories. An exact name or nonempty sequence selects only those directories, without dependency expansion. Include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
         "question": "Optional description frozen at creation.",
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",

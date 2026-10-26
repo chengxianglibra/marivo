@@ -99,14 +99,26 @@ Save as `quick.py` and run `.venv/bin/python quick.py`.
 {/* example: quick-analysis */}
 
 ```python title="quick.py"
+from uuid import uuid4
+
 import marivo.analysis as mv
 
-session = mv.session.create("first-analysis")
-revenue = session.catalog.metrics.get("sales.revenue")
-result = session.observe({"revenue": revenue}).compute()
-result.show()
+session = mv.session.create(
+    f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
+)
+catalog = session.catalog
+revenue = catalog.metrics.get("sales.revenue")
+pending = session.observe({"revenue": revenue})
+fixed = pending.compute()
+fixed.show()
 ```
 
-The result is 1,800, the sum of all six amounts. Choose a new name instead of `first-analysis` when rerunning: Session names are unique within a project.
+The result is 1,800, the sum of all six amounts. Each run creates a fresh project-local Session. Use `mv.session.resume(session_id)` only when intentionally continuing an exact saved Session.
+
+`compute()` returns complete memory data. Continue calculations from `fixed` to retain that observation. When a saved Artifact is needed, call `saved = fixed.persist()` and `saved.artifact.show()`; this saves those values without reevaluating the source. In an existing project, the runnable entry's `--list-metrics` mode discovers unknown Metric paths. Choose an exact displayed path and resume the printed Session ID for observation. Use `--list-fields` in that Session only when a requested grouping path is unknown; `--full-output` explicitly expands a bounded list.
+
+`domains=None` loads all authoring domain directories and freezes that scope in the Session. Explicit names select only those directories, without dependency expansion; include every required domain before creation. To widen a frozen scope, create a new Session with `domains=None` or the complete required sequence. Catalog loading reads metadata, so this default needs no extra source-data audit.
+
+The [neutral runnable entry](https://github.com/chengxianglibra/marivo/tree/main/examples/analysis) documents discovery, exact Metric selection, optional grouping and intervals, persistence, and continuation by Session ID, with a separate synthetic fixture. Use the [axis examples](https://github.com/chengxianglibra/marivo/blob/main/examples/analysis/AXES.md) when the task needs shared source conditions, complete-axis comparison or paired association. They retain the null, absence, zero and repeated-time distinctions. After `import marivo`, use focused exact Help such as `marivo.help("analysis.session.observe")` or the public bound callable `marivo.help(session.observe)`; follow printed targets when discovering other syntax.
 
 The [analysis DSL](/docs/latest/analysis/dsl/) supplies a complete `analysis.py` for monthly and regional comparisons.

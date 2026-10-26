@@ -31,6 +31,7 @@ coverage.xml
 
 # Data files (generated at runtime)
 data/
+*.duckdb.wal
 
 # IDE
 .idea/

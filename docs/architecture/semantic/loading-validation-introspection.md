@@ -19,8 +19,10 @@ workspace_dir is an exact workspace root. If omitted, root resolution uses
 MARIVO_PROJECT_ROOT, the nearest ancestor manifest, then cwd. Local models and
 configured external model roots form one load scope. Duplicate identities fail
 with both declaration locations; later roots do not override earlier ones.
-The optional domains filter selects a requested domain view with its required
-dependency closure.
+`domains=None` loads all domain directories. An explicit domain name or sequence
+selects only those directories, without automatic dependency expansion. Include
+every domain required by the selected declarations. Filtered Relationship
+references may warn; unresolved required Metric dependencies fail loading.
 
 The loader inspects restricted source, captures declarations, resolves complete
 references and validates organization, kind, dependency cycles and expression

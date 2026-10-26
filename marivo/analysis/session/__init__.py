@@ -77,7 +77,10 @@ def create(
         name: Unique exact Session name without surrounding whitespace.
         question: Optional creation-time investigation question.
         timezone: Optional IANA or explicit UTC-offset report timezone, frozen at creation.
-        domains: Fixed semantic domain name or nonempty sequence. None selects all domains; selection is frozen at creation.
+        domains: None selects all authoring domain directories. An exact name or nonempty
+            sequence selects only those directories, without dependency expansion. Include
+            every required domain before creation. Scope is frozen; create a new Session
+            with domains=None or the complete required sequence to widen it.
 
     Returns: The new Session, with authored semantics loaded only on demand.
     Example: ``session = mv.session.create('revenue-review')``.

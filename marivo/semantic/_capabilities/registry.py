@@ -2790,8 +2790,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 " when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory."
                 "\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds"
                 " external models/ roots containing datasources/ and semantic/."
-                "\n  domains=None loads all domains; a name or sequence filters domain directories."
-                " References to filtered-out domains produce warnings rather than errors."
+                "\n  domains=None loads all domains; a name or sequence selects only those domain"
+                " directories, without automatic dependency expansion. Include every required domain."
+                " Filtered Relationship references may warn; unresolved required Metric dependencies fail loading."
             ),
             output="SemanticCatalog",
             effects=_LOCAL,

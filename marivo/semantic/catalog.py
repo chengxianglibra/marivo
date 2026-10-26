@@ -4191,10 +4191,11 @@ def load(
             the current directory. The local ``models/`` root is always
             loaded; external roots can be added with
             ``marivo.toml [semantic].layer_paths``.
-        domains: When specified, only those domain directories are loaded.
-            Pass a single domain name as a string or a list of names.
-            Cross-domain references to filtered-out domains produce warnings
-            instead of errors, so the registry remains usable.
+        domains: None loads all domain directories. A name or sequence selects
+            only those directories, without automatic dependency expansion.
+            Include every domain required by the selected declarations.
+            Filtered Relationship references may warn; unresolved required
+            Metric dependencies fail loading.
 
     Returns:
         SemanticCatalog on success.

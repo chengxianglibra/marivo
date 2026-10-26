@@ -1,7 +1,17 @@
 # AnalysisFrame Workflows
 
+For a minimal Session → Catalog → observe → compute entry, see the
+[neutral runnable entry](../../../examples/analysis/README.md). For complete axis
+mappings and paired association, see the [axis examples](../../../examples/analysis/AXES.md).
+The entry script lists Metric or field candidates through explicit discovery
+modes, then requires a caller-selected exact Metric path for observation. It
+accepts optional grouping fields and a paired start/end interval; persistence is
+opt-in. Its synthetic setup is only needed to reproduce the example fixture.
+New Sessions are the default; an exact Session ID explicitly continues discovery
+and observation in an existing investigation.
+
 These examples use the six-order warehouse and sales model from the
-[local Python tutorial](../../../site/src/content/docs/docs/latest/guides/python-quick-start.mdx).
+[local Python tutorial](../../../site/src/content/docs/docs/latest/start/python.mdx).
 Create its source and model files in a fresh project, then run the blocks below
 in order from that project root. The demo's six orders are its complete declared
 scope; no general source-completeness claim follows from this fixture.

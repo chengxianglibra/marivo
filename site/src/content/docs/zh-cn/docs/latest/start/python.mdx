@@ -99,14 +99,26 @@ def revenue():
 {/* example: quick-analysis */}
 
 ```python title="quick.py"
+from uuid import uuid4
+
 import marivo.analysis as mv
 
-session = mv.session.create("first-analysis")
-revenue = session.catalog.metrics.get("sales.revenue")
-result = session.observe({"revenue": revenue}).compute()
-result.show()
+session = mv.session.create(
+    f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
+)
+catalog = session.catalog
+revenue = catalog.metrics.get("sales.revenue")
+pending = session.observe({"revenue": revenue})
+fixed = pending.compute()
+fixed.show()
 ```
 
-结果是 1,800，即六笔金额之和。重复运行脚本时，为 `first-analysis` 换一个新名称；会话名称在项目内唯一。
+结果是 1,800，即六笔金额之和。每次运行都会创建新的项目内会话。只有需要继续某个确切的已保存会话时，才显式调用 `mv.session.resume(session_id)`。
+
+`compute()` 返回完整的内存数据；继续从 `fixed` 派生计算可保留这次观测。需要已保存的 Artifact 时，调用 `saved = fixed.persist()` 和 `saved.artifact.show()`；这会保存这些值，不会重新计算来源。在已有项目中，可运行入口的 `--list-metrics` 模式可发现未知的 Metric 路径。选择展示的确切路径，并通过打印的会话 ID 恢复会话进行观测。只有请求分组且字段路径未知时，才在同一会话中使用 `--list-fields`；`--full-output` 可显式展开有界列表。
+
+`domains=None` 加载全部语义创作领域目录，并在会话中冻结这个范围。显式名称只选择这些目录，不会自动扩展依赖；创建前须包含全部必需领域。需要扩大已冻结的范围时，用 `domains=None` 或完整的必需领域序列创建新会话。Catalog 加载只读取元数据，因此使用默认范围无需额外审计来源数据。
+
+[中性可运行入口](https://github.com/chengxianglibra/marivo/tree/main/examples/analysis)说明了发现输入、选择确切 Metric、可选分组与区间、持久化以及通过会话 ID 继续调查，并附带独立的合成数据项目。当任务需要共享来源条件、完整轴比较或配对相关分析时，再阅读[轴示例](https://github.com/chengxianglibra/marivo/blob/main/examples/analysis/AXES.md)，其中保留空值、缺失行、真实零和重复时间观测的区别。执行 `import marivo` 后，使用 `marivo.help("analysis.session.observe")` 这样的聚焦准确目标，或公开绑定方法 `marivo.help(session.observe)`；发现其他语法时沿已打印的目标导航。
 
 后续[分析 DSL](/zh-cn/docs/latest/analysis/dsl/)提供按月、按地区比较的完整 `analysis.py`，无需在此添加比较参数。
