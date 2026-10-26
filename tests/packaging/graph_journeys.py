@@ -348,9 +348,8 @@ def _verify(
                 for row in facts.orders
                 if row[1] == key and "2026-08-01" <= row[4] < "2026-09-01"
             ]
-            if scenario == "j1" and not current:
-                assert pd.isna(indexed.loc[key, "value"])
-                continue
+            # This dense row-reduction observation retains zero for members
+            # without contributions; it is distinct from a raw empty SQL SUM.
             expected = sum(current, Fraction())
             if scenario == "j2":
                 expected -= sum(

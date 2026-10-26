@@ -351,8 +351,6 @@ def _native_weighted(session: mv.Session, project: Path) -> dict[str, Json]:
 def _numeric_receipts(
     results: dict[str, mv.AnalysisFrame],
     exports: dict[str, pd.DataFrame],
-    *,
-    native_weighted: Fraction,
 ) -> dict[str, Json]:
     receipts: dict[str, Json] = {}
     for name, result in results.items():
@@ -362,9 +360,9 @@ def _numeric_receipts(
         expected: tuple[Fraction, ...]
         if scalar:
             assert result.axes == () and frame.columns.tolist() == ["value"]
-            expected = (
-                native_weighted if metric == "weighted_amount" else ORIGINAL_VALUES[metric],
-            )
+            # Native decimal division is a diagnostic fact, not the semantic
+            # oracle for the independently evaluated weighted expression.
+            expected = (ORIGINAL_VALUES[metric],)
         else:
             assert len(result.axes) == 1 and result.axes[0].role == "identity"
             assert frame.columns.tolist() == ["key_0", "value"]
@@ -396,9 +394,6 @@ def produce(project: Path) -> dict[str, object]:
     before = publication_counts(session)
     assert before_runs == 0 and _artifact_count(session) == 0
     native_oracle = _native_weighted(session, project)
-    value = native_oracle["value"]
-    assert isinstance(value, str)
-    native_weighted = Fraction(value)
     with pytest.MonkeyPatch.context() as patch:
         trace = capture_source(patch)
         completed = {name: observed_rows(session, name).compute() for name in MEMBER_VALUES}
@@ -407,14 +402,14 @@ def produce(project: Path) -> dict[str, object]:
                 {"value": session.catalog.metrics.get("sales." + name)}
             ).compute()
         exports = {name: result.to_pandas() for name, result in completed.items()}
-        receipts = _numeric_receipts(completed, exports, native_weighted=native_weighted)
+        receipts = _numeric_receipts(completed, exports)
         assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before
         assert trace.native_sql and all(owner._closed for owner in trace.owners)
         submitted = tuple(trace.native_sql)
         saved = {name: result.persist() for name, result in completed.items()}
         assert tuple(trace.native_sql) == submitted
         saved_exports = {name: result.to_pandas() for name, result in saved.items()}
-        assert _numeric_receipts(saved, saved_exports, native_weighted=native_weighted) == receipts
+        assert _numeric_receipts(saved, saved_exports) == receipts
         descriptors: dict[str, Json] = {}
         for name, result in saved.items():
             assert isinstance(result._backing, StoredFrameBacking)
@@ -483,7 +478,7 @@ def cold(project: Path) -> dict[str, object]:
             assert _scalar(asdict(result._backing.data)) == obj(state["descriptors"])[name]
             saved[name] = result
         exports = {name: result.to_pandas() for name, result in saved.items()}
-        receipts = _numeric_receipts(saved, exports, native_weighted=native_weighted)
+        receipts = _numeric_receipts(saved, exports)
         assert receipts == state["snapshots"]
         for name, result in saved.items():
             result.show(n=1)
@@ -516,22 +511,14 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
     statement = f"SELECT customer_id, SUM(amount) AS amount FROM {prefix}orders GROUP BY customer_id ORDER BY customer_id"
     observed: list[str] = []
     with pytest.MonkeyPatch.context() as patch:
-        cursors = importlib.import_module("MySQLdb.cursors")
-        # Ibis versions may choose either buffered or streaming cursors for raw SQL.
-        for cursor_type in (cursors.Cursor, cursors.SSCursor):
-            original = cursor_type.execute
+        cursors = importlib.import_module("pymysql.cursors")
+        original = cursors.Cursor.execute
 
-            def execute(
-                cursor: object,
-                query: str | bytes,
-                args: object = None,
-                *,
-                original: Callable[..., object] = original,
-            ) -> object:
-                observed.append(query.decode() if isinstance(query, bytes) else query)
-                return original(cursor, query, args)
+        def execute(cursor: object, query: str | bytes, args: object = None) -> object:
+            observed.append(query.decode() if isinstance(query, bytes) else query)
+            return original(cursor, query, args)
 
-            patch.setattr(cursor_type, "execute", execute)
+        patch.setattr(cursors.Cursor, "execute", execute)
         result = md.raw_sql(
             ms.ref.datasource("warehouse"),
             statement,
@@ -543,7 +530,7 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
     ]
     assert observed.count(statement) == 1
     return {
-        "boundary": "MySQLdb Cursor/SSCursor.execute",
+        "boundary": "PyMySQL Cursor.execute",
         "purpose": "datasource.raw_sql",
         "native_statement_count": len(observed),
         "matched_business_statements": 1,

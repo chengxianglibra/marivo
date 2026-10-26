@@ -2,7 +2,6 @@
 
 import json
 import os
-import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypeAlias
@@ -89,24 +88,30 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
 
 
 @pytest.mark.runtime
-def test_mysql_reader_initialization_warning_is_a_typed_failure(
+def test_mysql_reader_initialization_failure_is_typed_and_releases_connection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ibis.backends.mysql import Backend
+    from pymysql.cursors import Cursor
 
     with source_case("mysql", "table", tmp_path, monkeypatch) as case:
+        original = Cursor.execute
+        rejected: list[Cursor] = []
 
-        def warning(_owner: object) -> None:
-            warnings.warn("Unable to set session timezone to UTC: synthetic failure", stacklevel=2)
+        def execute(cursor: Cursor, query: str, args: object = None) -> int:
+            if query == "SET @@session.time_zone = 'UTC'":
+                rejected.append(cursor)
+                raise RuntimeError("synthetic UTC initialization failure")
+            return original(cursor, query, args)
 
-        monkeypatch.setattr(Backend, "_post_connect", warning)
+        monkeypatch.setattr(Cursor, "execute", execute)
         with (
             pytest.raises(DatasourceConnectionError) as failure,
             provider_for("mysql").open(case.session.datasource),
         ):
             pytest.fail("A failed UTC reader was admitted")
-        assert failure.value.received == "timezone initialization warning"
+        assert failure.value.received == "timezone initialization failure"
+        assert len(rejected) == 1 and rejected[0].connection is None
 
 
 SourceStatisticMethod: TypeAlias = Literal[

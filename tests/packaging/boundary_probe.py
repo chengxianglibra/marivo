@@ -13,12 +13,10 @@ import sys
 from enum import Enum
 from pathlib import Path
 
-from tests.shared_fixtures import terminal_runs
-
 DRIVERS = {
     "duckdb": "duckdb",
     "postgres": "psycopg",
-    "mysql": "MySQLdb",
+    "mysql": "pymysql",
     "trino": "trino",
     "clickhouse": "clickhouse_connect",
 }
@@ -82,6 +80,7 @@ def public_snapshot() -> dict[str, object]:
 
 def dependencies(extra: str) -> dict[str, object]:
     """Validate core imports without importing any unselected native driver."""
+    sys.meta_path.insert(0, MissingNativeMySQL())
     import pyarrow
 
     import marivo.analysis as mv
@@ -101,13 +100,27 @@ def dependencies(extra: str) -> dict[str, object]:
     absent = {
         backend: importlib.util.find_spec(root) is None
         for backend, root in DRIVERS.items()
-        if backend != extra
+        if backend != extra and extra != "all"
     }
     assert all(absent.values()), absent
+    installed = {
+        distribution.metadata["Name"].lower() for distribution in importlib.metadata.distributions()
+    }
+    assert "mysqlclient" not in installed
     selected = None
     local_rows: tuple[dict[str, object], ...] | None = None
     if extra != "base":
-        selected = importlib.import_module("ibis.backends." + extra).__name__
+        # The all-extra case owns MySQL dependency removal; other backends retain
+        # their independent system-library prerequisites and execution checks.
+        selected_backends = ("mysql",) if extra == "all" else (extra,)
+        selected = ",".join(
+            importlib.import_module(
+                "marivo.datasource.engines._mysql_backend"
+                if backend == "mysql"
+                else "ibis.backends." + backend
+            ).__name__
+            for backend in selected_backends
+        )
         if extra == "duckdb":
             import ibis
 
@@ -157,11 +170,19 @@ def dependencies(extra: str) -> dict[str, object]:
     }
 
 
+class MissingNativeMySQL(importlib.abc.MetaPathFinder):
+    """Fail if a selected backend indirectly imports the retired C driver."""
+
+    def find_spec(self, fullname: str, path: object = None, target: object = None) -> None:
+        if fullname == "MySQLdb" or fullname.startswith("MySQLdb."):
+            raise ModuleNotFoundError("native MySQL driver unavailable", name=fullname)
+
+
 class MissingBackend(importlib.abc.MetaPathFinder):
     """Remove one selected Ibis backend from this process before connection."""
 
     def __init__(self, backend: str) -> None:
-        self.module = "ibis.backends." + backend
+        self.module = DRIVERS[backend]
 
     def find_spec(self, fullname: str, path: object = None, target: object = None) -> None:
         if fullname == self.module or fullname.startswith(self.module + "."):
@@ -215,12 +236,23 @@ def saved_read(project: Path) -> dict[str, object]:
     session_id, artifact_ref = state["session"], obj(state["artifacts"])["value"]
     assert isinstance(session_id, str) and isinstance(artifact_ref, str)
     session = mv.session.resume(session_id)
+
+    def run_count() -> int:
+        local = session._runtime.local
+        with local.store._read() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM analysis_action_runs WHERE session_ref=?",
+                (local.session_ref,),
+            ).fetchone()
+        assert row is not None
+        return int(row[0])
+
     artifact = session.persisted_frame(artifact_ref)
     assert isinstance(artifact, mv.AnalysisFrame)
-    before = len(terminal_runs(session))
+    before = run_count()
     receipt = snapshot(artifact)
     assert receipt == obj(state["snapshots"])["value"]
-    assert len(terminal_runs(session)) == before
+    assert run_count() == before
     assert session._runtime.store.resources(session.id) == ()
     artifact.show(n=0)
     artifact.artifact.show()

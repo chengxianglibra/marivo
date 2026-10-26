@@ -19,7 +19,7 @@ other Colima profiles, containers, and volumes are outside its ownership.
 | Installed package source execution and cold recovery | `tests/packaging/test_installed_sources.py` | `make installed-multisource-test` |
 
 Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,
-`MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
+`MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_MARIADB_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
 `MARIVO_CLICKHOUSE_ANALYSIS_TEST`, set to `1`. Distributed ClickHouse and the
 Trino memory catalog use `MARIVO_CLICKHOUSE_CLUSTER_TEST` and
 `MARIVO_TRINO_NON_ICEBERG_TEST`. Unavailable services skip their opt-in cases;
@@ -44,6 +44,7 @@ passing one does not qualify the others.
 | `trino` | `127.0.0.1:18080` | Trino 483; one coordinator/worker; Iceberg JDBC V1 / table format v2; Hive file metastore; local warehouse |
 | `postgres-analysis` | `127.0.0.1:15432` | PostgreSQL 17; database `analysis`; reader `analysis_reader`; administrator `analysis_admin` |
 | `mysql-analysis` | `127.0.0.1:23306` | MySQL 8.4; InnoDB; database `analysis`; SELECT-only reader `analysis_reader` |
+| `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader`; PyMySQL and native timeout fallback |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
 | `clickhouse-cluster` | `127.0.0.1:18201`, `127.0.0.1:18203` | Two shards with one replica each; Distributed over local tables |
 
@@ -111,6 +112,7 @@ setup. Trino and ClickHouse reader setup are explicit module commands:
 ```bash
 bash tests/datasource/environment/manage.sh start postgres-analysis
 bash tests/datasource/environment/manage.sh start mysql-analysis
+bash tests/datasource/environment/manage.sh start mariadb-analysis
 bash tests/datasource/environment/manage.sh start trino
 .venv/bin/python -m tests.datasource.environment.trino_analysis
 bash tests/datasource/environment/manage.sh start clickhouse
@@ -133,6 +135,7 @@ bash tests/datasource/environment/manage.sh stop clickhouse
 bash tests/datasource/environment/manage.sh stop clickhouse-cluster
 bash tests/datasource/environment/manage.sh stop postgres-analysis
 bash tests/datasource/environment/manage.sh stop mysql-analysis
+bash tests/datasource/environment/manage.sh stop mariadb-analysis
 ```
 
 Smoke verifies environment setup, exact Decimal aggregation, effective settings,
@@ -193,16 +196,14 @@ MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino make install
 Use `MARIVO_TEST_WHEEL_DIR` for an isolated candidate directory. Process receipts
 and logs live under the installed-wheel pytest temporary directory.
 
-On macOS, a cached `mysqlclient` wheel can be missing its client-library link.
-Rebuild that dependency with the installed library's include/link flags instead of
-reusing the cache. For an Apple Silicon Homebrew MariaDB connector:
+MySQL and MariaDB use PyMySQL, including RSA authentication dependencies, without
+mysqlclient or a local MySQL/MariaDB client C library. The MySQL driver audit
+observes `pymysql.cursors.Cursor.execute`; it must not intercept a retired driver.
+The MariaDB profile shares the restricted-reader setup and private password,
+and separately exercises exact reads and the `max_statement_time` fallback:
 
 ```bash
-MYSQLCLIENT_CFLAGS='-I/opt/homebrew/opt/mariadb-connector-c/include/mariadb' \
-MYSQLCLIENT_LDFLAGS='-L/opt/homebrew/opt/mariadb-connector-c/lib -lmariadb' \
-PIP_NO_BINARY=mysqlclient PIP_NO_CACHE_DIR=1 \
-MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=mysql \
-make installed-multisource-test
+MARIVO_MARIADB_ANALYSIS_TEST=1 make runtime-test TESTS='tests/datasource/test_source_adapters_runtime.py -k mariadb' RUNTIME_WORKERS=1
 ```
 
 Installed-origin and wheel-hash checks own package isolation. Native source

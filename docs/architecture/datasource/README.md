@@ -38,6 +38,16 @@ used everywhere downstream.
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 
+MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
+`marivo[mysql]` includes RSA authentication dependencies and needs no local
+MySQL/MariaDB client C library. Ibis still owns MySQL SQL compilation.
+Connections retain autocommit enabled by default and initialize the reader to UTC.
+`extra` accepts JSON-safe PyMySQL connection options; mysqlclient-specific
+`ssl_mode`, `auth_plugin` and protocol compression are unsupported and fail
+explicitly. Use PyMySQL's documented TLS options without weakening the required
+certificate or server identity checks. Driver installation alone does not prove
+that a server's authentication or TLS policy is supported.
+
 Trino requires an explicit `user_env` declaration so connection identity never
 falls through to a backend-library default. `auth_env` remains optional for
 Trino deployments that do not require an authentication token or password.

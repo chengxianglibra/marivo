@@ -75,7 +75,9 @@ type, representability and precision limits; their pandas representations need
 not match the backend's `execute()` results. Ordinary PostgreSQL authoring, basic
 reads and bounded inspection (`collect_bounded`) retain native Ibis pandas
 conversion, including JSON object/array values and its existing precision and
-representation limits. Other backends retain their native Ibis pandas path.
+representation limits. MySQL preserves exact numeric cursor values through its
+private PyMySQL adapter before pandas inference, as described below. Other
+backends retain their existing native execution paths.
 Marivo does not add a per-value Arrow round-trip audit. Source schema and
 projection admission, requested row/time bounds, and downstream key, nullable-value,
 time, and persistence-schema checks remain in force.
@@ -247,11 +249,17 @@ typed PostgreSQL Analysis `query.source_read` v1 reads call the native Ibis
 backend's `to_pyarrow()` and convert its result to pandas with the integer-only
 dtype mapping above. The PostgreSQL route is selected from the actual
 `PhysicalRequirement` captured in the private issued-read proof at compilation;
-diagnostic purpose strings do not select transport. Ordinary PostgreSQL
-authoring/basic/`collect_bounded` reads and other providers call native `execute()`
-and return its pandas DataFrame. Ibis and the provider own driver
-fetching and native value conversion. There is no Marivo-owned
-row cursor/batch protocol or strict source Arrow round-trip decoder. Column
+diagnostic purpose strings do not select transport. MySQL uses a private PyMySQL
+adapter with the Ibis MySQL compiler. Its issued reads consume the original
+cursor values before pandas inference, apply MySQL temporal conversion, and
+reconstruct integer, Decimal, floating and boolean columns from those values.
+This preserves nullable integers and Decimal values without a float64
+intermediate, and distinguishes SQL NULL from floating NaN. There is one owned
+connection and one business SQL submission; no driver fallback or upload of
+in-memory tables is provided. Ordinary PostgreSQL
+authoring/basic/`collect_bounded` reads and other providers retain their existing
+native execution paths. Ibis and each provider own native value conversion;
+there is no additional per-value Arrow round-trip audit. Column
 order, source binding, requested row/time bounds, and downstream key, nullable-value,
 time, and persisted-schema checks remain governed. A completed DataFrame read
 does not prove server-side query termination after an interruption or timeout.

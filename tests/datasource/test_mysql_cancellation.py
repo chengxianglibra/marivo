@@ -80,8 +80,8 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
                 return owner
 
             monkeypatch.setattr(DatasourceConnectionService, "source_session", capture_owner)
-            cursors = import_module("MySQLdb.cursors")
-            driver_execute: _DriverExecute = cursors.BaseCursor.execute
+            cursors = import_module("pymysql.cursors")
+            driver_execute: _DriverExecute = cursors.Cursor.execute
             native_errors: list[int] = []
             native_sql: list[tuple[int, str]] = []
 
@@ -102,7 +102,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
                         native_errors.append(error.args[0])
                     raise
 
-            monkeypatch.setattr(cursors.BaseCursor, "execute", record_driver)
+            monkeypatch.setattr(cursors.Cursor, "execute", record_driver)
             started = time.monotonic()
             with pytest.raises(SemanticRuntimeError) as failure:
                 catalog.preview(calendar, scope=md.unpruned(max_rows=5, timeout_seconds=1))

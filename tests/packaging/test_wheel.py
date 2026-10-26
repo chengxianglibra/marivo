@@ -47,7 +47,7 @@ def test_archives_pin_sqlglot(installed_base_wheel: InstalledWheel) -> None:
 def test_installed_dependency_isolation(installed_dependency_wheel: InstalledWheel) -> None:
     candidate = installed_dependency_wheel
     extra = candidate.extras[0] if candidate.extras else "base"
-    for mode in ("dependencies", "missing") if extra != "base" else ("dependencies",):
+    for mode in ("dependencies", "missing") if extra not in {"base", "all"} else ("dependencies",):
         report = candidate.reports / (mode + ".json")
         candidate.run(
             mode,

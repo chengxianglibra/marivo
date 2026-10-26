@@ -22,6 +22,11 @@ uv pip install --python .venv/bin/python -e "../marivo-source[duckdb]"
 
 分享复现步骤时保留该修订。继续之前，核对 Doctor 显示的 Python、包路径与项目根目录。
 
+连接 MySQL 或 MariaDB 时，选择 `../marivo-source[mysql]`。它使用 PyMySQL，
+包含 RSA 认证支持，无需本地 MySQL 客户端 C 库或编译器。`all` 包含相同驱动。
+已有的 mysqlclient 配置（如 `ssl_mode`、`auth_plugin` 或协议压缩）需要改为
+PyMySQL 支持的设置；不支持的选项会明确报错。
+
 ## 使用发布包
 
 使用某个发布版本时，将可编辑源码安装替换为 `marivo[duckdb]`，并阅读对应版本文档。其他可选依赖包括 `postgres`、`mysql`、`trino` 和 `clickhouse`；参阅[后端依赖](/zh-cn/docs/latest/reference/backends-and-limits/)。

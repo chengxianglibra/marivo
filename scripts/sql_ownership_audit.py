@@ -193,6 +193,48 @@ def _manifest() -> Manifest:
         compile_owner,
     )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.compile",), compile_owner)
+    mysql_metadata = Owner(
+        "ibis_metadata_preparation",
+        "The private PyMySQL backend reuses the Ibis MySQL compiler and quotes the named physical table for DESCRIBE; UTC initialization is fixed reader setup.",
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("<module>",),
+        (
+            "sqlglot.expressions",
+            "ibis.backends.sql.compilers.mysql",
+            "ibis.backends.sql.compilers.mysql.compiler",
+        ),
+        mysql_metadata,
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("MySQLBackend._post_connect", "MySQLBackend.get_schema"),
+        ("cursor.execute",),
+        mysql_metadata,
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("MySQLBackend.get_schema",),
+        ("sge.Describe().sql",),
+        mysql_metadata,
+    )
+    mysql_transport = Owner(
+        "native_mysql_transport",
+        "PyMySQL transports unchanged issued Ibis reads, registered provider statements or terminal caller SQL on the existing owned connection; this adapter grants no independent caller authority.",
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("MySQLBackend.raw_sql",),
+        ("cursor.execute",),
+        mysql_transport,
+    )
+    add(
+        "datasource/engines/_mysql_backend",
+        ("MySQLBackend._safe_raw_sql",),
+        ("self.raw_sql",),
+        mysql_transport,
+    )
     add(
         "analysis/materialization/graph_source_execution",
         ("read_stage", "qualify_query_sources"),

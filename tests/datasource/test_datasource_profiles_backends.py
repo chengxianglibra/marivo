@@ -445,7 +445,7 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
 def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
     captured: dict[str, object] = {}
 
-    from ibis.backends.mysql import Backend
+    from marivo.datasource.engines._mysql_backend import MySQLBackend as Backend
 
     def fake_connect(self: object, **kwargs: object) -> object:
         captured.update(kwargs)

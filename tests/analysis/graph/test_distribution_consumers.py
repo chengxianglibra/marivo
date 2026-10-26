@@ -197,6 +197,7 @@ def test_native_distribution(
         refuses = (
             (backend == "mysql" and carrier == "boolean")
             or (kind in ("distinct", "identity") and backend == "clickhouse")
+            or (kind == "approx_distinct" and backend == "mysql")
             or (kind == "approx_quantile" and backend in ("postgres", "mysql"))
         )
         if refuses:

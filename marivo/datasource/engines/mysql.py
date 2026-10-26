@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
@@ -10,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
-from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.capabilities import (
     ProviderStatement,
     execute_provider_statement,
@@ -39,36 +37,14 @@ if TYPE_CHECKING:
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    from ibis.backends.mysql import Backend
-
-    # Ibis optional backend classes do not ship typing metadata.
-    class CheckedBackend(Backend):  # type: ignore[misc]
-        def _post_connect(self) -> None:
-            # Ibis owns the UTC initialization statement. A warning means it failed.
-            with warnings.catch_warnings():
-                warnings.filterwarnings("error", message="Unable to set session timezone to UTC.*")
-                try:
-                    super()._post_connect()
-                except Warning as cause:
-                    BackendLease(self).close(suppress_errors=False)
-                    raise DatasourceConnectionError(
-                        message="The MySQL reader could not initialize UTC.",
-                        expected="successful Ibis UTC reader initialization",
-                        received="timezone initialization warning",
-                        repair=repair(
-                            kind="reconnect",
-                            canonical_id="datasource_catalog.test",
-                            action="Restore MySQL UTC timezone support and retry the datasource connection.",
-                        ),
-                    ) from cause
-            self._marivo_timezone_name = "UTC"
+    from marivo.datasource.engines._mysql_backend import MySQLBackend
 
     host = require_field(name, kwargs, "host", help_target="mysql")
     database = require_field(name, kwargs, "database", help_target="mysql")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = database
-    return CheckedBackend().connect(**connect_kwargs)
+    return MySQLBackend().connect(**connect_kwargs)
 
 
 def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
@@ -664,7 +640,7 @@ PROFILE = EngineProfile(
     name="mysql",
     aliases=(),
     authoring_func="mysql",
-    required_modules=("ibis.backends.mysql",),
+    required_modules=("pymysql",),
     connect=connect,
     apply_read_only_kwargs=identity_read_only_kwargs,
     identifier_quote="`",

@@ -597,7 +597,7 @@ def reject_driver(name, *args, **kwargs):
 builtins.__import__ = reject_driver
 for backend, blocked_driver in (
     ('postgres', 'psycopg'),
-    ('mysql', 'MySQLdb'),
+    ('mysql', 'pymysql'),
     ('trino', 'trino'),
     ('clickhouse', 'clickhouse_connect'),
 ):
@@ -619,7 +619,7 @@ for backend, blocked_driver in (
 def test_mysql_issued_cursor_preserves_nullable_time_integer_and_decimal(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pytest.importorskip("ibis.backends.mysql.converter")
+    pytest.importorskip("pymysql")
     session._backend.raw_sql("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN clock TIME")
     session._backend.raw_sql("ALTER TABLE facts ADD COLUMN floating DOUBLE")

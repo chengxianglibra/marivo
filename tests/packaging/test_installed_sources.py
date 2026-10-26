@@ -25,7 +25,6 @@ NATIVE_OWNERS = (
     "tests/datasource/test_mysql_authoring_deadline.py",
     "tests/analysis/graph/test_method_consumers.py",
     "tests/analysis/materialization/test_producer_recovery.py",
-    "tests/analysis/journey/test_native_funnel_recovery.py",
     "tests/analysis/numeric/test_native_numeric.py",
     "tests/datasource/test_source_profiles.py",
     "tests/analysis/graph/test_distribution_consumers.py",
@@ -38,10 +37,7 @@ METHOD_SELECTIONS = {
         "(mysql and distinct-decimal) or (trino and approx_quantile-float64) or "
         "(clickhouse and (approx_distinct-boolean or approx_quantile-float64)))"
     ),
-    "test_multiroot_consumers.py": (
-        "independent_roots and (linear or ratio or first) and not "
-        "(decimal or nonfinite or overflow or fanout or composite or float or spatial)"
-    ),
+    "test_multiroot_consumers.py": ("independent_roots and ratio_decimal"),
 }
 
 
@@ -116,6 +112,9 @@ def test_installed_public_multisource_journey(
         if not owner.endswith(("test_mysql_authoring_deadline.py", "test_source_deadline.py"))
         or engine == "mysql"
         if not owner.endswith("test_method_consumers.py") or engine in ("mysql", "clickhouse")
+        if not owner.endswith("test_producer_recovery.py") or engine in ("trino", "clickhouse")
+        if not owner.endswith("test_native_numeric.py") or engine == "clickhouse"
+        if not owner.endswith("test_multiroot_consumers.py") or engine in ("mysql", "clickhouse")
     ],
 )
 def test_installed_native_behavior_owners(

@@ -16,6 +16,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -69,6 +70,8 @@ def _data(
                 "linear_nonfinite",
                 "ratio_decimal",
                 "ratio_decimal_overflow",
+                "ratio_decimal_overflow_negative",
+                "ratio_decimal_boundary",
                 "ratio_decimal_output_overflow",
                 "spatial_mean",
             )
@@ -77,8 +80,14 @@ def _data(
             if mode not in ("ratio_decimal_overflow", "ratio_decimal_output_overflow")
             or backend in ("mysql", "clickhouse")
             if not mode.startswith("spatial_") or backend == "duckdb"
+            if mode not in ("ratio_decimal_overflow_negative", "ratio_decimal_boundary")
+            or backend == "mysql"
             if backend == "duckdb"
             or (backend in ("mysql", "clickhouse") and mode == "ratio_decimal_overflow")
+            or (
+                backend == "mysql"
+                and mode in ("ratio_decimal_overflow_negative", "ratio_decimal_boundary")
+            )
         ],
         backend_index=1,
     ),
@@ -92,6 +101,8 @@ def test_independent_roots_and_temporal_fold(
         "linear_nonfinite",
         "ratio_decimal",
         "ratio_decimal_overflow",
+        "ratio_decimal_overflow_negative",
+        "ratio_decimal_boundary",
         "ratio_decimal_output_overflow",
         "spatial_mean",
     ],
@@ -122,6 +133,8 @@ def test_independent_roots_and_temporal_fold(
                 "linear_decimal",
                 "ratio_decimal",
                 "ratio_decimal_overflow",
+                "ratio_decimal_overflow_negative",
+                "ratio_decimal_boundary",
                 "ratio_decimal_output_overflow",
             )
             else "int64"
@@ -135,10 +148,19 @@ def test_independent_roots_and_temporal_fold(
         )
         if mode == "linear_nonfinite":
             amounts = (float("inf"), 2.5, 0.25, 0.5, 4.0)
-        elif mode == "ratio_decimal_overflow":
+        elif mode.startswith("ratio_decimal_overflow"):
+            sign = "-" if mode == "ratio_decimal_overflow_negative" else ""
             amounts = (
-                Decimal("6" + "0" * 31),
-                Decimal("6" + "0" * 31),
+                Decimal(sign + "6" + "0" * 31),
+                Decimal(sign + "6" + "0" * 31),
+                Decimal("2" + "0" * 31),
+                Decimal("3" + "0" * 31),
+                Decimal("0.04"),
+            )
+        elif mode == "ratio_decimal_boundary":
+            amounts = (
+                Decimal("5" + "0" * 31),
+                Decimal("4" + "9" * 31 + ".999999"),
                 Decimal("2" + "0" * 31),
                 Decimal("3" + "0" * 31),
                 Decimal("0.04"),
@@ -160,7 +182,7 @@ def test_independent_roots_and_temporal_fold(
             _data(
                 backend,
                 [(index, "a", amounts[0]) for index in range(11, 17)]
-                if mode == "ratio_decimal_overflow"
+                if mode.startswith("ratio_decimal_overflow")
                 else [(11, "a", 10), (14, "a", 5), (12, "a", 20), (22, "a", 1)]
                 if spatial_fold
                 else [(11, "a", amounts[0]), (12, "a", amounts[1])],
@@ -201,7 +223,10 @@ def test_independent_roots_and_temporal_fold(
                         ],
                     )
                 )
-        if mode in ("ratio_decimal_overflow", "ratio_decimal_output_overflow"):
+        if mode.startswith("ratio_decimal_overflow") or mode in (
+            "ratio_decimal_boundary",
+            "ratio_decimal_output_overflow",
+        ):
             datasets = [
                 replace(
                     data,
@@ -242,6 +267,8 @@ def test_independent_roots_and_temporal_fold(
             args["user_env"] = "MARIVO_R93_READER"
         argtext = ", ".join(f"{k}={v!r}" for k, v in args.items())
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        # Native MySQL TIMESTAMP already owns its UTC clock.
+        time_parser = "" if backend == "mysql" else ",parse=ms.timestamp(timezone='UTC')"
         for name, case in (("subjects", subject), ("left", left), ("right", right)):
             assert isinstance(case.source, TableSourceIR)
             primary_key = (
@@ -255,7 +282,7 @@ def test_independent_roots_and_temporal_fold(
             )
             if composite:
                 models += f"{name}_tenant=ms.dimension_column(name='tenant',entity={name},column='tenant')\n"
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened'{time_parser},is_default=True)\n"
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
@@ -304,13 +331,23 @@ def test_independent_roots_and_temporal_fold(
                 members,
             ),
         )
-        if mode in {"ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
+        if mode.startswith("ratio_decimal_overflow") or mode == "ratio_decimal_output_overflow":
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
                 values.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
             diagnostic = str(refused.value) + str(refused.value.__cause__)
             assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
+            if backend == "mysql":
+                assert isinstance(refused.value, MaterializationError)
+                assert refused.value.stage == "source_conversion"
+                assert "precision 38" in refused.value.received
+                executions = [
+                    owner
+                    for owner in source_trace.owners
+                    if owner not in (subject.session, left.session, right.session)
+                ]
+                assert executions and all(owner._closed for owner in executions)
             assert set(root.rglob("*.parquet")) == before
             assert session._runtime.store.resources(session.id) == ()
             return
@@ -324,6 +361,7 @@ def test_independent_roots_and_temporal_fold(
             "linear_nonfinite": math.inf,
             "linear_decimal": Decimal("0.35"),
             "ratio_decimal": 6.0,
+            "ratio_decimal_boundary": 2.0,
             "spatial_mean": 18,
         }
         if ratio:

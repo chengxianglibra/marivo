@@ -80,6 +80,24 @@ services:
       timeout: 3s
       retries: 60
     logging: *logging
+  mariadb-analysis:
+    image: mariadb@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+    platform: linux/arm64
+    profiles: [mariadb-analysis]
+    mem_limit: 512m
+    environment:
+      MARIADB_DATABASE: analysis
+      MARIADB_ROOT_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+      MARIADB_ROOT_HOST: "%"
+    ports: [127.0.0.1:23307:3306]
+    volumes:
+      - mariadb-analysis:/var/lib/mysql
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+    logging: *logging
   clickhouse:
     image: clickhouse/clickhouse-server@sha256:d283856e8da15163f250f683ee9a7ad8876111094ef4d4caf9bcc3d9843db5d7
     platform: linux/arm64
@@ -146,6 +164,7 @@ volumes:
   clickhouse-shard-a:
   clickhouse-shard-b:
   mysql-analysis:
+  mariadb-analysis:
   postgres-analysis:
   catalog:
   warehouse:

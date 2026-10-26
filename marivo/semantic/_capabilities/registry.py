@@ -2659,6 +2659,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         " Native AVG owns NULL and empty-input behavior, including when nulls='error' is supplied. "
                         "Qualified time-sample AVG uses represented completed samples without cadence coverage checks or local fallback."
                     )
+                if method == "sum":
+                    summary += " MySQL retains widened SUM until safe Decimal carrier conversion; out-of-range source results fail."
             rows.append(
                 _capability(
                     f"{prefix}.{method}",

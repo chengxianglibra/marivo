@@ -1298,6 +1298,16 @@ def _native_query_expression(
             node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
         ) -> ops.Node:
             value = node.copy(**kwargs)
+            if (
+                isinstance(value, ops.Cast)
+                and isinstance(value.arg, ops.Sum)
+                and value.to.is_decimal()
+                and value.arg.dtype == value.to
+            ):
+                # MySQL widens native SUM, but a redundant result CAST clips an
+                # overflowing Decimal to its endpoint with only a warning. Keep
+                # the widened value until safe conversion to the bound carrier.
+                return value.arg
             if isinstance(value, (ops.IsNan, ops.IsInf)):
                 argument = value.arg.to_expr()
                 return (

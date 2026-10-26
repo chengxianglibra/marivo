@@ -73,8 +73,8 @@ Completed immutable Frame data already owns these integrity checks. Internal
 stage handoff copies its rows and attachments without repeating normalization;
 new stage results and newly read stored data retain their owning checks.
 
-Source arithmetic uses admitted native Ibis operations with explicit bound result
-casts. Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
+Source arithmetic uses admitted native Ibis operations with bound result types
+and provider-specific casts. Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
 Both use one primary accumulation; count remains int64. Decimal add/subtract uses
 p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2.
 When p exceeds 38, reduce s by the excess (minimum zero) and cap p at 38.
@@ -107,6 +107,13 @@ components. It does not invent nanosecond precision. Arrow Duration metadata and
 integer ticks retain their declared unit on admitted file routes. Decimal precision/scale, quantile
 interpolation and any native approximation are method contracts, not promises of
 universal rational arithmetic or a global error bound.
+
+MySQL SUM retains its native widened Decimal value instead of a redundant
+same-type result CAST, which can clip an out-of-range SELECT result to an endpoint
+with only a warning. When that sum crosses a source boundary, safe conversion to
+the bound Decimal(38,s) carrier rejects unrepresentable values before publication.
+This adds no source scan, overflow precheck or local retry; native arithmetic
+inside a fused expression still follows the backend's precision and overflow.
 
 Exact median/quantile uses linear interpolation h=(n-1)q; [0,10] at q=.95 gives
 9.5. Native approximate reductions require an explicit approximate definition,

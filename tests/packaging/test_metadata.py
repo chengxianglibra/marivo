@@ -30,19 +30,34 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
     for backend_type in SUPPORTED_BACKEND_TYPES:
         assert backend_type in optional_dependencies
-        assert optional_dependencies[backend_type] == [f"ibis-framework[{backend_type}]>=12.0.0"]
+        if backend_type != "mysql":
+            assert optional_dependencies[backend_type] == [
+                f"ibis-framework[{backend_type}]>=12.0.0"
+            ]
+
+    assert optional_dependencies["mysql"] == [
+        "PyMySQL[rsa]>=1.1.2,<1.2",
+        "pyarrow-hotfix>=0.4",
+        "rich>=12.4.4",
+    ]
 
     assert optional_dependencies["all"] == [
-        "ibis-framework[duckdb,trino,mysql,postgres,clickhouse]>=12.0.0"
+        "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
+        "PyMySQL[rsa]>=1.1.2,<1.2",
     ]
 
 
-def test_dev_extra_avoids_native_mysql_dependency() -> None:
+def test_all_extras_avoid_native_mysql_dependency() -> None:
     optional_dependencies = _optional_dependencies()
-    requirements = [Requirement(dependency) for dependency in optional_dependencies["dev"]]
+    requirements = [
+        Requirement(dependency)
+        for dependencies in optional_dependencies.values()
+        for dependency in dependencies
+    ]
 
     assert all(
-        requirement.name != "mysqlclient" and "mysql" not in requirement.extras
+        requirement.name.lower() not in {"mysqlclient", "types-mysqlclient"}
+        and "mysql" not in requirement.extras
         for requirement in requirements
     )
 

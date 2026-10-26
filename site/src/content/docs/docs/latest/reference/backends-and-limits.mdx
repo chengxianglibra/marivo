@@ -15,7 +15,7 @@ Choose a connection and an analytical method separately. Driver installation and
 | --- | --- | --- |
 | DuckDB | `duckdb` | Local tutorial needs no server; contribution requires qualified physical tables |
 | PostgreSQL | `postgres` | Requires libpq and access; exact median/quantile depend on supported physical types |
-| MySQL | `mysql` | Native client/build prerequisites; exact ranked quantiles; no approximate source quantiles |
+| MySQL / MariaDB | `mysql` | PyMySQL with RSA authentication support; no local MySQL client C library; exact ranked quantiles; no approximate source quantiles |
 | Trino | `trino` | Catalog/schema and access; exact ranked quantiles or explicit approximate quantiles |
 | ClickHouse | `clickhouse` | Ordinary qualified grouped aggregation; Distributed keyed join routes have restrictions; exact ranked quantiles or explicit TDigest approximation |
 
@@ -47,6 +47,11 @@ md.raw_sql(
 ```
 
 Source precision and overflow follow the qualified backend. Marivo does not precheck native overflow or retry it locally: the backend may raise an error, wrap a value, or return Infinity or NaN. Completed and saved Frames retain native floating values through export. Conversion cannot repair precision already lost or a value already wrapped by the source. Local arithmetic has its own checked rules. No universal Decimal precision guarantee applies across all sources.
+
+MySQL SUM retains the server's widened Decimal result until safe conversion to
+the declared Decimal carrier. A sum outside that carrier's range fails before
+publication, rather than being clipped by an extra result CAST. Arithmetic within
+a fused source expression still uses native precision and overflow behavior.
 
 Native AVG also owns NULL and empty-input behavior, even when `nulls="error"` is supplied. A qualified `amount.mean(time=point).per(point).mean()` first completes each represented timestamp mean, then averages those means with equal weight in the source. It does not require scheduled time coverage, synthesize missing timestamps, or fall back to a local mean. For timestamp values `[0, 0, 0]` and `[100]`, the result is `50`, not the raw-row mean `25`. Other reducers retain their own NULL and coverage contracts.
 

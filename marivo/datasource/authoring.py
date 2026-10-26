@@ -811,13 +811,13 @@ def mysql(
         name: Global datasource name; letters, digits, underscores, and hyphens only.
         host: MySQL host.
         database: MySQL database name.
-        port: MySQL port; ibis default is 3306.
+        port: MySQL port; default is 3306.
         autocommit: Optional autocommit override.
         user_env: Environment variable for MySQL user.
         password_env: Environment variable for MySQL password.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
-        extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
+        extra: JSON-safe PyMySQL connection options not modeled by the typed class.
 
     Returns:
         ``MySQLSpec`` usable with ``md.register(...)`` or ``.ref``.
@@ -839,6 +839,9 @@ def mysql(
         When called while loading a datasource file, the spec is automatically
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Install ``marivo[mysql]`` for PyMySQL and RSA authentication support;
+        no local MySQL client C library is required. mysqlclient-specific
+        ``ssl_mode``, ``auth_plugin`` and protocol compression are unsupported.
     """
     spec = MySQLSpec(
         name=name,

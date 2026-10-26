@@ -45,11 +45,13 @@ marivo = "marivo.cli:main"
 [project.optional-dependencies]
 duckdb = ["ibis-framework[duckdb]>=12.0.0"]
 trino = ["ibis-framework[trino]>=12.0.0"]
-mysql = ["ibis-framework[mysql]>=12.0.0"]
+# PyMySQL 1.2.3 breaks uncached caching_sha2_password RSA authentication.
+mysql = ["PyMySQL[rsa]>=1.1.2,<1.2", "pyarrow-hotfix>=0.4", "rich>=12.4.4"]
 postgres = ["ibis-framework[postgres]>=12.0.0"]
 clickhouse = ["ibis-framework[clickhouse]>=12.0.0"]
 all = [
-    "ibis-framework[duckdb,trino,mysql,postgres,clickhouse]>=12.0.0",
+    "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
+    "PyMySQL[rsa]>=1.1.2,<1.2",
 ]
 docs = [
     "sphinx>=7",
@@ -66,7 +68,8 @@ dev = [
     "numpy>=1.26.0",
     "pandas-stubs>=2.2.0,<3.0.0",
     "types-python-dateutil>=2.9.0",
-    "types-mysqlclient>=2.2.0",
+    "PyMySQL[rsa]>=1.1.2,<1.2",
+    "types-PyMySQL>=1.1.0,<1.2",
     "pre-commit>=4.0",
     "import-linter>=2.0",
 ]

@@ -180,6 +180,11 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
             return Origin(
                 "ibis_metadata_preparation", path.split("/ibis/", 1)[-1] + ":" + name, name
             )
+        if path.endswith("/marivo/datasource/engines/_mysql_backend.py") and name in {
+            "get_schema",
+            "_post_connect",
+        }:
+            return Origin("ibis_metadata_preparation", "PyMySQL backend:" + name, name)
         if "/clickhouse_connect/driver/" in path and name == "_init_common_settings":
             return Origin(
                 "native_driver_setup",
@@ -519,8 +524,8 @@ def native_audit(monkeypatch: pytest.MonkeyPatch, backend: str) -> Iterator[Driv
                     audit, patch, backend, getattr(driver, name), "psycopg." + name + ".execute"
                 )
         elif backend == "mysql":
-            driver = importlib.import_module("MySQLdb.cursors")
-            _patch_cursor(audit, patch, backend, driver.BaseCursor, "MySQLdb.BaseCursor.execute")
+            driver = importlib.import_module("pymysql.cursors")
+            _patch_cursor(audit, patch, backend, driver.Cursor, "pymysql.Cursor.execute")
         elif backend == "trino":
             driver = importlib.import_module("trino.dbapi")
             _patch_cursor(audit, patch, backend, driver.Cursor, "trino.dbapi.Cursor.execute")

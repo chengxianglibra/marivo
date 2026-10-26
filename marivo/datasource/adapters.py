@@ -513,7 +513,7 @@ class SourceSession:
             validate_query_size(self._backend, sql)
         if self._key_request_limit is not None:
             limit, encoding = self._key_request_limit
-            # MySQLdb encodes the SQL with connection.encoding. COM_QUERY adds
+            # PyMySQL encodes the SQL with connection.encoding. COM_QUERY adds
             # one command byte; key Arrow size is not the request size.
             size = len(sql.encode(encoding)) + 1
             if size > limit:
@@ -589,8 +589,7 @@ class SourceSession:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
                 if self.provider.name == "mysql":
-                    from ibis.backends.mysql.converter import MySQLPandasData
-
+                    from marivo.datasource.engines._mysql_backend import convert_mysql_frame
                     from marivo.datasource.engines.base import decode_cursor_frame
 
                     # Ibis' MySQL pandas fetcher coerces Decimal and nullable
@@ -606,9 +605,7 @@ class SourceSession:
                     )
                     # Preserve normal pandas temporal inference for Ibis' native
                     # TIME decoder, while exact reconstruction uses untouched raw.
-                    result = MySQLPandasData.convert_table(
-                        raw.copy().infer_objects(), table.schema()
-                    )
+                    result = convert_mysql_frame(raw.copy().infer_objects(), table.schema())
                     for field in proof.schema:
                         values = raw[field.name]
                         native_decimal = any(isinstance(value, Decimal) for value in values)

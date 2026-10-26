@@ -80,7 +80,7 @@ import importlib.abc
 import sys
 class NoClients(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'trino','psycopg2','psycopg','MySQLdb','clickhouse_connect'}:
+        if fullname.split('.')[0] in {'trino','psycopg2','psycopg','pymysql','clickhouse_connect'}:
             raise AssertionError('Optional client imported: ' + fullname)
 sys.meta_path.insert(0, NoClients())
 import marivo.semantic as ms

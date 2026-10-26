@@ -439,16 +439,24 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
 def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyPatch) -> None:
-    import MySQLdb
+    import pymysql
 
     from tests.datasource.environment import mysql_analysis as mysql
 
     name = "source_adapter_" + uuid4().hex
     monkeypatch.setenv("MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD", mysql.password())
     with mysql.connection(admin=True) as admin, admin.cursor() as cursor:
-        cursor.execute(f"CREATE TABLE {name} (id BIGINT, day DATE) ENGINE=InnoDB")
+        cursor.execute(
+            f"CREATE TABLE {name} (id BIGINT, day DATE, instant DATETIME(6)) ENGINE=InnoDB"
+        )
         cursor.execute("SET SESSION sql_mode='ALLOW_INVALID_DATES'")
-        cursor.execute(f"INSERT INTO {name} VALUES (1, '0000-00-00'), (2, '2026-09-26')")
+        cursor.execute(
+            f"INSERT INTO {name} VALUES "
+            "(1, '0000-00-00', '0000-00-00 00:00:00.000000'), "
+            "(2, '2026-09-26', '2026-09-26 01:02:03.123456'), "
+            "(3, '2026-00-01', '2026-00-01 01:02:03'), "
+            "(4, '2026-02-31', '2026-02-31 01:02:03')"
+        )
         try:
             datasource = _datasource(
                 "mysql",
@@ -466,7 +474,7 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
                     binding,
                     PhysicalRequirement("source_adapter.invalid_date", 1, frozenset({"scan"})),
                 )
-                expression = binding.relation.select("day")
+                expression = binding.relation.order_by("id").select("day", "instant")
                 read = session.compile(
                     qualified,
                     expression,
@@ -474,7 +482,9 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
                     expected_schema=expression.schema().to_pyarrow(),
                 )
                 invalid = session.execute(read)
-                assert pd.isna(invalid.iloc[0]["day"])
+                assert invalid.day.isna().tolist() == [True, False, True, True]
+                assert invalid.instant.isna().tolist() == [True, False, True, True]
+                assert invalid.instant.iloc[1] == pd.Timestamp("2026-09-26 01:02:03.123456")
                 assert session.submissions[-1].state == "succeeded"
                 valid = binding.relation.filter(binding.relation.id == 2).select("day")
                 valid_read = session.compile(
@@ -488,11 +498,133 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
             with (
                 mysql.connection() as reader,
                 reader.cursor() as read_cursor,
-                pytest.raises(MySQLdb.OperationalError),
+                pytest.raises(pymysql.OperationalError),
             ):
                 read_cursor.execute("CREATE TABLE source_adapter_forbidden (id INT)")
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
+)
+@pytest.mark.runtime
+def test_mysql_pymysql_rsa_authenticates_a_fresh_reader_without_tls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import Mock
+
+    import pymysql._auth
+
+    from marivo.datasource.engines._mysql_backend import MySQLBackend
+    from tests.datasource.environment import mysql_analysis as mysql
+
+    user = "pymysql_" + uuid4().hex[:16]
+    encrypt = Mock(wraps=pymysql._auth.sha2_rsa_encrypt)
+    monkeypatch.setattr(pymysql._auth, "sha2_rsa_encrypt", encrypt)
+    with mysql.connection(admin=True) as admin, admin.cursor() as cursor:
+        cursor.execute(
+            f"CREATE USER '{user}'@'%%' IDENTIFIED WITH caching_sha2_password BY %s",
+            (mysql.password(),),
+        )
+        try:
+            cursor.execute(f"GRANT SELECT ON analysis.* TO '{user}'@'%'")
+            backend = MySQLBackend().connect(
+                host=mysql.HOST,
+                port=mysql.PORT,
+                database=mysql.DATABASE,
+                user=user,
+                password=mysql.password(),
+                ssl_disabled=True,
+            )
+            try:
+                with backend.raw_sql("SELECT CURRENT_USER()") as result:
+                    assert result.fetchone() == (user + "@%",)
+                assert not backend.con.ssl
+                assert encrypt.call_count == 1
+            finally:
+                backend.disconnect()
+        finally:
+            cursor.execute(f"DROP USER '{user}'@'%'")
+
+
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_MARIADB_ANALYSIS_TEST") != "1", reason="opt-in MariaDB service"
+)
+@pytest.mark.runtime
+def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.datasource.environment import mysql_analysis as mysql
+
+    name = "pymysql_mariadb_" + uuid4().hex
+    monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
+    with mysql.connection(admin=True, port=23307) as admin, admin.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE {name} (id BIGINT NOT NULL, amount DECIMAL(20,2))")
+        cursor.execute(f"INSERT INTO {name} VALUES (9007199254740993,9007199254740993.01)")
+        try:
+            datasource = _datasource(
+                "mysql",
+                {
+                    "host": mysql.HOST,
+                    "port": 23307,
+                    "database": mysql.DATABASE,
+                    "user": mysql.READER,
+                },
+                {"password": "MARIVO_MARIADB_PASSWORD"},
+            )
+            with provider_for("mysql").open(datasource) as session:
+                _assert_table_read(
+                    session,
+                    TableSourceIR(name),
+                    identity=name,
+                    expected=[{"id": 9007199254740993, "amount": Decimal("9007199254740993.01")}],
+                )
+                assert session._backend._marivo_timezone_name == "UTC"
+            assert all(item.connection_disconnected for item in session.submissions)
+        finally:
+            cursor.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_MARIADB_ANALYSIS_TEST") != "1", reason="opt-in MariaDB service"
+)
+@pytest.mark.runtime
+def test_mariadb_native_timeout_fallback_and_connection_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pymysql
+
+    from marivo.datasource.backends import build_backend_with_secrets
+    from marivo.datasource.capabilities import provider_statement_log
+    from marivo.datasource.engines.mysql import native_query_timeout
+    from tests.datasource.environment import mysql_analysis as mysql
+
+    monkeypatch.setenv("MARIVO_MARIADB_PASSWORD", mysql.password())
+    datasource = _datasource(
+        "mysql",
+        {"host": mysql.HOST, "port": 23307, "database": mysql.DATABASE, "user": mysql.READER},
+        {"password": "MARIVO_MARIADB_PASSWORD"},
+    )
+    built = build_backend_with_secrets(datasource, terminal_timeout_seconds=1)
+    identity = built.backend.con.thread_id()
+    try:
+        with native_query_timeout(built.backend, 1):
+            with pytest.raises(pymysql.OperationalError) as failure:
+                built.backend.raw_sql("SELECT SLEEP(2)")
+            assert failure.value.args[0] == 1969
+        statements = provider_statement_log(built.backend)
+        assert [(item.statement_id, item.state) for item in statements] == [
+            ("mysql.authoring.install_select_deadline", "failed"),
+            ("mysql.authoring.server_version", "succeeded"),
+            ("mysql.authoring.install_mariadb_deadline", "succeeded"),
+            ("mysql.authoring.read_mariadb_deadline", "succeeded"),
+        ]
+        assert all(item.purpose == "datasource.native_query_timeout" for item in statements)
+        assert not any(item.sql.startswith("KILL") for item in statements)
+    finally:
+        assert built.lease.close(suppress_errors=False)
+    with mysql.connection(admin=True, port=23307) as observer, observer.cursor() as cursor:
+        cursor.execute("SELECT ID FROM information_schema.PROCESSLIST WHERE ID=%s", (identity,))
+        assert cursor.fetchall() == ()
 
 
 @pytest.mark.skipif(

@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pytest
 from trino.dbapi import Connection, Cursor
@@ -356,7 +357,7 @@ def _remote_matrix_case(
     _create_remote_table(backend, table)
     try:
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
-        value = _semantic_value(session, metric)
+        value = _aggregate(session, metric).to_pandas()["value"].iloc[0]
         assert isinstance(value, Decimal), f"{backend}: {type(value).__name__}"
         assert value == expected, f"{backend}: {value}"
     finally:
@@ -382,27 +383,21 @@ def test_remote_decimal_linear_publishes_exact_decimal(
 
 
 @pytest.mark.parametrize("backend", source_params(["mysql"]))
-def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
+def test_mysql_decimal_mean_preserves_declared_carrier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
-    """MySQL mean over decimal keeps its admission rejection this stage.
-
-    The server arithmetic is exact (AVG publishes scale s+4 = 6, verified
-    live), but the mean pipeline still publishes ``sum/count`` through a
-    float-labeled division that the value-exact transport rule refuses, so the
-    backend keeps ``mean`` out of its resolved-decimal units and admission
-    rejects the metric with the engine-fact diagnostic.
-    """
-    from marivo.analysis.errors import AnalysisError
-
+    """Native Decimal AVG converges once to the declared scale, without sum/count."""
     _opt_in_backend(backend)
     table = "c4_" + uuid4().hex
     _create_remote_table(backend, table)
     try:
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
-        logical = session.observe({"value": session.catalog.metrics.get("sales.amount_mean")})
-        with pytest.raises(AnalysisError):
-            logical.persist()
+        result = _aggregate(session, "amount_mean")
+        values = result.to_pandas()["value"]
+        assert values.tolist() == [Decimal("10.00")]
+        assert isinstance(values.dtype, pd.ArrowDtype)
+        assert values.dtype.pyarrow_dtype == pa.decimal128(12, 2)
+        assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
     finally:
         _drop_remote_table(backend, table)
 
