@@ -112,7 +112,7 @@ def _generation_error(version: object, expected: int = 16) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
-        repair="Preserve the old Store unchanged and create a new named Session in a fresh project; old Stores cannot be resumed or migrated.",
+        repair="Preserve the incompatible Store unchanged and read/export it with a compatible Marivo environment. Restore a complete current-generation Store at the selected path; incompatible Stores cannot be resumed or migrated.",
         stage="store_generation",
         help_target="session.resume",
     )
@@ -242,7 +242,7 @@ class SessionStore:
         return conn
 
     def _initialize(self, *, existing_only: bool = False) -> None:
-        if self.db_path.exists():
+        if os.path.lexists(self.db_path):
             uri, immutable = self._readonly_uri()
             read = sqlite3.connect(uri, uri=True)
             try:
@@ -285,24 +285,6 @@ class SessionStore:
                 read.close()
             if version == self.layout.generation:
                 return
-        generations = self.db_path.parent.parent
-        if generations.exists():
-            older = sorted(
-                path
-                for filename in ("session_store.db", "store.sqlite3")
-                for path in generations.glob(f"v*/{filename}")
-                if path != self.db_path
-            )
-            if older:
-                uri = older[-1].as_uri() + "?mode=ro&immutable=1"
-                try:
-                    with sqlite3.connect(uri, uri=True) as previous:
-                        actual: object = previous.execute("PRAGMA user_version").fetchone()[0]
-                except sqlite3.Error:
-                    raise _generation_error(
-                        "unreadable prior Store", self.layout.generation
-                    ) from None
-                raise _generation_error(actual, self.layout.generation)
         if existing_only:
             raise invalid(f"selected v{self.layout.generation} Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

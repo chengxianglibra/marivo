@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import os
-import sqlite3
 import stat
 import sys
 from collections.abc import Mapping, Sequence
@@ -234,9 +233,8 @@ def render_text(report: DoctorReport) -> str:
         lines.append(f"[{section.id}] {section.status} {_section_summary(section)}")
         if section.status != "ok":
             non_skipped = [c for c in section.checks if c.status != "skipped"]
-            if len(non_skipped) > 1:
-                for check in non_skipped:
-                    lines.append(f"  {check.label}: {check.status} - {check.summary}")
+            for check in non_skipped:
+                lines.append(f"  {check.label}: {check.status} - {check.summary}")
     commands = _fix_commands(report)
     if commands:
         lines.append("")
@@ -1207,8 +1205,17 @@ def _connect_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
 
 
 def _state_section(root: Path) -> DoctorSection:
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.layout import MaterializationLayout
+    from marivo.analysis.materialization.prior_generations import (
+        discover_prior_generations,
+        prior_generation_guidance,
+    )
+    from marivo.analysis.materialization.store import SessionStore
+
     analysis_dir = root / ".marivo" / "analysis"
-    db_path = analysis_dir / "session_store.db"
+    layout = MaterializationLayout(root)
+    db_path = layout.store_db
     checks: list[DoctorCheck] = []
     if not analysis_dir.exists():
         checks.append(
@@ -1228,7 +1235,30 @@ def _state_section(root: Path) -> DoctorSection:
             summary=f"{analysis_dir} exists",
         )
     )
-    if not db_path.exists():
+    prior = discover_prior_generations(layout)
+    if prior:
+        checks.append(
+            DoctorCheck(
+                id="state.prior_generations",
+                label="Older Session Stores",
+                status="warning",
+                summary=prior_generation_guidance(prior),
+                details={
+                    "current_generation": layout.generation,
+                    "stores": [
+                        {
+                            "generation": item.generation,
+                            "path": str(item.path),
+                            "file_mtime": item.file_mtime.isoformat(),
+                        }
+                        for item in prior
+                    ],
+                },
+            )
+        )
+    try:
+        db_path.lstat()
+    except FileNotFoundError:
         checks.append(
             DoctorCheck(
                 id="state.session_store",
@@ -1238,42 +1268,28 @@ def _state_section(root: Path) -> DoctorSection:
             )
         )
         return DoctorSection(id="state", label="Analysis state", checks=tuple(checks))
+    except OSError:
+        # Let the owning Store validator report unavailable current state below.
+        pass
     try:
-        uri = f"file:{db_path}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as conn:
-            names = {
-                row[0]
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            }
-        expected = {"sessions", "runtime_state", "artifacts", "runs", "run_inputs"}
-        missing = sorted(expected - names)
-        if missing:
-            checks.append(
-                DoctorCheck(
-                    id="state.session_store",
-                    label="session_store.db",
-                    status="fail",
-                    summary=f"session store is missing tables: {', '.join(missing)}",
-                    details={"path": str(db_path), "missing_tables": missing},
-                )
-            )
-        else:
-            checks.append(
-                DoctorCheck(
-                    id="state.session_store",
-                    label="session_store.db",
-                    status="ok",
-                    summary="existing analysis store is readable",
-                    details={"path": str(db_path)},
-                )
-            )
-    except Exception as exc:
+        SessionStore.open_existing(root)
+    except (AnalysisError, OSError) as exc:
         checks.append(
             DoctorCheck(
                 id="state.session_store",
                 label="session_store.db",
                 status="fail",
                 summary=f"could not read session store: {type(exc).__name__}: {exc}",
+                details={"path": str(db_path)},
+            )
+        )
+    else:
+        checks.append(
+            DoctorCheck(
+                id="state.session_store",
+                label="session_store.db",
+                status="ok",
+                summary=f"current v{layout.generation} analysis store is readable",
                 details={"path": str(db_path)},
             )
         )

@@ -143,6 +143,7 @@ def test_render_text_is_bounded_and_lists_section_status() -> None:
     assert "Python: /tmp/project/.venv/bin/python" in text
     assert "Marivo: 0.2.8.dev0 (/tmp/project/marivo)" in text
     assert "[installation] warning 1 warning" in text
+    assert "missing backend extra for trino" in text
     assert "Fix:" in text
     assert '/tmp/project/.venv/bin/python -m pip install "marivo[trino]"' in text
 
@@ -476,13 +477,82 @@ def test_default_doctor_ignores_unreferenced_ambient_secrets(
 
 
 def test_default_doctor_does_not_create_analysis_state(tmp_path: Path) -> None:
+    from marivo.analysis.materialization.layout import MaterializationLayout
+
     _write_manifest(tmp_path)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path))
 
     assert report.project_root == str(tmp_path.resolve())
-    assert not (tmp_path / ".marivo" / "analysis" / "session_store.db").exists()
+    assert not MaterializationLayout(tmp_path).generation_dir.exists()
     assert _check(report, "state", "state.analysis_dir").status == "skipped"
+
+
+@pytest.mark.parametrize("current", ["absent", "valid", "invalid"])
+def test_doctor_reports_current_store_and_retained_old_paths_without_rewriting(
+    tmp_path: Path, current: str
+) -> None:
+    from marivo.analysis.materialization.layout import MaterializationLayout
+    from marivo.analysis.materialization.store import SessionStore
+
+    _write_manifest(tmp_path)
+    layout = MaterializationLayout(tmp_path)
+    for generation in (10, 8, 9):
+        path = layout.generation_dir.parent / f"v{generation}/session_store.db"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"unreadable old Store")
+    if current == "valid":
+        SessionStore(tmp_path)
+    elif current == "invalid":
+        layout.generation_dir.mkdir()
+        layout.store_db.write_bytes(b"corrupt current Store")
+    # SQLite mode=ro may maintain current-generation WAL coordination files.
+    # Retained old files and durable current state must remain unchanged.
+    coordination = {Path(str(layout.store_db) + suffix) for suffix in ("-wal", "-shm")}
+    before = {
+        p.relative_to(tmp_path): p.read_bytes()
+        for p in tmp_path.rglob("*")
+        if p.is_file() and p not in coordination
+    }
+    for _ in range(2):
+        report = run_doctor(DoctorOptions(project_root=tmp_path))
+        assert (
+            _check(report, "state", "state.session_store").status
+            == {"absent": "skipped", "valid": "ok", "invalid": "fail"}[current]
+        )
+        prior = _check(report, "state", "state.prior_generations")
+        assert prior.status == "warning"
+        assert prior.details is not None
+        assert [item["generation"] for item in prior.details["stores"]] == [8, 9, 10]
+        assert "file_mtime" in json.dumps(report.to_dict())
+        text = render_text(report)
+        assert "Older Session Stores" in text and "compatible Marivo environment" in text
+        assert str(layout.generation_dir.parent / "v8/session_store.db") in text
+    after = {
+        p.relative_to(tmp_path): p.read_bytes()
+        for p in tmp_path.rglob("*")
+        if p.is_file() and p not in coordination
+    }
+    assert after == before
+
+
+def test_doctor_old_only_diagnostics_never_open_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    _write_manifest(tmp_path)
+    old = tmp_path / ".marivo/analysis/generations/v8/store.sqlite3"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"invalid old database")
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("doctor opened an older database")
+
+    monkeypatch.setattr(sqlite3, "connect", forbidden)
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+    assert _check(report, "state", "state.prior_generations").status == "warning"
+    assert _check(report, "state", "state.session_store").status == "skipped"
 
 
 def test_default_doctor_does_not_write_secret_cache(

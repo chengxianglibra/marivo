@@ -31,6 +31,18 @@ def test_repeatable_session_help_is_reachable_and_discloses_conflicts() -> None:
     assert "never set a current Session" in page
     assert "SessionStateError" in page
     assert "error.repair.candidates" in page
+    assert "Older Stores coexist unchanged" in page
+
+
+def test_session_help_explains_generation_isolation_and_uncertain_id_ownership() -> None:
+    assert "Names, IDs and Artifacts remain independent" in rendered_help("analysis.sessions")
+    recent = rendered_help("analysis.session.recent")
+    assert "warn once per set per process" in recent
+    assert "without opening older Stores" in recent
+    for target in ("analysis.session.resume", "analysis.session.inspect"):
+        page = rendered_help(target)
+        assert "SessionNotFoundError" in page
+        assert "without verifying ID ownership" in page
 
 
 @pytest.mark.parametrize(

@@ -136,13 +136,27 @@ order survive batching, persistence and reopen. Parquet row groups, compression
 and batch profiles retain their owning storage implementation; no public
 row-group setting or codec extension registry is added.
 
-Older generations' Session/result/Findings/Evidence data refuse unchanged. There
-is no migration, dual read or new Store initialization around an old-only project.
-Documented recent discovery returns an empty page for an absent current
-generation without exposing old state. Export required old results with their
-original version or retain a compatible environment. Preserve the old Store and
-create a new named Session in a fresh project for current work; there is no
-same-project bypass.
+Older generations remain unchanged alongside a newly initialized current Store
+in the same project. There is no migration or cross-generation data read. Each
+version writes its own generation; Session names, IDs and Artifacts are independent
+and are never merged or resolved across generations. An invalid current Store
+still fails validation and cannot be replaced through initialization.
+
+`get_or_create()` and `recent()` discover older Store paths through filesystem
+metadata only and emit a Python warning once per project, current generation and
+observed older-path set in each process. File mtime is not the last business write
+time. Discovery does not inspect older schemas, count Sessions or create a manifest.
+`recent()` returns only current history, including an empty page when the current
+Store is absent. `resume()` and `inspect()` raise `SessionNotFoundError` when the
+current Store or ID is absent; older paths add repair guidance without claiming
+that the requested ID belongs to any of them. These reads create no Store.
+Doctor reports retained older paths on every invocation and validates the current
+Store through its owning validator.
+
+Export required old results with a compatible Marivo environment. Old generations
+are retained by default with no automatic cleanup. After verifying an export and
+confirming that the original history is no longer needed, users may explicitly
+archive or delete the old generation themselves.
 
 ## Concurrent writers and atomic publication
 

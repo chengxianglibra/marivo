@@ -28,7 +28,11 @@ Use the symptom to choose a repair. Keep the original error and the interpreter,
 
 Resume the owning Session to reconcile its original transaction before submitting again. Explicit resubmission can produce another saved result and may read changed sources. Keep returned IDs while they are available; there is no implicit latest result lookup.
 
-Do not delete `.marivo/` or force initialization as a general repair. Older state is not automatically migrated. Preserve it and read/export with a compatible environment; use a fresh project for incompatible current work.
+Do not delete `.marivo/` or force initialization as a general repair. Older Store generations remain unchanged, and `mv.session.get_or_create(name)` can create the current generation in the same project. Each version writes independent Sessions and Artifacts; names and IDs are not merged or resolved across generations. An invalid current Store still requires repair.
+
+`get_or_create()` and `recent()` warn once per project and observed older Store path set in each process. `recent()` returns only current-generation history; an empty page does not mean older history was deleted. `resume()` and `inspect()` report missing current-generation IDs with guidance about retained older Stores, without asserting ID ownership. `marivo doctor` reports older paths and file modification times on every run; those times are not the last business write times. These diagnostics do not read older databases or count their Sessions.
+
+Use a compatible Marivo environment to read/export older data. Old generations are retained without automatic cleanup. Archive or delete one yourself only after verifying the export and confirming that its original history is no longer needed.
 
 [Find Help](#query-the-installed-version) for the error's exact repair target. Frame/Column validation points to the public operation that rejected the input. For example, an old statistic passed to `over` links to `analysis.analysis_frame.over`; reconstruct it from the receiving Frame. Pending export links to `analysis.analysis_frame.to_pandas`; compute first and export the returned Frame. Internal errors without a unique public owner can still point to broader Help. Include a minimal reproduction with credentials and private data removed when asking for assistance.
 

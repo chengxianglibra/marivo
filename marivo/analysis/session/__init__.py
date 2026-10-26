@@ -9,11 +9,11 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
     SessionAlreadyExistsError,
-    SessionNotFoundError,
     SessionStateError,
 )
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.prior_generations import warn_prior_generations
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
@@ -86,7 +86,7 @@ def get_or_create(
 
     Returns: The new or recovered Session with its frozen context.
     Example: ``session = mv.session.get_or_create('revenue-review', timezone='UTC')``.
-    Constraints: None means unspecified: use creation defaults for a new name and retain saved values for an existing name. No current Session is set; saved question, timezone and domains are never rewritten. A recovery with no pending work leaves updated_at unchanged. Explicit conflicts raise SessionStateError before recovery. Recovery uses the same writer guard as resume and never replays sources. Earlier Store generations cannot be migrated or bypassed.
+    Constraints: None means unspecified: use creation defaults for a new name and retain saved values for an existing name. No current Session is set; saved question, timezone and domains are never rewritten. A recovery with no pending work leaves updated_at unchanged. Explicit conflicts raise SessionStateError before recovery. Recovery uses the same writer guard as resume and never replays sources. Earlier Stores remain independent and unchanged; creation may initialize the current generation in the same project. Older Store paths trigger one warning per observed set per process, without reading or migrating them.
     """
     if not isinstance(name, str) or not name.strip() or name != name.strip():
         raise _invalid(
@@ -113,6 +113,7 @@ def get_or_create(
             )
         selected_domains = tuple(sorted(set(names)))
     store = _existing_store(root)
+    warn_prior_generations(MaterializationLayout(root))
     record = None if store is None else store.session_by_name(name)
     if record is None:
         try:
@@ -168,30 +169,27 @@ def resume(session_id: str) -> Session:
     Args: session_id: Existing Session ID returned by get_or_create or recent.
     Returns: The recovered Session with its saved context.
     Example: ``session = mv.session.resume(session_id)``.
-    Constraints: Never creates identity or loads current semantics and sources.
+    Constraints: Never creates identity or loads current semantics and sources. An absent current Store or missing ID raises SessionNotFoundError; retained older Stores provide repair guidance without asserting ID ownership.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.session import _lazy_history
 
     if not isinstance(session_id, str) or not session_id.strip():
         raise _invalid("an exact existing Session ID", "empty or invalid identity")
     root = resolve_project_root()
-    store = SessionStore.open_existing(root)
+    store = _existing_store(root)
+    if store is None:
+        raise _lazy_history.not_found(
+            MaterializationLayout(root), session_id, location="mv.session.resume(session_id)"
+        )
     record = store.session(session_id)
     if record is None:
-        from marivo.analysis.session import _lazy_history
-
-        raise SessionNotFoundError(
-            message="The selected Session ID does not exist in this project.",
-            expected="an exact existing Session ID from recent().items",
-            received=session_id,
+        raise _lazy_history.not_found(
+            store.layout,
+            session_id,
             location="mv.session.resume(session_id)",
-            repair=AnalysisRepair(
-                kind="inspect",
-                action="Read recent() and resume a returned Session ID.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
-                candidates=tuple(
-                    item.id for item in _lazy_history.recent(store, limit=10, after=None).items
-                ),
+            candidates=tuple(
+                item.id for item in _lazy_history.recent(store, limit=10, after=None).items
             ),
         )
     runtime = DatasetRuntime.open(root, session_id)
@@ -208,13 +206,15 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
         cursor: The previous page's next_cursor, or None.
     Returns: A newest-first SessionSummaryPage, empty when the current-generation Store is absent.
     Example: ``mv.session.recent(limit=5).show()``.
-    Constraints: History reads do not create a Store, activate or recover Sessions. Other generations are ignored; an invalid current Store still raises.
+    Constraints: History reads do not create a Store, activate or recover Sessions. Results include only the current generation; older Store paths trigger one warning per observed set per process without opening those databases. An invalid current Store still raises.
     """
     from marivo.analysis.session import _lazy_history
     from marivo.analysis.session._lazy_runtime_reads import page_after
 
     after = page_after(limit, cursor)
-    store = _existing_store(resolve_project_root())
+    root = resolve_project_root()
+    store = _existing_store(root)
+    warn_prior_generations(MaterializationLayout(root))
     if store is None:
         return SessionSummaryPage(items=(), limit=limit, has_more=False, next_cursor=None)
     return _lazy_history.recent(
@@ -231,11 +231,17 @@ def inspect(session_id: str) -> SessionSummary:
         session_id: Exact existing Session ID.
     Returns: The immutable SessionSummary with basic metadata and Artifact count.
     Example: ``mv.session.inspect(session_id).show()``.
-    Constraints: Reads no result identities, result rows or current datasource state.
+    Constraints: Reads no result identities, result rows or current datasource state. An absent current Store or missing ID raises SessionNotFoundError; retained older Stores provide repair guidance without asserting ID ownership.
     """
     from marivo.analysis.session import _lazy_history
 
-    return _lazy_history.inspect(SessionStore.open_existing(resolve_project_root()), session_id)
+    root = resolve_project_root()
+    store = _existing_store(root)
+    if store is None:
+        raise _lazy_history.not_found(
+            MaterializationLayout(root), session_id, location="session.inspect"
+        )
+    return _lazy_history.inspect(store, session_id)
 
 
 def _install_telemetry() -> None:

@@ -288,7 +288,7 @@ _PAGES = (
         guidance=(
             "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Recovery does not replay source observations.",
             "Reopen exact committed data with persisted_frame(id); its Artifact is audit. Continue fixed-data operations through frame, or explicitly ask source for new facts.",
-            "Older Store generations require a compatible environment or prior export; recovery does not migrate them. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
+            "Older Stores coexist unchanged with current work; read/export them in a compatible environment. Names, IDs and Artifacts remain independent across generations. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
         ),
         related=("frame", "source"),
         route_summaries=(

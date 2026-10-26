@@ -118,12 +118,6 @@ def _manifest() -> Manifest:
     )
     add("analysis/materialization/store", ("SessionStore._initialize",), ("read.execute",), store)
     add(
-        "analysis/materialization/store",
-        ("SessionStore._initialize",),
-        ("previous.execute",),
-        store,
-    )
-    add(
         "analysis/materialization/terminal_store",
         ("admit", "records_page"),
         ("conn.execute",),
@@ -134,15 +128,6 @@ def _manifest() -> Manifest:
         ("publish",),
         ("conn.execute", "conn.executemany"),
         store,
-    )
-    add(
-        "doctor",
-        ("_state_section",),
-        ("conn.execute",),
-        Owner(
-            "store_sqlite_persistence",
-            "Read-only diagnostic connection inspects the project SessionStore schema.",
-        ),
     )
     add(
         "telemetry/__init__",

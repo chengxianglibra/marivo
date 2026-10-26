@@ -1,4 +1,4 @@
-"""Bounded v3 Session history without activation or recovery."""
+"""Bounded current-generation Session history without activation or recovery."""
 
 from __future__ import annotations
 
@@ -7,6 +7,11 @@ import sqlite3
 from marivo.analysis._pages import encode_keyset_cursor
 from marivo.analysis.errors import AnalysisRepair, SessionNotFoundError
 from marivo.analysis.materialization.contracts import invalid
+from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.prior_generations import (
+    discover_prior_generations,
+    prior_generation_guidance,
+)
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
 from marivo.analysis.session._lazy_read_model import (
     SessionSummary,
@@ -17,6 +22,35 @@ from marivo.analysis.session._lazy_runtime_reads import (
     count,
 )
 from marivo.introspection.live.model import LiveHelpTarget
+
+
+def not_found(
+    layout: MaterializationLayout,
+    session_id: str,
+    *,
+    location: str,
+    candidates: tuple[str, ...] = (),
+) -> SessionNotFoundError:
+    message = f"The selected Session ID does not exist in this project's current v{layout.generation} Store."
+    action = "Read recent() and use a returned current-generation Session ID."
+    prior = discover_prior_generations(layout)
+    if prior:
+        message += (
+            " This ID may belong to an older generation; its ownership has not been verified."
+        )
+        action += " " + prior_generation_guidance(prior)
+    return SessionNotFoundError(
+        message=message,
+        expected="an exact current-generation Session ID from recent().items",
+        received=session_id,
+        location=location,
+        repair=AnalysisRepair(
+            kind="inspect",
+            action=action,
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
+            candidates=candidates,
+        ),
+    )
 
 
 def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) -> SessionSummary:
@@ -78,17 +112,11 @@ def inspect(store: SessionStore, session_id: str) -> SessionSummary:
                 conn,
                 "SELECT session_ref FROM sessions ORDER BY updated_at DESC,session_ref DESC LIMIT 10",
             )
-            raise SessionNotFoundError(
-                message="The selected Session ID does not exist in this project.",
-                expected="one existing Session ID",
-                received=session_id,
+            raise not_found(
+                store.layout,
+                session_id,
                 location="session.inspect",
-                repair=AnalysisRepair(
-                    kind="inspect",
-                    action="Read recent() and inspect a returned Session ID.",
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
-                    candidates=tuple(_text(value, "session_ref") for value in names),
-                ),
+                candidates=tuple(_text(value, "session_ref") for value in names),
             )
         return _summary(store, conn, row)
 

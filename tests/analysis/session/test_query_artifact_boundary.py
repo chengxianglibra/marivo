@@ -41,7 +41,7 @@ from marivo.analysis.core.frame_data import (
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, CoreRuleError
 from marivo.analysis.dsl.artifact import Artifact, ArtifactReader
-from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError
+from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -350,7 +350,7 @@ def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
         ).fetchone() == ("not even a decodable graph",)
 
 
-def test_old_store_is_rejected_without_rewriting_files(
+def test_old_session_is_not_found_without_rewriting_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -360,9 +360,11 @@ def test_old_store_is_rejected_without_rewriting_files(
         connection.execute("PRAGMA user_version=11")
     before = path.read_bytes()
     files = tuple(path.parent.iterdir())
-    with pytest.raises(IntegrityError) as caught:
+    with pytest.raises(SessionNotFoundError) as caught:
         mv.session.resume("old-session")
-    assert caught.value.stage == "store_generation"
+    assert "may belong" in caught.value.message
+    assert caught.value.repair is not None
+    assert "v11" in caught.value.repair.action
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
     assert not (path.parent.parent / "v16").exists()
 

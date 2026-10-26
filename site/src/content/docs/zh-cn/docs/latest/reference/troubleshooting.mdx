@@ -28,7 +28,11 @@ description: 诊断常见错误，通过 Live Help 查询 API 用法。
 
 先恢复所属会话，核对原事务，再考虑重新提交。显式重提可能产生另一份结果，也可能重新读取已变化来源。应及时保存返回 ID，没有隐式最新结果查询。
 
-不要把删除 `.marivo/` 或强制初始化作为通用修复。旧状态不会自动迁移；保留它并用兼容环境读取导出，不兼容的新工作使用新项目。
+不要把删除 `.marivo/` 或强制初始化作为通用修复。旧 Store 代际原地保留，`mv.session.get_or_create(name)` 可以在同一项目中创建当前代际。各版本写入独立的 Session 和 Artifact；名称与 ID 不跨代合并或解析。当前 Store 无效时仍需修复。
+
+`get_or_create()` 和 `recent()` 在每个进程内，按项目与发现的旧 Store 路径集合提示一次。`recent()` 只返回当前代历史；空页不代表旧历史已删除。`resume()` 和 `inspect()` 在当前代找不到 ID 时提供旧 Store 修复指引，但不声称已确认 ID 归属。`marivo doctor` 每次都报告旧代路径和文件修改时间；该时间不代表最后一次业务写入。这些诊断不读取旧代数据库，也不统计其中的 Session 数量。
+
+使用兼容的 Marivo 环境读取、导出旧数据。旧代默认保留，不自动清理。验证导出且确认无需原始历史后，可自行归档或删除对应旧代。
 
 通过 [Help](#查询已安装版本)查询错误的精确修复目标。 Frame/Column 校验指向拒绝输入的公共操作。例如，向 `over` 传入旧统计量会指向 `analysis.analysis_frame.over`，修复时应从接收 Frame 重建统计量；pending 导出指向 `analysis.analysis_frame.to_pandas`，应先求值再导出返回的 Frame。没有唯一公共所有者的内部错误仍可指向较宽的 Help。求助时附上去掉凭据和私有数据的最小复现。
 

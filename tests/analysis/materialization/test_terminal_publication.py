@@ -673,19 +673,19 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         assert "sales.orders.region" in scope and "sales.orders.amount" in scope
 
 
-def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Path) -> None:
+def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
     old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
         conn.execute("PRAGMA user_version=12")
     before = old.read_bytes()
     for name in ("original", "renamed"):
-        with pytest.raises(IntegrityError, match="user_version=12"):
-            DatasetRuntime.create(tmp_path, name)
-        with pytest.raises(IntegrityError, match="user_version=12"):
-            SessionStore.open_existing(tmp_path)
+        runtime = DatasetRuntime.create(tmp_path, name)
+        record = SessionStore.open_existing(tmp_path).session_by_name(name)
+        assert record is not None
+        assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v16").exists()
+    assert (old.parent.parent / "v16").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(

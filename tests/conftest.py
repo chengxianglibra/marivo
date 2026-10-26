@@ -104,6 +104,13 @@ def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.fixture(autouse=True)
+def _isolate_prior_generation_notices(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.analysis.materialization import prior_generations
+
+    monkeypatch.setattr(prior_generations, "_notified", set())
+
+
+@pytest.fixture(autouse=True)
 def _disable_telemetry_outside_telemetry_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep unrelated tests from writing local telemetry for every public call."""
     monkeypatch.setenv("MARIVO_TELEMETRY", "off")

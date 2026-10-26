@@ -798,21 +798,18 @@ def test_sequence_spans_batches_and_row_groups(
 
 
 @pytest.mark.parametrize("generation", [11, 12, 13, 14])
-def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
+def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
     old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
         conn.execute(f"PRAGMA user_version={generation}")
     before = old.read_bytes()
-    constructors: tuple[Callable[[], SessionStore], ...] = (
-        lambda: SessionStore(tmp_path),
-        lambda: SessionStore.open_existing(tmp_path),
-    )
-    for constructor in constructors:
-        with pytest.raises(IntegrityError, match="generation"):
-            constructor()
-    assert old.read_bytes() == before
+    with pytest.raises(IntegrityError, match="absent"):
+        SessionStore.open_existing(tmp_path)
     assert not (old.parent.parent / "v16").exists()
+    store = SessionStore(tmp_path)
+    assert SessionStore.open_existing(tmp_path).db_path == store.db_path
+    assert old.read_bytes() == before
 
 
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
@@ -1047,12 +1044,10 @@ def test_every_old_generation_entry_preserves_old_tree(
     payload.write_bytes(b"immutable old-generation payload")
     before = {
         str(path.relative_to(tmp_path)): path.read_bytes()
-        for path in tmp_path.rglob("*")
+        for path in old.parent.rglob("*")
         if path.is_file()
     }
     attempts = (
-        lambda: mv.session.get_or_create("original", timezone="UTC"),
-        lambda: mv.session.get_or_create("renamed", timezone="UTC"),
         lambda: mv.session.resume("original"),
         lambda: mv.session.resume("session_original"),
         lambda: mv.session.inspect("original"),
@@ -1061,14 +1056,19 @@ def test_every_old_generation_entry_preserves_old_tree(
     for attempt in attempts:
         with pytest.raises(AnalysisError):
             attempt()
-    assert mv.session.recent().items == ()
+    with pytest.warns(UserWarning, match=f"v{generation}"):
+        assert mv.session.recent().items == ()
+    original = mv.session.get_or_create("original", timezone="UTC")
+    renamed = mv.session.get_or_create("renamed", timezone="UTC")
+    assert original.id != renamed.id
+    assert mv.session.resume(original.id).id == original.id
     after = {
         str(path.relative_to(tmp_path)): path.read_bytes()
-        for path in tmp_path.rglob("*")
+        for path in old.parent.rglob("*")
         if path.is_file()
     }
     assert after == before
-    assert not (old.parent.parent / "v16").exists()
+    assert (old.parent.parent / "v16").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
