@@ -16,8 +16,7 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | Source or internal sum | Non-NA child values, subject to nulls policy | 0 / NA |
 | count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
 | min/max/median/quantile | Effective non-NA samples | NA |
-| Native source mean | Backend AVG samples and NULL policy | Backend result |
-| Local internal mean | Effective non-NA completed samples | NA |
+| Source or internal mean | Effective non-NA inputs, using the qualified AVG algorithm | NA |
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
 | Frame Column sum | Current non-NA represented cells | 0 / NA |
 | Frame Column mean | Current non-NA represented cells | NA |
@@ -25,11 +24,19 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | Frame pair_count / correlate n_pairs | The same common non-NA pairs, including zero and duplicates | 0; retain groups even without pairs |
 | row_count | All current coordinate rows, including NA values | 0 |
 
-Strict `nulls="error"` belongs to the source/internal reduction that captures it,
-except native AVG. Native AVG delegates NULL and empty-input behavior to the
-backend even when authored with `nulls="error"`. Other captured NULL checks cover
-their demanded sample/contribution domain. A later where, select, zero multiplier
-or empty output cannot suppress a required check.
+Each operator has one fixed NULL computation rule. Existing `nulls="ignore"`
+(the default) adds no non-NULL assertion; `nulls="error"` asserts that the capturing
+source/internal reduction has no NULLs on its demanded sample/contribution domain,
+including native AVG. Successful values use the same calculation in both cases.
+Empty input contains no NULL, so this assertion passes: sum is zero and mean is NA.
+It does not prove sample presence or source completeness. A later where, select,
+zero multiplier or empty output cannot suppress a required check.
+
+Business imputation or sample selection belongs in an explicit supported input
+expression or preprocessing step. For [10, NULL, 30], mean is 20; explicit input
+zero-fill gives 40/3, while strict mean fails. No automatic fill, propagation mode
+or per-reducer cleaning strategy is implied. Existing first/last include_null
+selects endpoint candidates and does not cancel strict checks.
 
 Division uses `/` and masks zero before dividing; both 0/0 and nonzero/0
 return NA. Its explicit float64 result cast survives native compilation, even
@@ -40,14 +47,17 @@ including signed cancellation. All backend-native numeric operations delegate
 overflow to the backend: its errors, wrapped values, Infinity and NaN are accepted
 without an overflow precheck, result rejection or local retry. Native field reads
 likewise retain backend floating values. Local numeric kernels retain their own
-checked arithmetic and domain rules. An unevaluated source subexpression need not
+checked arithmetic and domain rules. Finite local arithmetic, comparison deltas
+and paired statistics reject valid NaN/Infinity before common NULL masks; direct
+projection, is_null and persistence retain their validity without a numeric scan.
+An unevaluated source subexpression need not
 trigger overflow, including under empty output; explicit NULL/domain checks retain
 their demanded domains. Arrow-valid NaN is a floating value distinct from NULL.
 
 Source declaration trust does not remove type, identity or captured NULL/domain
 checks. A missing scalar join produces NULL without a separate required-match
 audit; the consuming operator's captured NULL policy still applies, including
-strict rejection outside native AVG.
+strict rejection by native AVG.
 
 ## Physical numeric and temporal carriers
 
@@ -153,8 +163,9 @@ ordered first/last to the same optimization.
 
 Qualified direct mean of numeric time-sample means also executes on those five
 providers. It computes each timestamp's source AVG, then an equal-weight outer
-AVG over those completed means. Both AVG operations use backend NULL and overflow
-semantics. This route has no scheduled-clock coverage check, numeric safety
+AVG over those completed means. Both layers skip NULLs, return NA without valid
+inputs and enforce their captured strict assertions. Native AVG algorithms and
+overflow remain backend-owned. This route has no scheduled-clock coverage check, numeric safety
 windows, sample ranking or local fallback. Missing clocks do not become samples;
 off-grid represented timestamps remain samples. Integer and floating AVG has a
 declared Float64 output; Decimal AVG retains its declared precision and scale.

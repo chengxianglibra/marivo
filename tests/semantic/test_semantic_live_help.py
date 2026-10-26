@@ -683,12 +683,15 @@ def test_sum_help_discloses_fixed_empty_and_native_numeric_rules(
 
 
 @pytest.mark.parametrize("target", ("semantic.row.mean", "semantic.metric_samples.mean"))
-def test_mean_help_discloses_backend_null_and_sampling_rules(
+def test_mean_help_discloses_fixed_null_rules_and_sampling(
     target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     marivo.help(target)
     page = capsys.readouterr().out
-    assert "Native AVG owns NULL and empty-input behavior" in page
+    assert "Mean skips NULLs and returns NA without valid inputs" in page
+    assert "asserts no NULLs on the demanded input" in page
+    assert "empty input passes" in page
+    assert "Successful values use the same computation" in page
     assert "Native time-sample AVG has no local fallback" in page
     if target == "semantic.metric_samples.mean":
         assert "without scheduled coverage or implicit fill" in page

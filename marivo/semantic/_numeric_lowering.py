@@ -180,6 +180,18 @@ def _source_sum(value: ir.Value) -> ir.Value:
     )
 
 
+def native_mean(value: ir.Value) -> ir.Value:
+    """Keep native AVG while completing an empty input as a typed NULL."""
+    if not value.type().nullable:
+        # ClickHouse AVG over a nonnullable carrier returns NaN on empty input.
+        # Its nullable wrapper retains AVG's algorithm and returns NULL instead.
+        value = force_cast(value, value.type().copy(nullable=True))
+    result = value.mean()
+    if value.type().is_integer() or result.type().is_decimal():
+        result = force_cast(result, result.type())
+    return result
+
+
 def lower_source_reduction(
     node: SourceAggregate | SourceWeightedMean | EntityCount,
     table: ir.Table,
@@ -219,7 +231,7 @@ def lower_source_reduction(
         return NumericValue(
             divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks)
         )
-    if node.nulls == "error" and node.reducer != "mean":
+    if node.nulls == "error":
         checks.append(
             NumericCheck(value.isnull(), "non-NA source values", f"{node.reducer}(nulls='error')")
         )
@@ -255,9 +267,7 @@ def lower_source_reduction(
         # observation compiler supplies bounds without a native quantile call.
         result = value.min().cast(value.quantile(0.5).type())
     elif node.reducer == "mean":
-        result = value.mean()
-        if value.type().is_integer() or result.type().is_decimal():
-            result = force_cast(result, result.type())
+        result = native_mean(value)
     elif node.reducer == "min":
         result = value.min()
     elif node.reducer == "max":

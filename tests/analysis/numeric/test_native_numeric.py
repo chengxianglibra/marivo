@@ -14,6 +14,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
@@ -21,6 +22,73 @@ from tests.datasource.source_cases import SourceData, source_case
 
 def _value(result: mv.AnalysisFrame) -> pd.Series:
     return result.to_pandas()["value"]
+
+
+@pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
+def test_native_mean_makes_only_nonnullable_inputs_nullable(backend: str) -> None:
+    import ibis
+
+    from marivo._definition.expressions import RowField, SourceAggregate
+    from marivo._definition.types import ExactRef, SumAll
+    from marivo.refs import ref
+    from marivo.semantic._numeric_lowering import lower_source_reduction
+
+    field = RowField(
+        ExactRef(ref.measure("sales.facts.value"), "v1"),
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        None,
+        SumAll(),
+    )
+    for nullable in (False, True):
+        table = ibis.table({"value": ibis.dtype("float64").copy(nullable=nullable)}, name="facts")
+        result = lower_source_reduction(
+            SourceAggregate(field, "mean", None), table, {"sales.facts.value": table.value}
+        )
+        sql = ibis.to_sql(table.aggregate(value=result.value), dialect=backend).upper()
+        assert "AVG(" in sql and "COUNT(" not in sql and "CASE" not in sql
+        assert result.value.type().nullable and result.checks == ()
+        if backend == "clickhouse":
+            assert ("AS NULLABLE(FLOAT64)" in sql) == (not nullable)
+
+
+def test_source_mean_strict_checks_survive_output_clipping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _model(tmp_path)
+    with duckdb.connect(str(tmp_path / "source.duckdb")) as con:
+        con.execute(
+            "CREATE TABLE facts(id BIGINT, day DATE, value DOUBLE, weight BIGINT, category VARCHAR)"
+        )
+        con.execute(
+            "INSERT INTO facts VALUES (1,'2026-07-01',10,1,'a'),"
+            "(2,'2026-07-01',NULL,1,'a'),(3,'2026-07-01',30,1,'b')"
+        )
+    session = mv.session.get_or_create("strict-native-mean", timezone="UTC")
+    value = session.catalog.fields.get("sales.facts.value")
+    day = session.catalog.fields.get("sales.facts.day")
+    category = session.catalog.fields.get("sales.facts.category")
+    scope = session.time_scope(start="2026-07-01", end="2026-07-02")
+    assert _value(session.observe({"value": value.mean(time=day)}, by=(scope,)).compute())[0] == 20
+    strict = session.observe(
+        {"value": value.mean(time=day, nulls="error"), "safe": value.mean(time=day)},
+        by=(scope, category),
+    )
+    for query in (
+        strict,
+        strict.top(0, by=strict["value"]),
+        strict.where(strict["value"] > 100),
+        strict.select({"value": strict["value"] * 0}),
+        strict.select({"value": strict["safe"]}),
+    ):
+        with pytest.raises(MaterializationError, match="non-NA") as captured:
+            query.compute()
+        assert captured.value.expected == "non-NA source values"
+        assert "mean(nulls='error')" in (captured.value.received or "")
+    empty = session.observe(
+        {"value": value.mean(time=day, nulls="error").where(value < 0)}, by=(scope,)
+    )
+    assert pd.isna(_value(empty.compute())[0])
 
 
 @pytest.mark.parametrize(

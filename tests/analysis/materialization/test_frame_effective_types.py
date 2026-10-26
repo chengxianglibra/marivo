@@ -350,5 +350,5 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         # Export is an isolated copy, including the Arrow validity bitmap.
         exported.loc[:, "infinite"] = 0.0
         assert math.isinf(frame.to_pandas()["infinite"].iloc[0])
-    with pytest.raises(MaterializationError, match="finite numeric output"):
+    with pytest.raises(MaterializationError, match="finite numeric inputs"):
         reopened.select({"computed": reopened["infinite"] + 1}).compute()

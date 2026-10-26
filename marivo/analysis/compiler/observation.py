@@ -228,7 +228,7 @@ def lower_observation(
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
     if prepared.mean_fold is not None and prepared.mean_fold[2] == "mean":
-        # Native AVG owns NULL and absent-clock handling for this completed mean.
+        # Mean consumes represented samples without scheduled-clock completion.
         prepared = replace(prepared, preserve_sample_presence=False)
     window_slot: str | None = None
     if prepared.window_key is not None:
@@ -301,25 +301,6 @@ def lower_observation(
 
     bounds = quantile_bounds(prepared, fields)
     item = lower_source_reduction(prepared.node, filtered, fields, quantile_bounds=bounds)
-    if (
-        prepared.duration is not None
-        and isinstance(prepared.node, SourceAggregate)
-        and prepared.node.reducer == "mean"
-        and prepared.node.nulls == "error"
-    ):
-        # Duration mean uses exact tick SUM/count rather than backend AVG.
-        ticks = lower_row(prepared.node.operand, fields).value
-        item = NumericValue(
-            item.value,
-            (
-                *item.checks,
-                NumericCheck(
-                    ticks.isnull().any().fill_null(False),
-                    "non-NA source values",
-                    "mean(nulls='error')",
-                ),
-            ),
-        )
     metrics = {
         prepared.value_slot: item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},
@@ -471,16 +452,20 @@ def lower_observation(
             result = compact_mean(prepared, result, tuple(name for name, _ in checks))
         else:
             result = compact_extrema(prepared, result, tuple(name for name, _ in checks))
+        if "sample_check.null" in result.columns:
+            checks.append(
+                (
+                    "sample_check.null",
+                    NumericCheck(
+                        result["sample_check.null"],
+                        "non-NA internal samples",
+                        f"{prepared.mean_fold[2]}(nulls='error')",
+                    ),
+                )
+            )
+        if prepared.mean_fold[2] != "mean":
             checks.extend(
                 (
-                    (
-                        "sample_check.null",
-                        NumericCheck(
-                            result["sample_check.null"],
-                            "non-NA internal samples",
-                            f"{prepared.mean_fold[2]}(nulls='error')",
-                        ),
-                    ),
                     (
                         "sample_check.coverage",
                         NumericCheck(

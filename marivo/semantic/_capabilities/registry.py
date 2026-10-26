@@ -2659,7 +2659,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
                 if method == "mean":
                     summary += (
-                        " Native AVG owns NULL and empty-input behavior, including when nulls='error' is supplied. "
+                        " Mean skips NULLs and returns NA without valid inputs. "
                         "Native time-sample AVG has no local fallback."
                     )
                 if prefix == "MetricSamples" and method in {"mean", "weighted_mean"}:
@@ -2670,6 +2670,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     )
                 if method == "sum":
                     summary += " MySQL retains widened SUM until safe Decimal carrier conversion; out-of-range source results fail."
+            if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
+                summary += (
+                    " nulls='ignore' adds no assertion; nulls='error' asserts no NULLs on the demanded input; "
+                    "empty input passes. Successful values use the same computation."
+                )
             rows.append(
                 _capability(
                     f"{prefix}.{method}",

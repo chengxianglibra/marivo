@@ -208,8 +208,9 @@ contribution interval. An aware non-UTC civil sampling plan is not supported.
 DuckDB, PostgreSQL, MySQL, Trino and ClickHouse finish a qualified direct numeric
 source mean followed by one internal time-sample mean in the source. The exact
 sample identities and completed inner means remain the inputs to the outer
-equal-weight AVG. Both AVG operations delegate NULL, empty-input and overflow
-behavior to the backend, including when authored with `nulls="error"`. There is no
+equal-weight AVG. Both layers skip NULLs and return NA without valid inputs; each
+`nulls="error"` asserts no NULLs in its own demanded input domain. Native AVG
+algorithms and overflow remain backend-owned. There is no
 scheduled-clock coverage check, safety window, sample ranking or local fallback
 on this route. Missing clocks are absent samples; off-grid observations still
 participate. `sample_interval` never truncates or buckets those observations.
@@ -244,9 +245,13 @@ its formula over each window rather than summing completed output cells.
 Policies attach to the actual operation. Sum has no empty parameter: an empty
 contribution input returns typed zero; a nonempty all-NULL input returns NULL.
 Mixed inputs sum their valid values. Count/distinct count returns zero.
-Other admitted sample reducers return NA without valid samples. Strict
-nulls="error" is checked on its demanded source/sample domain, except native AVG,
-whose NULL and empty-input results belong to the backend. Source-native numeric
+Other admitted sample reducers return NA without valid samples. Existing
+nulls="ignore" adds no assertion; nulls="error" asserts non-NULL inputs on the
+demanded source/sample domain, including native AVG. When that assertion passes,
+the result uses the same fixed computation. Empty input passes the NULL assertion;
+this does not require a sample or prove clock/source completeness. Business filling
+and sample selection use explicit supported expressions or preprocessing, rather
+than another reducer mode. Source-native numeric
 overflow also belongs to the backend: an error or a returned wrapped/nonfinite
 value is accepted without an overflow precheck, finite-result rejection or local
 retry. Source reads retain Infinity and valid NaN; completed Frames preserve these
@@ -286,7 +291,8 @@ Ibis result casts and ties-away Decimal convergence. Division is float64; Decima
 mean keeps its declared p/s without promising an exact backend AVG algorithm.
 All source-native numeric overflow follows the backend, including native errors,
 ClickHouse silent wrapping and floating Infinity/NaN. Local kernels retain their
-own checked arithmetic. Native AVG delegates NULL and empty-input handling to the
-backend and does not require scheduled sample coverage. Other captured
+own checked arithmetic. Mean has the same NULL and empty-input completion on all
+admitted routes; native time-sample mean does not require scheduled sample
+coverage. Other captured
 NULL/zero/domain policies, identity and Duration contracts retain their owners.
 No extra arithmetic is run to verify overflow.

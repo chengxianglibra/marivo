@@ -16,6 +16,21 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.materialization.errors import MaterializationError
 
 
+def typed_null_mask(values: pd.Series) -> pd.Series:
+    """Read validity without treating valid floating NaN as a missing value.
+
+    Stage inputs carry Arrow validity. Local object intermediates use explicit
+    null sentinels; untyped pandas carriers retain their ingress convention.
+    """
+    if values.dtype != object:
+        return values.isna()
+    return pd.Series(
+        [value is None or value is pd.NA or value is pd.NaT for value in values],
+        dtype=bool,
+        index=values.index,
+    )
+
+
 def stage_arrow_type(dtype: DataType) -> pa.DataType:
     """Return the exact Arrow carrier for one current Query stage slot."""
     if isinstance(dtype, ScalarDataType):

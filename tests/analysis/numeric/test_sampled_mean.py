@@ -89,6 +89,8 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
         assert " over " not in sql
         assert "__mean_safe" not in sql
         assert "__coverage_" not in sql
+        assert "sample_check.null" in relation.columns
+        assert {name for name, _ in checks} == {"sample_check.null"}
     else:
         assert "distinct" in sql
         assert "sample_check.coverage" in relation.columns
@@ -112,6 +114,7 @@ def mean_session(
     aware: bool = False,
     sample_count: int | None = None,
     alternate_clock: bool = False,
+    nullable_amount: bool = True,
 ) -> Iterator[tuple[Session, Case]]:
     times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
@@ -154,9 +157,10 @@ def mean_session(
         ",".join(f"({i},{points[i]},'A',{literal})" for i, literal in enumerate(literals)),
         "id Int64, point "
         + ("DateTime64(6, 'UTC')" if aware else "String")
-        + ", category String, amount Nullable("
+        + ", category String, amount "
+        + ("Nullable(" if nullable_amount else "")
         + {"BIGINT": "Int64", "DOUBLE": "Float64", "DECIMAL(18,2)": "Decimal(18, 2)"}[amount_type]
-        + ")",
+        + (")" if nullable_amount else ""),
         rows,
     )
     monkeypatch.chdir(root)
@@ -574,6 +578,7 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
         # Three completed timestamp means are [0, 80, 20], despite a raw maximum of 100.
         assert rows["v"].tolist() == [expected]
         assert trace.returned_rows == [1]
+        assert "sample_check.null" not in trace.returned_columns[0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         with pytest.raises(MaterializationError, match="missing state sample"):
             session.observe({"v": metric}, by=(missing, category)).compute()
@@ -904,7 +909,7 @@ def test_trino_four_day_mean_transport_and_cost(
         ]
     ),
 )
-def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
+def test_native_mean_checks_nulls_without_requiring_clock_coverage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -937,8 +942,10 @@ def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
             amount.mean(time=point).per(point).mean(nulls="error"),
             amount.mean(time=point, nulls="error").per(point).mean(),
         ):
-            rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-            assert rows["v"].tolist() == [0.0]
+            query = session.observe({"v": metric}, by=(scope,))
+            for selected in (query, query.top(0, by=query["v"])):
+                with pytest.raises(MaterializationError, match="non-NA"):
+                    selected.compute()
         empty = (
             session.observe(
                 {"v": amount.mean(time=point).where(amount < 0).per(point).mean()}, by=(scope,)
@@ -967,9 +974,99 @@ def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
             .to_pandas()
         )
         assert unbounded["v"].tolist() == [0.0]
-        assert trace.returned_rows == [1, 1, 0, 1, 1, 1]
+        assert trace.returned_rows == [1, 1, 1, 1, 0, 1, 1, 1]
         assert not trace.uploaded_key_rows
         assert all("__coverage_" not in sql and "ROW_NUMBER" not in sql for sql in trace.native_sql)
+
+
+@pytest.mark.parametrize("shape", ["direct", "add_zero", "multiply_one"])
+def test_sample_mean_strict_domain_is_independent_of_child_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    shape: str,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(10, None, None, None, 30),
+    ) as (session, _):
+        point = session.catalog.fields.get("sales.facts.point")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        child = amount.mean(time=point)
+        child = (
+            child + 0 if shape == "add_zero" else child * 1 if shape == "multiply_one" else child
+        )
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        samples = child.per(point)
+        trace = capture_source(monkeypatch)
+        ignored = session.observe({"v": samples.mean()}, by=(scope,)).compute().to_pandas()
+        assert ignored["v"].tolist() == [20.0]
+        assert all("sample_check.null" not in names for names in trace.returned_columns)
+        with pytest.raises(MaterializationError, match="non-NA") as captured:
+            session.observe({"v": samples.mean(nulls="error")}, by=(scope,)).compute()
+        assert captured.value.expected == "non-NA internal samples"
+        assert "mean(nulls='error')" in (captured.value.received or "")
+        assert not trace.uploaded_key_rows
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
+)
+@pytest.mark.parametrize("nullable", [False, True])
+def test_native_mean_strict_empty_domain_returns_null(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    nullable: bool,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 10, 10, 10, 20),
+        nullable_amount=nullable,
+    ) as (session, case):
+        source = case.session.bind(case.source, source_identity="empty-native-mean").relation
+        if backend == "clickhouse":
+            assert source.amount.type().nullable == nullable
+        point = session.catalog.fields.get("sales.facts.point")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        child = amount.mean(time=point, nulls="error").where(amount < 0)
+        trace = capture_source(monkeypatch)
+        for metric in (child, child.per(point).mean(nulls="error")):
+            frame = session.observe({"v": metric}).compute().to_pandas()
+            assert frame["v"].isna().tolist() == [True]
+        assert trace.returned_rows == [1, 1]
+        assert len(trace.native_sql) == 2 and not trace.uploaded_key_rows
+
+
+def test_native_mean_strict_does_not_demand_filtered_away_samples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, None, 100, 100, 20),
+        cadence=False,
+    ) as (session, _):
+        point = session.catalog.fields.get("sales.facts.point")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        child = amount.mean(time=point, nulls="error").where(amount > 0)
+        rows = session.observe({"v": child.per(point).mean(nulls="error")}).compute().to_pandas()
+        assert rows["v"].tolist() == [60.0]
 
 
 @pytest.mark.parametrize(

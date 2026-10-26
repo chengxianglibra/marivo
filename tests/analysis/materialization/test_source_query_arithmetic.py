@@ -1,10 +1,14 @@
 """Checked native Query formulas and Columns keep demanded failures at source."""
 
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -15,9 +19,102 @@ from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import terminal_runs
+from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
 CASES = [("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]
+
+
+def test_valid_nonfinite_source_values_keep_validity_through_projection_and_cold_store(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    data = _case_data("duckdb", "nan")
+    data = replace(
+        data,
+        values=data.values.replace("2.5", "CAST('Infinity' AS DOUBLE)", 1).replace(
+            "2.5", "CAST('-Infinity' AS DOUBLE)", 1
+        ),
+    )
+    with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
+        _project("duckdb", case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("typed-validity", timezone="UTC")
+        source = session.read(
+            session.members(session.catalog.entities.get("sales.facts")),
+            {"amount": session.catalog.fields.get("sales.facts.amount")},
+        )
+        fixed = source.compute()
+        projected = fixed.select({"copy": fixed["amount"], "missing": fixed["amount"].is_null()})
+        saved = projected.persist()
+        rows = saved.to_pandas()
+        assert rows["missing"].tolist() == [False, True, False, False, False, False]
+        values = pa.array(rows["copy"])
+        assert values.is_null().to_pylist() == [False, True, False, False, False, False]
+        assert values[0].as_py() == float("inf")
+        assert values[3].as_py() == float("-inf")
+        assert pa.compute.is_nan(values).fill_null(False).to_pylist() == [
+            False,
+            False,
+            True,
+            False,
+            False,
+            False,
+        ]
+        derived = (
+            fixed.select(
+                {
+                    "unary_missing": (-fixed["amount"]).is_null(),
+                    "comparison_missing": (fixed["amount"] > 0).is_null(),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        for name in ("unary_missing", "comparison_missing"):
+            assert derived[name].tolist() == [False, True, False, False, False, False]
+        for candidate in (
+            fixed.select({"value": fixed["amount"] + 0}),
+            fixed.reduce({"value": fixed["amount"].sum()}),
+            fixed.reduce({"value": fixed["amount"].mean()}),
+        ):
+            with pytest.raises(MaterializationError, match="finite"):
+                candidate.compute()
+        code = """
+import sys
+from unittest.mock import patch
+import pyarrow as pa
+import marivo.analysis as mv
+from marivo.datasource.adapters import SourceSession
+with patch.object(SourceSession, 'execute', side_effect=AssertionError('source read')):
+    session = mv.session.resume(sys.argv[1])
+    frame = session.persisted_frame(sys.argv[2])
+    rows = frame.to_pandas()
+    values = pa.array(rows['copy'])
+    assert rows['missing'].tolist() == [False, True, False, False, False, False]
+    assert values.is_null().to_pylist() == [False, True, False, False, False, False]
+    assert pa.compute.is_nan(values).fill_null(False).to_pylist() == [False, False, True, False, False, False]
+    assert values[0].as_py() == float('inf') and values[3].as_py() == float('-inf')
+    again = frame.select({'copy': frame['copy'], 'missing': frame['copy'].is_null()}).compute().to_pandas()
+    copied = pa.array(again['copy'])
+    assert copied.is_null().to_pylist() == [False, True, False, False, False, False]
+    assert pa.compute.is_nan(copied).fill_null(False).to_pylist() == [False, False, True, False, False, False]
+    assert copied[0].as_py() == float('inf') and copied[3].as_py() == float('-inf')
+"""
+        process = subprocess.run(
+            [sys.executable, "-c", code, session.id, saved.artifact.id],
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(PROJECT_ROOT),
+                "MARIVO_PROJECT_ROOT": str(tmp_path),
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert process.returncode == 0, process.stdout + process.stderr
 
 
 def _case_data(backend: str, boundary: str) -> SourceData:

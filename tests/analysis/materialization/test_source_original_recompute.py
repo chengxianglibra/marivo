@@ -170,12 +170,14 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
             expected = connection.execute(
                 "SELECT bucket, AVG(amount) FROM orders GROUP BY bucket ORDER BY bucket"
             ).fetchall()
-        rows = fine.compute().to_pandas()
+        rows = session.observe({"metric": amount.mean()}, by=(bucket,)).compute().to_pandas()
         key = rows.columns[0]
         rows = rows.sort_values(key)
         assert rows[key].tolist() == [key for key, _ in expected]
         assert rows["metric"].tolist() == pytest.approx([value for _, value in expected])
-        assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
+        for candidate in (fine, fine.top(0, by=fine["metric"])):
+            with pytest.raises(AnalysisError, match="non-NA source values"):
+                candidate.compute()
     else:
         with pytest.raises(AnalysisError):
             fine.top(0, by=fine["metric"]).compute()

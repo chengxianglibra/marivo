@@ -150,7 +150,7 @@ def provider() -> DisclosureProvider:
             "read",
             "AnalysisFrame",
             "result = session.read(population, fields)",
-            "Read named scalar attributes for complete identities, trusting source declarations; missing matches yield NULL. Numeric reads reject actual NaN/Infinity before Frame selection.",
+            "Read named scalar attributes for complete identities, trusting source declarations; missing matches yield NULL. Numeric reads preserve NULL, NaN and Infinity; finite local operations validate their demanded inputs.",
         ),
         (
             Session,

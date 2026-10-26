@@ -212,7 +212,7 @@ def test_nullable_source_sum(values: list[float | None], expected: float | None)
 
 
 @pytest.mark.parametrize("values", ([], [None, None], [None, 2.0, 4.0]))
-def test_native_avg_owns_null_and_empty_results_even_with_strict_policy(
+def test_native_avg_keeps_its_algorithm_and_checks_strict_inputs(
     values: list[float | None],
 ) -> None:
     connection = ibis.duckdb.connect(threads=1)
@@ -231,7 +231,12 @@ def test_native_avg_owns_null_and_empty_results_even_with_strict_policy(
             table,
             {"sales.facts.x": table.x},
         )
-        assert lowered.checks == ()
+        assert len(lowered.checks) == 1
+        assert lowered.checks[0].expected == "non-NA source values"
+        assert lowered.checks[0].received == "mean(nulls='error')"
+        assert bool(connection.execute(lowered.checks[0].violation)) == any(
+            value is None for value in values
+        )
         assert lowered.value.op().find(ops.Mean)
         assert not lowered.value.op().find(ops.IfElse)
         actual = connection.execute(table.aggregate(value=lowered.value)).value.iloc[0]

@@ -23,6 +23,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.methods.physical import DecimalType, DurationType, ValueType
 
 Number: TypeAlias = int | float | Decimal
@@ -85,13 +86,14 @@ def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
     """
     from marivo.semantic._numeric_lowering import numeric_failure
 
+    missing = typed_null_mask(values)
     try:
         with localcontext(_decimal_context()):
             rounded = [
                 None
-                if pd.isna(value)
+                if absent
                 else Decimal(str(value)).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
-                for value in values
+                for value, absent in zip(values, missing, strict=True)
             ]
         array = pa.array(rounded).cast(pa.decimal128(precision, scale), safe=True)
     except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
@@ -121,6 +123,21 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
     return value_float
 
 
+def _require_finite_values(values: pd.Series, missing: pd.Series, operation: str) -> None:
+    """Validate demanded numeric values before combining nullable input domains."""
+    from marivo.semantic._numeric_lowering import numeric_failure
+
+    if any(
+        not absent
+        and (
+            (isinstance(value, float) and not math.isfinite(value))
+            or (isinstance(value, Decimal) and not value.is_finite())
+        )
+        for value, absent in zip(values, missing, strict=True)
+    ):
+        numeric_failure("finite numeric inputs", operation)
+
+
 def nullable_arithmetic(
     operation: str,
     left: pd.Series,
@@ -135,13 +152,26 @@ def nullable_arithmetic(
     """
     from marivo.semantic._numeric_lowering import numeric_failure
 
+    left_missing, right_missing = typed_null_mask(left), typed_null_mask(right)
     a, b = left.astype(object), right.astype(object)
+    for values, missing in ((a, left_missing), (b, right_missing)):
+        _require_finite_values(values, missing, operation)
     if exact_duration:
         a = pd.Series(
-            [Fraction(v) if pd.notna(v) else pd.NA for v in a], dtype=object, index=a.index
+            [
+                Fraction(v) if not absent else pd.NA
+                for v, absent in zip(a, left_missing, strict=True)
+            ],
+            dtype=object,
+            index=a.index,
         )
         b = pd.Series(
-            [Fraction(v) if pd.notna(v) else pd.NA for v in b], dtype=object, index=b.index
+            [
+                Fraction(v) if not absent else pd.NA
+                for v, absent in zip(b, right_missing, strict=True)
+            ],
+            dtype=object,
+            index=b.index,
         )
     if any(isinstance(value, float) for value in a) or any(isinstance(value, float) for value in b):
         a = a.map(lambda value: float(value) if isinstance(value, Decimal) else value).astype(
@@ -151,13 +181,18 @@ def nullable_arithmetic(
             object
         )
     if operation == "divide":
-        zero = b.notna() & ((b == 0) | (b == timedelta(0))).fillna(False)
+        zero = ~right_missing & ((b == 0) | (b == timedelta(0))).fillna(False)
         b = b.mask(zero, pd.NA)
+        right_missing = right_missing | zero
     try:
         with localcontext(_decimal_context()):
             if (
                 operation in ("add", "subtract", "multiply")
-                and all(pd.isna(value) or type(value) is int for value in (*a, *b))
+                and all(
+                    absent or type(value) is int
+                    for values, missing in ((a, left_missing), (b, right_missing))
+                    for value, absent in zip(values, missing, strict=True)
+                )
                 and not exact_duration
             ):
                 kernel = {
@@ -186,7 +221,7 @@ def nullable_arithmetic(
                 numeric_failure("an admitted nullable arithmetic operator", operation)
     except (ArithmeticError, TypeError, ValueError) as error:
         numeric_failure("valid numeric arithmetic", f"{operation}: {error}")
-    result = result.astype(object).mask(a.isna() | b.isna(), pd.NA)
+    result = result.astype(object).mask(left_missing | right_missing, pd.NA)
     if any(
         (isinstance(value, float) and not math.isfinite(value))
         or (isinstance(value, Decimal) and not value.is_finite())
@@ -200,10 +235,10 @@ def finish_float64(values: pd.Series, operation: str) -> pd.Series:
     """Convert an exact completed expression once to its declared float carrier."""
     from marivo.semantic._numeric_lowering import numeric_failure
 
-    finished: list[float] = []
-    for value in values:
-        if pd.isna(value):
-            finished.append(math.nan)
+    finished: list[float | None] = []
+    for value, absent in zip(values, typed_null_mask(values), strict=True):
+        if absent:
+            finished.append(None)
             continue
         try:
             converted = float(value)
@@ -212,7 +247,9 @@ def finish_float64(values: pd.Series, operation: str) -> pd.Series:
         if not math.isfinite(converted):
             numeric_failure("a finite float64 output", f"{operation}: output overflow")
         finished.append(converted)
-    return pd.Series(finished, dtype="float64", index=values.index)
+    return pd.Series(
+        pd.arrays.ArrowExtensionArray(pa.array(finished, type=pa.float64())), index=values.index
+    )
 
 
 def duration_arithmetic(
@@ -247,8 +284,8 @@ def duration_arithmetic(
         return finish_float64(result, "Duration ratio")
     finished: list[int | None] = []
     try:
-        for value in result:
-            if pd.isna(value):
+        for value, absent in zip(result, typed_null_mask(result), strict=True):
+            if absent:
                 finished.append(None)
             else:
                 exact = Fraction(value)

@@ -33,7 +33,7 @@ from marivo._definition.query import (
 from marivo.analysis.compiler.graph_plan import LocalCompute, local_result
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, sum_values
@@ -181,8 +181,9 @@ def expression_series(
         return pd.Series([literal] * len(frame), dtype=object)
     if isinstance(expression, ValueUnary):
         values = expression_series(expression.operand, frame, program, evaluation=evaluation)
+        missing = typed_null_mask(values)
         if expression.operation == "is_null":
-            return values.isna().astype("boolean")
+            return missing.astype("boolean")
         if expression.operation == "not":
             return ~values.astype("boolean")
         if isinstance(values.dtype, pd.ArrowDtype) and pa.types.is_duration(
@@ -208,7 +209,9 @@ def expression_series(
                 pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
                 index=values.index,
             )
-        if all(pd.isna(value) or isinstance(value, int) for value in values):
+        if all(
+            absent or isinstance(value, int) for value, absent in zip(values, missing, strict=True)
+        ):
             kernel = pc.negate_checked if expression.operation == "neg" else pc.abs_checked
             return pd.Series(
                 pd.arrays.ArrowExtensionArray(
@@ -218,7 +221,7 @@ def expression_series(
         return pd.Series(
             [
                 None
-                if pd.isna(value)
+                if absent
                 else value.copy_negate()
                 if isinstance(value, Decimal) and expression.operation == "neg"
                 else value.copy_abs()
@@ -226,7 +229,7 @@ def expression_series(
                 else -value
                 if expression.operation == "neg"
                 else abs(value)
-                for value in values
+                for value, absent in zip(values, missing, strict=True)
             ],
             dtype=object,
         )
@@ -296,13 +299,14 @@ def expression_series(
         and right_awareness is not None
         and left_awareness != right_awareness
     )
+    missing = typed_null_mask(left) | typed_null_mask(right)
     if _has_temporal_dtype(left) or _has_temporal_dtype(right):
         left, right = _temporal_comparison_values(left), _temporal_comparison_values(right)
     result: list[object] = []
     with localcontext() as context:
         context.prec = 120
-        for a, b in zip(left, right, strict=True):
-            if pd.isna(a) or pd.isna(b):
+        for a, b, absent in zip(left, right, missing, strict=True):
+            if absent:
                 result.append(None)
                 continue
             if different_awareness:
@@ -386,7 +390,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             dtype = next(column.dtype for column in stage.columns if column.slot_id == slot)
             result[slot] = (
                 finish_float64(computed, "Column.select")
-                if dtype == ScalarDataType("float64")
+                if dtype == ScalarDataType("float64") and not isinstance(expression, ValueSlot)
                 else computed
             )
         if program.input_layout is not None:
@@ -451,7 +455,8 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                 if statistic.method == "row_count":
                     value: object = len(subset)
                 else:
-                    active_series = evaluated[name].iloc[subset.index].dropna()
+                    series = evaluated[name].iloc[subset.index]
+                    active_series = series.loc[~typed_null_mask(series)]
                     active = active_series.tolist()
                     column = stage.columns[len(stage.keys) + index]
                     try:

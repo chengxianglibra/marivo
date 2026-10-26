@@ -23,7 +23,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.core.data_validation import stage_arrow_type
+from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
 from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
@@ -49,8 +49,8 @@ def _pair_values(
         if dtype == ScalarDataType("float64"):
             values = finish_float64(values, "paired endpoint")
         return tuple(
-            None if pd.isna(value) else checked_sum((value,), stage_arrow_type(dtype))
-            for value in values.tolist()
+            None if absent else checked_sum((value,), stage_arrow_type(dtype))
+            for value, absent in zip(values.tolist(), typed_null_mask(values), strict=True)
         )
     except (ValueError, OverflowError, SemanticExpressionError) as error:
         received = error.received if isinstance(error, SemanticExpressionError) else str(error)
@@ -217,7 +217,8 @@ def _evaluate_frame(
             elif statistic.method == "row_count":
                 value = len(positions)
             else:
-                active = evaluated[name].take(positions).dropna()
+                series = evaluated[name].take(positions)
+                active = series.loc[~typed_null_mask(series)]
                 (dtype,) = program.statistic_types[index]
                 try:
                     if not positions and statistic.method == "sum":

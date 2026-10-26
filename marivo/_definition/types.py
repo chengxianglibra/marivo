@@ -51,8 +51,8 @@ def invalid(
     raise DefinitionGraphError(message, kind=kind, path=path)
 
 
-RULE_VERSION: Final = 1
-NUMERIC_RULE_VERSION: Final = 2
+RULE_VERSION: Final = 2
+NUMERIC_RULE_VERSION: Final = 3
 
 NullPolicy: TypeAlias = Literal["ignore", "error"]
 

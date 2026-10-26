@@ -461,6 +461,37 @@ def test_strict_subexpression_is_not_hidden_by_na_or_continuations(
         assert failure.value.repair is not None
 
 
+@pytest.mark.parametrize("nonfinite", (math.nan, math.inf, -math.inf))
+@pytest.mark.parametrize("counterpart", (None, 1.0))
+def test_arrow_valid_nonfinite_endpoint_fails_before_pair_mask(
+    local: LocalFrameServices, nonfinite: float, counterpart: float | None
+) -> None:
+    """A valid nonfinite endpoint must never turn into an absent pair."""
+    initial = _pairs(
+        local,
+        (1.0, None),
+        (counterpart, 2.0),
+        x_type=ScalarDataType("float64"),
+        y_type=ScalarDataType("float64"),
+    )
+    rows = initial._backing.data.copy_rows()
+    rows["x"] = pd.Series(
+        pd.arrays.ArrowExtensionArray(pa.array([nonfinite, None], type=pa.float64()))
+    )
+    frame = _memory(local, initial._schema, rows)
+    assert frame.select({"missing": frame["x"].is_null()}).compute().to_pandas()[
+        "missing"
+    ].tolist() == [False, True]
+    for statistic in (
+        frame["x"].pair_count(frame["y"]),
+        frame["x"].corr(frame["y"], method="pearson"),
+    ):
+        with pytest.raises(
+            AnalysisError, match="finite admitted numeric inputs for paired statistics"
+        ):
+            frame.reduce({"value": statistic}).compute()
+
+
 def test_pair_count_does_not_compute_coefficients_or_ranks(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:

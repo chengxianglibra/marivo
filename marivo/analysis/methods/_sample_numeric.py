@@ -12,6 +12,7 @@ import pyarrow.compute as pc
 
 from marivo._definition.expressions import PerReduce, PerWeightedMean
 from marivo.analysis.core.data_types import DataType, DecimalDataType
+from marivo.analysis.core.data_validation import typed_null_mask
 from marivo.analysis.methods.numeric_state import _decimal_context
 from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -44,10 +45,20 @@ def reduce_samples(
         ("sample.order", "one internal sample per time key", "first/last duplicate time keys"),
     )
 
-    def total(items: list[object]) -> int | float | Decimal:
+    def finite(items: list[object]) -> list[int | float | Decimal]:
         numeric = [value for value in items if isinstance(value, (int, float, Decimal))]
         if len(numeric) != len(items):
             numeric_failure("typed numeric internal sample values", "non-numeric sample")
+        if any(
+            (isinstance(value, float) and not math.isfinite(value))
+            or (isinstance(value, Decimal) and not value.is_finite())
+            for value in numeric
+        ):
+            raise ArithmeticError("internal sample inputs must remain finite")
+        return numeric
+
+    def total(items: list[object]) -> int | float | Decimal:
+        numeric = finite(items)
         result = (
             math.fsum(float(value) for value in numeric)
             if any(isinstance(value, float) for value in numeric)
@@ -92,20 +103,28 @@ def reduce_samples(
             }
         )
         series = group[value_names[0]]
-        record["sample.null"] = node.nulls == "error" and bool(series.isna().any())
-        present = series.dropna().tolist()
+        missing = typed_null_mask(series)
+        record["sample.null"] = node.nulls == "error" and bool(missing.any())
+        present = series.loc[~missing].tolist()
         result: object = None
         try:
             with localcontext(_decimal_context()):
                 if isinstance(node, PerWeightedMean):
                     weight = group[value_names[1]]
+                    weight_missing = typed_null_mask(weight)
                     record["sample.null"] = node.nulls == "error" and bool(
-                        (series.isna() | weight.isna()).any()
+                        (missing | weight_missing).any()
                     )
+                    # Validate both demanded inputs before the common pair mask.
+                    # A missing counterpart cannot hide a valid nonfinite value.
+                    finite(present)
+                    finite(weight.loc[~weight_missing].tolist())
                     pairs = [
                         (value, mass)
-                        for value, mass in zip(series, weight, strict=True)
-                        if pd.notna(value) and pd.notna(mass)
+                        for value, mass, absent, mass_absent in zip(
+                            series, weight, missing, weight_missing, strict=True
+                        )
+                        if not absent and not mass_absent
                     ]
                     denominator = total([mass for _, mass in pairs])
                     numerator = total(
@@ -137,7 +156,7 @@ def reduce_samples(
                     record["sample.order"] = bool(group[order_key].duplicated().any())
                     ordered = group.sort_values(order_key, kind="stable")
                     if not node.include_null:
-                        ordered = ordered.loc[ordered[value_names[0]].notna()]
+                        ordered = ordered.loc[~typed_null_mask(ordered[value_names[0]])]
                     if len(ordered):
                         result = ordered[value_names[0]].iloc[0 if node.reducer == "first" else -1]
                 elif present:
@@ -148,13 +167,16 @@ def reduce_samples(
                             else total(present) / len(present)
                         )
                     elif node.reducer in ("min", "max"):
+                        finite(present)
                         result = min(present) if node.reducer == "min" else max(present)
                     elif node.reducer in ("approx_median", "approx_quantile"):
+                        finite(present)
                         q = node.q if node.q is not None else 0.5
                         result = pc.tdigest(pa.array([float(value) for value in present]), q=q)[
                             0
                         ].as_py()
                     else:
+                        finite(present)
                         ordered_values = sorted(present)
                         q = node.q if node.q is not None else 0.5
                         position = (len(ordered_values) - 1) * Fraction(str(q))

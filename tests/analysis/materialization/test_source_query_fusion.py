@@ -615,16 +615,6 @@ def test_aggregate_selection_keeps_reducer_owned_null_policy(
     )
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    if method == "mean":
-        result = query.compute().to_pandas()
-        assert result["total"].tolist() == [0]
-        assert not any(
-            check.received == "mean(nulls='error')"
-            for _, request in reads
-            for _, check in request.numeric_checks
-        )
-        assert terminal_runs(session) == ()
-        return
     with pytest.raises(MaterializationError, match="non-NA") as caught:
         query.compute()
     assert caught.value.stage == "numeric_value"

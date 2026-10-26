@@ -353,6 +353,34 @@ def test_na_precedes_zero_error(local: LocalFrameServices) -> None:
     assert output.to_pandas()["reference.present"].tolist() == [True] * 3
 
 
+def test_compare_nonfinite_endpoint_is_not_hidden_by_null_counterpart(
+    local: LocalFrameServices,
+) -> None:
+    original = _memory(local, ["A", "B"], [1, 2])
+    schema = replace(
+        _complete_schema(original),
+        values=(replace(_complete_schema(original).values[0], dtype=ScalarDataType("float64")),),
+    )
+
+    def typed(values: list[float | None]) -> AnalysisFrame:
+        rows = _memory_backing(original).data.copy_rows()
+        rows["amount"] = pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array(values, type=pa.float64()))
+        )
+        return AnalysisFrame._from_memory(
+            local,
+            CompletedFrameResult(
+                CompletedFrameData(schema, rows), _memory_backing(original).metadata
+            ),
+        )
+
+    left, right = typed([float("nan"), 2.0]), typed([None, 1.0])
+    for current, baseline in ((left, right), (right, left)):
+        compared = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite numeric inputs"):
+            compared.select({"constant": 1}).compute()
+
+
 @pytest.mark.parametrize(
     "dtype,left_value,right_value,absolute,relative",
     [

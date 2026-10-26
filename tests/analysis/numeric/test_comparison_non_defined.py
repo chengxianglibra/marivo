@@ -10,6 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
@@ -171,7 +172,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         assert pd.isna(frame.loc["D", "value"])
 
 
-def test_native_nan_operand_is_retained_in_comparison_endpoints(
+def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -181,21 +182,18 @@ def test_native_nan_operand_is_retained_in_comparison_endpoints(
     ms.load(workspace_dir=case.root)
     current = _observe(case, "2026-09-01", "2026-10-01")
     baseline = _observe(case, "2026-08-01", "2026-09-01")
-    rows = (
-        current.compare(
-            {
-                "reference": mv.baseline(
-                    baseline,
-                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                    match=mv.ordinal(),
-                )
-            }
-        )
-        .compute()
-        .to_pandas()
-    )
+    rows = current.compute().to_pandas()
     rows = rows.set_index(ordinary_columns(rows)[0])
     assert math.isnan(rows.loc["A", "value"])
-    assert rows.loc["A", ["current.present", "reference.present"]].all()
-    assert rows.loc["B", "reference.absolute.value"] == 80
+    compared = current.compare(
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
+    )
+    with pytest.raises(MaterializationError, match="finite numeric inputs"):
+        compared.compute()
     assert terminal_runs(case.session) == ()

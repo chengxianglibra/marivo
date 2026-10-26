@@ -90,6 +90,45 @@ def test_decimal_convergence_handles_ties_and_carry() -> None:
                 pytest.fail(f"Expected a representable Decimal error for {value}")
 
 
+@pytest.mark.parametrize("side", ("value", "weight"))
+def test_internal_weighted_samples_check_nonfinite_before_pair_mask(side: str) -> None:
+    from ibis.common.deferred import resolver
+
+    from marivo._definition.expressions import PerWeightedMean, RowExpression, SourceAggregate
+    from marivo._definition.types import AxisBinding, ExactRef
+    from marivo.analysis.core.data_types import ScalarDataType
+    from marivo.analysis.methods._sample_numeric import reduce_samples
+    from marivo.refs import ref
+
+    source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
+    axis = AxisBinding(
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        ExactRef(ref.dimension("sales.facts.customer"), "v1"),
+        (),
+        "field",
+    )
+    values = {"value": [None, 4.0], "weight": [None, 2.0]}
+    values[side][0] = float("nan")
+    frame = pd.DataFrame(
+        {
+            name: pd.Series(pd.arrays.ArrowExtensionArray(pa.array(items, type=pa.float64())))
+            for name, items in values.items()
+        }
+    )
+    result, _ = reduce_samples(
+        PerWeightedMean(source, source, (axis,), nulls="error"),
+        frame,
+        (),
+        pd.DataFrame(index=pd.RangeIndex(1)),
+        ("value", "weight"),
+        (),
+        output_type=ScalarDataType("float64"),
+    )
+    assert result["sample.null"].tolist() == [True]
+    assert result["sample.numeric"].tolist() == [True]
+    assert result["value"].tolist() == [None]
+
+
 @pytest.mark.parametrize("sign", ["", "-"])
 def test_precision_38_rounding_and_accumulation_ignore_caller_context(sign: str) -> None:
     # 38-digit input carries to a 36-digit integer after reducing scale by one.

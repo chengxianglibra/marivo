@@ -48,6 +48,19 @@ def test_empty_select_help_discloses_retained_domain() -> None:
     assert "preserving rows, order, complete coordinates and presence" in text
 
 
+def test_read_help_preserves_native_nonfinite_values() -> None:
+    from marivo.analysis.session.core import Session
+
+    expected = "Numeric reads preserve NULL, NaN and Infinity"
+    assert expected in render_help_text("analysis.session.read")[0]
+    assert expected in render_help_text(Session.read)[0]
+    assert expected in (Session.read.__doc__ or "")
+    assert (
+        "finite local operations validate their demanded inputs"
+        in render_help_text("analysis.session.read")[0]
+    )
+
+
 def test_simplified_policies_have_one_public_route() -> None:
     assert not hasattr(mv.Column, "divide")
     with pytest.raises((AnalysisError, MarivoHelpTargetError)):

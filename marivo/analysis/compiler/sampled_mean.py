@@ -85,25 +85,31 @@ def coverage_selection(
 def compact_mean(
     prepared: ReductionInput, result: ir.Table, check_names: tuple[str, ...]
 ) -> ir.Table:
-    """Finish the equal-weight mean of completed samples with native AVG semantics."""
-    assert prepared.mean_fold is not None
-    sample_key, _, _ = prepared.mean_fold
-    outer = tuple(name for name in result.columns if name.startswith("key.") and name != sample_key)
-    value = result[prepared.value_slot].mean()
-    if value.type().is_decimal():
-        from marivo.semantic._numeric_lowering import force_cast
+    """Finish native AVG and retain strict checks on demanded completed samples."""
+    from marivo.semantic._numeric_lowering import native_mean
 
-        value = force_cast(value, value.type())
-    metrics: dict[str, ir.Value] = {prepared.value_slot: value}
+    assert prepared.mean_fold is not None
+    sample_key, nulls, _ = prepared.mean_fold
+    outer = tuple(name for name in result.columns if name.startswith("key.") and name != sample_key)
+    value = result[prepared.value_slot]
+    metrics: dict[str, ir.Value] = {prepared.value_slot: native_mean(value)}
     for name in result.columns:
         if name in check_names or result[name].type().is_boolean():
             metrics[name] = result[name].any().fill_null(False)
+    if nulls == "error":
+        present = (
+            result["__numeric_present"].fill_null(False)
+            if "__numeric_present" in result.columns
+            else ibis.literal(True)
+        )
+        metrics["sample_check.null"] = (present & value.isnull()).any().fill_null(False)
     folded = result.group_by(*outer).aggregate(**metrics) if outer else result.aggregate(**metrics)
     return folded.select(
         **{
             name: folded[name] if name in folded.columns else _null_like(result[name])
             for name in result.columns
         },
+        **({"sample_check.null": folded["sample_check.null"]} if nulls == "error" else {}),
         __mean_folded=ibis.literal(True),
     )
 
@@ -169,11 +175,8 @@ def compact_extrema(
             continue
         elif name in check_names or column.type().is_boolean():
             metrics[name] = column.any().fill_null(False)
-    metrics["sample_check.null"] = (
-        (demanded & value.isnull()).any().fill_null(False)
-        if nulls == "error"
-        else ibis.literal(False)
-    )
+    if nulls == "error":
+        metrics["sample_check.null"] = (demanded & value.isnull()).any().fill_null(False)
     metrics["sample_check.coverage"] = missing
     folded = result.group_by(*outer).aggregate(**metrics) if outer else result.aggregate(**metrics)
     folded = _coverage_diagnostics(prepared, result, folded, outer, demanded)
@@ -186,7 +189,8 @@ def compact_extrema(
             else _null_like(result[name])
             for name in result.columns
         },
-        **{name: folded[name] for name in ("sample_check.null", "sample_check.coverage")},
+        **({"sample_check.null": folded["sample_check.null"]} if nulls == "error" else {}),
+        **{"sample_check.coverage": folded["sample_check.coverage"]},
         **{name: folded[name] for name in folded.columns if name.startswith("__sampling_")},
         __mean_folded=ibis.literal(True),
     )

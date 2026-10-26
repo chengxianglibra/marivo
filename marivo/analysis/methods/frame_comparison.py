@@ -60,6 +60,7 @@ from marivo.analysis.core.frozen_calendar import (
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import (
+    _require_finite_values,
     duration_arithmetic,
     finish_decimal,
     finish_float64,
@@ -343,7 +344,12 @@ def _comparison_values(
     x: pd.Series, y: pd.Series, absolute_type: DataType
 ) -> tuple[pd.Series, pd.Series]:
     """Apply the existing nullable numeric policies after coordinate presence."""
-    valid = x.notna() & y.notna()
+    from marivo.analysis.core.data_validation import typed_null_mask
+
+    x_missing, y_missing = typed_null_mask(x), typed_null_mask(y)
+    _require_finite_values(x, x_missing, "Frame.compare")
+    _require_finite_values(y, y_missing, "Frame.compare")
+    valid = ~(x_missing | y_missing)
     x, y = x.mask(~valid, pd.NA), y.mask(~valid, pd.NA)
     if isinstance(absolute_type, DurationDataType):
         # Convert once to original ticks; abs(min_int64) is a Python int.
