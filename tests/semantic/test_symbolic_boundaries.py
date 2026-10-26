@@ -18,6 +18,7 @@ from marivo.refs import ref as internal_ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.preview_scope import _normalize_scopes
+from tests.support.refs import as_ref
 
 
 def test_source_checks_extract_only_native_keys_and_keep_value_identity() -> None:
@@ -125,14 +126,15 @@ def test_catalog_navigation_is_reusable_without_deferred_comparison(
         }
     )
     catalog = SemanticCatalog(project)
-    entry = catalog.domains.get("sales")
-    assert entry == catalog.domains.get("sales")
-    assert hash(entry) == hash(catalog.domains.get("sales"))
+    entry = catalog.get("domain:sales")
+    assert entry == catalog.get("domain:sales")
+    assert hash(entry) == hash(catalog.get("domain:sales"))
     assert native_symbol_ref(entry.ref) == internal_ref.domain("sales")
-    assert isinstance(entry.details().ref, Deferred)
-    selector = catalog.fields.refs[0]
+    assert isinstance(entry.ref, Deferred)
+    selected = catalog.search(kind="measure").items[0]
+    selector = selected.ref
     assert native_symbol_ref(selector) == internal_ref.measure("sales.orders.amount")
-    assert "amount" in catalog.describe(selector).render()
+    assert "amount" in catalog.get(as_ref(selector).key).render()
     ready = catalog.readiness(refs=[selector])
     assert native_symbol_ref(ready.analysis_ready_inputs[0]) == internal_ref.measure(
         "sales.orders.amount"
@@ -140,9 +142,9 @@ def test_catalog_navigation_is_reusable_without_deferred_comparison(
     assert ready.to_dict()["analysis_ready_inputs"] == [
         {"schema": "marivo.semantic_ref/v1", "kind": "measure", "path": "sales.orders.amount"}
     ]
-    for invalid in (selector + 1, internal_ref.measure("sales.orders.amount")):
+    for invalid in (selector + 1, internal_ref.measure("sales.orders.amount"), selector):
         with pytest.raises(SemanticRuntimeError):
-            catalog.describe(invalid)
+            catalog.get(invalid)
 
 
 def test_datasource_selectors_reject_internal_keys_before_inspection(tmp_path: Path) -> None:

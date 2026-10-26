@@ -257,6 +257,8 @@ _EXPECTED_ASSEMBLY_KINDS = {
 }
 
 _EXPECTED_RUNTIME_KINDS = {
+    "catalog_search_failed",
+    "catalog_search_stale_cursor",
     "definition_read_failed",
     "not_found",
     "entity_not_found",
@@ -459,7 +461,7 @@ def test_ai_context_value_fields() -> None:
     import dataclasses
 
     field_names = {f.name for f in dataclasses.fields(typing_mod.AiContextValue)}
-    assert field_names == {"business_definition", "guardrails"}
+    assert field_names == {"business_definition", "guardrails", "aliases"}
 
 
 def test_ai_context_value_uses_existing_typing_namespace() -> None:

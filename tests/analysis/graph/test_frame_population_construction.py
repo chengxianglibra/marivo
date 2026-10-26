@@ -71,6 +71,7 @@ from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic.expressions import entity_exact, relationship_parameter
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -157,9 +158,9 @@ def _identities(session: Session, *, composite: bool = True) -> AnalysisFrame:
 
 def _bridge(session: Session, frame: AnalysisFrame, *, identity: bool = False) -> Population:
     target = (
-        session.catalog.entities.get("sales.facts")
+        session.catalog.get("entity:sales.facts").value
         if identity
-        else session.catalog.fields.get("sales.facts.region")
+        else catalog_value(session.catalog, "sales.facts.region", kind="field")
     )
     return population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], target),)
@@ -174,7 +175,7 @@ def test_factory_is_metadata_only_and_definition_is_inert(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     frame = _fields(session)
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     state = session.catalog._state
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -223,8 +224,8 @@ def test_explicit_empty_mapping_keeps_the_input_dependency(session: Session, emp
 
 def test_mapping_order_and_fingerprints_capture_exact_input_and_targets(session: Session) -> None:
     frame = _fields(session)
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     first = population_from(
         session._runtime.local,
         session.catalog._state,
@@ -264,17 +265,17 @@ def test_population_algebra_retains_every_required_input(session: Session, opera
 def test_classify_image_preimage_and_product_retain_carriers(session: Session) -> None:
     selected = _bridge(session, _identities(session), identity=True)
     customer_frame = _identities(session, composite=False)
-    customer = session.catalog.entities.get("sales.customers")
+    customer = session.catalog.get("entity:sales.customers").value
     targets = population_from(
         session._runtime.local,
         session.catalog._state,
         customer_frame,
         on=((customer_frame.axes[0], customer),),
     )
-    relationship = session.catalog.relationships.get("sales.customer")
-    assert _ids(selected.classify(by=(session.catalog.fields.get("sales.facts.region"),))) == _ids(
-        selected
-    )
+    relationship = session.catalog.get("relationship:sales.customer").value
+    assert _ids(
+        selected.classify(by=(catalog_value(session.catalog, "sales.facts.region", kind="field"),))
+    ) == _ids(selected)
     assert _ids(selected.image(via=(relationship,))) == _ids(selected)
     assert _ids(selected.preimage(targets, via=(relationship,))) == (
         *_ids(selected),
@@ -290,7 +291,7 @@ def test_predicates_and_deferred_recipes_preserve_inputs_before_consumption(
     condition = in_population(left) & ~(in_population(left) | in_population(right))
     expected = (*left._frame_inputs, *right._frame_inputs)
     assert collect_frame_key_inputs(condition) == expected
-    amount = session.catalog.fields.get("sales.facts.amount")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
     metric = -(amount.sum().where(condition) + amount.sum().where(in_population(left)))
     assert collect_frame_key_inputs(metric, left, condition) == expected
     # Sequence literals are also visited without resolving their contents.
@@ -321,8 +322,8 @@ def test_factory_rejects_wrong_handles_roles_duplicates_and_identity_width(
     session: Session,
 ) -> None:
     frame, foreign = _fields(session), _fields(session)
-    region = session.catalog.fields.get("sales.facts.region")
-    entity = session.catalog.entities.get("sales.facts")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    entity = session.catalog.get("entity:sales.facts").value
     local, state = session._runtime.local, session.catalog._state
     with pytest.raises(CoreRuleError, match="exact Frame input"):
         population_from(local, state, frame, on=((foreign.axes[0], region),))
@@ -342,12 +343,12 @@ def test_factory_rejects_wrong_handles_roles_duplicates_and_identity_width(
 
 @pytest.mark.parametrize("role", ("calendar", "paired"))
 def test_factory_rejects_unsupported_pending_roles(session: Session, role: str) -> None:
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     pending = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
         by=(region,),
     )
     assert isinstance(pending._schema, PendingDataSchema)
@@ -385,7 +386,7 @@ def test_factory_rejects_unsupported_pending_roles(session: Session, role: str) 
 
 def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Session) -> None:
     frame = _fields(session)
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     facts = consume_field(region)
     old = semantic_input(replace(facts, reference=ExactRef(facts.reference.ref, "old-version")))
     mapped = population_from(
@@ -399,7 +400,7 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
             facts,
             field_read=replace(
                 facts.field_read,
-                entity=entity_exact(session.catalog.entities.get("sales.customers")),
+                entity=entity_exact(session.catalog.get("entity:sales.customers").value),
             ),
         )
     )
@@ -408,7 +409,7 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
             session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], bad),)
         )
     missing = replace(
-        session.catalog.entities.get("sales.facts"),
+        session.catalog.get("entity:sales.facts").value,
         _exact_ref=ExactRef(ref.entity("sales.absent"), "v"),
     )
     identity = _identities(session)
@@ -423,8 +424,10 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
 
 def test_explicit_field_path_is_retained_and_rebound(session: Session) -> None:
     frame = _fields(session)
-    relationship = session.catalog.relationships.get("sales.customer")
-    segment = session.catalog.fields.get("sales.customers.segment").via((relationship,))
+    relationship = session.catalog.get("relationship:sales.customer").value
+    segment = catalog_value(session.catalog, "sales.customers.segment", kind="field").via(
+        (relationship,)
+    )
     population = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], segment),)
     )
@@ -450,7 +453,9 @@ def test_known_axis_unit_must_match_the_current_target_contract(session: Session
             session._runtime.local,
             session.catalog._state,
             frame,
-            on=((frame.axes[0], session.catalog.fields.get("sales.facts.amount")),),
+            on=(
+                (frame.axes[0], catalog_value(session.catalog, "sales.facts.amount", kind="field")),
+            ),
         )
 
 
@@ -458,7 +463,7 @@ def test_prepared_keys_validate_deferred_time_role_without_source_reads(session:
     frame = _fields(session)
     assert isinstance(frame._schema, DataSchema)
     target = AxisBinding(
-        entity_exact(session.catalog.entities.get("sales.facts")),
+        entity_exact(session.catalog.get("entity:sales.facts").value),
         ExactRef(ref.time_dimension("sales.facts.day"), "current"),
         (),
         "field",
@@ -488,7 +493,7 @@ def test_independent_stored_handles_share_exact_descriptor_without_reading(
     assert merge_frame_key_inputs(
         (FrameKeyInput(left._input_id, left),), (FrameKeyInput(right._input_id, right),)
     ) == (FrameKeyInput(left._input_id, left),)
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     accepted = population_from(
         session._runtime.local, session.catalog._state, left, on=((right.axes[0], region),)
     )
@@ -528,7 +533,7 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
     )
     assert isinstance(pending._backing, ExpressionFrameBacking)
     binding = pending._backing.root
@@ -548,8 +553,8 @@ def test_mixed_native_predicate_and_declared_metric_retain_all_frame_inputs(
     session: Session,
 ) -> None:
     left, right = _bridge(session, _fields(session)), _bridge(session, _fields(session))
-    region = session.catalog.fields.get("sales.facts.region")
-    amount = session.catalog.fields.get("sales.facts.amount")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
     condition = ((region == "east") | in_population(left)) & ~(in_population(right) | False)
     expected = (*left._frame_inputs, *right._frame_inputs)
     facts = consume_predicate(condition)
@@ -597,9 +602,9 @@ def test_predicate_consumer_limits_and_hidden_field_roots(session: Session) -> N
 
     population = _bridge(session, _fields(session))
     member = in_population(population)
-    region = session.catalog.fields.get("sales.facts.region")
-    segment = session.catalog.fields.get("sales.customers.segment")
-    amount = session.catalog.fields.get("sales.facts.amount")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    segment = catalog_value(session.catalog, "sales.customers.segment", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
     with pytest.raises(CoreRuleError, match="source field condition"):
         population.where((region == "east") | member)
     with pytest.raises(SemanticExpressionError, match="only same-row field conditions"):
@@ -611,8 +616,8 @@ def test_predicate_consumer_limits_and_hidden_field_roots(session: Session) -> N
 
 
 def test_precise_anchor_consumers_refuse_timezone_free_manual_copies(session: Session) -> None:
-    entity = session.catalog.entities.get("sales.facts")
-    relationship = session.catalog.relationships.get("sales.customer")
+    entity = session.catalog.get("entity:sales.facts").value
+    relationship = session.catalog.get("relationship:sales.customer").value
     members = session.members(entity)
     naive = mv.InstantAnchor(2026, 1, 1)
     for construct in (

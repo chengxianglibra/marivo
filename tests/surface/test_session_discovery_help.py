@@ -7,15 +7,12 @@ from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help import help as show_help
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.expressions import Entity
 from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
-from tests.support.refs import as_ref
 
 
 def test_repeatable_session_help_is_reachable_and_discloses_conflicts() -> None:
@@ -130,37 +127,26 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     show_help("analysis.inputs.catalog")
     guidance = capsys.readouterr().out
-    assert "collection.show()" in guidance and "displayed plain path" in guidance
-    assert "catalog.describe(ref).show()" in guidance
-    assert "Deferred" in guidance and "show()/contract()" in guidance
-    show_help("semantic.semantic_catalog.describe")
-    assert "ExpressionContract" in capsys.readouterr().out
+    assert "canonical kind:path" in guidance
+    assert "entry.kind" in guidance and "entry.value" in guidance
+    show_help("semantic.semantic_catalog.get")
+    assert "SemanticEntry" in capsys.readouterr().out
 
-    metric_ref = ms.ref.metric("sales.revenue")
-    field_ref = ms.ref.dimension("sales.customer.region")
-    entity_ref = ms.ref.entity("sales.customer")
-    for collection, ref in (
-        (catalog.metrics, metric_ref),
-        (catalog.fields, field_ref),
-        (catalog.entities, entity_ref),
+    for kind, path in (
+        ("metric", "sales.revenue"),
+        ("dimension", "sales.customer.region"),
+        ("entity", "sales.customer"),
     ):
-        reference = as_ref(ref)
-        assert reference is not None
-        collection.show()
-        assert reference.path in capsys.readouterr().out
-        assert reference in collection._refs
-        catalog.describe(ref).show()
-        assert reference.path in capsys.readouterr().out
+        page = catalog.search(kind=kind, limit=100)
+        page.show()
+        assert path in capsys.readouterr().out
+        assert any(entry.path == path for entry in page.items)
+        catalog.get(f"{kind}:{path}").show()
+        assert path in capsys.readouterr().out
 
-    metric_reference = as_ref(metric_ref)
-    field_reference = as_ref(field_ref)
-    entity_reference = as_ref(entity_ref)
-    assert metric_reference is not None
-    assert field_reference is not None
-    assert entity_reference is not None
-    metric = catalog.metrics.get(metric_reference.path)
-    field = catalog.fields.get(field_reference.path)
-    entity = catalog.entities.get(entity_reference.path)
+    metric = catalog.get("metric:sales.revenue").value
+    field = catalog.get("dimension:sales.customer.region").value
+    entity = catalog.get("entity:sales.customer").value
     assert isinstance(metric, Deferred)
     assert isinstance(field, Deferred)
     assert isinstance(entity, Entity)
@@ -171,12 +157,26 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     assert terminal_runs(case.session) == ()
 
 
-def test_catalog_focused_help_preserves_owning_output_families() -> None:
-    for member in CATALOG_MEMBER_CONTRACTS:
-        page = rendered_help("analysis.catalog." + member.property_name)
-        assert f"Result: CatalogCollection[{member.item_type_name}]\n" in page
-    for name, target in (("readiness", "readiness"),):
+def test_catalog_focused_help_preserves_one_semantic_owner() -> None:
+    from marivo._help.model import MarivoHelpTargetError
+    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
+
+    for name, target in (
+        ("search", "semantic_catalog.search"),
+        ("get", "semantic_catalog.get"),
+        ("readiness", "readiness"),
+    ):
         contract = SEMANTIC_REGISTRY.by_canonical_id(target)
         assert isinstance(contract, AuthoringCapability)
-        page = rendered_help("analysis.catalog." + name)
-        assert f"Result: {contract.output_family}\n" in page
+        page = rendered_help("semantic." + target)
+        assert f"Output family: {contract.output_family}\n" in page
+        assert all(
+            descriptor.callable_path != contract.callable_path for descriptor in CATALOG_INPUTS
+        )
+        with pytest.raises(MarivoHelpTargetError):
+            rendered_help("analysis.catalog." + name)
+    navigation = rendered_help("analysis.inputs.catalog")
+    assert "session.catalog" in navigation
+    assert "semantic.semantic_catalog.search" in navigation
+    assert "semantic.semantic_catalog.get" in navigation
+    assert "analysis.catalog.search" not in navigation

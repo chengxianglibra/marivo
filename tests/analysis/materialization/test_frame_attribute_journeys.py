@@ -6,7 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.mark.release
@@ -15,9 +15,9 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = case.catalog.metrics.get("sales.revenue")
-    region = case.catalog.fields.get("sales.customer.region")
-    channel = case.catalog.fields.get("sales.order.channel")
+    revenue = case.catalog.get("metric:sales.revenue").value
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    channel = catalog_value(case.catalog, "sales.order.channel", kind="field")
     july = session.observe(
         {"revenue": revenue},
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"), region),
@@ -64,9 +64,9 @@ def test_unsupported_quantile_continues_through_explicit_parent_key_bridge(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    amount = case.catalog.fields.get("sales.order.amount")
-    region = case.catalog.fields.get("sales.customer.region")
-    channel = case.catalog.fields.get("sales.order.channel")
+    amount = catalog_value(case.catalog, "sales.order.amount", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    channel = catalog_value(case.catalog, "sales.order.channel", kind="field")
     metric = amount.quantile(0.5)
     observed = session.observe({"median": metric}, by=(region,)).compute()
     parents = observed.where(observed.coord(observed.axes[0]) == "east").compute()
@@ -86,8 +86,8 @@ def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    revenue = case.catalog.metrics.get("sales.revenue")
-    region = case.catalog.fields.get("sales.customer.region")
+    revenue = case.catalog.get("metric:sales.revenue").value
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     source = case.session.observe({f"metric_{i}": revenue for i in range(8)})
     report = source.attribute(by=(region,)).compute()
     report.show(n=2)

@@ -11,6 +11,7 @@ from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -39,9 +40,9 @@ def postgres_query_session(
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.entities.get("sales.facts")),
+        session.members(session.catalog.get("entity:sales.facts").value),
         {
-            "category": session.catalog.fields.get("sales.facts.category"),
+            "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
         },
     )
 
@@ -88,8 +89,8 @@ def test_postgres_aggregate_frame_bridge_uses_typed_key_transport(
     postgres_query_session: Session, monkeypatch: pytest.MonkeyPatch, selection: str
 ) -> None:
     session = postgres_query_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     producer = session.observe({"count": amount.count()}, by=(category,))
     selected = (
         producer.where(producer["count"] > 0)
@@ -109,8 +110,8 @@ def test_postgres_parent_strict_null_check_survives_empty_selection(
     postgres_query_session: Session,
 ) -> None:
     session = postgres_query_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     producer = session.observe({"sum": amount.sum(nulls="error")}, by=(category,))
     selected = producer.where(producer["sum"] > 1000)
     keys = session.population_from(selected, on=((selected.axes[0], category),))
@@ -125,8 +126,8 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.entities.get("sales.facts")),
-        {"amount": session.catalog.fields.get("sales.facts.amount")},
+        session.members(session.catalog.get("entity:sales.facts").value),
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
     )
     query = (
         source.where(source["amount"] > 20)
@@ -145,8 +146,8 @@ def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.entities.get("sales.facts")),
-        {"big": session.catalog.fields.get("sales.facts.big")},
+        session.members(session.catalog.get("entity:sales.facts").value),
+        {"big": catalog_value(session.catalog, "sales.facts.big", kind="field")},
     )
     query = source.where(source["big"] > 2**53)
     optimized = query.compute().to_pandas()

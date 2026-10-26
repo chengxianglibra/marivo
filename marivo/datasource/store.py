@@ -66,6 +66,8 @@ def _ai_context_literal(context: AiContextIR) -> str | None:
         parts.append(f"business_definition={context.business_definition!r}")
     if context.guardrails:
         parts.append(f"guardrails={list(context.guardrails)!r}")
+    if context.aliases:
+        parts.append(f"aliases={list(context.aliases)!r}")
     if not parts:
         return None
     return f"ms.ai_context({', '.join(parts)})"

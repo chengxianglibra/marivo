@@ -1,325 +1,375 @@
-"""Tests for semantic catalog discovery on the value-based surface.
-
-Covers four related catalog discovery behaviors:
-1. catalog.metrics and catalog.entities return expression values at top level
-2. catalog.relationships returns Relationship values
-3. catalog.fields holds Dimension, TimeField and Measure values
-4. domains/datasources collections resolve only their own member paths
-"""
+"""Complete captured definitions, scope disclosure and stable result pages."""
 
 from __future__ import annotations
 
-import textwrap
-from collections.abc import Callable
-from typing import TypeAlias
+import json
+from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
-from marivo._definition.expressions import DeclaredMetricRef
-from marivo.refs import ref as ref_factory
-from marivo.semantic._deferred_semantics import consume_field, consume_metric
-from marivo.semantic.catalog import (
-    DatasourceEntry,
-    DomainEntry,
-    SemanticCatalog,
-)
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import (
-    Entity,
-    Relationship,
-)
-from marivo.semantic.reader import SemanticProject
-
-ProjectFactory: TypeAlias = Callable[..., SemanticProject]
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_MINIMAL_DOMAIN_PY = textwrap.dedent("""\
-    import marivo.datasource as md
-    import marivo.semantic as ms
-    ms.domain(name="sales", owner='Mina Zhang', default=True)
-""")
-
-_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
-    import marivo.semantic as ms
-
-    orders = ms.entity(
-        name="orders",
-        datasource=ms.ref.datasource("warehouse"),
-        source=md.table("orders"),
-    )
-    region = ms.dimension_column(name="region", entity=orders, column="region")
-    created_at = ms.time_dimension_column(
-        name="created_at",
-        entity=orders,
-        column="created_at",
-        parse=ms.timestamp(timezone="UTC"),
-        is_default=True,
-    )
-    amount = ms.measure_column(
-        name="amount",
-        entity=orders,
-        column="amount",
-        additivity=ms.additive_all(),
-        unit="CNY",
-    )
-
-    amount_value = amount
-    created_at_value = created_at
-
-    @ms.metric()
-    def revenue():
-        return amount_value.sum(time=created_at_value)
-""")
-
-_OPS_DOMAIN_PY = textwrap.dedent("""\
-    import marivo.semantic as ms
-    ms.domain(name="ops", owner="Mina Zhang")
-""")
-
-_OPS_DATASETS_PY = textwrap.dedent("""    import marivo.datasource as md
-    import marivo.semantic as ms
-
-    events = ms.entity(
-        name="events",
-        datasource=ms.ref.datasource("warehouse"),
-        source=md.table("events"),
-    )
-
-    events_value = events
-
-    @ms.metric()
-    def event_count():
-        return events_value.count()
-""")
-
-_RELATIONSHIP_PY = textwrap.dedent("""\
-    import marivo.datasource as md
-    import marivo.semantic as ms
-
-    orders = ms.entity(
-        name="orders",
-        datasource=ms.ref.datasource("warehouse"),
-        source=md.table("orders"),
-        primary_key=["order_id"],
-    )
-    users = ms.entity(
-        name="users",
-        datasource=ms.ref.datasource("warehouse"),
-        source=md.table("users"),
-        primary_key=["id"],
-    )
-    user_id = ms.dimension_column(name="user_id", entity=orders, column="user_id")
-    id = ms.dimension_column(name="id", entity=users, column="id")
-    ms.relationship(
-        name="orders_to_users",
-        from_entity=orders,
-        to_entity=users,
-        keys=[ms.join_on(user_id, id)],
-    )
-""")
+import marivo.semantic as ms
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo.semantic.errors import SemanticError
+from tests.shared_fixtures import write_minimal_catalog_project
 
 
-def _make_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _DATASETS_PY,
-        }
-    )
-    return SemanticCatalog(project)
-
-
-def _make_multi_domain_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": _OPS_DOMAIN_PY,
-            "ops/datasets.py": _OPS_DATASETS_PY,
-        }
-    )
-    return SemanticCatalog(project)
-
-
-def _make_relationship_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _RELATIONSHIP_PY,
-        }
-    )
-    return SemanticCatalog(project)
-
-
-# ---------------------------------------------------------------------------
-# Top-level collections return the published values
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFactory) -> None:
-    result = _make_catalog(semantic_project_factory).metrics
-
-    assert result._refs == (ref_factory.metric("sales.revenue"),)
-    assert all(isinstance(obj, Deferred) for obj in result.items)
-    for obj in result.items:
-        assert isinstance(consume_metric(obj).node, DeclaredMetricRef)
-        assert str(consume_metric(obj).node.ref.ref.kind) == "metric"
-
-
-def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
-    result = _make_multi_domain_catalog(semantic_project_factory).metrics
-
-    assert {ref.path for ref in result._refs} == {"sales.revenue", "ops.event_count"}
-    assert all(isinstance(obj, Deferred) for obj in result.items)
-
-
-def test_discovery_entities_returns_entities(semantic_project_factory: ProjectFactory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.entities
-
-    assert result._refs == (ref_factory.entity("sales.orders"),)
-    assert all(isinstance(obj, Entity) for obj in result.items)
-
-    orders = result.get("sales.orders")
-    assert orders._exact_ref.ref == ref_factory.entity("sales.orders")
-
-    created_at = catalog.fields.get("sales.orders.created_at")
-    assert isinstance(created_at, Deferred)
-    assert orders._default_time == consume_field(created_at).reference
-
-
-def test_discovery_fields_holds_dimension_time_field_and_measure(
-    semantic_project_factory: ProjectFactory,
+def test_complete_context_and_json_survive_bounded_display(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    result = _make_catalog(semantic_project_factory).fields
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    text = source.read_text().replace(
+        "@ms.metric()",
+        """@ms.metric(ai_context=ms.ai_context(
+    business_definition="Revenue details. " * 1000,
+    guardrails=["Guardrail " + str(i) for i in range(49)],
+    aliases=["销售额", "gross revenue"]))""",
+    )
+    # Authoring context arguments are ordinary Python data before declaration capture.
+    source.write_text(text)
+    catalog = ms.load(workspace_dir=tmp_path)
+    entry = catalog.get("metric:sales.revenue")
+    assert entry.kind == "metric"
+    assert entry.definition.context.business_definition == "Revenue details. " * 1000
+    assert len(entry.definition.context.guardrails) == 49
+    assert len(entry.render().encode()) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "to_json()" in entry.render()
+    payload = json.loads(entry.to_json())
+    assert payload["definition"]["context"]["guardrails"][-1] == "Guardrail 48"
+    assert payload["definition"]["context"]["aliases"] == ["销售额", "gross revenue"]
+    assert "DeclarationResolver" not in entry.to_json()
+    entry.show(section="context", max_output_bytes=None)
+    assert "Guardrail 48" in capsys.readouterr().out
 
-    kinds: set[str] = set()
-    for value in result.items:
-        assert isinstance(value, Deferred)
-        kinds.add(str(consume_field(value).reference.ref.kind))
-    assert kinds == {"dimension", "time_dimension", "measure"}
-    assert {ref.key for ref in result._refs} == {
-        "dimension:sales.orders.region",
-        "time_dimension:sales.orders.created_at",
+
+def test_metric_definition_discloses_formula_effective_time_and_dependency_guardrails(
+    tmp_path: Path,
+) -> None:
+    write_minimal_catalog_project(tmp_path)
+    path = tmp_path / "models/semantic/sales/objects.py"
+    text = path.read_text().replace(
+        'unit="USD")',
+        'unit="USD", ai_context=ms.ai_context(guardrails=["Gross amount includes refunds"]))',
+    )
+    text = text.replace(
+        "amount_value = amount",
+        """settled_at = ms.time_dimension_column(name="settled_at", entity=orders, column="settled_at",
+    parse=ms.timestamp(timezone="UTC"))
+settled_value = settled_at
+amount_value = amount""",
+    ).replace("return amount_value.sum()", "return amount_value.sum(time=settled_value)")
+    path.write_text(text)
+    catalog = ms.load(workspace_dir=tmp_path)
+    metric = catalog.get("metric:sales.revenue")
+    assert metric.kind == "metric"
+    definition = metric.definition
+    assert "sum(measure:sales.orders.amount" in definition.formula
+    assert definition.time_bindings[0].field == "time_dimension:sales.orders.settled_at"
+    assert definition.time_bindings[0].source == "explicit"
+    assert definition.time_bindings[0].entity_default == "time_dimension:sales.orders.paid_at"
+    assert definition.unit == "USD"
+    assert any(
+        context.id == "measure:sales.orders.amount"
+        and context.guardrails == ("Gross amount includes refunds",)
+        for context in definition.dependency_context
+    )
+    assert "Gross amount includes refunds" in metric.render(max_output_bytes=None)
+
+
+def test_search_filters_are_separate_from_loaded_scope_and_exact_get(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    ops = tmp_path / "models/semantic/ops"
+    ops.mkdir()
+    (ops / "_domain.py").write_text(
+        'import marivo.semantic as ms\nms.domain(name="ops", owner="Operations")\n'
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    page = catalog.search(domain="sales", kind="metric")
+    assert page.filters.domain == "sales"
+    assert page.retrieval.mode == "browse"
+    assert not page.matches
+    assert page.scope.domains == ("ops", "sales")
+    assert catalog.get("domain:ops").domain == "ops"
+    assert page.to_dict()["scope"] != page.to_dict()["filters"]
+    assert catalog.search("unrelated spaceship propulsion").items == ()
+
+
+def test_browse_pagination_is_complete_stable_and_snapshot_bound(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    objects = tmp_path / "models/semantic/sales/objects.py"
+    objects.write_text(
+        objects.read_text()
+        + "".join(
+            f"\n@ms.metric()\ndef revenue_{number:02d}():\n    return amount_value.sum() * {number + 1}\n"
+            for number in range(12)
+        )
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    first = catalog.search(kind="metric", limit=3)
+    assert first.candidate_count == 13
+    assert first.next_cursor is not None
+    second = catalog.search(kind="metric", limit=3, cursor=first.next_cursor)
+    assert second.candidate_count == 13
+    assert not {item.id for item in first.items} & {item.id for item in second.items}
+    reloaded = ms.load(workspace_dir=tmp_path)
+    assert [
+        item.id for item in reloaded.search(kind="metric", limit=3, cursor=first.next_cursor).items
+    ] == [item.id for item in second.items]
+    payload = json.loads(first.to_json())
+    assert len(payload["items"]) == 3
+    assert payload["matches"] == {}
+    assert len(first.render(max_output_bytes=1600).encode()) <= 1600
+    with pytest.raises(SemanticError):
+        catalog.search(kind="entity", cursor=first.next_cursor)
+
+
+def test_related_and_readiness_expand_cross_domain_dependencies(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    ops = tmp_path / "models/semantic/ops"
+    ops.mkdir()
+    (ops / "_domain.py").write_text(
+        'import marivo.semantic as ms\nms.domain(name="ops", owner="Operations")\n'
+    )
+    (ops / "objects.py").write_text("""import marivo.datasource as md
+import marivo.semantic as ms
+usage = ms.entity(name="usage", datasource=ms.ref.datasource("warehouse"), source=md.table("usage"))
+amount = ms.measure_column(name="amount", entity=usage, column="amount", additivity=ms.additive_all())
+""")
+    (tmp_path / "models/semantic/sales/cross.py").write_text("""import marivo.semantic as ms
+usage_amount = ms.ref.measure("ops.usage.amount")
+@ms.metric()
+def cross_domain():
+    return usage_amount.sum()
+""")
+    catalog = ms.load(workspace_dir=tmp_path)
+    selected = catalog.search(kind="metric", domain="sales")
+    metric = next(item for item in selected.items if item.name == "cross_domain")
+    related = metric.related("dependencies")
+    assert "measure:ops.usage.amount" in {item.id for item in related.items}
+    assert related.filters.domain is None
+    assert related.filters.origin == metric.id
+    report = catalog.readiness(refs=[metric])
+    assert report.requested_ids == ("metric:sales.cross_domain",)
+    assert "measure:ops.usage.amount" in report.checked_ids
+    assert "entity:ops.usage" in report.checked_ids
+    assert not report.blockers
+    assert report.analysis_ready_inputs == ()
+
+
+def test_related_fields_and_reverse_users_stay_on_loaded_graph(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    entity = catalog.get("entity:sales.orders")
+    assert {item.id for item in entity.related("fields").items} == {
+        "dimension:sales.orders.status",
+        "time_dimension:sales.orders.paid_at",
         "measure:sales.orders.amount",
+    }
+    amount = catalog.get("measure:sales.orders.amount")
+    assert "metric:sales.revenue" in {item.id for item in amount.related("dependents").items}
+    assert "metric:sales.revenue" in {item.id for item in entity.related("metrics").items}
+    assert "relationship:sales.orders_self" in {
+        item.id for item in entity.related("relationships").items
     }
 
 
-def test_discovery_fields_get_returns_typed_values(
-    semantic_project_factory: ProjectFactory,
+def test_filtered_relationship_keeps_missing_endpoints_explicit(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    ops = tmp_path / "models/semantic/ops"
+    ops.mkdir()
+    (ops / "_domain.py").write_text(
+        'import marivo.semantic as ms\nms.domain(name="ops", owner="Operations")\n'
+    )
+    (ops / "objects.py").write_text("""import marivo.datasource as md
+import marivo.semantic as ms
+users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"))
+id = ms.dimension_column(name="id", entity=users, column="id")
+""")
+    path = tmp_path / "models/semantic/sales/objects.py"
+    path.write_text(
+        path.read_text()
+        + """
+ms.relationship(name="external_users", from_entity=orders, to_entity=ms.ref.entity("ops.users"),
+    keys=[ms.join_on(status, ms.ref.dimension("ops.users.id"))])
+"""
+    )
+    catalog = ms.load(workspace_dir=tmp_path, domains="sales")
+    entry = catalog.get("relationship:sales.external_users")
+    assert entry.kind == "relationship"
+    assert entry.definition.cardinality == "outside_scope"
+    related = entry.related("dependencies")
+    assert related.outside_scope == ("entity:ops.users",)
+    assert related.retrieval.mode == "related"
+    assert not related.matches
+    with pytest.raises(SemanticError) as lookup:
+        catalog.get(related.outside_scope[0])
+    assert lookup.value.details["reason"] == "outside_scope"
+    assert lookup.value.repair is not None and lookup.value.repair.kind == "reload"
+    report = catalog.readiness(refs=[entry])
+    assert report.status == "blocked"
+    assert "entity:ops.users" in report.checked_ids
+    with pytest.raises(SemanticError) as outside:
+        _ = entry.value
+    assert outside.value.details["reason"] == "outside_scope"
+
+
+def test_entry_display_sections_and_json_schema_are_explicit(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    entry = catalog.get("metric:sales.revenue")
+    assert ".value" in entry.render()
+    assert entry.to_dict()["schema_version"] == 1
+    assert catalog.search().to_dict()["schema_version"] == 1
+    with pytest.raises(SemanticError):
+        entry.show(section="bad")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected_ready"),
+    (
+        (("metric:sales.revenue",), ()),
+        (("measure:sales.orders.doubled",), ()),
+        (("measure:sales.orders.amount",), ("measure:sales.orders.amount",)),
+        (("entity:sales.orders",), ("entity:sales.orders",)),
+        (
+            ("metric:sales.revenue", "measure:sales.orders.amount"),
+            ("measure:sales.orders.amount",),
+        ),
+        (
+            ("measure:sales.orders.doubled", "entity:sales.orders"),
+            ("entity:sales.orders",),
+        ),
+    ),
+)
+def test_readiness_promotes_only_directly_requested_physical_inputs(
+    tmp_path: Path, requested: tuple[str, ...], expected_ready: tuple[str, ...]
 ) -> None:
-    catalog = _make_catalog(semantic_project_factory)
+    from tests.support.refs import as_ref
 
-    assert isinstance(catalog.fields.get("sales.orders.region"), Deferred)
-    assert isinstance(catalog.fields.get("sales.orders.created_at"), Deferred)
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text() + "\n@ms.measure()\ndef doubled():\n    return amount_value * 2\n"
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    report = catalog.readiness(refs=[catalog.get(identity) for identity in requested])
 
-    amount = catalog.fields.get("sales.orders.amount")
-    assert isinstance(amount, Deferred)
-    assert consume_field(amount).unit == "CNY"
-    assert consume_field(amount).root.ref == ref_factory.entity("sales.orders")
-
-
-def test_discovery_relationships_returns_relationships(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _make_relationship_catalog(semantic_project_factory)
-    result = catalog.relationships
-
-    assert result._refs == (ref_factory.relationship("sales.orders_to_users"),)
-    relationship = result.get("sales.orders_to_users")
-    assert isinstance(relationship, Relationship)
-    assert relationship._parameter.from_entity.ref == ref_factory.entity("sales.orders")
-    assert relationship._parameter.to_entity.ref == ref_factory.entity("sales.users")
-    assert relationship.cardinality == "many_to_one"
-    assert isinstance(catalog.relationships.get("sales.orders_to_users"), Relationship)
+    assert report.status == "ready"
+    assert report.requested_ids == requested
+    assert tuple(as_ref(value).key for value in report.analysis_ready_inputs) == expected_ready
+    # Dependencies remain visible even when a derived request promotes no physical ref.
+    assert "entity:sales.orders" in report.checked_ids
+    assert "datasource:warehouse" in report.checked_ids
+    if any(
+        identity.startswith("metric:") or identity.endswith(".doubled") for identity in requested
+    ):
+        assert "measure:sales.orders.amount" in report.checked_ids
 
 
-# ---------------------------------------------------------------------------
-# Domain and datasource collections return only their own kinds
-# ---------------------------------------------------------------------------
+def test_sample_reduction_definitions_preserve_quantile_and_null_parameters(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text()
+        + """
+revenue_value = revenue
+paid_value = paid_at
+@ms.metric()
+def median_revenue():
+    return revenue_value.per(paid_value).quantile(0.5)
+@ms.metric()
+def tail_revenue():
+    return revenue_value.per(paid_value).quantile(0.95)
+"""
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    median = catalog.get("metric:sales.median_revenue")
+    tail = catalog.get("metric:sales.tail_revenue")
+    assert median.kind == tail.kind == "metric"
+
+    assert "q=0.5" in median.definition.formula
+    assert "q=0.95" in tail.definition.formula
+    assert median.definition != tail.definition
+    assert median.to_dict()["definition"] != tail.to_dict()["definition"]
+    assert "include_null=False" in tail.definition.formula
+    from dataclasses import replace
+
+    from marivo._definition.expressions import PerReduce, PerWeightedMean
+    from marivo.semantic._catalog_definition import formula
+    from marivo.semantic._deferred_semantics import consume_field, consume_metric
+
+    node = consume_metric(catalog._reg.declared_metrics["sales.tail_revenue"]).node
+    assert isinstance(node, PerReduce)
+    axis = catalog.get("time_dimension:sales.orders.paid_at")
+    assert axis.kind == "time_dimension"
+    ordering = consume_field(axis.value).reference
+    with_nulls = formula(replace(node, include_null=True, order_by=ordering))
+    assert (
+        "include_null=True" in with_nulls
+        and "order_by=time_dimension:sales.orders.paid_at" in with_nulls
+    )
+    assert with_nulls != formula(node)
+    weighted = PerWeightedMean(node.operand, node.operand, node.samples, nulls="error")
+    assert "nulls=error" in formula(weighted)
+    assert formula(weighted) != formula(replace(weighted, nulls="ignore"))
+    assert "rule_version=" in tail.definition.formula
+    assert "Resolver" not in tail.to_json()
+    assert "recipe=" not in tail.to_json()
 
 
-def test_discovery_top_level_domains_and_datasources_return_only_their_kinds(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    assert {str(ref.kind) for ref in catalog.domains._refs} == {"domain"}
-    assert all(isinstance(obj, DomainEntry) for obj in catalog.domains.items)
-
-    assert {str(ref.kind) for ref in catalog.datasources._refs} == {"datasource"}
-    assert all(isinstance(obj, DatasourceEntry) for obj in catalog.datasources.items)
-    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources._refs}
-
-
-def test_discovery_domain_and_datasource_scope_their_members(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    sales = catalog.domains.get("sales")
-    assert sales.metrics._refs == (ref_factory.metric("sales.revenue"),)
-    assert {ref.key for ref in sales.fields._refs} == {
-        "dimension:sales.orders.region",
-        "time_dimension:sales.orders.created_at",
-        "measure:sales.orders.amount",
-    }
-
-    warehouse = catalog.datasources.get("warehouse")
-    assert warehouse.entities._refs == (ref_factory.entity("sales.orders"),)
+def test_entity_definition_retains_captured_filter_body(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/filtered.py"
+    source.write_text("""import marivo.datasource as md
+import marivo.semantic as ms
+@ms.entity(datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["order_id"])
+def paid_orders(raw):
+    return raw.filter(raw.status == "paid")
+@ms.entity(datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["order_id"])
+def unpaid_orders(raw):
+    return raw.filter(raw.status == "unpaid")
+""")
+    catalog = ms.load(workspace_dir=tmp_path)
+    paid = catalog.get("entity:sales.paid_orders")
+    unpaid = catalog.get("entity:sales.unpaid_orders")
+    assert paid.kind == unpaid.kind == "entity"
+    assert paid.definition.source == unpaid.definition.source
+    assert "filter" in paid.definition.expression and "paid" in paid.definition.expression
+    assert "unpaid" in unpaid.definition.expression
+    assert paid.definition != unpaid.definition
+    assert paid.to_dict()["definition"] != unpaid.to_dict()["definition"]
+    # The public projection stays captured after the authored source changes.
+    source.write_text("raise RuntimeError('must not replay entity code')\n")
+    assert "paid" in paid.definition.expression
+    assert "filter" in paid.render(max_output_bytes=None)
 
 
-# ---------------------------------------------------------------------------
-# Collection membership and NOT_FOUND behavior
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_collection_resolves_every_expression_member(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    assert catalog.entities._refs
-    for ref in catalog.entities._refs:
-        assert isinstance(catalog.entities.get(ref.path), Entity)
-    assert catalog.fields._refs
-    for ref in catalog.fields._refs:
-        assert isinstance(catalog.fields.get(ref.path), Deferred)
-    assert catalog.metrics._refs
-    for ref in catalog.metrics._refs:
-        assert isinstance(catalog.metrics.get(ref.path), Deferred)
-
-
-def test_discovery_unknown_domain_raises_error(semantic_project_factory: ProjectFactory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.domains.get("nonexistent")
-
-    assert exc_info.value.kind == ErrorKind.NOT_FOUND
-    assert "sales" in str(exc_info.value)
-
-
-# ---------------------------------------------------------------------------
-# Plain reads stay silent
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_reads_emit_no_stdout(
-    semantic_project_factory: ProjectFactory,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    _ = catalog.metrics._refs
-    _ = catalog.fields.items
-    _ = catalog.entities.get("sales.orders")
-    _ = len(catalog.relationships)
-    _ = catalog.domains.get("sales").metrics
-    _ = repr(catalog.fields)
-
-    assert capsys.readouterr().out == ""
+def test_reducer_null_disclosure_distinguishes_empty_and_asserted_nulls(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    model = tmp_path / "models/semantic/sales/objects.py"
+    model.write_text(
+        model.read_text()
+        + """
+@ms.metric()
+def strict_revenue():
+    return amount_value.sum(nulls="error")
+@ms.metric()
+def query_count():
+    return orders.count()
+"""
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    ordinary = catalog.get("metric:sales.revenue")
+    strict = catalog.get("metric:sales.strict_revenue")
+    count = catalog.get("metric:sales.query_count")
+    assert ordinary.kind == strict.kind == count.kind == "metric"
+    assert any("empty input returns typed zero" in rule for rule in ordinary.definition.null_rules)
+    assert any(
+        "nonempty all-NULL input returns NULL" in rule for rule in ordinary.definition.null_rules
+    )
+    assert any("demanded NULL raises an error" in rule for rule in strict.definition.null_rules)
+    assert all("all-NULL input returns NULL" not in rule for rule in strict.definition.null_rules)
+    assert any(
+        "count counts source rows; empty input returns zero" in rule
+        for rule in count.definition.null_rules
+    )

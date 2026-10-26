@@ -20,7 +20,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.expressions import Entity
 from tests.analysis.statistics.pandas_workflows import receipt_paths
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -107,9 +107,9 @@ def _read(
     at: datetime | None = None,
     via: str | None = None,
 ) -> mv.AnalysisFrame:
-    value = session.catalog.fields.get(field)
+    value = catalog_value(session.catalog, field, kind="field")
     if via is not None:
-        value = value.via((session.catalog.relationships.get(via),))
+        value = value.via((catalog_value(session.catalog, via, kind="relationship"),))
     if at is not None:
         value = value.at(session.instant(at))
     return session.read(population, {"value": value})
@@ -130,9 +130,9 @@ def _identity_population(
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
-    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
-    category = session.catalog.fields.get(f"{prefix}.plain.category")
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
+    metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
+    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
     for axes, expected in (
         ((members.axes[0], category), {((1, "A"), "west"): 10, ((1, "B"), "east"): 20}),
         ((category, members.axes[0]), {("west", (1, "A")): 10, ("east", (1, "B")): 20}),
@@ -142,7 +142,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
         rows = fixed.to_pandas()
         assert rows.set_index(list(rows.columns[:2]))["value"].to_dict() == expected
         selected = _identity_population(
-            session, fixed, session.catalog.entities.get(f"{prefix}.plain")
+            session, fixed, catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
         )
         identity_position = next(i for i, axis in enumerate(fixed.axes) if axis.role == "identity")
         expected_sequence = list(dict.fromkeys(rows.iloc[:, identity_position]))
@@ -151,8 +151,8 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
         assert set(actual_sequence) == {(1, "A"), (1, "B")}
     # Separate scalar primary-key fields retain their Field roles.
     fields = (
-        session.catalog.fields.get(f"{prefix}.plain.tenant"),
-        session.catalog.fields.get(f"{prefix}.plain.id"),
+        catalog_value(session.catalog, f"{prefix}.plain.tenant", kind="field"),
+        catalog_value(session.catalog, f"{prefix}.plain.id", kind="field"),
     )
     grouped = session.observe({"value": metric}, by=fields)
     assert all(
@@ -170,10 +170,10 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
-    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
-    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
-    field = session.catalog.fields.get(f"{prefix}.snapshot.category")
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
+    metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
+    route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
+    field = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field")
     category = field.via((route,)).at(session.instant("2026-08-01"))
     observed = session.observe({"value": metric}, by=(category,)).compute().to_pandas()
     assert observed.set_index(observed.columns[0])["value"].to_dict() == {
@@ -183,7 +183,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     own = _read(session, members, f"{prefix}.plain.category")
     selected_values = own.where(own["value"] == "west")
     selected = _identity_population(
-        session, selected_values, session.catalog.entities.get(f"{prefix}.plain")
+        session, selected_values, catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
     )
     later = field.via((route,)).at(session.instant("2026-09-01"))
     read = session.read(selected, {"value": later})
@@ -201,16 +201,16 @@ def test_mixed_predicate_uses_nullable_missing_scalar_matches(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    entity = session.catalog.entities.get(f"{prefix}.plain")
-    category = session.catalog.fields.get(f"{prefix}.plain.category")
+    entity = catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
+    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
     selected = session.members(entity, where=category == "west")
-    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
+    route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
     later = (
-        session.catalog.fields.get(f"{prefix}.snapshot.category")
+        catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field")
         .via((route,))
         .at(session.instant("2026-09-01"))
     )
-    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
+    metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
     for condition in (
         mv.in_population(selected) & (later == "east"),
         (later == "east") | mv.in_population(selected),
@@ -222,18 +222,20 @@ def test_mixed_predicate_uses_nullable_missing_scalar_matches(
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     discounted = session.observe(
-        {"value": session.catalog.fields.get(f"{prefix}.plain.discounted").sum()}, by=members
+        {"value": catalog_value(session.catalog, f"{prefix}.plain.discounted", kind="field").sum()},
+        by=members,
     )
     uplifted = session.observe(
-        {"value": session.catalog.fields.get(f"{prefix}.plain.uplifted").sum()}, by=members
+        {"value": catalog_value(session.catalog, f"{prefix}.plain.uplifted", kind="field").sum()},
+        by=members,
     )
     assert _values(discounted.compute()) == [9.0, 18.0]
     assert _values(uplifted.compute()) == [14.0, 23.0]
     chosen_values = uplifted.where(uplifted["value"] > 20)
     chosen = _identity_population(
-        session, chosen_values, session.catalog.entities.get(f"{prefix}.plain")
+        session, chosen_values, catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
     )
     assert session.frame(chosen).compute().to_pandas().iloc[:, 0].tolist() == [(1, "B")]
     day = _read(session, members, f"{prefix}.plain.day")
@@ -246,7 +248,9 @@ def test_computed_boolean_dimension(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = members_session
-    members = session.members(session.catalog.entities.get(f"{_domain(session)}.plain"))
+    members = session.members(
+        catalog_value(session.catalog, f"{_domain(session)}.plain", kind="entity")
+    )
     relation = _read(session, members, f"{_domain(session)}.plain.positive")
     saved = relation.persist()
     assert _values(saved) == [False, True]
@@ -273,11 +277,11 @@ def _replace_source(session: Session, query: str) -> None:
 def test_read_path_coverage_null_and_consumed_scope(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     category = _read(session, members, f"{prefix}.plain.category")
     chosen_values = category.where(category["value"] == "west")
     chosen = _identity_population(
-        session, chosen_values, session.catalog.entities.get(f"{prefix}.plain")
+        session, chosen_values, catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
     )
     september = datetime(2026, 9, 1, tzinfo=timezone.utc)
     route = f"{prefix}.to_snapshot"
@@ -299,7 +303,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     logical = _read(session, members, f"{prefix}.plain.moment")
     with pytest.raises((AnalysisError, SemanticExpressionError)):
         logical.where(logical["value"] == datetime(2026, 8, 1))
@@ -313,7 +317,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     other = mv.session.get_or_create("other-r52", timezone="UTC")
     foreign = _read(
         other,
-        other.members(other.catalog.entities.get(f"{prefix}.plain")),
+        other.members(catalog_value(other.catalog, f"{prefix}.plain", kind="entity")),
         f"{prefix}.plain.moment",
     )
 
@@ -334,7 +338,7 @@ def test_cold_typed_read_continuation_without_source(members_session: Session) -
     prefix = _domain(session)
     fixed = _read(
         session,
-        session.members(session.catalog.entities.get(f"{prefix}.plain")),
+        session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity")),
         f"{prefix}.plain.moment",
     ).persist()
     shutil.rmtree(session.project_root / "models")
@@ -402,8 +406,8 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 """)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("subject-image", timezone="UTC")
-    domain = session.members(session.catalog.entities.get("test.instances"))
-    image = domain.image(via=(session.catalog.relationships.get("test.to_subject"),))
+    domain = session.members(session.catalog.get("entity:test.instances").value)
+    image = domain.image(via=(session.catalog.get("relationship:test.to_subject").value,))
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
     (tmp_path / "subjects.duckdb").rename(tmp_path / "subjects.offline")
@@ -416,7 +420,7 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    entity = session.catalog.entities.get(f"{prefix}.valid")
+    entity = catalog_value(session.catalog, f"{prefix}.valid", kind="entity")
     boundary = session.instant("2026-09-01")
     members = session.members(entity, at=boundary)
     assert _values(_read(session, members, f"{prefix}.valid.amount", at=boundary).compute()) == [
@@ -435,7 +439,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
             session, session.members(entity, at=noon), f"{prefix}.valid.amount", at=noon
         ).compute()
     ) == [30, 20]
-    snapshot = session.catalog.entities.get(f"{prefix}.snapshot")
+    snapshot = catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity")
     first = session.members(snapshot, at=session.instant("2026-08-01T23:59:59.999999+00:00"))
     assert session.frame(first).compute().to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
     assert (
@@ -446,7 +450,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     )
     with pytest.raises(AnalysisError, match="an exact InstantAnchor"):
         session.members(entity, at=datetime(2026, 9, 1))  # type: ignore[arg-type]  # Runtime probe: membership requires an InstantAnchor, not datetime.
-    plain = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    plain = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     integer = _read(session, plain, f"{prefix}.plain.tenant")
     saved = integer.persist()
     assert saved.to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
@@ -468,11 +472,11 @@ def test_wrong_role_and_many_mapping_reject_before_io(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     at = session.instant("2026-08-01")
-    field = session.catalog.fields.get(f"{prefix}.snapshot.amount")
-    many = session.catalog.relationships.get(f"{prefix}.many_snapshot")
-    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
+    field = catalog_value(session.catalog, f"{prefix}.snapshot.amount", kind="field")
+    many = catalog_value(session.catalog, f"{prefix}.many_snapshot", kind="relationship")
+    route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("invalid path requested a schema or business source")
@@ -481,7 +485,9 @@ def test_wrong_role_and_many_mapping_reject_before_io(
         patch.setattr(SourceSession, "bind", forbidden)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(members, {"value": field.via((many,)).at(at)})
-        versioned = session.members(session.catalog.entities.get(f"{prefix}.snapshot"), at=at)
+        versioned = session.members(
+            catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity"), at=at
+        )
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(versioned, {"value": field.via((route,)).at(at)})
     assert _values(session.read(members, {"value": field.at(at)}).compute()) == [10, 20]
@@ -496,7 +502,8 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     session = members_session
     prefix = _domain(session)
     members = session.members(
-        session.catalog.entities.get(f"{prefix}.valid"), at=session.instant("2026-08-01")
+        catalog_value(session.catalog, f"{prefix}.valid", kind="entity"),
+        at=session.instant("2026-08-01"),
     )
     for points, expected in (
         (("2026-08-01", "2026-09-01"), [10, 30, 20, 20]),
@@ -517,7 +524,9 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     outputs = []
     for point in ("2026-08-31T23:59:59.999999+00:00", "2026-09-30T23:59:59.999999+00:00"):
         fields: dict[str, Deferred] = {
-            name: session.catalog.fields.get(f"{prefix}.valid.{name}").at(session.instant(point))
+            name: catalog_value(session.catalog, f"{prefix}.valid.{name}", kind="field").at(
+                session.instant(point)
+            )
             for name in ("category", "enabled", "moment")
         }
         result = session.read(members, fields).persist()
@@ -542,10 +551,10 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
         datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
     ]
-    stable = session.catalog.fields.get(f"{prefix}.plain.category")
+    stable = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
     with pytest.raises(SemanticExpressionError):
         session.read(
-            session.members(session.catalog.entities.get(f"{prefix}.plain")),
+            session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity")),
             {"value": stable.at(session.instant("2026-08-01"))},
         )
 
@@ -554,15 +563,19 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
     anchor = session.instant("2026-08-01T00:59:59.999999+00:00")
-    members = session.members(session.catalog.entities.get(f"{prefix}.snapshot"), at=anchor)
-    category = session.catalog.fields.get(f"{prefix}.snapshot.category").at(anchor)
+    members = session.members(
+        catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity"), at=anchor
+    )
+    category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field").at(
+        anchor
+    )
     categories = members.classify(by=(category,))
     grid = session.time_scope(
         start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
     ).by(mv.grain("hour"))
     frame = (
         session.observe(
-            {"value": session.catalog.metrics.get(f"{prefix}.observed_total")},
+            {"value": catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")},
             by=mv.product(categories, grid),
         )
         .compute()
@@ -576,9 +589,9 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
 def test_composite_subject_predicates(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(session.catalog.entities.get(f"{prefix}.plain"))
+    members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     fields = {
-        name: session.catalog.fields.get(f"{prefix}.plain.{name}")
+        name: catalog_value(session.catalog, f"{prefix}.plain.{name}", kind="field")
         for name in ("amount", "enabled", "moment")
     }
     values = session.read(members, fields)
@@ -598,10 +611,10 @@ def test_composite_subject_predicates(members_session: Session) -> None:
 def test_identity_grouping_binds_an_explicit_versioned_path(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
-    target = session.catalog.entities.get(f"{prefix}.snapshot")
+    route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
+    target = catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity")
     instant = session.instant("2026-08-01")
-    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
+    metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
     path = mv.identity((route,), at=instant)
     automatic = mv.identity(target, at=instant)
     from tests.analysis.graph.execution_fixtures import source_graph
@@ -621,6 +634,6 @@ def test_identity_grouping_binds_an_explicit_versioned_path(members_session: Ses
         session.observe({"value": metric}, by=(mv.identity((route,)),))
     with pytest.raises(AnalysisError):
         mv.identity((route, route), at=instant)
-    many = session.catalog.relationships.get(f"{prefix}.many_snapshot")
+    many = catalog_value(session.catalog, f"{prefix}.many_snapshot", kind="relationship")
     with pytest.raises(AnalysisError):
         session.observe({"value": metric}, by=(mv.identity((many,), at=instant),))

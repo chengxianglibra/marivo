@@ -181,8 +181,8 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("catalog-capture")
-    revenue = session.catalog.metrics.get("sales.revenue")
-    double = session.catalog.metrics.get("sales.double_revenue")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    double = session.catalog.get("metric:sales.double_revenue").value
     outputs = {
         "direct": {"revenue": revenue, "double": double},
         "scale": {"result": revenue * 2},

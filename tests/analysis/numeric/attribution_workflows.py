@@ -15,7 +15,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 from tests.analysis.statistics.pandas_workflows import plain
-from tests.shared_fixtures import DslCase
+from tests.shared_fixtures import DslCase, catalog_value
 
 Method = Literal["sum", "count", "linear", "mean", "weighted", "ratio"]
 Mode = Literal["joint", "hierarchy"]
@@ -34,8 +34,11 @@ def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.Analys
     if weight:
         names["weight"] = "weight"
     query = session.read(
-        session.members(session.catalog.entities.get("sales.order")),
-        {name: session.catalog.fields.get("sales.order." + path) for name, path in names.items()},
+        session.members(session.catalog.get("entity:sales.order").value),
+        {
+            name: catalog_value(session.catalog, "sales.order." + path, kind="field")
+            for name, path in names.items()
+        },
     )
     return query.where(
         (query["time"] >= datetime(2026, month, 1, tzinfo=timezone.utc))

@@ -13,6 +13,7 @@ from marivo.analysis.compiler.member_version import version_predicate
 from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import normalize_target_entity, normalize_target_version_selection
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.mark.parametrize("interval", ["closed_open", "closed_closed"])
@@ -45,7 +46,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         }
     )
     session = mv.session.get_or_create("wall-version", timezone="Asia/Shanghai")
-    entity = session.catalog.entities.get("sales.versions")
+    entity = session.catalog.get("entity:sales.versions").value
     boundary = datetime.fromisoformat("2026-03-08T07:00:00+00:00")
     expected = ["after", "gap", "null", "sentinel"]
     if interval == "closed_closed":
@@ -80,7 +81,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         session.read(
             population,
             {
-                "begins": session.catalog.fields.get("sales.versions.begins").at(
+                "begins": catalog_value(session.catalog, "sales.versions.begins", kind="field").at(
                     session.instant(boundary)
                 )
             },

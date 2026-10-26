@@ -19,6 +19,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.materialization.multiroot_recovery_worker import verify
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -143,12 +144,12 @@ def test_native_independent_multiroot_fixed_and_cold(
             }
         )
         session = mv.session.get_or_create("r94-multiroot", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
             construction.setattr(SourceSession, "execute", forbidden)
-            left = session.catalog.metrics.get("sales.left_total")
-            right = session.catalog.metrics.get("sales.right_total")
+            left = session.catalog.get("metric:sales.left_total").value
+            right = session.catalog.get("metric:sales.right_total").value
             relations = {
                 "linear": session.observe({"value": left + right}, by=members),
                 "ratio": session.observe({"value": left / right}, by=members),
@@ -156,14 +157,14 @@ def test_native_independent_multiroot_fixed_and_cold(
             }
             relations["linear_total"] = session.observe({"value": left + right})
             relations["ratio_total"] = session.observe({"value": left / right})
-            owner_field = session.catalog.fields.get("sales.subjects.owner")
-            left_members = session.members(session.catalog.entities.get("sales.left"))
+            owner_field = catalog_value(session.catalog, "sales.subjects.owner", kind="field")
+            left_members = session.members(session.catalog.get("entity:sales.left").value)
             auto_read = session.read(left_members, {"value": owner_field})
             explicit_read = session.read(
                 left_members,
                 {
                     "value": owner_field.via(
-                        (session.catalog.relationships.get("sales.left_subject"),)
+                        (session.catalog.get("relationship:sales.left_subject").value,)
                     )
                 },
             )

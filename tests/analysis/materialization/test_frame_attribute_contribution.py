@@ -29,21 +29,23 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 @pytest.mark.parametrize("method", ["mean", "ratio", "weighted"])
 def test_pending_attribute_component_units_allow_direct_composition(
     session: Session, method: str
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = (
         amount.mean()
         if method == "mean"
         else amount.sum() / amount.sum()
         if method == "ratio"
-        else amount.weighted_mean(weight=session.catalog.fields.get("sales.facts.weight"))
+        else amount.weighted_mean(
+            weight=catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        )
     )
     pending = session.observe({"q": metric}).attribute(by=(channel,))
     fixed = pending.compute()
@@ -64,8 +66,8 @@ def test_pending_attribute_component_units_allow_direct_composition(
 
 
 def test_pending_weighted_components_keep_dimensional_weight_unit(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     pending = session.observe({"q": amount.weighted_mean(weight=amount)}).attribute(by=(channel,))
     for frame in (pending, pending.compute()):
         assert frame["component.value.numerator.q"]._unit == "USD.USD"
@@ -80,9 +82,9 @@ def test_attribute_constant_division_retains_original_operation(
 ) -> None:
     import marivo.semantic as ms
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     metric = (
         ms.rescale(amount.mean(), divisor=divisor, unit="GiB/s")
         if rescale
@@ -116,10 +118,10 @@ def test_attribute_division_rounds_operands_before_large_integer_cancellation(
             "weight=CASE WHEN channel='B' THEN 0 "
             "WHEN phase='current' THEN 3002399751580331 ELSE 1 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     scaled = amount.sum() / divisor
     rescaled = ms.rescale(amount.sum(), divisor=divisor, unit="GiB/s")
     metrics = {
@@ -156,9 +158,9 @@ def test_nested_additive_scaling_retains_ordered_level_and_paired_facts(
 ) -> None:
     import marivo.semantic as ms
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     scaled = ms.rescale(amount.sum() / Decimal("3.00"), divisor=2, unit="GiB/s")
     metric = (
         2 * scaled
@@ -229,9 +231,9 @@ def test_decimal_attribute_division_retains_operation_and_cold_facts(
         connection.execute(
             "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 10 ELSE 20 END WHERE phase='current'"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     metric = ms.rescale(amount.sum(), divisor=Decimal("3"), unit="GiB/s")
     if nested:
         metric = 2 * metric
@@ -291,9 +293,9 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
 def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
     import marivo.semantic as ms
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     metric = 2 * ms.rescale(amount.sum() / amount.sum(), divisor=3, unit="GiB/s")
     report = session.observe({"q": metric}).attribute(by=(channel,)).compute()
     rows = report.to_pandas()
@@ -379,9 +381,9 @@ def test_additive_exact_values_and_independent_role_reads(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     reads: list[CompiledRead] = []
     execute_original = SourceSession.execute
 
@@ -426,10 +428,10 @@ def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: P
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 5 WHEN 3 THEN 10 ELSE NULL END,weight=CASE WHEN channel='A' THEN 1 ELSE 9 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     rows = (
         _contribution(
             session.observe({"q": amount.weighted_mean(weight=weight)}, where=phase == "current"),
@@ -448,9 +450,9 @@ def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: P
 def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id IN (1,4)")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     rows = (
         _contribution(
             session.observe({"q": amount.sum()}, where=phase == "current"),
@@ -471,9 +473,9 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
         connection.execute(
             "UPDATE facts SET amount=CASE WHEN phase='base' THEN 100 WHEN channel='A' THEN 200 ELSE 0 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     rows = (
         _contribution(
             session.observe({"q": amount.sum()}, where=phase == "current"),
@@ -500,9 +502,9 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 3 THEN -5e307 WHEN 4 THEN 1e308 ELSE amount END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     reads: list[CompiledRead] = []
     execute = SourceSession.execute
 
@@ -555,9 +557,9 @@ def test_real_producer_association_and_inert_parent_payload(
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
     from marivo.analysis.materialization import frame_evaluation
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     left = session.observe({"q": amount.sum()}, where=phase == "current")
     right = session.observe({"q": amount.sum()}, where=phase == "base")
     first = _contribution(left, right, by=(channel,))
@@ -626,9 +628,9 @@ def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: P
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 100.01 WHEN 2 THEN 100.02 WHEN 3 THEN 160.03 ELSE 80.01 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     rows = (
         _contribution(
             session.observe({"q": amount.sum()}, where=phase == "current"),
@@ -651,9 +653,9 @@ def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path
             "WHEN 1 THEN INTERVAL '1 microsecond' WHEN 2 THEN INTERVAL '3 microsecond' "
             "WHEN 3 THEN INTERVAL '4 microsecond' ELSE INTERVAL '2 microsecond' END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metrics = {"sum": amount.sum(), "mean": amount.mean()}
     rows = (
         _contribution(
@@ -685,9 +687,9 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
             "UPDATE facts SET amount=CASE WHEN phase='current' THEN CAST(? AS DECIMAL(38,0)) ELSE -1 END",
             ["10"],
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
     compared = current.compare(
@@ -713,8 +715,8 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
 def test_static_typed_coefficient_mismatch_is_first_path(session: Session) -> None:
     from marivo.analysis.binding.attribute_rules import AttributeRuleError
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with pytest.raises(AttributeRuleError) as caught:
         _contribution(
             session.observe({"q": amount.sum() - 2 * amount.sum()}),
@@ -732,10 +734,10 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("UPDATE facts SET weight=CASE WHEN channel='A' THEN 1 ELSE -1 END")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum() / weight.sum()
     with pytest.raises(AttributeInputError) as caught:
         _contribution(
@@ -756,9 +758,9 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
     from marivo.analysis.materialization import frame_evaluation
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
     parents = mv.coordinates(by=(region,), keys=()) if selected_empty else None
@@ -790,10 +792,10 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
         connection.execute(
             "UPDATE facts SET amount=CASE WHEN channel='A' THEN 9007199254740993 ELSE 0 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parents = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     # Both phases have identical values; one endpoint retains the exact/empty-parent boundary.
     endpoint = session.observe({"q": amount.sum()}, by=parents, where=phase == "current")
@@ -804,10 +806,10 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
 
 @pytest.mark.release
 def test_linear_ratio_children_and_original_scalar_order(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     ratio = amount.sum() / weight.sum()
     metric = ratio - 2 * ratio
     rows = (
@@ -830,9 +832,9 @@ def test_null_original_parent_is_unknown_not_additive_zero(
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=NULL WHERE phase='current'")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with pytest.raises(AttributeInputError) as caught:
         _contribution(
             session.observe({"q": amount.sum()}, where=phase == "current"),
@@ -852,10 +854,10 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
             "INSERT INTO facts VALUES (5,'base','east','B',100,1),(6,'current','east','B',100,1)"
         )
         connection.execute("UPDATE facts SET weight=3 WHERE id IN (5,6)")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metrics = {
         "mean": amount.mean(),
         "ratio": amount.sum() / weight.sum(),
@@ -890,10 +892,10 @@ def test_payload_satisfies_existing_fact_model(
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
     from marivo.analysis.materialization import frame_evaluation
 
-    bare = session.catalog.fields.get("sales.facts.bare")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    bare = catalog_value(session.catalog, "sales.facts.bare", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     ratio = bare.sum() / weight.sum()
     metric = bare.sum() if kind == "additive" else ratio
     if kind == "linear":
@@ -956,10 +958,10 @@ def test_new_attribute_uses_only_its_own_live_components(
             "(3,'current','E','A',30,1),(4,'current','E','B',5,1),"
             "(5,'base','W','A',20,1),(6,'current','W','A',10,1)"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metrics = (
         {"q": amount.sum(), "n": amount.count()} if shape == "pending" else {"q": amount.sum()}
     )
@@ -1132,9 +1134,9 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
             connection.execute(
                 "UPDATE facts SET amount=CASE id WHEN 3 THEN 160.25 WHEN 4 THEN 80.25 ELSE amount END"
             )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     child = amount.mean() if mean else amount.sum()
     metric = (child + child) * Decimal(lexical)
     current_parent = session.observe({"q": metric}, where=phase == "current").compute()
@@ -1262,9 +1264,9 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
 def test_captured_frame_attribute_absolute(session: Session) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -1277,9 +1279,9 @@ def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.Mo
     from marivo.analysis.binding.frame_attribute import attribute
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe({"q": amount.sum()}, where=phase == "current").compute()
     reads: list[CompiledRead] = []
     original = SourceSession.execute
@@ -1299,9 +1301,9 @@ def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.Mo
 def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: Session) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     database = Path.cwd() / "contribution.duckdb"
     with duckdb.connect(str(database)) as connection:
         connection.execute("UPDATE facts SET amount=140 WHERE id=3")
@@ -1323,10 +1325,10 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
 def test_captured_rule_families(session: Session) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metrics = {
         "ratio": amount.sum() / weight.sum(),
         "mean": amount.mean(),
@@ -1389,9 +1391,9 @@ def test_captured_original_fine_formula_checks_survive_pruning(session: Session)
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 3 THEN -5e307 WHEN 4 THEN 1e308 ELSE amount END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     source = session.observe({"q": amount.sum() * 2}, where=phase == "current").compute()
     for prune in ("direct", "select", "where", "top0"):
         report = source.attribute(by=(channel,))
@@ -1413,10 +1415,10 @@ def test_captured_original_fine_formula_checks_survive_pruning(session: Session)
 def test_captured_known_empty_sample_retains_original_na(session: Session, kind: str) -> None:
     with duckdb.connect(str(Path.cwd() / "contribution.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=NULL WHERE channel='B'")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = (
         amount.mean()
         if kind == "mean"
@@ -1443,8 +1445,8 @@ def test_captured_known_empty_sample_retains_original_na(session: Session, kind:
 def test_unsupported_output_records_exact_node_after_compute_and_rename(session: Session) -> None:
     from marivo.analysis.errors import AnalysisError
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     source = session.observe({"q": amount.sum()})
     mixed = source.select({"good": source["q"], "bad": source["q"] + source["q"]}).compute()
     with pytest.raises(AnalysisError) as caught:
@@ -1479,9 +1481,9 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 50 WHEN 2 THEN 40 WHEN 3 THEN 60 ELSE 40 END"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -1574,9 +1576,9 @@ def test_integer_sum_decimal_carrier_rejects_one_unit_independent_drift(
     from marivo.analysis.core.attribute import AttributeClosureWitness, AttributeInputError
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute(
             "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 60 ELSE 40 END WHERE phase='current'"
@@ -1609,8 +1611,8 @@ def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
     from marivo.analysis.core.attribute import AttributeInputError
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe(
         {"q": amount.sum(where=channel == "A") + amount.sum(where=channel == "B")}
     ).compute()
@@ -1630,10 +1632,10 @@ def test_incompatible_same_root_scopes_are_rejected_before_attribute_reads(
 
 @pytest.mark.release
 def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parents = session.observe({"q": amount.sum()}, by=(region,)).compute()
     keys = session.population_from(parents, on=((parents.axes[0], region),))
     current = session.observe(
@@ -1654,10 +1656,10 @@ def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: 
 def test_fixed_top_parent_and_observed_value_survive_new_source_ranking(
     session: Session, tmp_path: Path
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     database = tmp_path / "contribution.duckdb"
     with duckdb.connect(str(database)) as connection:
         connection.execute("INSERT INTO facts VALUES (5,'current','west','A',10,1)")
@@ -1692,10 +1694,10 @@ def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(
     from marivo.analysis.core.frame_method_facts import FrameRatioMethod
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     pending = _contribution(
         session.observe({"q": amount.sum() / weight.sum()}, where=phase == "current"),
         session.observe({"q": amount.sum() / weight.sum()}, where=phase == "base"),
@@ -1764,9 +1766,9 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
 def test_fix_keeps_distinct_source_endpoints_for_attribute(
     session: Session, complete: bool
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     frame = session.observe({"q": amount.mean()}, by=(phase,))
     if complete:
         frame = frame.compute()
@@ -1781,10 +1783,10 @@ def test_fix_keeps_distinct_source_endpoints_for_attribute(
 
 @pytest.mark.parametrize("stage", ["before", "after", "persist"])
 def test_fix_attribute_composition_and_absent_members(session: Session, stage: str) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     frame = session.observe({"q": amount.sum()}, by=(phase, region))
     a = frame.fix(frame.axes[0], "current")
     b = frame.fix(frame.axes[0], "base")
@@ -1804,9 +1806,9 @@ def test_fix_attribute_composition_and_absent_members(session: Session, stage: s
 
 
 def test_fix_missing_comparison_endpoint_is_not_recreated_by_attribute(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     frame = session.observe({"q": amount.sum()}, by=(phase,))
     current = frame.fix(frame.axes[0], "current")
     missing = frame.fix(frame.axes[0], "absent")
@@ -1827,10 +1829,10 @@ def test_fix_missing_comparison_endpoint_is_not_recreated_by_attribute(session: 
 def test_fix_after_align_preserves_attribute_endpoint_presence(
     session: Session, mode: str, complete: bool
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     left = session.observe(
         {"q": amount.sum()},
         by=(region,),

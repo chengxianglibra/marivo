@@ -420,7 +420,7 @@ def test_load_and_require_json_entity(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).entities.get("sales.events")
+    result = ms.SemanticCatalog(project).get("entity:sales.events").value
 
     assert as_ref(result.ref) == ref_factory.entity("sales.events")
     assert result.primary_key == ()
@@ -436,7 +436,7 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = ms.SemanticCatalog(project).entities.get("sales.events")
+    result = ms.SemanticCatalog(project).get("entity:sales.events").value
 
     assert as_ref(result.ref) == ref_factory.entity("sales.events")
     assert result.primary_key == ()

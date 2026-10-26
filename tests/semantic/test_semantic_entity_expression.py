@@ -552,7 +552,7 @@ def test_entity_card_discloses_expression_form_with_normalized_body(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entity = catalog.entities.get("sales.daily_totals")
+    entity = catalog.get("entity:sales.daily_totals").value
     facts = dict(entity.contract().facts)
     assert facts["definition_form"] == "expression"
     text = facts["expression"]
@@ -590,7 +590,7 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entity = catalog.entities.get("sales.orders")
+    entity = catalog.get("entity:sales.orders").value
     facts = dict(entity.contract().facts)
     assert facts["definition_form"] == "direct"
     assert "expression" not in facts

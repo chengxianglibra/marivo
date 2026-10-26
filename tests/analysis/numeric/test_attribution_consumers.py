@@ -17,7 +17,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.attribution_workflows import allocation
 from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -79,9 +79,9 @@ def test_source_and_retained(
             )
         )
         session = mv.session.get_or_create("r93-attribution", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.facts"))
+        members = session.members(session.catalog.get("entity:sales.facts").value)
         fields = {
-            name: session.catalog.fields.get("sales.facts." + path)
+            name: catalog_value(session.catalog, "sales.facts." + path, kind="field")
             for name, path in (
                 ("channel", "bucket"),
                 ("region", "region"),

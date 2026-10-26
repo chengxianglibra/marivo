@@ -63,10 +63,11 @@ def test_time_construction_help_has_only_session_entry(name: str) -> None:
 
 
 def test_readiness_help_uses_physical_inputs(capsys: pytest.CaptureFixture[str]) -> None:
-    public_help("analysis.catalog.readiness")
+    public_help("semantic.readiness")
     text = capsys.readouterr().out
-    assert 'catalog.readiness(refs=[ms.ref.entity("sales.orders")])' in text
-    assert "without querying" in text
+    assert "catalog.readiness(refs=" in text
+    assert "sales.orders" in text
+    assert "without connecting or querying" in text
     assert "ms.ref.metric" not in text
 
 

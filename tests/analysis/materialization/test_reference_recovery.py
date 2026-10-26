@@ -16,7 +16,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.reference_recovery_worker import recipes
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -37,23 +37,28 @@ def test_native_reference_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, reference_data(backend)) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-reference", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.facts"))
+        members = session.members(session.catalog.get("entity:sales.facts").value)
 
-        bucket = session.catalog.fields.get("sales.facts.bucket")
-        values = session.observe({"value": session.catalog.metrics.get("sales.total")}, by=members)
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
+        values = session.observe(
+            {"value": session.catalog.get("metric:sales.total").value}, by=members
+        )
         groups = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,)
+            {"value": session.catalog.get("metric:sales.total").value}, by=(bucket,)
         )
         calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         opportunities = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, by=mv.product(calendar, members)
+            {"value": session.catalog.get("metric:sales.total").value},
+            by=mv.product(calendar, members),
         )
         category = session.read(members, {"bucket": bucket})
         chosen = values.where(values["value"] > 0)
         selected = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts").value),)
         )
-        total = session.observe({"value": session.catalog.metrics.get("sales.total")}).compute()
+        total = session.observe(
+            {"value": session.catalog.get("metric:sales.total").value}
+        ).compute()
         denominator = total.to_pandas()["value"].iloc[0]
         assert denominator == 6
         queries = {
@@ -61,7 +66,10 @@ def test_native_reference_independent_fixed_and_cold(
             "bucket": category,
             "basis": session.read(
                 members,
-                {"amount": session.catalog.fields.get("sales.facts.amount"), "bucket": bucket},
+                {
+                    "amount": catalog_value(session.catalog, "sales.facts.amount", kind="field"),
+                    "bucket": bucket,
+                },
             ),
             "groups": groups,
             "weights": groups.select({"share": groups["value"] / denominator}),

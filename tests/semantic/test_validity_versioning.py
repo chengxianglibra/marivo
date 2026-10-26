@@ -44,7 +44,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
         }
     )
 
-    dataset = SemanticCatalog(project).entities.get("sales.user_history")
+    dataset = SemanticCatalog(project).get("entity:sales.user_history").value
     assert isinstance(dataset, Entity)
     versioning = project._registry.entities["sales.user_history"].versioning
     assert versioning is not None
@@ -87,7 +87,7 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).entities.get("sales.user_history")
+        _ = SemanticCatalog(project).get("entity:sales.user_history").value
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -127,7 +127,7 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).entities.get("sales.user_history")
+        _ = SemanticCatalog(project).get("entity:sales.user_history").value
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -155,7 +155,7 @@ def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).entities.get("sales.user_history")
+        _ = SemanticCatalog(project).get("entity:sales.user_history").value
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -183,7 +183,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).entities.get("sales.user_history")
+        _ = SemanticCatalog(project).get("entity:sales.user_history").value
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_target_semantics"
     assert "does_not_exist" in str(error)
@@ -215,6 +215,6 @@ def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("encoded-open-end", timezone="UTC")
     members = session.members(
-        session.catalog.entities.get("sales.history"), at=session.instant("2026-08-03")
+        session.catalog.get("entity:sales.history").value, at=session.instant("2026-08-03")
     )
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == [1]

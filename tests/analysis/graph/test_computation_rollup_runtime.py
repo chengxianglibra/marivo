@@ -66,7 +66,7 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     monkeypatch.chdir(project)
     session = mv.session.get_or_create("equation-mean", timezone="UTC")
     query = session.observe(
-        {"value": session.catalog.metrics.get("sales.amount_mean")},
+        {"value": session.catalog.get("metric:sales.amount_mean").value},
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
     )
     result = query.persist()

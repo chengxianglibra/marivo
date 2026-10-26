@@ -17,6 +17,7 @@ from marivo._definition.expressions import (
 from marivo._definition.windows import AllHistory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.expressions import catalog_metric_definition
+from tests.shared_fixtures import catalog_value
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -59,7 +60,7 @@ def _write_project(tmp_path: Path, body: str) -> Path:
 
 
 def _metric_node(catalog: ms.SemanticCatalog, name: str) -> MetricNode:
-    facts = consume_metric(catalog.metrics.get(f"sales.{name}"))
+    facts = consume_metric(catalog_value(catalog, f"sales.{name}", kind="metric"))
     node = facts.node
     definitions = dict(facts._declared)
     while isinstance(node, DeclaredMetricRef):

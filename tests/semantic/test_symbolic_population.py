@@ -17,6 +17,7 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -44,7 +45,7 @@ def _catalog(factory: Callable[..., SemanticProject], helper: str) -> SemanticCa
 
 
 def _population(catalog: SemanticCatalog) -> PopulationParameter:
-    metric = consume_metric(catalog.metrics.get("sales.selected_count"))
+    metric = consume_metric(catalog.get("metric:sales.selected_count").value)
     body = next(
         body for reference, body in metric._declared if reference.ref.path == "sales.selected_count"
     )
@@ -88,8 +89,8 @@ def selected_count():
     return captured_count
 """,
     )
-    region = catalog.fields.get("sales.orders.region")
-    channel = catalog.fields.get("sales.orders.channel")
+    region = catalog_value(catalog, "sales.orders.region", kind="field")
+    channel = catalog_value(catalog, "sales.orders.channel", kind="field")
     expected = mv.product(
         mv.coordinates(by=(region,), keys=(("east",), ("west",))),
         mv.coordinates(by=(channel,), keys=(("web",), ("store",))),
@@ -122,9 +123,9 @@ def selected_count():
     return captured_count
 """,
     )
-    orders = catalog.entities.get("sales.orders")
-    customer = catalog.relationships.get("sales.customer")
-    region = catalog.fields.get("sales.orders.region")
+    orders = catalog.get("entity:sales.orders").value
+    customer = catalog.get("relationship:sales.customer").value
+    region = catalog_value(catalog, "sales.orders.region", kind="field")
     domain = mv.coordinates(by=(mv.identity(orders),), keys=((("t1", 1),), (("t2", 1),)))
     assert isinstance(domain, mv.Population)
     expected = domain.preimage(domain.image(via=(customer,)), via=(customer,)).classify(
@@ -192,11 +193,11 @@ def selected_count():
     return captured_count.abs()
 """,
     )
-    region = catalog.fields.get("sales.orders.region")
+    region = catalog_value(catalog, "sales.orders.region", kind="field")
     population = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     assert isinstance(population, mv.Population)
     expected = consume_metric(population.count().sqrt().abs()).node
-    actual = consume_metric(catalog.metrics.get("sales.selected_count"))
+    actual = consume_metric(catalog.get("metric:sales.selected_count").value)
     body = next(
         body for reference, body in actual._declared if reference.ref.path == "sales.selected_count"
     )
@@ -262,7 +263,7 @@ def test_population_path_capture_keeps_closed_relationship_values(
 
     first = _catalog(semantic_project_factory, "")
     captured = ModuleType("_population_closed_path_test")
-    captured.relationship = first.relationships.get("sales.customer")
+    captured.relationship = first.get("relationship:sales.customer").value
     monkeypatch.setitem(sys.modules, captured.__name__, captured)
     catalog = _catalog(
         semantic_project_factory,

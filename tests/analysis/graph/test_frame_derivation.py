@@ -5,14 +5,14 @@ import weakref
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_completed_selection_retains_only_source_recipes_and_reopen_has_none(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     source = case.session.observe({"q": amount.sum()})
     selected = source.select({"renamed": source["q"]})
     previous = weakref.ref(selected)
@@ -35,7 +35,7 @@ def test_compare_tracks_every_alias_and_rejects_column_arithmetic_promotion(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     source = case.session.observe({"q": amount.sum()}).compute()
     compared = source.compare({"a": mv.baseline(source), "b": mv.baseline(source)})
     assert compared._derivation is not None
@@ -62,8 +62,8 @@ def test_frame_key_dependencies_become_coordinate_only_checkpoints(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
-    region = case.session.catalog.fields.get("sales.customer.region")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
     source = case.session.observe({"q": amount.sum()}, by=(region,))
     selected = source.top(1, by=source["q"])
     population = case.session.population_from(selected, on=((selected.axes[0], region),))
@@ -89,7 +89,7 @@ def test_align_difference_uses_projected_slots_after_direct_rename(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     first = case.session.observe({"a": amount.sum()})
     second = case.session.observe({"b": amount.sum()})
     left = first.select({"q": first["a"]})

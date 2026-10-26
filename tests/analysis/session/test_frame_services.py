@@ -28,7 +28,7 @@ from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.session.core import Session
 from marivo.datasource import credentials as cr
 from marivo.semantic import catalog
-from tests.shared_fixtures import terminal_run, terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_run, terminal_runs
 
 
 @pytest.fixture
@@ -206,7 +206,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     session = Session._from_runtime(runtime)
     hook.session = session
     artifact = _publish(session)
-    region = session.catalog.fields.get("sales.orders.region")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     memory = session.values(
         by=(region,), columns={"answer": None}, rows=((("north",), {"answer": 7}),)
     ).compute()

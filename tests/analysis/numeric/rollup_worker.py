@@ -115,18 +115,17 @@ def run(mode: str, project: Path) -> dict[str, Json]:
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
         session = mv.session.get_or_create("equation", timezone="UTC")
-        metrics = session.catalog.metrics
-        gmv = metrics.get("sales.gmv")
-        qty_total = metrics.get("sales.qty_total")
+        gmv = session.catalog.get("metric:sales.gmv").value
+        qty_total = session.catalog.get("metric:sales.qty_total").value
         metrics_by_name = {
-            "net_amount": gmv + metrics.get("sales.cost_total") - gmv,
-            "net_qty": qty_total + metrics.get("sales.qty_count") - qty_total,
-            "amount_mean": metrics.get("sales.amount_mean"),
+            "net_amount": gmv + session.catalog.get("metric:sales.cost_total").value - gmv,
+            "net_qty": qty_total + session.catalog.get("metric:sales.qty_count").value - qty_total,
+            "amount_mean": session.catalog.get("metric:sales.amount_mean").value,
         }
         scope = session.time_scope(start="2026-07-01", end="2026-08-01")
         original = session.observe(
             metrics_by_name,
-            by=mv.product(scope, session.members(session.catalog.entities.get("sales.orders"))),
+            by=mv.product(scope, session.members(session.catalog.get("entity:sales.orders").value)),
         ).persist()
         monthly = session.observe(metrics_by_name, by=(scope,)).persist()
         artifacts: dict[str, Json] = {

@@ -7,7 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
 @pytest.mark.parametrize("decimal", (False, True))
@@ -25,7 +25,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    category = session.catalog.fields.get("sales.order.channel")
+    category = catalog_value(session.catalog, "sales.order.channel", kind="field")
     current = session.values(
         by=(category,),
         columns={"sales": "CNY"},

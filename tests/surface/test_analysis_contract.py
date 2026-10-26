@@ -6,7 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, rendered_help, terminal_runs
 
 
 def test_removed_action_contract_is_not_public() -> None:
@@ -24,14 +24,16 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
     kind: Literal["AnalysisFrame", "Population"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    metric = case.catalog.metrics.get("sales.revenue")
+    metric = catalog_value(case.catalog, "sales.revenue", kind="metric")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("logical contract opened or read a source")
 
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    population = case.session.members(case.session.catalog.entities.get("sales.customer"))
+    population = case.session.members(
+        catalog_value(case.session.catalog, "sales.customer", kind="entity")
+    )
     receiver = case.session.observe({"revenue": metric}) if kind == "AnalysisFrame" else population
     assert capsys.readouterr().out == ""
     assert ".show()" in repr(receiver)
@@ -62,8 +64,8 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
-    revenue = session.catalog.metrics.get("sales.revenue")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("scope disclosure opened or read a source")
@@ -72,7 +74,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
         guard.setattr(SourceSession, "__enter__", forbidden)
         guard.setattr(SourceSession, "execute", forbidden)
         members = session.members(
-            session.catalog.entities.get("sales.customer"), where=region == "east"
+            catalog_value(session.catalog, "sales.customer", kind="entity"), where=region == "east"
         )
         complete = mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",)))
         query = session.observe(
@@ -128,7 +130,7 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    entity = case.catalog.entities.get("sales.customer")
+    entity = catalog_value(case.catalog, "sales.customer", kind="entity")
     large = mv.coordinates(
         by=(mv.identity(entity),),
         keys=tuple(((f"member-{i}",),) for i in range(5000)),
@@ -139,12 +141,13 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     assert capsys.readouterr().out == first
     assert "5000" in first and "member-4999" not in first
     assert len(first.encode()) <= 8193
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     east = case.session.members(
-        case.session.catalog.entities.get("sales.customer"), where=region == "east"
+        catalog_value(case.session.catalog, "sales.customer", kind="entity"), where=region == "east"
     )
     south = case.session.members(
-        case.session.catalog.entities.get("sales.customer"), where=region == "south"
+        catalog_value(case.session.catalog, "sales.customer", kind="entity"),
+        where=region == "south",
     )
     domain = east.union(south).difference(south)
     domain.show()
@@ -159,7 +162,7 @@ def test_unicode_scope_keeps_every_continuation_visible(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     domains = [
         mv.coordinates(by=(region,), keys=tuple(("\u754c" * 600 + f"{i}-{j}",) for j in range(3)))
         for i in range(6)
@@ -180,7 +183,7 @@ def test_output_names_and_column_show_preserve_complete_metadata(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    metric = case.catalog.metrics.get("sales.revenue")
+    metric = catalog_value(case.catalog, "sales.revenue", kind="metric")
     names = tuple(f"amount_{index}" for index in range(20))
     query = case.session.observe(dict.fromkeys(names, metric))
 

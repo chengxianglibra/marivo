@@ -10,9 +10,13 @@ single success flag covers all of them.
 import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=project_root)
-orders = catalog.entities.get("sales.orders")
-revenue = catalog.metrics.get("sales.revenue")
-catalog.describe(ms.ref.metric("sales.revenue")).show()
+orders_entry = catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+orders = orders_entry.value
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry.value
+catalog.get("metric:sales.revenue").show()
 ```
 
 workspace_dir is an exact workspace root. If omitted, root resolution uses
@@ -46,24 +50,76 @@ A new load establishes a new scope; see [definition identity](semantic-object-mo
 
 ## Catalog consumption
 
-Collections accept a unique local name or complete path string within their
-scope. They do not accept kind-prefixed strings or lookup symbols as get keys.
-Domain-scoped collections cannot escape their domain. Empty collections,
-unknown names and ambiguous short names remain distinct outcomes.
+`ms.load(...)` and `session.catalog` return the same `SemanticCatalog` type.
+The first loads the requested project/domain scope; the latter uses the Session's
+saved project and domain selection. They may be different snapshots, but there
+is one discovery/lookup contract. Its canonical Help owners are
+`semantic.semantic_catalog.search`, `semantic.semantic_catalog.get` and
+`semantic.readiness`. `analysis.inputs.catalog` explains acquisition and links
+to these native owners; it does not register parallel Catalog methods.
 
-| Collection | Returned value |
-| --- | --- |
-| entities | Immutable resolved Entity |
-| fields | Native Deferred categorical/time/Measure expression |
-| metrics | Native Deferred Metric expression |
-| relationships | Immutable resolved Relationship |
-| domains / datasources | Entry with details and narrower collections |
-| period_calendars / temporal_sets | Entry backed by dedicated temporal authority |
+Use `catalog.search(query, kind=..., domain=..., entity=..., limit=10)` to discover
+business objects. Empty query browses deterministically without model calls.
+Every page contains immutable typed directory entries, captured scope, explicit
+filters, query matching records, retrieval metadata and a continuation cursor.
+`candidate_count` counts the fixed candidate pool; it is not a global semantic
+match count. Display budgets do not change `items` or `next_cursor`; `.to_dict()`
+retains the full API page. Resume with the same query and filters; stale cursors
+fail explicitly instead of silently reranking.
 
-Use catalog.describe(ref) for captured expression metadata; Deferred has no
-Marivo show/contract method. Entry details and typed fields describe captured
-facts. Help describes static operation syntax. [Public surface](../agent-friendly-public-surface.md)
-defines these disclosure responsibilities.
+`catalog.get("metric:sales.revenue")` retrieves one canonical `kind:path`
+identity. It returns a closed union: check `entry.kind` before using specialized
+members. Executable variants expose native closed `.value`; Domain/Datasource
+entries have no executable value. Calendar and temporal-set entries retain
+certified period/occurrence operations.
+
+```python
+page = catalog.search("accepted revenue", kind="metric", limit=5)
+page.show()
+entry = catalog.get("metric:sales.revenue")
+if entry.kind == "metric":
+    entry.show()
+    revenue = entry.value
+```
+
+`entry.definition` retains complete captured metadata, readable formulas, time
+bindings and context. `.show()` is a bounded projection; `.to_dict()` excludes
+execution values and internal registries. Entries do not proxy expression
+attributes. Query scores and snippets belong to pages, not definitions.
+`entry.related("dependencies")` and reverse navigation use the full loaded
+Catalog scope, independently from discovery filters. Known unloaded identities
+are disclosed separately as `outside_scope`; navigation does not auto-load them.
+A new load acquires current same-path definitions; existing entries retain their
+captured snapshot.
+
+### Search configuration and derived state
+
+Without model configuration, text search is lexical. Configure
+`[semantic.search]` with `mode = "hybrid"`, `embedding_model`, a pinned
+`embedding_revision`, `query_prefix`, `document_prefix`, `max_tokens`,
+`batch_size` and `candidate_window` to enable multilingual vector recall.
+`[semantic.search.relevance]` requires a project-specific `calibration_id` and
+`min_similarity`; optional reranking also requires `min_reranker_score` and
+`[semantic.search.reranker]` model/revision/length settings.
+
+Install the `semantic-search` extra and explicitly prepare the pinned model in
+the environment's Hugging Face cache. Runtime model loading is local-only and
+does not download weights. `ms.load` freezes configuration and does not run
+inference. Only configured text search loads models, encodes missing documents
+and queries, and optionally reranks. Input overflow and model failures raise
+structured semantic errors; configured hybrid never silently falls back.
+
+Both recall channels apply explicit filters before their top-k windows. RRF
+combines ranks; canonical identity/path exact matches remain first and survive
+relevance gating within those filters. Similarity does not establish identical
+business meaning or execution authority. Author `ms.ai_context(aliases=[...])`
+for explicit search aliases; aliases do not create alternate identities.
+
+Rebuildable vector, index and fixed-ranking caches live in
+`<project_root>/.marivo/semantic/search/`. Keys capture text projection, model
+revision/encoding parameters and scope. Changed definitions invalidate affected
+projections; stale/deleted members cannot reappear through vector reuse. No
+business datasource is read by load, search, get, show or related navigation.
 
 ## Validation boundaries
 
@@ -76,9 +132,9 @@ defines these disclosure responsibilities.
 | Temporal preview | Complete declared finite authority source | Certified immutable calendar/set/schedule snapshot | Business fact capture or arbitrary Analysis support |
 | Frame.compute / persist | Explicit prepared analysis dependencies | Actual admitted computation; persist also commits it | Unrun providers, installed packages or release qualification |
 
-Readiness accepts physical inputs, rather than published derived expressions.
-Describe an expression and check its physical dependencies. Structured repairs
-list actual dependency candidates; the caller explicitly chooses the retry.
+Readiness accepts selected entries and expands their physical dependency closures.
+Requested and checked identities remain distinct in the report. Structured repairs
+list actual dependency candidates; derived expression selection is not execution proof.
 analysis_ready_inputs includes only directly requested physical refs whose
 closures have no blocker. Dependency refs remain diagnostic inputs. Warnings
 and blockers stay on the same ReadinessReport.

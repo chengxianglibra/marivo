@@ -20,6 +20,7 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.expressions import catalog_metric_definition, entity_exact
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
 
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
@@ -232,7 +233,7 @@ def test_catalog_closure_reports_an_unpublished_metric(
 
     catalog = _catalog(semantic_project_factory)
     missing = declare(
-        catalog.metrics.get("sales.revenue"),
+        catalog.get("metric:sales.revenue").value,
         DeclarationRecord(
             kind="metric",
             name="missing",
@@ -277,19 +278,21 @@ def test_published_single_source_metric_keeps_where(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    status = catalog.fields.get("sales.orders.status")
-    order_count = catalog.metrics.get("sales.order_count")
+    status = catalog_value(catalog, "sales.orders.status", kind="field")
+    order_count = catalog.get("metric:sales.order_count").value
     paid = order_count.where(status == "paid")
     assert isinstance(consume_metric(paid).node, ContributionFilter)
     assert isinstance(consume_metric(paid).node.operand, DeclaredMetricRef)
     settled = paid.where(status != "void")
     assert isinstance(consume_metric(settled).node, ContributionFilter)
     assert isinstance(
-        consume_metric(catalog.metrics.get("sales.revenue").where(status == "paid")).node,
+        consume_metric(catalog.get("metric:sales.revenue").value.where(status == "paid")).node,
         ContributionFilter,
     )
     with pytest.raises(SemanticExpressionError) as raised:
-        consume_metric(catalog.metrics.get("sales.average_order_value").where(status == "paid"))
+        consume_metric(
+            catalog.get("metric:sales.average_order_value").value.where(status == "paid")
+        )
     assert raised.value.kind == ErrorKind.INVALID_WHERE_SCOPE
 
 
@@ -341,8 +344,8 @@ def test_closure_rechecks_where_scope_against_the_current_definition(
     from marivo.semantic.expressions import catalog_closure
 
     first = _catalog(semantic_project_factory)
-    status = first.fields.get("sales.orders.status")
-    paid_orders = first.metrics.get("sales.order_count").where(status == "paid")
+    status = catalog_value(first, "sales.orders.status", kind="field")
+    paid_orders = first.get("metric:sales.order_count").value.where(status == "paid")
     second = _changed_catalog(
         semantic_project_factory,
         tmp_path,

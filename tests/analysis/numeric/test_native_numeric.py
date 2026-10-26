@@ -18,6 +18,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 
 
 def _value(result: mv.AnalysisFrame) -> pd.Series:
@@ -65,9 +66,9 @@ def test_source_mean_strict_checks_survive_output_clipping(
             "(2,'2026-07-01',NULL,1,'a'),(3,'2026-07-01',30,1,'b')"
         )
     session = mv.session.get_or_create("strict-native-mean", timezone="UTC")
-    value = session.catalog.fields.get("sales.facts.value")
-    day = session.catalog.fields.get("sales.facts.day")
-    category = session.catalog.fields.get("sales.facts.category")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     assert _value(session.observe({"value": value.mean(time=day)}, by=(scope,)).compute())[0] == 20
     strict = session.observe(
@@ -129,15 +130,15 @@ def test_native_weighted_and_mean(
     model = tmp_path / "models/semantic/sales/facts.py"
     model.write_text(model.read_text().replace("md.table('facts',", "md.parquet('facts.parquet',"))
     session = mv.session.get_or_create("native", timezone="UTC")
-    members = session.members(session.catalog.entities.get("sales.facts"))
+    members = session.members(session.catalog.get("entity:sales.facts").value)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     observed = session.observe(
-        {"value": session.catalog.metrics.get("sales.weighted")}, by=mv.product(scope, members)
+        {"value": session.catalog.get("metric:sales.weighted").value}, by=mv.product(scope, members)
     )
     total = session.observe(
         {
-            "weighted": session.catalog.metrics.get("sales.weighted"),
-            "mean": session.catalog.metrics.get("sales.mean"),
+            "weighted": session.catalog.get("metric:sales.weighted").value,
+            "mean": session.catalog.get("metric:sales.mean").value,
         },
         by=(scope,),
         where=mv.in_population(members),
@@ -150,8 +151,8 @@ def test_native_weighted_and_mean(
         session.read(
             members,
             {
-                "value": session.catalog.fields.get("sales.facts.value"),
-                "weight": session.catalog.fields.get("sales.facts.weight"),
+                "value": catalog_value(session.catalog, "sales.facts.value", kind="field"),
+                "weight": catalog_value(session.catalog, "sales.facts.weight", kind="field"),
             },
         )
         .compute()
@@ -162,17 +163,17 @@ def test_native_weighted_and_mean(
         (raw["value"].loc[pair] * raw["weight"].loc[pair]).sum() / raw["weight"].loc[pair].sum()
     ) == pytest.approx(expected)
     assert saved.to_pandas().equals(session.persisted_frame(saved.artifact.id).to_pandas())
-    coordinate = session.catalog.fields.get("sales.facts.category")
+    coordinate = catalog_value(session.catalog, "sales.facts.category", kind="field")
     with_coordinates = session.observe(
-        {"value": session.catalog.metrics.get("sales.weighted")},
+        {"value": session.catalog.get("metric:sales.weighted").value},
         by=(scope, members.axes[0], coordinate),
         where=mv.in_population(members),
     )
     grouped = (
         session.observe(
             {
-                "weighted": session.catalog.metrics.get("sales.weighted"),
-                "mean": session.catalog.metrics.get("sales.mean"),
+                "weighted": session.catalog.get("metric:sales.weighted").value,
+                "mean": session.catalog.get("metric:sales.mean").value,
             },
             by=(scope, coordinate),
             where=mv.in_population(members),
@@ -191,7 +192,7 @@ def test_native_weighted_and_mean(
         # Current rows use ties-away Decimal convergence. This is not source
         # mean reconstruction: each admitted fact is one represented row here.
         represented = session.observe(
-            {"value": session.catalog.metrics.get("sales.mean")},
+            {"value": session.catalog.get("metric:sales.mean").value},
             by=(scope, members.axes[0], coordinate),
             where=mv.in_population(members),
         ).compute()
@@ -200,7 +201,7 @@ def test_native_weighted_and_mean(
         ).compute()
         assert _value(row_means).tolist() == [expected_a, Decimal("5.00")]
     mean = session.observe(
-        {"value": session.catalog.metrics.get("sales.mean")}, by=mv.product(scope, members)
+        {"value": session.catalog.get("metric:sales.mean").value}, by=mv.product(scope, members)
     )
 
 
@@ -289,11 +290,12 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
             model.read_text().replace("md.table('facts',", f"md.table({case.source.table!r},")
         )
         session = mv.session.get_or_create("native_remote", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.facts"))
+        members = session.members(session.catalog.get("entity:sales.facts").value)
         scope = session.time_scope(start="2026-07-01", end="2026-07-02")
         saved = (
             session.read(
-                members, {"value": session.catalog.fields.get("sales.facts.value")}
+                members,
+                {"value": catalog_value(session.catalog, "sales.facts.value", kind="field")},
             ).persist()
             if fixed
             else None
@@ -301,11 +303,12 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
         previous = saved.to_pandas() if saved is not None else None
         if saved is not None:
             weights = session.read(
-                members, {"weight": session.catalog.fields.get("sales.facts.weight")}
+                members,
+                {"weight": catalog_value(session.catalog, "sales.facts.weight", kind="field")},
             ).compute()
             assert weights.to_pandas()["weight"].tolist() == [2**63 - 1] * 2
         result = session.observe(
-            {"value": session.catalog.metrics.get("sales.weighted")},
+            {"value": session.catalog.get("metric:sales.weighted").value},
             by=(scope,),
             where=mv.in_population(members),
         ).persist()
@@ -350,9 +353,10 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             "INSERT INTO facts VALUES (1,'2026-07-01',1.25,0.5,'a'),(2,'2026-07-01',2.75,1.5,'a')"
         )
     session = mv.session.get_or_create("native", timezone="UTC")
-    coordinate = session.catalog.fields.get("sales.facts.category")
-    metric = session.catalog.metrics.get("sales.total") - session.catalog.metrics.get(
-        "sales.weights"
+    coordinate = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    metric = (
+        session.catalog.get("metric:sales.total").value
+        - session.catalog.get("metric:sales.weights").value
     )
     observed = session.observe(
         {"value": metric}, by=(session.time_scope(start="2026-07-01", end="2026-07-02"), coordinate)
@@ -429,12 +433,12 @@ def test_mixed_component_attribution_source_and_fixed(
         )
     _component_model(tmp_path)
     session = mv.session.get_or_create("mixed_attribution", timezone="UTC")
-    members = session.members(session.catalog.entities.get("sales.people"))
-    axis = session.catalog.fields.get("sales.facts.category")
+    members = session.members(session.catalog.get("entity:sales.people").value)
+    axis = catalog_value(session.catalog, "sales.facts.category", kind="field")
     metrics = {
-        "weighted": session.catalog.metrics.get("sales.weighted"),
-        "ratio": session.catalog.metrics.get("sales.total")
-        / session.catalog.metrics.get("sales.weights"),
+        "weighted": session.catalog.get("metric:sales.weighted").value,
+        "ratio": session.catalog.get("metric:sales.total").value
+        / session.catalog.get("metric:sales.weights").value,
     }
     outputs = {name: metrics[name] for name in methods}
     current = session.observe(
@@ -494,13 +498,13 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
             )
         pq.write_table(table, path)
     session = mv.session.get_or_create("linear_intermediate", timezone="UTC")
-    metrics = session.catalog.metrics
     total, weights, cancel = (
-        metrics.get("sales." + name) for name in ("total", "weights", "cancel_total")
+        session.catalog.get("metric:sales." + name).value
+        for name in ("total", "weights", "cancel_total")
     )
     metric = total - weights if negation else (total + weights) - cancel
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(session.catalog.entities.get("sales.facts"))
+    members = session.members(session.catalog.get("entity:sales.facts").value)
     logical = session.observe({"value": metric}, by=mv.product(scope, members))
     if family == "duration":
         with pytest.raises(AnalysisError):
@@ -538,9 +542,9 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         )
     _component_model(tmp_path)
     session = mv.session.get_or_create("decimal_attribution", timezone="UTC")
-    members = session.members(session.catalog.entities.get("sales.people"))
-    axis = session.catalog.fields.get("sales.facts.category")
-    metric = session.catalog.metrics.get("sales.mean")
+    members = session.members(session.catalog.get("entity:sales.people").value)
+    axis = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    metric = session.catalog.get("metric:sales.mean").value
     current = session.observe(
         {"value": metric},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), axis),
@@ -592,14 +596,15 @@ def test_linear_uses_widened_sums_and_keeps_duration_overflow(
             )
         pq.write_table(table, path)
     session = mv.session.get_or_create("linear_overflow", timezone="UTC")
-    metric = session.catalog.metrics.get("sales.total") + session.catalog.metrics.get(
-        "sales.weights"
+    metric = (
+        session.catalog.get("metric:sales.total").value
+        + session.catalog.get("metric:sales.weights").value
     )
     logical = session.observe(
         {"value": metric},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.entities.get("sales.facts")),
+            session.members(session.catalog.get("entity:sales.facts").value),
         ),
     )
     fixed = logical.persist()
@@ -607,7 +612,7 @@ def test_linear_uses_widened_sums_and_keeps_duration_overflow(
     overall = session.observe(
         {"value": metric},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-        where=mv.in_population(session.members(session.catalog.entities.get("sales.facts"))),
+        where=mv.in_population(session.members(session.catalog.get("entity:sales.facts").value)),
     )
     if duration:
         with pytest.raises(AnalysisError):
@@ -631,9 +636,10 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         )
     _component_model(tmp_path)
     session = mv.session.get_or_create("linear_comparison", timezone="UTC")
-    members = session.members(session.catalog.entities.get("sales.people"))
-    metric = session.catalog.metrics.get("sales.total") + session.catalog.metrics.get(
-        "sales.weights"
+    members = session.members(session.catalog.get("entity:sales.people").value)
+    metric = (
+        session.catalog.get("metric:sales.total").value
+        + session.catalog.get("metric:sales.weights").value
     )
     current = session.observe(
         {"value": metric},

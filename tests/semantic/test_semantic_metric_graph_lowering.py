@@ -19,7 +19,7 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 
@@ -73,7 +73,7 @@ def test_count_unit_survives_published_definition_resolution(
     semantic_project_factory: ProjectFactory, name: str
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    assert consume_metric(catalog.metrics.get(f"sales.{name}")).unit == "1"
+    assert consume_metric(catalog_value(catalog, f"sales.{name}", kind="metric")).unit == "1"
     assert consume_metric(catalog._state.registry.declared_metrics[f"sales.{name}"]).unit == "1"
 
 
@@ -85,8 +85,8 @@ def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
     assert computation_fingerprint(
         consume_metric(declarations["sales.revenue"]).node
     ) == computation_fingerprint(consume_metric(declarations["sales.revenue_alias"]).node)
-    first = catalog.metrics.get("sales.revenue")
-    second = catalog.metrics.get("sales.revenue_alias")
+    first = catalog.get("metric:sales.revenue").value
+    second = catalog.get("metric:sales.revenue_alias").value
     first_node, second_node = consume_metric(first).node, consume_metric(second).node
     assert isinstance(first_node, DeclaredMetricRef)
     assert isinstance(second_node, DeclaredMetricRef)
@@ -106,7 +106,7 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
         raise AssertionError("definition binding opened a source")
 
     monkeypatch.setattr("marivo.datasource.backends._build_backend_from_effective", forbidden)
-    query = session.observe({"nested": catalog.metrics.get("sales.outer")})
+    query = session.observe({"nested": catalog.get("metric:sales.outer").value})
     graph = _captured_graph(query)
     assert isinstance(graph.root, ObserveQuery)
     closure = walk(

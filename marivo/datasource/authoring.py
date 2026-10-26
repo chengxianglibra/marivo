@@ -44,6 +44,7 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     return AiContextIR(
         business_definition=ai_context.business_definition,
         guardrails=ai_context.guardrails,
+        aliases=ai_context.aliases,
     )
 
 

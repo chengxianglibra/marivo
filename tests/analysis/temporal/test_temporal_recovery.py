@@ -20,7 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -100,10 +100,10 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         models.write_text(body.replace(anchor, subject_models + anchor))
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("temporal-int64-recovery", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
-        total = session.catalog.metrics.get("sales.total")
-        time = session.catalog.fields.get("sales.facts.happened")
-        amount = session.catalog.fields.get("sales.facts.amount")
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        total = session.catalog.get("metric:sales.total").value
+        time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         scope = session.time_scope(start="2026-08-01", end="2026-08-03")
         calendar = scope.by(mv.grain("day"))
         temporal = session.observe({"value": total.per(time).mean()}, by=mv.product(scope, members))

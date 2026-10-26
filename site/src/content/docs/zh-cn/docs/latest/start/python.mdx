@@ -107,7 +107,9 @@ session = mv.session.get_or_create(
     f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
 )
 catalog = session.catalog
-revenue = catalog.metrics.get("sales.revenue")
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry.value
 pending = session.observe({"revenue": revenue})
 fixed = pending.compute()
 fixed.show()

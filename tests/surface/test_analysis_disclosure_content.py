@@ -39,7 +39,7 @@ from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
 from marivo.cli import main
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_empty_select_help_discloses_retained_domain() -> None:
@@ -83,7 +83,7 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = case.catalog.metrics.get("sales.revenue")
+    revenue = catalog_value(case.catalog, "sales.revenue", kind="metric")
     frame = session.values(by=(), columns={"value": None}, rows=(((), {"value": 6}),))
     baseline = session.values(by=(), columns={"value": None}, rows=(((), {"value": 2}),))
     namespace: dict[str, object] = {
@@ -318,7 +318,7 @@ def test_partition_and_share_help_examples_return_composable_same_input_columns(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     frame = case.session.values(
         by=(region,),
         columns={"value": "CNY"},
@@ -354,7 +354,7 @@ def test_selected_frame_statistics_reacquire_exact_input_handles(
     analysis_dsl_case_factory: DslCaseFactory, selection: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     frame = case.session.values(
         by=(region,),
         columns={"amount": None},
@@ -425,7 +425,7 @@ def test_correlation_help_contract_and_executable_examples(
 ) -> None:
     """C09: canonical, class and bound targets share executable, bounded facts."""
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     frame = case.session.values(
         by=(region,),
         columns={"value": "CNY", "other": "count"},
@@ -657,7 +657,7 @@ def test_fix_help_matches_callable_and_runs_public_example(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     frame = case.session.values(
         by=(region,),
         columns={"value": "CNY"},

@@ -199,7 +199,7 @@ ref = ms.ref.period_calendar("sales.fiscal")
 preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
 assert preview.is_truncated
 assert preview.coverage.scope_exhaustion == "exhaustive"
-calendar = catalog.period_calendars.get("sales.fiscal")
+calendar = catalog.get("period_calendar:sales.fiscal")
 period = calendar.period("week", "FY2026-W01")
 assert period.kind == "calendar_period"
 period.show()

@@ -6,7 +6,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_public_identity_observation_executes_and_retains_outside_window_members(
@@ -24,14 +24,16 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         return original(self, read)
 
     monkeypatch.setattr(SourceSession, "execute", traced)
-    amount = session.catalog.fields.get(
-        f"{case.names.domain}.{case.names.order}.{case.names.amount}"
+    amount = catalog_value(
+        session.catalog, f"{case.names.domain}.{case.names.order}.{case.names.amount}", kind="field"
     )
-    time = session.catalog.fields.get(
-        f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}"
+    time = catalog_value(
+        session.catalog,
+        f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}",
+        kind="field",
     )
     members = session.members(
-        session.catalog.entities.get(f"{case.names.domain}.{case.names.order}")
+        catalog_value(session.catalog, f"{case.names.domain}.{case.names.order}", kind="entity")
     )
     observed = session.observe(
         {"value": amount.sum(time=time)},

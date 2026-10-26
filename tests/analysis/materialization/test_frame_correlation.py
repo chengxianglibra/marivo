@@ -40,7 +40,13 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    catalog_value,
+    export_dsl_parquet_models,
+    terminal_runs,
+)
 from tests.support.source_trace import capture_source
 
 Number = int | float | Decimal | None
@@ -593,9 +599,9 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
 
 
 def _source(case: DslCase) -> AnalysisFrame:
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     return case.session.read(
-        case.session.members(case.session.catalog.entities.get("sales.order")),
+        case.session.members(case.session.catalog.get("entity:sales.order").value),
         {"x": amount, "y": amount},
     )
 

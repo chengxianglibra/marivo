@@ -111,8 +111,10 @@ Choose disclosure for the current gap:
   domains; Frame work calculates over the represented data. Construction
   captures dependencies, so a source question need not read a source and
   evaluating a pending Frame can still execute its captured source dependencies.
-- Unknown identity: browse a bounded catalog collection; select closed inputs by
-  exact path through the matching collection. Native lookup selectors belong only
+- Unknown identity: search or browse bounded Catalog candidates and compare their
+  complete business definitions and restrictions. Preserve canonical identities
+  across calls; inspect entry kind before taking a native closed value. Native
+  lookup selectors belong only
   to explicitly supported metadata/readiness operations, not ordinary analysis.
 - Missing syntax or precondition: read the exact callable Help.
 - Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`

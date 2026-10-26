@@ -12,7 +12,7 @@ import pyarrow as pa
 import marivo.analysis as mv
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _frame, _offline, _ordinary_keys, _remove_sources
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 FACTS = (
@@ -181,12 +181,16 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         queries: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = f"sales.subjects_{kind}"
-            members = session.members(session.catalog.entities.get(entity), at=august)
-            amount = session.catalog.fields.get(entity + ".amount")
-            enabled = session.catalog.fields.get(entity + ".enabled")
+            members = session.members(
+                catalog_value(session.catalog, entity, kind="entity"), at=august
+            )
+            amount = catalog_value(session.catalog, entity + ".amount", kind="field")
+            enabled = catalog_value(session.catalog, entity + ".enabled", kind="field")
             queries[kind + "_aug"] = session.read(members, {"value": amount.at(august)})
             queries[kind + "_sep"] = session.read(
-                session.members(session.catalog.entities.get(entity), at=september),
+                session.members(
+                    catalog_value(session.catalog, entity, kind="entity"), at=september
+                ),
                 {"value": amount.at(september)},
             )
             classification = session.read(members, {"enabled": enabled.at(august)})
@@ -197,7 +201,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 on=(
                     (
                         next(axis for axis in fixed.axes if axis.role == "identity"),
-                        session.catalog.entities.get(entity),
+                        catalog_value(session.catalog, entity, kind="entity"),
                     ),
                 ),
             )
@@ -207,22 +211,24 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 ("settled_early", "2026-09-01", "2026-10-01"),
                 ("settled", "2026-10-01", "2026-11-01"),
             ):
-                energy = session.catalog.fields.get("sales.readings.energy")
-                time = session.catalog.fields.get(
-                    "sales.readings." + ("recorded_at" if clock == "recorded" else "settled_at")
+                energy = catalog_value(session.catalog, "sales.readings.energy", kind="field")
+                time = catalog_value(
+                    session.catalog,
+                    "sales.readings." + ("recorded_at" if clock == "recorded" else "settled_at"),
+                    kind="field",
                 )
                 metric = energy.sum(time=time)
                 queries[kind + "_" + clock] = session.observe(
                     {"value": metric},
                     by=mv.product(session.time_scope(start=start, end=end), chosen),
                 )
-        stable = session.members(session.catalog.entities.get("sales.subjects"))
-        profile = session.catalog.fields.get("sales.subjects_snapshot.amount").via(
-            (session.catalog.relationships.get("sales.subject_profiles"),)
-        )
+        stable = session.members(session.catalog.get("entity:sales.subjects").value)
+        profile = catalog_value(
+            session.catalog, "sales.subjects_snapshot.amount", kind="field"
+        ).via((session.catalog.get("relationship:sales.subject_profiles").value,))
         queries["attributes_aug"] = session.read(stable, {"value": profile.at(august)})
         first = mv.coordinates(
-            by=(mv.identity(session.catalog.entities.get("sales.subjects")),),
+            by=(mv.identity(session.catalog.get("entity:sales.subjects").value),),
             keys=(((9007199254740992, "a"),),),
         )
         queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})

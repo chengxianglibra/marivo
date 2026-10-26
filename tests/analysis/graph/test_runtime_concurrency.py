@@ -75,7 +75,7 @@ def test_busy_contender_preserves_real_producer(
 
     monkeypatch.setattr(SourceSession, "execute", capture)
     committed = case.session.frame(
-        case.session.members(case.session.catalog.entities.get("sales.customer"))
+        case.session.members(case.session.catalog.get("entity:sales.customer").value)
     ).persist()
     logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"

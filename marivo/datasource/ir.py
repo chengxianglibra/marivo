@@ -10,6 +10,8 @@ from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
 
+from marivo.datasource.typing import _normalize_aliases
+
 __all__ = [
     "AiContextIR",
     "CsvSourceIR",
@@ -48,6 +50,10 @@ class AiContextIR:
 
     business_definition: str | None = None
     guardrails: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "aliases", _normalize_aliases(self.aliases))
 
 
 DatasourceAiContextIR = AiContextIR

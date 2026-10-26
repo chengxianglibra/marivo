@@ -15,6 +15,7 @@ from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
     analysis_dsl_rows,
+    catalog_value,
     export_dsl_parquet_models,
 )
 from tests.support.paths import PROJECT_ROOT
@@ -43,22 +44,24 @@ def _proportions(frame: pd.DataFrame) -> pd.DataFrame:
 def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)},
+        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.entities.get("sales.customer")),
+            session.members(session.catalog.get("entity:sales.customer").value),
         ),
     )
 
 
 def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     return session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)},
+        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            members.classify(by=(session.catalog.fields.get("sales.customer.region"),)),
+            members.classify(
+                by=(catalog_value(session.catalog, "sales.customer.region", kind="field"),)
+            ),
         ),
     )
 
@@ -243,9 +246,9 @@ def test_original_metric_standardization_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     trace = capture_source(monkeypatch)
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    region = session.catalog.fields.get("sales.customer.region")
-    base = session.catalog.metrics.get("sales.revenue")
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    base = session.catalog.get("metric:sales.revenue").value
     groups = session.observe(
         {"sum": base, "ratio": base / base},
         by=mv.product(
@@ -315,13 +318,17 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    region = session.catalog.fields.get("sales.customer.region")
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     amount, time = (
-        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
+        catalog_value(session.catalog, "sales.order." + name, kind="field")
+        for name in ("amount", "ordered_at")
     )
     groups = session.observe(
-        {"count": session.catalog.metrics.get("sales.order_count"), "mean": amount.mean(time=time)},
+        {
+            "count": session.catalog.get("metric:sales.order_count").value,
+            "mean": amount.mean(time=time),
+        },
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
         ),
@@ -415,8 +422,10 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    read = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    read = session.read(
+        members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
+    )
     saved = read.persist()
     table = _plain(saved).set_index("key_0")
     assert set(table.index) == {(7, "A"), (7, "B"), (7, "C"), (7, "D"), (8, "A")}
@@ -542,11 +551,11 @@ def test_reference_preparation_captures_independent_source_origins(
 
     case = analysis_dsl_case_factory("j3")
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    region = session.catalog.fields.get("sales.customer.region")
-    counts = session.catalog.metrics.get("sales.order_count")
-    lines = session.catalog.metrics.get("sales.line_revenue")
-    revenue = session.catalog.metrics.get("sales.revenue")
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    counts = session.catalog.get("metric:sales.order_count").value
+    lines = session.catalog.get("metric:sales.line_revenue").value
+    revenue = session.catalog.get("metric:sales.revenue").value
     q = session.observe(
         {"count": counts, "lines": lines, "average": lines / counts, "linear": revenue + lines},
         by=mv.product(

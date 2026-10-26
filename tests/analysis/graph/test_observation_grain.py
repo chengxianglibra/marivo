@@ -16,12 +16,12 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.errors import SemanticError
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.entities.get("sales.customer"))
+    return case.session.members(case.session.catalog.get("entity:sales.customer").value)
 
 
 def _august(case: DslCase) -> mv.TimeScope:
@@ -40,7 +40,11 @@ def _query(
     if during is not None:
         domain = mv.product(during, by) if isinstance(by, mv.Population) else (during, *by)
     return case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.revenue") if metric is None else metric},
+        {
+            "value": case.session.catalog.get("metric:sales.revenue").value
+            if metric is None
+            else metric
+        },
         by=domain,
         where=mv.in_population(members) if members is not None else None,
     )
@@ -72,7 +76,7 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         case.session.frame(
             case.session.population_from(
                 individual,
-                on=((individual.axes[1], case.session.catalog.entities.get("sales.customer")),),
+                on=((individual.axes[1], case.session.catalog.get("entity:sales.customer").value),),
             )
         )
         .persist()
@@ -85,8 +89,8 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     case = analysis_dsl_case_factory("j1")
     session = case.session
     members = _members(case)
-    region = session.catalog.fields.get("sales.customer.region")
-    channel = session.catalog.fields.get("sales.order.channel")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     grouped = _query(case, by=members.classify(by=(region,)), members=members, during=_august(case))
     assert _keyed(grouped.persist().to_pandas()) == {("east",): 600, ("south",): 400, ("west",): 0}
     channels = _query(case, by=(channel,), members=members, during=_august(case))
@@ -100,7 +104,7 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     classifications = session.read(members, {"region": region})
     chosen = classifications.where(classifications["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
     )
     saved = _query(
         case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
@@ -117,8 +121,8 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     axes = (customer, channel) if member_first else (channel, customer)
     observed = _query(
         case,
@@ -133,11 +137,11 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     assert observed.reduce({"value": observed["value"].sum()}).persist().to_pandas()[
         "value"
     ].tolist() == [1099]
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     classifications = session.read(_members(case), {"region": region})
     chosen = classifications.where(classifications["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
     )
     result = _query(case, by=selected, members=selected).persist().to_pandas()
     assert _keyed(result) == {("A",): 626, ("B",): 150}
@@ -146,9 +150,9 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
 def test_component_domains_union_complete_tuples(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    channel = session.catalog.fields.get("sales.order.channel")
-    region = session.catalog.fields.get("sales.customer.region")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     difference = revenue.where(channel == "web") - revenue.where(channel == "mobile")
     grouped = _query(
         case, metric=difference, by=(region, channel), members=_members(case), during=_august(case)
@@ -169,7 +173,7 @@ def test_member_classification_survives_rollup_for_additive_comparison(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     members = _members(case)
 
     def endpoint(month: int) -> mv.AnalysisFrame:
@@ -208,11 +212,11 @@ def test_grid_observation_keeps_time_without_member_axis(
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     observed = _query(case, during=calendar, members=_members(case))
     assert observed.persist().to_pandas()["value"].tolist() == [1000, 99]
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     region_domain = mv.product(_members(case).classify(by=(region,)), calendar)
     region_rows = _query(case, by=region_domain, members=_members(case)).persist().to_pandas()
     assert len(region_rows) == 6
-    channel = session.catalog.fields.get("sales.order.channel")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     rows = (
         _query(case, by=(channel,), during=calendar, members=_members(case)).persist().to_pandas()
     )
@@ -248,8 +252,8 @@ def test_explicit_business_coverage_masks_exported_values(
 def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(session.catalog.entities.get("sales.order"))
+    metric = session.catalog.get("metric:sales.revenue").value
+    members = session.members(session.catalog.get("entity:sales.order").value)
     with pytest.raises(AnalysisError):
         session.observe(
             {"value": metric},
@@ -285,8 +289,8 @@ def test_direct_aggregate_uses_selected_contributions(
             )
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    time = session.catalog.fields.get("sales.order.ordered_at")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     metric = (
         amount.sum(time=time)
         if method == "sum"
@@ -322,11 +326,11 @@ def test_direct_aggregate_uses_selected_contributions(
             == 2
         )
     if method in ("median", "count_distinct"):
-        region = session.catalog.fields.get("sales.customer.region")
+        region = catalog_value(session.catalog, "sales.customer.region", kind="field")
         regions = session.read(_members(case), {"region": region})
         chosen = regions.where(regions["region"] == "east")
         selected = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
         )
         completed = _query(
             case, metric=metric, by=selected.classify(by=(region,)), members=selected
@@ -339,7 +343,7 @@ def test_direct_aggregate_uses_selected_contributions(
 
 def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
-    metric = case.session.catalog.metrics.get("sales.aov_from_lines")
+    metric = case.session.catalog.get("metric:sales.aov_from_lines").value
     overall = _query(case, metric=metric, members=_members(case))
     individual = _query(case, metric=metric, by=_members(case), members=_members(case))
     assert overall.persist().to_pandas()["value"].tolist() == pytest.approx([200 / 101])
@@ -353,11 +357,11 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
 def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    revenue = session.catalog.metrics.get("sales.revenue")
+    revenue = session.catalog.get("metric:sales.revenue").value
     assert _query(
         case, metric=revenue + revenue, members=_members(case), during=_august(case)
     ).persist().to_pandas()["value"].tolist() == [2000]
-    channel = session.catalog.fields.get("sales.order.channel")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     query = _query(case, by=(channel,), members=_members(case), during=_august(case))
     grouped, total = query.persist(), query.reduce({"value": query["value"].sum()}).persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
@@ -418,8 +422,10 @@ def test_complete_member_entity_keeps_compound_key(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("compound-grain", timezone="UTC")
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    observed = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=members)
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    observed = session.observe(
+        {"value": session.catalog.get("metric:sales.revenue").value}, by=members
+    )
     result = observed.persist()
     assert len(result.artifact._manifest.data.schema.axes[0].columns) == 2
     with duckdb.connect(str(case.database_path)) as connection:
@@ -433,14 +439,14 @@ def test_multiple_member_classifications_keep_complete_time_keys(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
-    identity = session.catalog.fields.get("sales.customer.customer_id")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    identity = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
     members = _members(case)
     identities = session.read(members, {"identity": identity})
     if logical_axes:
         chosen = identities.where(~identities["identity"].is_null())
         members = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
         )
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     domain = mv.product(members.classify(by=(region, identity)), calendar)
@@ -478,7 +484,7 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     domain = _members(case).classify(by=(region,))
 
     def endpoint(month: int) -> mv.AnalysisFrame:

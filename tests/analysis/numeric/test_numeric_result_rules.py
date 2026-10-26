@@ -13,7 +13,7 @@ from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.numeric_state import finish_decimal, sum_values
 from marivo.semantic._numeric_lowering import NumericValue, _source_sum, numeric_binary
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.mark.parametrize(
@@ -164,7 +164,7 @@ def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     frame = case.session.values(
-        by=(case.catalog.fields.get("sales.customer.customer_id"),),
+        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),),
         columns={"x": None, "big": None},
         rows=(
             (("A",), {"x": Decimal("1.23"), "big": 2**63 - 1}),

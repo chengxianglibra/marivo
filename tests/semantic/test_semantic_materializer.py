@@ -20,7 +20,7 @@ from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
-from tests.shared_fixtures import patch_semantic_connections
+from tests.shared_fixtures import catalog_value, patch_semantic_connections
 from tests.support.refs import make_ref
 
 # ---------------------------------------------------------------------------
@@ -540,11 +540,11 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     )
     catalog = SemanticCatalog(project)
 
-    amount = catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     assert consume_field(amount).reference.ref.kind == SemanticKind.MEASURE
     assert consume_field(amount).reference.ref.path == "sales.orders.amount"
     assert consume_row(amount).unit == "USD"
-    assert catalog.describe(ms.ref.measure("sales.orders.amount")).unit == "USD"
+    assert catalog.get("measure:sales.orders.amount").definition.unit == "USD"
 
     with (
         patch_semantic_connections(project, backend_factory),
@@ -726,7 +726,7 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
     )
     with patch_semantic_connections(project, backend_factory) as connections:
         for operation in (
-            lambda: SemanticCatalog(project).metrics.get("sales.nonexistent"),
+            lambda: SemanticCatalog(project).get("metric:sales.nonexistent").value,
             lambda: _materialize_dataset(project, connections, "sales.nonexistent"),
             lambda: _materialize_field(project, connections, "sales.orders.nonexistent"),
         ):

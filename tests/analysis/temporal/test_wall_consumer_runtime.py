@@ -20,6 +20,7 @@ from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, receipt, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import SourceTrace
 
 pytestmark = pytest.mark.runtime
@@ -108,8 +109,8 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
             )
 
         monkeypatch.setattr(mysql, "execute_provider_statement", missing_zone)
-        clock = session.catalog.fields.get("sales.events.clock")
-        amount = session.catalog.fields.get("sales.events.amount")
+        clock = catalog_value(session.catalog, "sales.events.clock", kind="field")
+        amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
         scope = session.time_scope(start="2026-03-08T07:00Z", end="2026-03-08T07:15Z")
         # Raw membership and raw bucket assignment need no native conversion.
         assert session.observe(
@@ -126,8 +127,8 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
             return original_execute(owner, read)
 
         monkeypatch.setattr(SourceSession, "execute", traced)
-        members = session.members(session.catalog.entities.get("sales.events"))
-        parsed = session.catalog.fields.get("sales.events.parsed")
+        members = session.members(session.catalog.get("entity:sales.events").value)
+        parsed = catalog_value(session.catalog, "sales.events.parsed", kind="field")
         outcomes: dict[str, object] = {}
         # This legal non-ordered parser keeps native fallback. Both filter and
         # output conversions must reject missing tables before their read.
@@ -236,8 +237,8 @@ def test_clickhouse_hour_sampling_keeps_neutral_wall_carrier_in_non_utc_session(
                 )
                 monkeypatch.chdir(tmp_path)
                 session = mv.session.get_or_create("neutral-hour-samples", timezone="UTC")
-                amount = session.catalog.fields.get("sales.events.amount")
-                hour = session.catalog.fields.get("sales.events.hour")
+                amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
+                hour = catalog_value(session.catalog, "sales.events.hour", kind="field")
                 scope = session.time_scope(start="2026-05-01T04:00Z", end="2026-05-01T06:00Z")
                 mean = (
                     session.observe({"mean": amount.sum(time=hour).per(hour).mean()}, by=(scope,))

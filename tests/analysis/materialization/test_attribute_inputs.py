@@ -26,7 +26,7 @@ from marivo.datasource.adapters import CompiledRead
 from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
@@ -96,9 +96,9 @@ def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     request = _comparison_inputs(
         session.observe({"q": value.sum() / weight.sum()}, by=()),
         session.observe({"q": value.sum() / weight.sum()}, by=()),
@@ -139,10 +139,10 @@ def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
 
 @pytest.mark.parametrize("weighted", (False, True))
 def test_native_components_share_exact_effective_mask(session: Session, weighted: bool) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    region = session.catalog.fields.get("sales.facts.region")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     metric = value.weighted_mean(weight=weight) if weighted else value.mean()
     output = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": metric}, where=region == "east", by=()), by=(channel,))
@@ -166,8 +166,8 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=10 WHERE id=2")
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with pytest.raises(AnalysisError, match="overlapping_groups"):
         evaluate_attribute_inputs(
             _level_inputs(session.observe({"q": value.count_distinct()}, by=()), by=(channel,))
@@ -177,8 +177,8 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
 def test_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     result = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
     )
@@ -190,9 +190,9 @@ def test_attribute_trusts_declared_root_identity(session: Session, tmp_path: Pat
 def test_selected_empty_parent_retains_known_empty_without_fine_rows(
     session: Session, empty: bool
 ) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    region = session.catalog.fields.get("sales.facts.region")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     parents = mv.coordinates(by=(region,), keys=() if empty else (("absent",),))
     prepared = evaluate_attribute_inputs(
         _level_inputs(
@@ -213,13 +213,13 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
 
 
 def test_membership_parent_overlap_is_independent_and_correlated(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    label = session.catalog.fields.get("sales.tags.label")
-    kind = session.catalog.fields.get("sales.tags.kind")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     path = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
@@ -245,13 +245,13 @@ def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    fact_id = session.catalog.fields.get("sales.facts.id")
-    label = session.catalog.fields.get("sales.tags.label")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    fact_id = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     with pytest.raises(AnalysisError, match="undefined_input" if missing else "overlapping_groups"):
@@ -270,12 +270,12 @@ def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
 def test_identical_membership_assignments_are_idempotent(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("DELETE FROM links WHERE tag_id=2")
-    value = session.catalog.fields.get("sales.facts.value")
-    fact_id = session.catalog.fields.get("sales.facts.id")
-    label = session.catalog.fields.get("sales.tags.label")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    fact_id = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     prepared = evaluate_attribute_inputs(
@@ -293,8 +293,8 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
 
 
 def test_outer_fine_group_has_typed_empty_components(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
             session.observe({"q": value.sum()}, by=()),
@@ -327,8 +327,8 @@ def test_default_path_collects_no_attribute_input_proof(
         raise AssertionError("default requested Attribute input proof")
 
     monkeypatch.setattr(graph_source_execution, "prepare_attribute_sources", unexpected)
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     assert (
         len(
             _compare(
@@ -378,12 +378,12 @@ def test_unknown_physical_leaf_fails_before_business_read(
         calls.append(args)
         raise AssertionError("unqualified input reached business read")
 
-    value = session.catalog.fields.get("sales.facts.value")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     captured = session.observe({"q": value.sum()}).compute()
     monkeypatch.setattr(query_preparation, "prepare_fields", prepare)
     monkeypatch.setattr(SourceSession, "execute", execute)
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with pytest.raises(AnalysisError, match="unqualified_contribution_route"):
         evaluate_attribute_inputs(
             _comparison_inputs(
@@ -407,8 +407,8 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
         connection.execute(
             "UPDATE facts SET value=CASE id WHEN 1 THEN 10.01 WHEN 2 THEN 20.02 ELSE 30.03 END"
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     prepared = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
@@ -443,8 +443,8 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
         connection.execute(
             "UPDATE facts SET value=CASE id WHEN 1 THEN INTERVAL '9007199254740993 microseconds' WHEN 2 THEN INTERVAL '9007199254740995 microseconds' ELSE NULL END"
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     prepared = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
@@ -475,8 +475,8 @@ def test_native_mean_retains_wider_sum_without_imposing_sum_int64_overflow(
 
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=9223372036854775807")
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     prepared = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.mean()}, by=()), by=(channel,))
     )
@@ -495,9 +495,9 @@ def test_additional_root_has_two_independent_roles_without_fact_fanout(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
-    other = session.catalog.fields.get("sales.otherfacts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    other = catalog_value(session.catalog, "sales.otherfacts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calls = []
     original = SourceSession.execute
 
@@ -537,8 +537,8 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     from marivo.analysis.materialization import frame_evaluation
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     captured = []
     compile_plan = plan_frame
 
@@ -612,9 +612,9 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
 
 @pytest.mark.release
 def test_complete_compound_identity_parent_mapping(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    entity = session.catalog.entities.get("sales.facts")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    entity = session.catalog.get("entity:sales.facts").value
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
@@ -661,9 +661,9 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
         return corrupted
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    entity = session.catalog.entities.get("sales.facts")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    entity = session.catalog.get("entity:sales.facts").value
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     with pytest.raises(MaterializationError) as caught:
         evaluate_attribute_inputs(
@@ -701,8 +701,8 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
         )
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with pytest.raises(AttributeInputError) as caught:
         evaluate_attribute_inputs(
             _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
@@ -711,9 +711,9 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
 
 
 def test_empty_zero_axis_parent_has_no_required_weighted_total(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     empty = mv.coordinates(by=(), keys=())
     prepared = evaluate_attribute_inputs(
         _level_inputs(
@@ -735,9 +735,9 @@ def test_unproved_sample_sequence_stays_closed_before_source_read(
 
     calls = []
     monkeypatch.setattr(SourceSession, "execute", lambda *args: calls.append(args))
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    region = session.catalog.fields.get("sales.facts.region")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     with pytest.raises(AttributeRuleError) as caught:
         _comparison_inputs(
             session.observe({"q": value.sum().per(channel).mean()}, by=()),
@@ -762,9 +762,9 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     original = SourceSession.execute
     reads = []
 
@@ -827,13 +827,13 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
 def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
     session: Session,
 ) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    label = session.catalog.fields.get("sales.tags.label")
-    kind = session.catalog.fields.get("sales.tags.kind")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     route = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="null")
     output = evaluate_attribute_inputs(
@@ -879,9 +879,9 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
     exact = 2**53 + 1
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=? WHERE id=1", [exact])
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     output = evaluate_attribute_inputs(
         _level_inputs(
             session.observe(
@@ -921,9 +921,9 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
         connection.execute(
             f"ALTER TABLE facts ALTER region TYPE BIGINT USING CASE WHEN region IS NULL THEN NULL ELSE {exact} END"
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parents = mv.coordinates(by=(region,), keys=((exact,), (None,)))
     population_rows = session.frame(parents).compute().to_pandas()
     assert {
@@ -967,9 +967,9 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
 def test_original_scalar_lookup_trusts_declared_matches(
     session: Session, tmp_path: Path, case: str
 ) -> None:
-    value = session.catalog.fields.get("sales.otherfacts.value")
-    identifier = session.catalog.fields.get("sales.otherfacts.id")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.otherfacts.value", kind="field")
+    identifier = catalog_value(session.catalog, "sales.otherfacts.id", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         if case == "ambiguous_predicate":
             connection.execute("INSERT INTO facts VALUES ('t',1,'east','B',999,1)")
@@ -1013,9 +1013,9 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
 ) -> None:
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id=3")
-    value = session.catalog.fields.get("sales.otherfacts.value")
-    identifier = session.catalog.fields.get("sales.otherfacts.id")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.otherfacts.value", kind="field")
+    identifier = catalog_value(session.catalog, "sales.otherfacts.id", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     output = evaluate_attribute_inputs(
         _comparison_inputs(
             session.observe(
@@ -1040,10 +1040,10 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
 
 @pytest.mark.release
 def test_known_empty_weighted_parent_retains_na_original_total(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     output = evaluate_attribute_inputs(
         _comparison_inputs(
             session.observe(
@@ -1075,9 +1075,9 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     from marivo.analysis.materialization.errors import MaterializationError
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = value.sum(nulls="error")
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
         connection.execute("UPDATE facts SET value=20 WHERE id=2")
@@ -1157,8 +1157,8 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
 
 
 def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: Session) -> None:
-    facts = session.catalog.entities.get("sales.facts")
-    tags = session.catalog.entities.get("sales.tags")
+    facts = session.catalog.get("entity:sales.facts").value
+    tags = session.catalog.get("entity:sales.tags").value
     first = mv.coordinates(by=(mv.identity(facts),), keys=((("t", 1),), (("t", 2),)))
     second = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     domain = mv.product(first, second)
@@ -1189,7 +1189,7 @@ def test_source_capture_copies_metrics_without_business_reads(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    value = session.catalog.fields.get("sales.facts.value")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     metrics = {"sum": value.sum(), "mean": value.mean()}
     before = terminal_runs(session)
 
@@ -1221,9 +1221,9 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
         connection.execute(
             "UPDATE facts SET value=CASE id WHEN 1 THEN 10.02 WHEN 2 THEN 20.04 ELSE 30.06 END"
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe({"q": value.sum() * Decimal("0.5")}, by=(region,)).compute()
     execute = SourceSession.execute
     captured = []
@@ -1290,9 +1290,9 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
 
 @pytest.mark.release
 def test_known_empty_parent_native_formula_has_defined_original_zero(session: Session) -> None:
-    value = session.catalog.fields.get("sales.facts.value")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe(
         {"q": value.sum() * 2},
         by=mv.coordinates(by=(region,), keys=(("east",), ("absent",))),
@@ -1320,8 +1320,8 @@ def test_attribute_transport_depends_on_groups_not_source_rows(
             "INSERT INTO facts SELECT 't', i, 'east', CASE WHEN i%2=0 THEN 'A' ELSE 'B' END, 1, 1 FROM range(?) t(i)",
             [source_rows],
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe({"q": value.sum()}).compute()
     trace = capture_source(monkeypatch)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
@@ -1350,9 +1350,9 @@ def test_distinct_failure_returns_one_key_and_six_ordered_groups(
             "INSERT INTO facts SELECT 't', i, 'east', 'g'||lpad(cast(i%10 AS VARCHAR),2,'0'), 1+i//10, 1 FROM range(20) t(i) ORDER BY i "
             + ("DESC" if reverse else "ASC")
         )
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    weight = session.catalog.fields.get("sales.facts.weight")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
     selected = session.observe({"q": value.count_distinct() + weight.count_distinct()}).compute()
     trace = capture_source(monkeypatch)
     with pytest.raises(AttributeInputError) as caught:
@@ -1367,8 +1367,8 @@ def test_distinct_failure_returns_one_key_and_six_ordered_groups(
 def test_explicit_fine_population_still_requires_complete_coverage(session: Session) -> None:
     from marivo.analysis.errors import AnalysisError
 
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selected = session.observe({"q": value.sum()}).compute()
     with pytest.raises(AnalysisError, match="coverage"):
         selected.attribute(by=mv.coordinates(by=(channel,), keys=(("A",),))).compute()
@@ -1403,18 +1403,18 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
         return result
 
     monkeypatch.setattr(attribute_inputs, "lower_attribute_inputs", lower)
-    value = session.catalog.fields.get("sales.facts.value")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     by: tuple[Deferred | Grouping, ...] = (channel,)
     if kind == "membership":
-        label = session.catalog.fields.get("sales.tags.label")
+        label = catalog_value(session.catalog, "sales.tags.label", kind="field")
         by = (
             mv.membership(
                 label,
                 via=(
                     (
-                        session.catalog.relationships.get("sales.fact_links"),
-                        session.catalog.relationships.get("sales.link_tags"),
+                        session.catalog.get("relationship:sales.fact_links").value,
+                        session.catalog.get("relationship:sales.link_tags").value,
                     ),
                 ),
                 unmatched="exclude",

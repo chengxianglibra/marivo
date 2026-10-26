@@ -4,7 +4,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -18,11 +18,11 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
             "INSERT INTO \"order\" SELECT i::VARCHAR,'A',\n            CASE WHEN i%2=0 THEN 'web' ELSE 'store' END,'paid','2026-08-15',1\n            FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.customer.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     samples = session.members(
-        session.catalog.entities.get("sales.customer"), where=customer != "D"
+        session.catalog.get("entity:sales.customer").value, where=customer != "D"
     ).classify(by=(customer,))
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
@@ -41,9 +41,9 @@ def test_complex_parent_selection_consumes_compact_fibers_once(
             "INSERT INTO \"order\" SELECT i::VARCHAR,'A',CASE WHEN i%2=0 THEN 'web' ELSE 'store' END,'paid','2026-08-15',CASE WHEN i%2=0 THEN 1 ELSE 3 END FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     metric = (amount.sum() / amount.count()).per(customer).mean()
     fine = session.observe({"value": metric}, by=(channel,))
     chosen = (
@@ -69,10 +69,10 @@ def test_complex_drill_keeps_samples_and_selected_parent_fibers(
             "INSERT INTO \"order\" SELECT i::VARCHAR,'A',CASE WHEN i%2=0 THEN 'web' ELSE 'store' END,CASE WHEN i%2=0 THEN 'paid' ELSE 'cancel' END,'2026-08-15',CASE WHEN i%2=0 THEN 1 ELSE 3 END FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
-    status = session.catalog.fields.get("sales.order.status")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    status = catalog_value(session.catalog, "sales.order.status", kind="field")
     metric = amount.sum().per(customer).mean()
     if selected:
         fine = session.observe({"value": metric}, by=(status,))
@@ -97,10 +97,10 @@ def test_nested_complex_rollups_finish_every_intermediate_formula(
             "INSERT INTO \"order\" SELECT i::VARCHAR,'A',\n            CASE WHEN i%2=0 THEN 'web' ELSE 'store' END,\n            CASE WHEN i%4<2 THEN 'paid' ELSE 'cancel' END,'2026-08-15',1\n            FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
-    status = session.catalog.fields.get("sales.order.status")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    status = catalog_value(session.catalog, "sales.order.status", kind="field")
     fine = session.observe({"value": amount.sum().per(customer).mean()}, by=(channel, status))
     trace = capture_source(monkeypatch)
     result = session.observe({"value": amount.sum().per(customer).mean()}).compute().to_pandas()
@@ -117,10 +117,10 @@ def test_dynamic_sample_producer_retains_its_own_period(
             "INSERT INTO \"order\" SELECT i::VARCHAR,\n            CASE WHEN i<500 THEN 'A' ELSE 'B' END,'web','paid',\n            CASE WHEN i<500 THEN '2026-09-10'::TIMESTAMPTZ ELSE '2026-10-07'::TIMESTAMPTZ END,\n            1 FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
-    ordered = session.catalog.fields.get("sales.order.ordered_at")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    ordered = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     producer = session.observe(
         {"n": amount.count(time=ordered)},
         by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),
@@ -163,9 +163,9 @@ def test_complex_top_uses_the_exact_completed_parent_score(
                 [str(index), seed_customer, seed_channel, "paid", "2026-10-07", value],
             )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     fine = session.observe({"value": amount.sum().per(customer).mean()}, by=(channel,))
     trace = capture_source(monkeypatch)
     result = fine.top(1, by=fine["value"]).compute().to_pandas()
@@ -184,9 +184,9 @@ def test_complex_top_zero_preserves_the_fine_formula_failure(
             "INSERT INTO \"order\" VALUES\n            ('1','A','web','paid','2026-08-15',0),\n            ('2','A','store','paid','2026-08-15',1)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     metric = (amount.count() / amount.sum()).per(customer).mean()
     fine = session.observe({"value": metric}, by=(channel,))
     trace = capture_source(monkeypatch)
@@ -204,10 +204,12 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
             "INSERT INTO \"order\" SELECT i::VARCHAR,'A',\n            CASE WHEN i%2=0 THEN 'web' ELSE 'store' END,'paid','2026-08-15',1\n            FROM range(1000) t(i)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
-    samples = session.members(session.catalog.entities.get("sales.order")).classify(by=(customer,))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    samples = session.members(session.catalog.get("entity:sales.order").value).classify(
+        by=(customer,)
+    )
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()

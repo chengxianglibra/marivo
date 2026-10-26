@@ -13,19 +13,19 @@ owns certified calendars and occurrences.
 
 | Object | Owns | Downstream acquisition |
 | --- | --- | --- |
-| Domain | Explicit business namespace and accountable owner | catalog.domains |
-| Entity | Source relation, stable ordered identity and optional versioning | catalog.entities |
-| Dimension / TimeDimension | Categorical or explicitly temporal row meaning | catalog.fields |
-| Measure | Numeric row quantity, unit and sum permission | catalog.fields |
-| Metric | Completed reductions and their composition | catalog.metrics |
-| Relationship | Directed endpoint/key mapping | catalog.relationships |
+| Domain | Explicit business namespace and accountable owner | catalog.search(kind='domain') |
+| Entity | Source relation, stable ordered identity and optional versioning | catalog.search(kind='entity') |
+| Dimension / TimeDimension | Categorical or explicitly temporal row meaning | catalog.search(entity='<path>') |
+| Measure | Numeric row quantity, unit and sum permission | catalog.search(entity='<path>') |
+| Metric | Completed reductions and their composition | catalog.search(kind='metric') |
+| Relationship | Directed endpoint/key mapping | catalog.search(kind='relationship') |
 
 Physical constructors return native typed Deferred symbols. The loader binds
-the complete dependency scope; Catalog lookup supplies immutable closed values.
-Named Measure/Metric decorators return native Deferred recipes. A named expression is described with catalog.describe(ref),
+the complete dependency scope; Catalog get supplies immutable typed entries; executable variants expose closed `.value`.
+Named Measure/Metric decorators return native Deferred recipes. A named expression is described by its canonical Catalog entry,
 not by calling show on Deferred. Collection lookup takes a plain local name or
 full path string; local names must be unique within the current scoped collection.
-Kind-prefixed strings and lookup symbols are not collection.get inputs.
+Canonical `kind:path` strings identify Catalog entries; lookup symbols remain declaration inputs.
 
 ## Project and domain
 

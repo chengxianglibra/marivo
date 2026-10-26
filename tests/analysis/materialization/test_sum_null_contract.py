@@ -11,7 +11,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.compiler.native_formula import align_native_inputs
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_population_preserves_empty_unknown_and_valid_zero_members(
@@ -29,9 +29,9 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
             "('d2','D','web','paid','2026-08-15',-10)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    orders = session.catalog.entities.get("sales.order")
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    orders = session.catalog.get("entity:sales.order").value
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     query = session.observe(
         {"total": amount.sum(), "valid": amount.count(), "orders": orders.count()},
         by=members,
@@ -100,8 +100,8 @@ def test_native_formula_does_not_zero_fill_a_present_all_null_group(
             "('c','C','web','paid','2026-08-15',NULL)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     metric = amount.sum().where(customer == "A") + amount.sum().where(customer == "C")
     rows = session.observe({"total": metric}, by=(customer,)).compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "C"]
@@ -121,8 +121,8 @@ def test_native_nonfinite_source_values_remain_distinct_from_null_during_selecti
             'SELECT COUNT(*) FROM "order" WHERE amount IS NULL'
         ).fetchone()
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    members = session.members(session.catalog.entities.get("sales.order"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    members = session.members(session.catalog.get("entity:sales.order").value)
     read = session.read(members, {"amount": amount})
     observed = session.observe({"amount": amount.sum()})
     raw = read.compute().to_pandas()

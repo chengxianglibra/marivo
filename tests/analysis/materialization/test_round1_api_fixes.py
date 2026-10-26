@@ -25,7 +25,7 @@ from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_storage import read_output
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.shared_fixtures import DslCaseFactory, run_ids
+from tests.shared_fixtures import DslCaseFactory, catalog_value, run_ids
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -35,7 +35,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     regions = mv.coordinates(by=(region,), keys=(("A",), ("B",)))
     march = session.time_scope(start="2026-03-28", end="2026-03-31", timezone="Europe/Paris").by(
         mv.grain("day")
@@ -51,7 +51,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
             mv.product(february, mv.coordinates(by=(), keys=((),)))
         ).persist(),
         "source_calendar": session.observe(
-            {"value": session.catalog.metrics.get("sales.revenue")}, by=(march,)
+            {"value": session.catalog.get("metric:sales.revenue").value}, by=(march,)
         ).persist(),
     }
     march_starts = [
@@ -220,7 +220,7 @@ def test_select_literals_reject_naive_before_run_and_preserve_dates_and_instants
     aware: datetime,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    query = session.observe({"v": session.catalog.metrics.get("sales.revenue")})
+    query = session.observe({"v": session.catalog.get("metric:sales.revenue").value})
     before = run_ids(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -248,8 +248,8 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
-    channel = session.catalog.fields.get("sales.order.channel")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     equal = session.values(
         by=(region, channel),
         columns={"v": None},
@@ -296,8 +296,8 @@ def test_global_top_keeps_complete_key_ties_after_score_projection(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    region = session.catalog.fields.get("sales.customer.region")
-    channel = session.catalog.fields.get("sales.order.channel")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     values = session.values(
         by=(region, channel),
         columns={"score": None},
@@ -323,8 +323,8 @@ def test_literal_population_failures_use_structured_public_errors_without_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    entity = session.catalog.entities.get("sales.customer")
-    region = session.catalog.fields.get("sales.customer.region")
+    entity = session.catalog.get("entity:sales.customer").value
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     before = run_ids(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:

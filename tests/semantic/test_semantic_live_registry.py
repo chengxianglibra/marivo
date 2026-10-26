@@ -16,7 +16,6 @@ from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
 from marivo.refs import SemanticKind
-from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     AuthoringSourceContract,
@@ -161,7 +160,7 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
             semantic_kind=SemanticKind.DOMAIN,
             construction_families=("Ref[domain]",),
             ref_target=target,
-            catalog_collection="domains",
+            catalog_kind="domain",
             placement_kind="domain_entrypoint",
             decisions=(decision,),
             construction_modes=(ConstructionMode("Declare a domain.", "default", target),),
@@ -369,11 +368,11 @@ def test_registry_rejects_missing_object_decision_target_eagerly() -> None:
 
 def test_registry_rejects_object_catalog_mapping_drift_eagerly() -> None:
     metric = REGISTRY.object_contract(SemanticKind.METRIC)
-    invalid = replace(metric, catalog_collection="dimensions")
+    invalid = replace(metric, catalog_kind="dimension")
     contracts = tuple(
         invalid if contract is metric else contract for contract in REGISTRY.object_contracts
     )
-    with pytest.raises(ValueError, match="object catalog collection drift"):
+    with pytest.raises(ValueError, match="object catalog kind drift"):
         _finalize_fixture(object_contracts=contracts)
 
 
@@ -830,14 +829,20 @@ def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
     )
 
 
-def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
-    from marivo.semantic.catalog import CatalogCollection, SemanticCatalog
+def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.catalog_entries import CatalogPage
 
     catalog_contract = TYPE_CONTRACTS[SemanticCatalog]
-    collection_contract = TYPE_CONTRACTS[CatalogCollection]
-
-    assert catalog_contract.public_properties == CATALOG_COLLECTION_PROPERTIES
+    page_contract = TYPE_CONTRACTS[CatalogPage]
+    assert catalog_contract.public_properties == (
+        "definition_fingerprint",
+        "semantic_root",
+        "workspace_dir",
+    )
     assert catalog_contract.public_methods == (
+        "get",
+        "search",
         "preview",
         "preview_many",
         "source_health",
@@ -845,9 +850,19 @@ def test_catalog_type_contract_uses_the_closed_member_contract() -> None:
         "render",
         "show",
     )
-    assert collection_contract.public_properties == ("items", "refs")
-    assert collection_contract.public_methods == ("get", "show", "render")
-    assert not hasattr(collection_contract, "state_bearing")
+    assert page_contract.public_properties == (
+        "items",
+        "candidate_count",
+        "scope",
+        "filters",
+        "retrieval",
+        "matches",
+        "next_cursor",
+        "outside_scope",
+    )
+    assert page_contract.public_methods == ("to_dict", "to_json", "show", "render")
+    assert not hasattr(SemanticCatalog, "metrics")
+    assert not hasattr(SemanticCatalog, "describe")
 
 
 def test_preview_capability_is_one_entry_or_exact_ref() -> None:

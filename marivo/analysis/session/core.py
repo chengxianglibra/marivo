@@ -63,7 +63,7 @@ class Session:
 
             snapshots: list[PeriodCalendarSnapshotV2] = []
             for identity in sorted(catalog._state.registry.period_calendars):
-                calendar = catalog.period_calendars.get(identity)
+                calendar = catalog.get("period_calendar:" + identity)
                 assert isinstance(calendar, PeriodCalendarEntry)
                 status, snapshot = calendar._snapshot_with_status()
                 if status == "current" and snapshot is not None:
@@ -173,7 +173,7 @@ class Session:
             reject(
                 "a resolved Entity",
                 type(entity).__name__,
-                "Resolve the Entity with session.catalog.entities.get(path).",
+                "Resolve the Entity with session.catalog.get('entity:' + path).value after checking kind.",
                 "session.members.entity",
             )
         resolved = _Resolver(self.catalog._state).entity(entity_exact(entity).ref.path)

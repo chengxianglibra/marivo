@@ -39,8 +39,8 @@ _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
 
 def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    metric = session.catalog.metrics.get("sales.revenue")
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    metric = session.catalog.get("metric:sales.revenue").value
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"value": metric}, by=mv.product(scope, members))
     if kind == "comparison":

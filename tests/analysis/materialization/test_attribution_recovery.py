@@ -21,6 +21,7 @@ from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_workflows import allocation, basis
 from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -68,13 +69,13 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("r94-attribution", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.facts"))
-        bucket = session.catalog.fields.get("sales.facts.bucket")
-        happened = session.catalog.fields.get("sales.facts.happened")
+        members = session.members(session.catalog.get("entity:sales.facts").value)
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
+        happened = catalog_value(session.catalog, "sales.facts.happened", kind="field")
 
         def endpoint(month: int) -> mv.AnalysisFrame:
             return session.observe(
-                {"value": session.catalog.metrics.get("sales.total")},
+                {"value": session.catalog.get("metric:sales.total").value},
                 by=mv.product(
                     session.time_scope(
                         start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"
@@ -88,7 +89,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
                 members,
                 {
                     "channel": bucket,
-                    "amount": session.catalog.fields.get("sales.facts.amount"),
+                    "amount": catalog_value(session.catalog, "sales.facts.amount", kind="field"),
                     "time": happened,
                 },
             )

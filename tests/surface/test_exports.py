@@ -112,7 +112,6 @@ def test_retired_datasource_conveniences_have_no_public_aliases() -> None:
     for owner, name in (
         (md.DatasourceSummary, "semantic_id"),
         (RawSqlResult, "row_count"),
-        (ms.PeriodCalendarDetails, "date"),
         (md.DatasourceCatalog, "get"),
         (md.DatasourceList, "ids"),
     ):

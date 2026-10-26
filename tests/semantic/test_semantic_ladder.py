@@ -16,6 +16,7 @@ from marivo.semantic.errors import (
     SemanticRuntimeError,
 )
 from marivo.semantic.expressions import Entity
+from tests.shared_fixtures import catalog_value
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -71,7 +72,7 @@ def test_require_entity_is_static_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = ms.SemanticCatalog(project).entities.get("sales.orders")
+    result = ms.SemanticCatalog(project).get("entity:sales.orders").value
 
     assert isinstance(result, Entity)
     assert result._exact_ref.ref == ref_factory.entity("sales.orders")
@@ -84,7 +85,7 @@ def test_require_entity_uses_current_loaded_project(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = ms.SemanticCatalog(project).entities.get("sales.orders")
+    first = ms.SemanticCatalog(project).get("entity:sales.orders").value
     assert first._exact_ref.ref == ref_factory.entity("sales.orders")
 
     # Rewrite the entity with a different source table name
@@ -107,7 +108,7 @@ def test_require_entity_uses_current_loaded_project(
         workspace_dir=tmp_path,
     )
 
-    second = ms.SemanticCatalog(project2).entities.get("sales.orders")
+    second = ms.SemanticCatalog(project2).get("entity:sales.orders").value
     assert second._exact_ref.ref == first._exact_ref.ref
     assert second._exact_ref.version != first._exact_ref.version
     assert not (Path(project2.state_root) / "evidence").exists()
@@ -231,7 +232,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = ms.SemanticCatalog(project).fields.get("sales.orders.amount")
+    result = catalog_value(ms.SemanticCatalog(project), "sales.orders.amount", kind="field")
 
     assert isinstance(result, Deferred)
     assert consume_field(result).reference.ref == ref_factory.measure("sales.orders.amount")
@@ -252,5 +253,5 @@ def test_require_unknown_ref_is_not_found_when_loaded(
     assert project.is_ready()
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        ms.SemanticCatalog(project).metrics.get("sales.nonexistent_metric")
+        _ = ms.SemanticCatalog(project).get("metric:sales.nonexistent_metric").value
     assert exc_info.value.kind == "not_found"

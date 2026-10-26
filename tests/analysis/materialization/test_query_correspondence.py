@@ -25,6 +25,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 STRING = ScalarDataType("string")
 INTEGER = ScalarDataType("int64")
@@ -293,12 +294,13 @@ account_match = ms.relationship(name='account_match', from_entity=crm, to_entity
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("kernel-comparison", timezone="UTC")
     domains = (
-        session.members(session.catalog.entities.get("sales.crm")),
-        session.members(session.catalog.entities.get("sales.billing")),
+        session.members(session.catalog.get("entity:sales.crm").value),
+        session.members(session.catalog.get("entity:sales.billing").value),
     )
     frames = tuple(
         session.observe(
-            {"m": session.catalog.fields.get(f"sales.{name}.amount").sum()}, by=domain
+            {"m": catalog_value(session.catalog, f"sales.{name}.amount", kind="field").sum()},
+            by=domain,
         ).persist()
         for name, domain in zip(("crm", "billing"), domains, strict=True)
     )

@@ -14,7 +14,7 @@ from marivo.analysis.materialization.query_key_fusion import _outer_join_value
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -86,9 +86,9 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-relations", timezone="UTC")
-        category = session.catalog.fields.get("sales.facts.category")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
-        amount = session.catalog.fields.get("sales.facts.amount")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         left = session.observe(
             {"v": amount.sum().where(tenant == "left")}, by=(category,)
         ).compute()
@@ -147,8 +147,8 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-shared-groups", timezone="UTC")
-        category = session.catalog.fields.get("sales.facts.category")
-        amount = session.catalog.fields.get("sales.facts.amount")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         producer = session.observe({"n": amount.count()}, by=(category,))
         chosen = producer.where(producer["n"] >= 1)
         selected = session.population_from(chosen, on=((chosen.axes[0], category),))
@@ -221,8 +221,8 @@ def test_remote_multiple_shared_parameters_are_replaced_atomically(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-parameter-block", timezone="UTC")
-        category = session.catalog.fields.get("sales.facts.category")
-        amount = session.catalog.fields.get("sales.facts.amount")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         producer = session.observe({"n": amount.count()}, by=(category,))
         first = producer.where(producer["n"] >= 1)
         second = producer.where(producer["n"] <= 1)

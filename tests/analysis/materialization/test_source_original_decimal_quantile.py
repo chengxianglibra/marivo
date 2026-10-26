@@ -13,6 +13,7 @@ from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -47,8 +48,8 @@ def test_decimal_quantile_rollup_returns_fractional_native_value(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     metric = amount.median() if method == "median" else amount.quantile(0.25)
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
@@ -71,8 +72,8 @@ def test_decimal_quantile_selected_parent_keeps_native_fractional_value(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     fine = session.observe({"value": amount.quantile(0.25)}, by=(category,))
     fixed = fine.top(1, by=fine["value"]).compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], category),))
@@ -93,9 +94,9 @@ def test_decimal_quantile_all_null_and_empty_target_remain_null(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
-    tenant = session.catalog.fields.get("sales.facts.tenant")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
     for metric in (
         amount.quantile(0.25).where(category == "B"),
         amount.median().where(tenant == "missing"),
@@ -115,8 +116,8 @@ def test_decimal_quantile_strict_nulls_survive_top_zero(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     fine = session.observe({"value": amount.quantile(0.25, nulls="error")}, by=(category,))
     trace = capture_source(monkeypatch)
     with pytest.raises(AnalysisError, match="non-NA source values"):
@@ -130,8 +131,8 @@ def test_decimal_quantile_parent_formula_masks_zero(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    tenant = session.catalog.fields.get("sales.facts.tenant")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
     quantile = amount.quantile(0.25)
     metric = quantile / (quantile - 1.25)
     trace = capture_source(monkeypatch)
@@ -144,9 +145,9 @@ def test_decimal_sample_quantiles_finish_before_per_mean(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = decimal_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
-    tenant = session.catalog.fields.get("sales.facts.tenant")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
     metric = amount.quantile(0.25).per(category).mean()
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()

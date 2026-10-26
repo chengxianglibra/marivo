@@ -16,6 +16,7 @@ from marivo.analysis.core.attribute import AttributeInputError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 CASES = [
@@ -72,10 +73,10 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-exact", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        big = session.catalog.fields.get("sales.facts.big")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         parent = session.observe({"decimal": amount.sum(), "integer": big.sum()}).compute()
         trace = capture_source(monkeypatch)
         report = parent.attribute(by=(tenant, category)).compute()
@@ -185,9 +186,9 @@ def test_native_attribute_mean_and_ratio_use_complete_parent_denominators(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-denominators", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        weight = session.catalog.fields.get("sales.facts.weight")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         parent = session.observe(
             {"mean": amount.mean(), "ratio": amount.sum() / weight.sum()}
         ).compute()
@@ -238,9 +239,9 @@ def test_native_attribute_distinguishes_known_empty_from_all_null(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-empty", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        weight = session.catalog.fields.get("sales.facts.weight")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         empty_parent = session.observe({"q": amount.sum()}, where=weight > 1).compute()
         assert empty_parent.to_pandas()["q"].tolist() == [0]
         empty = empty_parent.attribute(by=(category,)).compute()
@@ -277,8 +278,8 @@ def test_mysql_attribute_rejects_nondeterministic_collation_before_business_read
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-attribute-collation", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         parent = session.observe({"q": amount.sum()}).compute()
         trace = capture_source(monkeypatch)
         with pytest.raises(AttributeInputError) as caught:
@@ -327,9 +328,9 @@ def test_native_fixed_members_preserve_attribute_source_constraints(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-fix", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         source = session.observe({"q": amount.mean()}, by=(tenant,)).compute()
         current = source.fix(source.axes[0], "west")
         baseline = source.fix(source.axes[0], "east")

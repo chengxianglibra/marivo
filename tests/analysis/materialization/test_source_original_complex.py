@@ -4,7 +4,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -13,8 +13,8 @@ def test_multi_root_original_ratio_recomputes_before_host_finish(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    metric = session.catalog.metrics.get("sales." + case.names.aov)
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    metric = catalog_value(session.catalog, "sales." + case.names.aov, kind="metric")
     trace = capture_source(monkeypatch)
     result = session.observe({"aov": metric}).compute().to_pandas()
     assert result["aov"].tolist() == [200 / 101]
@@ -28,9 +28,9 @@ def test_multi_root_selection_restricts_each_actual_fiber(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    revenue = session.catalog.metrics.get("sales." + case.names.line_revenue)
-    count = session.catalog.metrics.get("sales." + case.names.order_count)
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
+    count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))
     fixed = fine.where(fine["orders"] == 1).compute()
     selected = session.population_from(fixed, on=((fixed.axes[0], customer),))
@@ -51,9 +51,9 @@ def test_multi_root_missing_group_keeps_empty_zero_alignment(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("DELETE FROM order_line WHERE order_id='j3_b'")
     session = case.session
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    revenue = session.catalog.metrics.get("sales." + case.names.line_revenue)
-    count = session.catalog.metrics.get("sales." + case.names.order_count)
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
+    count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))
     trace = capture_source(monkeypatch)
     fixed = fine.where(fine["revenue"] == 0).compute()
@@ -72,10 +72,10 @@ def test_multi_root_drill_recomputes_each_selected_contribution_root(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    channel = session.catalog.fields.get("sales.order.channel")
-    revenue = session.catalog.metrics.get("sales." + case.names.line_revenue)
-    count = session.catalog.metrics.get("sales." + case.names.order_count)
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
+    count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))
     fixed = fine.where(fine["orders"] == 1).compute()
     selected = session.population_from(fixed, on=((fixed.axes[0], customer),))

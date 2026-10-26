@@ -74,7 +74,7 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert mapping.role == "line_to_order"
     assert mapping.to_version_resolution_required is True
     assert mapping.from_version_resolution_required is False
-    relationship = catalog.relationships.get("sales.line_to_order")
+    relationship = catalog.get("relationship:sales.line_to_order").value
     assert isinstance(relationship, Relationship)
     assert relationship.cardinality == "many_to_one"
     assert "many_to_one" in relationship.contract().render()
@@ -165,9 +165,9 @@ def test_alternate_role_is_a_distinct_governed_relationship(
         )
     )
     ambiguous = _project(semantic_project_factory, second)
-    relationships = SemanticCatalog(ambiguous).relationships
-    line_to_order_mapping = relationships.get("line_to_order")
-    alternate_order_mapping = relationships.get("alternate_order")
+    catalog = SemanticCatalog(ambiguous)
+    line_to_order_mapping = catalog.get("relationship:sales.line_to_order").value
+    alternate_order_mapping = catalog.get("relationship:sales.alternate_order").value
     assert line_to_order_mapping is not None
     assert alternate_order_mapping is not None
     assert line_to_order_mapping.cardinality == "many_to_one"

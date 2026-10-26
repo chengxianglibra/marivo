@@ -84,8 +84,8 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
                 ("c", "A", "web", "paid", "2025-08-01T12:00:00Z", 10),
             ],
         )
-    metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    metric = session.catalog.get("metric:sales.revenue").value
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     if kind == "years":
         baseline_axis = session.time_scope(start="2025-08-01", end="2025-08-03").by(mv.grain("day"))
@@ -121,7 +121,7 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    metric = session.catalog.metrics.get("sales.revenue")
+    metric = session.catalog.get("metric:sales.revenue").value
     current_axis = session.time_scope(start="2024-02-28", end="2024-03-01").by(mv.grain("day"))
     baseline_axis = session.time_scope(start="2023-02-28", end="2023-03-01").by(mv.grain("day"))
     current = session.observe({"value": metric}, by=(current_axis,))

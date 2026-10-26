@@ -43,7 +43,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources, run_frame_plan
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -472,7 +472,7 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
@@ -684,7 +684,7 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,

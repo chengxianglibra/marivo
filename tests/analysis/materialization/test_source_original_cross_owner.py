@@ -13,6 +13,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -72,10 +73,10 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
     same_owner: bool,
 ) -> None:
     session = _session(tmp_path, monkeypatch, semantic_project_factory, same_owner=same_owner)
-    one = session.catalog.fields.get("sales.one.amount")
-    two = session.catalog.fields.get("sales.two.amount")
-    one_day = session.catalog.fields.get("sales.one.day")
-    two_day = session.catalog.fields.get("sales.two.day")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) - two.sum(time=two_day)
     trace = capture_source(monkeypatch)
@@ -94,10 +95,10 @@ def test_calendar_parent_formula_uses_widened_sums(
     session = _session(
         tmp_path, monkeypatch, semantic_project_factory, same_owner=same_owner, boundary="overflow"
     )
-    one = session.catalog.fields.get("sales.one.amount")
-    two = session.catalog.fields.get("sales.two.amount")
-    one_day = session.catalog.fields.get("sales.one.day")
-    two_day = session.catalog.fields.get("sales.two.day")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) + two.sum(time=two_day)
     query = session.observe({"net": metric}, by=(days,))
@@ -112,10 +113,10 @@ def test_cross_owner_calendar_missing_days_use_additive_zero(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     session = _session(tmp_path, monkeypatch, semantic_project_factory, boundary="disjoint")
-    one = session.catalog.fields.get("sales.one.amount")
-    two = session.catalog.fields.get("sales.two.amount")
-    one_day = session.catalog.fields.get("sales.one.day")
-    two_day = session.catalog.fields.get("sales.two.day")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day).where(one > 0) - two.sum(time=two_day).where(two > 0)
     query = session.observe({"net": metric}, by=(days.scope,))
@@ -138,8 +139,8 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
     if partial:
         with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
             connection.execute("ALTER TABLE facts_one ALTER COLUMN day TYPE TIMESTAMP")
-    amount = session.catalog.fields.get("sales.one.amount")
-    day = session.catalog.fields.get("sales.one.day")
+    amount = catalog_value(session.catalog, "sales.one.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.one.day", kind="field")
     scope = session.time_scope(
         start="2026-10-01T12:00:00" if partial else "2026-10-01",
         end="2026-10-02T12:00:00" if partial else "2026-11-01",
@@ -160,8 +161,8 @@ def test_daily_formula_keeps_widened_source_sum(
     session = _session(
         tmp_path, monkeypatch, semantic_project_factory, same_owner=True, boundary="overflow"
     )
-    amount = session.catalog.fields.get("sales.one.amount")
-    day = session.catalog.fields.get("sales.one.day")
+    amount = catalog_value(session.catalog, "sales.one.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.one.day", kind="field")
     scope = session.time_scope(start="2026-10-01", end="2026-11-01")
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
     query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
@@ -228,10 +229,10 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         files["sales/facts.py"] = model
         semantic_project_factory(files)
         session = mv.session.get_or_create("remote-cross-owner", timezone="UTC")
-        one = session.catalog.fields.get("sales.one.amount")
-        two = session.catalog.fields.get("sales.two.amount")
-        one_day = session.catalog.fields.get("sales.one.day")
-        two_day = session.catalog.fields.get("sales.two.day")
+        one = catalog_value(session.catalog, "sales.one.amount", kind="field")
+        two = catalog_value(session.catalog, "sales.two.amount", kind="field")
+        one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
+        two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
         scope = session.time_scope(
             start="2026-10-01T12:00:00" if boundary == "partial" else "2026-10-01",
             end="2026-10-02T12:00:00"

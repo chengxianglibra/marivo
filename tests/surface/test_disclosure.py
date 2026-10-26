@@ -86,13 +86,13 @@ def _make_catalog(semantic_project_factory):
 
 def test_catalog_metrics_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    _ = catalog.metrics
+    _ = catalog.search(kind="metric")
     assert capsys.readouterr().out == ""
 
 
 def test_catalog_datasources_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    _ = catalog.datasources
+    _ = catalog.search(kind="datasource")
     assert capsys.readouterr().out == ""
 
 
@@ -109,7 +109,7 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
 
 def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
     case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
+    result = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue").value})
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
@@ -117,9 +117,9 @@ def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_facto
     assert ".show()" in rendered
 
 
-def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
+def test_catalog_page_repr_is_one_line(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
+    result = catalog.search(kind="metric")
     r = repr(result)
     assert r.count("\n") == 0
 
@@ -129,13 +129,13 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:
+def test_catalog_page_render_contains_refs_affordance(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
+    result = catalog.search(kind="metric")
     rendered = result.render()
     assert "available:" in rendered
-    assert "- .refs" in rendered
-    assert "selection: catalog.metrics.get(<displayed path>) -> Deferred" in rendered
+    assert "- .items" in rendered
+    assert "metric:" in rendered and "next_cursor:" in rendered
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(
@@ -162,9 +162,9 @@ def test_datasource_catalog_render_uses_card_listing_shape(
     assert capsys.readouterr().out == rendered + "\n"
 
 
-def test_catalog_collection_available_never_none(semantic_project_factory) -> None:
+def test_catalog_page_available_never_none(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
+    result = catalog.search(kind="metric")
     # "available: none" should never appear — the available: section lists
     # method entries, never the word "none"
     assert "available: none" not in result.render().lower()

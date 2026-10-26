@@ -14,6 +14,7 @@ from marivo.semantic.catalog import SemanticCatalog, _normalize_occurrence_filte
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
 from tests.semantic.preview_helpers import certified_project, default_scope
+from tests.shared_fixtures import catalog_entry
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ def temporal_catalog(
 def test_occurrence_page_discloses_original_bounds_category_and_continuation(
     temporal_catalog: SemanticCatalog,
 ) -> None:
-    occurrences = temporal_catalog.temporal_sets.get("sales.named_campaigns")
+    occurrences = catalog_entry(temporal_catalog, "sales.named_campaigns", kind="temporal_set")
     page = occurrences.occurrences(start=date(2026, 3, 2), end=date(2026, 3, 4), limit=1)
     first = page.items[0]
     assert (first.key, first.start, first.end, first.occurrence_category) == (
@@ -69,7 +70,7 @@ def test_occurrence_page_discloses_original_bounds_category_and_continuation(
 def test_covered_filters_preserve_empty_results_categories_and_exclusive_end(
     temporal_catalog: SemanticCatalog,
 ) -> None:
-    occurrences = temporal_catalog.temporal_sets.get("sales.named_campaigns")
+    occurrences = catalog_entry(temporal_catalog, "sales.named_campaigns", kind="temporal_set")
     assert len(occurrences.occurrences().items) == 2
     assert len(occurrences.occurrences(start=date(2026, 1, 1)).items) == 2
     assert len(occurrences.occurrences(end=date(2027, 1, 1)).items) == 2
@@ -85,16 +86,12 @@ def test_covered_filters_preserve_empty_results_categories_and_exclusive_end(
 
 @pytest.mark.parametrize(
     ("start", "end"),
-    (
-        (date(2025, 12, 31), None),
-        (None, date(2027, 1, 2)),
-        (date(2030, 1, 1), date(2030, 2, 1)),
-    ),
+    ((date(2025, 12, 31), None), (None, date(2027, 1, 2)), (date(2030, 1, 1), date(2030, 2, 1))),
 )
 def test_uncovered_occurrence_filters_raise_structured_repairs(
     temporal_catalog: SemanticCatalog, start: date | None, end: date | None
 ) -> None:
-    occurrences = temporal_catalog.temporal_sets.get("sales.named_campaigns")
+    occurrences = catalog_entry(temporal_catalog, "sales.named_campaigns", kind="temporal_set")
     with pytest.raises(SemanticRuntimeError) as caught:
         occurrences.occurrences(start=start, end=end)
     error = caught.value
@@ -139,7 +136,9 @@ def test_timestamp_filters_use_certified_midnights_across_dst() -> None:
 def test_occurrence_scope_display_discloses_boundary_timezone(
     temporal_catalog: SemanticCatalog,
 ) -> None:
-    occurrence = temporal_catalog.temporal_sets.get("sales.named_campaigns").occurrence("spring")
+    occurrence = catalog_entry(
+        temporal_catalog, "sales.named_campaigns", kind="temporal_set"
+    ).occurrence("spring")
     assert "boundary_timezone=UTC" in occurrence.render()
 
 

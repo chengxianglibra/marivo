@@ -34,7 +34,7 @@ from marivo.analysis.session.core import Session
 from marivo.semantic._numeric_lowering import NumericCheck
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -112,23 +112,24 @@ baseline = ms.measure_column(name='baseline', entity=orders, column='baseline', 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.entities.get("sales.orders")),
+        session.members(session.catalog.get("entity:sales.orders").value),
         {
-            "amount": session.catalog.fields.get("sales.orders.amount"),
-            "region": session.catalog.fields.get("sales.orders.region"),
+            "amount": catalog_value(session.catalog, "sales.orders.amount", kind="field"),
+            "region": catalog_value(session.catalog, "sales.orders.region", kind="field"),
         },
     )
 
 
 def _identities(session: Session, frame: mv.AnalysisFrame) -> mv.Population:
     return session.population_from(
-        frame, on=((frame.axes[0], session.catalog.entities.get("sales.orders")),)
+        frame, on=((frame.axes[0], session.catalog.get("entity:sales.orders").value),)
     )
 
 
 def _regions(session: Session, frame: mv.AnalysisFrame) -> mv.Population:
     return session.population_from(
-        frame, on=((frame.axes[0], session.catalog.fields.get("sales.orders.region")),)
+        frame,
+        on=((frame.axes[0], catalog_value(session.catalog, "sales.orders.region", kind="field")),),
     )
 
 
@@ -210,8 +211,8 @@ def test_native_collated_group_membership_keeps_every_original_contribution(
     collated_source_query_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     session = collated_source_query_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     grouped = session.observe({"count": amount.count()}, by=(region,))
     fixed = grouped.top(1, by=grouped["count"]).compute()
     assert fixed.to_pandas()["count"].tolist() == [2]
@@ -333,8 +334,8 @@ def test_source_population_set_terminal_preserves_native_layout(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
     session = source_query_session
-    entity = session.catalog.entities.get("sales.orders")
-    amount = session.catalog.fields.get("sales.orders.amount")
+    entity = session.catalog.get("entity:sales.orders").value
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     left = session.members(entity, where=amount >= 20)
     right = session.members(entity, where=amount <= 20)
     selected = (
@@ -376,8 +377,8 @@ def test_private_native_union_finish_executes_source_order_layout_and_checks(
 ) -> None:
     """Exercise the existing private finish builder without enabling a public route."""
     session = source_query_session
-    entity = session.catalog.entities.get("sales.orders")
-    amount = session.catalog.fields.get("sales.orders.amount")
+    entity = session.catalog.get("entity:sales.orders").value
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     left = session.members(entity, where=amount >= 20)
     right = session.members(entity, where=amount <= 20)
     union = left.union(right)
@@ -497,12 +498,12 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
     fixed = source.top(1, by=source["amount"]).compute()
     keys = _identities(session, fixed)
     members = session.members(
-        session.catalog.entities.get("sales.orders"), where=mv.in_population(keys)
+        session.catalog.get("entity:sales.orders").value, where=mv.in_population(keys)
     )
     trace = capture_source(monkeypatch)
     rows = (
         session.observe(
-            {"total": session.catalog.fields.get("sales.orders.amount").sum()},
+            {"total": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
             where=mv.in_population(members),
         )
         .compute()
@@ -560,9 +561,10 @@ def test_fixed_aggregate_axis_bridge_reads_explicit_source(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     producer = session.observe(
-        {"total": amount.sum()}, by=(session.catalog.fields.get("sales.orders.region"),)
+        {"total": amount.sum()},
+        by=(catalog_value(session.catalog, "sales.orders.region", kind="field"),),
     )
     fixed = producer.where(producer["total"] >= 30).compute()
     trace = capture_source(monkeypatch)
@@ -582,7 +584,7 @@ def test_shared_frame_key_constraint_keeps_complement_masks(
     source = _attributes(session)
     fixed = source.where(source["region"] == selected_region).compute()
     condition = mv.in_population(_identities(session, fixed))
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     trace = capture_source(monkeypatch)
     result = (
         session.observe(
@@ -604,10 +606,10 @@ def test_aggregate_selection_keeps_reducer_owned_null_policy(
     source_query_session: Session, method: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     metric = amount.sum(nulls="error") if method == "sum" else amount.mean(nulls="error")
     producer = session.observe(
-        {"value": metric}, by=(session.catalog.fields.get("sales.orders.region"),)
+        {"value": metric}, by=(catalog_value(session.catalog, "sales.orders.region", kind="field"),)
     )
     chosen = producer.where(producer["value"] > 1000)
     query = session.observe(
@@ -636,9 +638,10 @@ def test_aggregate_top_population_keeps_original_parent_ranking(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     producer = session.observe(
-        {"value": amount.sum()}, by=(session.catalog.fields.get("sales.orders.region"),)
+        {"value": amount.sum()},
+        by=(catalog_value(session.catalog, "sales.orders.region", kind="field"),),
     )
     fixed = producer.top(1, by=producer["value"]).compute()
     trace = capture_source(monkeypatch)
@@ -719,10 +722,10 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=9007199254740993, baseline=9007199254740992")
     source = session.read(
-        session.members(session.catalog.entities.get("sales.orders")),
+        session.members(session.catalog.get("entity:sales.orders").value),
         {
-            "amount": session.catalog.fields.get("sales.orders.amount"),
-            "baseline": session.catalog.fields.get("sales.orders.baseline"),
+            "amount": catalog_value(session.catalog, "sales.orders.amount", kind="field"),
+            "baseline": catalog_value(session.catalog, "sales.orders.baseline", kind="field"),
         },
     )
     current = source.select({"value": source["amount"]})
@@ -766,12 +769,12 @@ def test_population_set_algebra_keeps_complete_frame_keys(
 ) -> None:
     session = source_query_session
     members = session.members(
-        session.catalog.entities.get("sales.orders"),
+        session.catalog.get("entity:sales.orders").value,
         where=mv.in_population(_sets(session, operation)),
     )
     rows = (
         session.observe(
-            {"total": session.catalog.fields.get("sales.orders.amount").sum()},
+            {"total": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
             where=mv.in_population(members),
         )
         .compute()
@@ -789,8 +792,8 @@ def test_grouped_shared_population_consumers_keep_independent_grids(
     source = _attributes(session)
     fixed = source.where(source["amount"] >= 25).compute()
     condition = mv.in_population(_identities(session, fixed))
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     rows = (
         session.observe(
             {
@@ -837,8 +840,8 @@ def test_frame_key_product_projection_and_filter_preserve_domain(
     session = source_query_session
     source = _attributes(session)
     selected = _identities(session, source.where(source["amount"] >= 20).compute())
-    region = session.catalog.fields.get("sales.orders.region")
-    classifications = session.members(session.catalog.entities.get("sales.orders")).classify(
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    classifications = session.members(session.catalog.get("entity:sales.orders").value).classify(
         by=(region,)
     )
     product = mv.product(selected, classifications)
@@ -860,10 +863,10 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
-    status = session.catalog.fields.get("sales.order.status")
-    ordered = session.catalog.fields.get("sales.order.ordered_at")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    status = catalog_value(session.catalog, "sales.order.status", kind="field")
+    ordered = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     producer = session.observe(
         {"count": amount.count(time=ordered).where(status == "paid")},
         by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),

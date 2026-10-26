@@ -12,7 +12,7 @@ from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -29,8 +29,8 @@ def test_source_and_python_failures_preserve_atomic_publication(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     logical = session.read(
-        session.members(session.catalog.entities.get("sales.order")),
-        {"value": session.catalog.fields.get("sales.order.amount")},
+        session.members(session.catalog.get("entity:sales.order").value),
+        {"value": catalog_value(session.catalog, "sales.order.amount", kind="field")},
     )
     prior = logical.persist()
     prior_frame = prior.to_pandas()
@@ -93,8 +93,8 @@ def test_graph_has_no_hidden_600_second_expiry(
 
     case = analysis_dsl_case_factory("j2")
     logical = case.session.read(
-        case.session.members(case.session.catalog.entities.get("sales.order")),
-        {"value": case.session.catalog.fields.get("sales.order.amount")},
+        case.session.members(case.session.catalog.get("entity:sales.order").value),
+        {"value": catalog_value(case.session.catalog, "sales.order.amount", kind="field")},
     )
     ticks = [0.0]
 
@@ -124,7 +124,7 @@ def test_fresh_worker_contender_only_rejects_publication(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     saved = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.revenue")},
+        {"value": case.session.catalog.get("metric:sales.revenue").value},
         by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"),),
     ).persist()
     store = case.session._runtime.store

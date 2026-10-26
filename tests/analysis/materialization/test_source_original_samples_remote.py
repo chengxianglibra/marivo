@@ -16,6 +16,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.environment import clickhouse_analysis, trino_analysis
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 CASES = [("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -88,9 +89,9 @@ def test_remote_per_rollup_combines_shared_sample_before_empty_domain_mean(
         session,
         case,
     ):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        channel = session.catalog.fields.get("sales.facts.channel")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
         metric = amount.sum().per(samples).mean()
         query = session.observe({"value": metric})
@@ -115,9 +116,9 @@ def test_remote_window_spatial_rollup_retains_lookback_and_each_endpoint(
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, window=True
     ) as (session, case):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        day = session.catalog.fields.get("sales.facts.day")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
         calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
         total = amount.sum(time=day)
         metric = (
@@ -145,9 +146,9 @@ def test_remote_sample_parent_masks_zero_denominator(
         session,
         case,
     ):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        channel = session.catalog.fields.get("sales.facts.channel")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
         metric = (amount.count() / amount.sum()).per(customer).mean()
         trace = capture_source(monkeypatch)
         result = session.observe({"value": metric}, by=(channel,)).compute().to_pandas()
@@ -168,9 +169,9 @@ def test_remote_selected_per_rollup_recomputes_complete_shared_sample_union(
         session,
         case,
     ):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        channel = session.catalog.fields.get("sales.facts.channel")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
         fine = session.observe({"value": amount.sum().per(samples).mean()}, by=(channel,))
         selected = (
@@ -204,9 +205,9 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, window=True
     ) as (session, case):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        day = session.catalog.fields.get("sales.facts.day")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
         calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
         metric = amount.sum(time=day).window(mv.all_history())
         fine = session.observe({"value": metric}, by=(calendar, customer))
@@ -276,9 +277,9 @@ def test_remote_sample_top_zero_finishes_fine_checks_before_target_read(
         session,
         case,
     ):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        channel = session.catalog.fields.get("sales.facts.channel")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
         metric = (amount.count() / amount.sum()).per(customer).mean()
         fine = session.observe({"value": metric}, by=(channel,))
         trace = capture_source(monkeypatch)
@@ -298,9 +299,9 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
         session,
         case,
     ):
-        amount = session.catalog.fields.get("sales.facts.amount")
-        customer = session.catalog.fields.get("sales.facts.customer")
-        channel = session.catalog.fields.get("sales.facts.channel")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
         fine = session.observe({"value": amount.sum().per(samples).mean()}, by=(channel,))
         fixed = fine.top(1, by=fine["value"]).compute()

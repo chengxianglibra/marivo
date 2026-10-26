@@ -21,7 +21,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -77,9 +77,9 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     model.write_text(
         model.read_text() + "code=ms.dimension_column(name='code',entity=orders,column='code')\n"
     )
-    amount = core_session.catalog.fields.get("sales.orders.amount")
-    region = core_session.catalog.fields.get("sales.orders.region")
-    code = core_session.catalog.fields.get("sales.orders.code")
+    amount = catalog_value(core_session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(core_session.catalog, "sales.orders.region", kind="field")
+    code = catalog_value(core_session.catalog, "sales.orders.code", kind="field")
     metrics = {"total": amount.sum()}
     if small_first is not None:
         small = {"small": amount.sum().where(amount < 20)}
@@ -118,9 +118,9 @@ def test_source_refuses_unsafe_integer_key_promotion_before_finish(
     model.write_text(
         model.read_text() + "code=ms.dimension_column(name='code',entity=orders,column='code')\n"
     )
-    amount = core_session.catalog.fields.get("sales.orders.amount")
-    region = core_session.catalog.fields.get("sales.orders.region")
-    code = core_session.catalog.fields.get("sales.orders.code")
+    amount = catalog_value(core_session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(core_session.catalog, "sales.orders.region", kind="field")
+    code = catalog_value(core_session.catalog, "sales.orders.code", kind="field")
     query = core_session.observe(
         {"small": amount.sum().where(amount < 20), "large": amount.sum().where(amount >= 20)},
         by=(region, code),
@@ -196,8 +196,8 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
         ),
         path,
     )
-    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
-    elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
+    population = core_session.members(core_session.catalog.get("entity:sales.durations").value)
+    elapsed = catalog_value(core_session.catalog, "sales.durations.elapsed", kind="field")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
         query.reduce({"sum": query["elapsed"].sum(), "mean": query["elapsed"].mean()})
@@ -211,8 +211,8 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
 
 
 def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: Session) -> None:
-    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
-    elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
+    population = core_session.members(core_session.catalog.get("entity:sales.durations").value)
+    elapsed = catalog_value(core_session.catalog, "sales.durations.elapsed", kind="field")
     query = core_session.read(population, {"elapsed": elapsed})
     for selected, expected_sum in (
         (query.where(query["elapsed"].is_null()), None),
@@ -246,8 +246,8 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         pa.table({"id": [1, 2], "elapsed": pa.array([ticks, None], type=pa.duration("ns"))}),
         path,
     )
-    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
-    elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
+    population = core_session.members(core_session.catalog.get("entity:sales.durations").value)
+    elapsed = catalog_value(core_session.catalog, "sales.durations.elapsed", kind="field")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
         query.reduce(
@@ -262,8 +262,8 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
 
 
 def test_explicit_source_monthly_values(core_session: Session) -> None:
-    amount = core_session.catalog.fields.get("sales.orders.amount")
-    day = core_session.catalog.fields.get("sales.orders.day")
+    amount = catalog_value(core_session.catalog, "sales.orders.amount", kind="field")
+    day = catalog_value(core_session.catalog, "sales.orders.day", kind="field")
     months = core_session.time_scope(start="2026-01-01", end="2026-03-01").by(mv.grain("month"))
     current = core_session.observe({"sales": amount.sum(time=day)}, by=(months,)).compute()
     assert current.to_pandas()["sales"].tolist() == [60, 100]
@@ -303,7 +303,7 @@ def test_duration_binary_expression_keeps_type_before_sum_and_mean(
 def test_duration_nested_unary_and_current_frame_arithmetic_retains_ticks(
     core_session: Session,
 ) -> None:
-    region = core_session.catalog.fields.get("sales.orders.region")
+    region = catalog_value(core_session.catalog, "sales.orders.region", kind="field")
     query = core_session.values(
         by=(region,),
         columns={"d": "s"},
@@ -348,7 +348,7 @@ def test_zero_duration_literal_retains_nonzero_unit_and_refuses_missing_values(
     unit: str,
     ticks: list[int | None],
 ) -> None:
-    region = core_session.catalog.fields.get("sales.orders.region")
+    region = catalog_value(core_session.catalog, "sales.orders.region", kind="field")
     query = core_session.values(
         by=(region,),
         columns={"d": "s"},
@@ -370,8 +370,8 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         path,
     )
     represented_tick = tick
-    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
-    elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
+    population = core_session.members(core_session.catalog.get("entity:sales.durations").value)
+    elapsed = catalog_value(core_session.catalog, "sales.durations.elapsed", kind="field")
     query = core_session.read(population, {"d": elapsed})
     expression = query["d"] / 2
     selected = query.select(
@@ -411,9 +411,10 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
     core_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    population = core_session.members(core_session.catalog.entities.get("sales.durations"))
+    population = core_session.members(core_session.catalog.get("entity:sales.durations").value)
     source = core_session.read(
-        population, {"d": core_session.catalog.fields.get("sales.durations.elapsed")}
+        population,
+        {"d": catalog_value(core_session.catalog, "sales.durations.elapsed", kind="field")},
     )
     invalid = source.reduce({"d": (source["d"] + timedelta(microseconds=3)).sum()})
     before = terminal_runs(core_session)

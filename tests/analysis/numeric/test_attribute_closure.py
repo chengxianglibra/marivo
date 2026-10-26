@@ -45,6 +45,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 _INT = ScalarDataType("int64")
 _FLOAT = ScalarDataType("float64")
@@ -562,9 +563,9 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
 def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_observation(
     numeric_session: Session, tmp_path: Path
 ) -> None:
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    phase = numeric_session.catalog.fields.get("sales.facts.phase")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -588,9 +589,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
 ) -> None:
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    phase = numeric_session.catalog.fields.get("sales.facts.phase")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     selected = numeric_session.observe({"q": amount.sum()}, where=phase == "current").compute()
     execute = SourceSession.execute
 
@@ -622,9 +623,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
 def test_relative_zero_fresh_baseline_is_rejected_before_closure(
     numeric_session: Session, tmp_path: Path
 ) -> None:
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    phase = numeric_session.catalog.fields.get("sales.facts.phase")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -641,9 +642,9 @@ def test_report_preserves_historical_values_with_finer_parent_carrier_and_reorde
 ) -> None:
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    phase = numeric_session.catalog.fields.get("sales.facts.phase")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     selected = numeric_session.observe({"q": amount.sum() * Decimal("0.5")}, by=(phase,)).compute()
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute(
@@ -707,8 +708,8 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 9007199254740993 ELSE 0 END"
         )
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     selected = numeric_session.observe({"q": amount.sum()}).compute()
     assert selected.to_pandas()["q"].tolist() == [Decimal("9007199254740993")]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
@@ -741,8 +742,8 @@ def test_duration_linear_sum_retains_final_tick_carrier(
         connection.execute(
             "ALTER TABLE facts ALTER amount TYPE INTERVAL USING amount * INTERVAL '1 microsecond'"
         )
-    amount = numeric_session.catalog.fields.get("sales.facts.amount")
-    channel = numeric_session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
     selected = numeric_session.observe({"q": amount.sum() * 2}).compute()
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     for name, expected in (

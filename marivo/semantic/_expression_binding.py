@@ -1454,6 +1454,8 @@ def compile_expression_body(
             ),
             parameter_count=1,
             bindings=(),
+            source_syntax=ast.unparse(function),
+            _function_ast=copy.deepcopy(function),
             source_columns=_entity_table_source_columns(
                 function,
                 parameter_positions=parameter_positions,

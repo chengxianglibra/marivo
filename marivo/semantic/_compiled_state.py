@@ -10,6 +10,8 @@ from typing import Literal, cast
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
 from marivo._definition.graph import computation_fingerprint, direct_calendar_refs, direct_refs
+from marivo.datasource.ir import AiContextIR
+from marivo.datasource.typing import AiContextValue
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
@@ -73,6 +75,17 @@ class PublishedDeclaration:
     name: str
     computation: str
     unit: str | None
+    ai_context: AiContextIR
+
+
+def _captured_context(context: AiContextValue | None) -> AiContextIR:
+    if context is None:
+        return AiContextIR()
+    return AiContextIR(
+        business_definition=context.business_definition,
+        guardrails=context.guardrails,
+        aliases=context.aliases,
+    )
 
 
 def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNode | RowNode]:
@@ -130,7 +143,11 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         assert declaration is not None
         facts = consume_row(measure)
         rows[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = PublishedDeclaration(
-            "measure", declaration.name, computation_fingerprint(facts.node), facts.unit
+            "measure",
+            declaration.name,
+            computation_fingerprint(facts.node),
+            facts.unit,
+            _captured_context(declaration.ai_context),
         )
     for key, metric in registry.declared_metrics.items():
         declaration = root_declaration(metric)
@@ -141,6 +158,7 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
             declaration.name,
             computation_fingerprint(metric_facts.node),
             metric_facts.unit,
+            _captured_context(declaration.ai_context),
         )
     return rows
 
@@ -279,9 +297,10 @@ class CompilationGraph:
         name: str,
         node: MetricNode | RowNode,
         unit: str | None,
+        ai_context: AiContextValue | None,
     ) -> None:
         self.definitions[reference] = PublishedDeclaration(
-            stage, name, computation_fingerprint(node), unit
+            stage, name, computation_fingerprint(node), unit, _captured_context(ai_context)
         )
         self.dependencies[reference] = tuple(
             sorted(

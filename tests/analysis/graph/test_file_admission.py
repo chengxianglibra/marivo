@@ -15,7 +15,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.materialization.file_fixtures import author_file_case
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import encode
 from tests.support.source_trace import SourceTrace
 
@@ -58,8 +58,10 @@ def test_file_construction_and_refusals_never_submit_business_rows(
         with monkeypatch.context() as patch:
             patch.setattr(SourceSession, "compile", forbidden)
             patch.setattr(SourceSession, "execute", forbidden)
-            metric = session.catalog.metrics.get(
-                "sales.average" if case_kind == "integer-mean" else "sales.total"
+            metric = catalog_value(
+                session.catalog,
+                "sales.average" if case_kind == "integer-mean" else "sales.total",
+                kind="metric",
             )
             query = session.observe({"value": metric})
             query.show()
@@ -124,7 +126,7 @@ def test_json_request_sources_are_refused_before_source_open(
 
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        query = session.observe({"value": session.catalog.metrics.get("sales.total")})
+        query = session.observe({"value": session.catalog.get("metric:sales.total").value})
         with pytest.raises(AnalysisError) as caught:
             query.persist()
         error = caught.value

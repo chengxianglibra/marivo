@@ -187,7 +187,7 @@ class SemanticObjectContract:
     semantic_kind: SemanticKind
     construction_families: tuple[str, ...]
     ref_target: LiveHelpTarget
-    catalog_collection: str
+    catalog_kind: str
     placement_kind: AuthoringPlacementKind
     decisions: tuple[SemanticObjectDecision, ...]
     construction_modes: tuple[ConstructionMode, ...]
@@ -214,7 +214,7 @@ class AuthoringSourceContract:
 
     placement_kind: AuthoringPlacementKind
     path_template: str
-    catalog_collection: str
+    catalog_kind: str
     canonical_identity_template: str
 
 

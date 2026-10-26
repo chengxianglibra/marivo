@@ -12,7 +12,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
 def _publications(session: mv.Session) -> tuple[int, ...]:
@@ -32,7 +32,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
     session = case.session
     n = case.names
     logical = session.observe(
-        {"value": session.catalog.metrics.get(f"{n.domain}.{n.revenue}")},
+        {"value": catalog_value(session.catalog, f"{n.domain}.{n.revenue}", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
     )
     previous = logical.persist()

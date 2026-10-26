@@ -14,7 +14,7 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -35,8 +35,8 @@ def period_produce(root: Path, name: str) -> None:
             "(5,'A',30,'2027-02-01 00:00:00+00')"
         )
     session = mv.session.get_or_create(name, timezone="UTC")
-    amount = session.catalog.fields.get("sales.orders.amount")
-    stamp = session.catalog.fields.get("sales.orders.stamp")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="field")
     periods = session.time_scope(start="2027-01-01", end="2027-03-01").by(mv.grain("month"))
     metric = amount.sum(time=stamp)
     current = session.observe({"total": metric}, by=(periods,))
@@ -133,8 +133,8 @@ def main() -> None:
         return
     if mode == "produce":
         session = mv.session.get_or_create(name, timezone="UTC")
-        amount = session.catalog.fields.get("sales.orders.amount")
-        region = session.catalog.fields.get("sales.orders.region")
+        amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+        region = catalog_value(session.catalog, "sales.orders.region", kind="field")
         artifact = session.observe(
             {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
         ).persist()

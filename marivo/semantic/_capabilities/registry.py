@@ -23,10 +23,6 @@ from marivo._authoring.model import (
 from marivo._data_render import _display_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
-from marivo.semantic._capabilities.catalog_members import (
-    CATALOG_COLLECTION_PROPERTIES,
-    CATALOG_MEMBER_CONTRACTS,
-)
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
     AuthoringSourceContract,
@@ -63,9 +59,11 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceDetails",
         "TemporalSetDetails",
         "dict[str, object]",
+        "dict[str, JsonValue]",
         "tuple[str, str]",
-        "CatalogEntry | Entity | Deferred | Relationship",
-        "CatalogCollection",
+        "SemanticEntry",
+        "CatalogPage",
+        "str",
         "PreviewBatchResult",
         "PreviewResult",
         "ReadinessReport",
@@ -146,6 +144,7 @@ INPUT_FAMILIES = frozenset(
         "DimensionSymbol | TimeDimensionSymbol",
         "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "CatalogEntry",
+        "CatalogPage",
         "DomainEntry",
         "DatasourceEntry",
         "PeriodCalendarEntry",
@@ -158,7 +157,6 @@ INPUT_FAMILIES = frozenset(
         "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
         "tuple[Grouping, ...]",
         "CatalogEntry | LookupSymbol",
-        "CatalogCollection",
         "str",
         "SemanticCatalog",
         "SemanticKind",
@@ -359,7 +357,6 @@ def _capability(
 
 
 def _authoring_source_contract(kind: SemanticKind) -> AuthoringSourceContract:
-    member = next(member for member in CATALOG_MEMBER_CONTRACTS if kind in member.kinds)
     placement_kind: Literal["domain_entrypoint", "domain_module"]
     if kind is SemanticKind.DOMAIN:
         placement_kind = "domain_entrypoint"
@@ -384,7 +381,7 @@ def _authoring_source_contract(kind: SemanticKind) -> AuthoringSourceContract:
     return AuthoringSourceContract(
         placement_kind=placement_kind,
         path_template=path_template,
-        catalog_collection=member.property_name,
+        catalog_kind=kind.value,
         canonical_identity_template=identity_template,
     )
 
@@ -527,7 +524,7 @@ def _object_contract(
             SemanticKind.METRIC: ("Deferred",),
         }.get(kind, (_symbol_family(kind),)),
         ref_target=_target(f"ref.{kind.value}"),
-        catalog_collection=source_contract.catalog_collection,
+        catalog_kind=source_contract.catalog_kind,
         placement_kind=source_contract.placement_kind,
         decisions=decisions,
         construction_modes=construction_modes,
@@ -818,7 +815,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             checks=("readiness",),
             check_guidance=(
                 "Readiness accepts physical column-backed fields. For a declared row "
-                "expression, inspect catalog.describe(ref).show() and check its physical dependencies."
+                "expression, inspect catalog.get('kind:path').show() and check its physical dependencies."
             ),
         ),
         _object_contract(
@@ -887,7 +884,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             checks=("readiness",),
             check_guidance=(
                 "Readiness checks physical dependencies, not Metrics. Inspect the definition "
-                "with catalog.describe(ref).show(); AnalysisFrame.compute()/persist() "
+                "with catalog.get('kind:path').show(); AnalysisFrame.compute()/persist() "
                 "qualifies the selected computation."
             ),
         ),
@@ -1365,14 +1362,14 @@ def _navigation_descriptors(
             "Use closed Catalog values for analysis. Declaration lookup symbols capture a recipe and remain distinct from closed analysis inputs.",
             (
                 route(
-                    "select a closed value",
-                    "CatalogCollection.get",
-                    "Retrieve a value by its exact path or unique collection-local name.",
+                    "discover business objects",
+                    "SemanticCatalog.search",
+                    "Search business meaning or browse with explicit filters.",
                 ),
                 route(
-                    "explain a definition",
-                    "SemanticCatalog.describe",
-                    "Inspect captured meaning and dependencies without source reads.",
+                    "retrieve and explain a definition",
+                    "SemanticCatalog.get",
+                    "Retrieve a canonical identity; inspect its complete entry and native value.",
                 ),
                 route(
                     "declaration lookup kind",
@@ -1382,7 +1379,7 @@ def _navigation_descriptors(
                 route(
                     "current catalog contract",
                     "SemanticCatalog",
-                    "Inspect available collections and current Catalog methods.",
+                    "Inspect search, get and explicit validation methods.",
                     owns=False,
                 ),
             ),
@@ -1823,16 +1820,13 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
     if set(object_kinds) != expected_object_kinds:
         raise ValueError("semantic object-kind contracts must cover every non-datasource kind")
 
-    catalog_collection_by_kind = {
-        kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS for kind in member.kinds
-    }
     for contract in object_contracts:
         kind = contract.semantic_kind
         expected_ref_family = _symbol_family(kind)
         if contract.canonical_id not in {f"objects.{kind.value}", kind.value}:
             raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
-        if contract.catalog_collection != catalog_collection_by_kind[kind]:
-            raise ValueError(f"semantic object catalog collection drift: {kind.value}")
+        if contract.catalog_kind != kind.value:
+            raise ValueError(f"semantic object catalog kind drift: {kind.value}")
         if contract.ref_target != _target(f"ref.{kind.value}"):
             raise ValueError(f"semantic object ref target drift: {kind.value}")
         ref_descriptor = registry.by_canonical_id(contract.ref_target.canonical_id or "")
@@ -2747,27 +2741,43 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
 def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
     """Register native consumption methods advertised by semantic result types."""
     rows: list[AuthoringCapability] = []
-    for owner, output in (
+    for module, owner, name, output, example in (
         (
+            "catalog",
             "CatalogEntry",
-            "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails",
+            "related",
+            "CatalogPage",
+            'entry.related("dependencies").show()',
         ),
-        ("DomainEntry", "DomainDetails"),
-        ("DatasourceEntry", "DatasourceDetails"),
-        ("PeriodCalendarEntry", "PeriodCalendarDetails"),
-        ("TemporalSetEntry", "TemporalSetDetails"),
+        ("catalog", "CatalogEntry", "to_dict", "dict[str, JsonValue]", "data = entry.to_dict()"),
+        ("catalog", "CatalogEntry", "to_json", "Text", "text = entry.to_json()"),
+        (
+            "catalog",
+            "CatalogEntry",
+            "show",
+            "None",
+            'entry.show(section="context", max_output_bytes=None)',
+        ),
+        (
+            "catalog_entries",
+            "CatalogPage",
+            "to_dict",
+            "dict[str, JsonValue]",
+            "data = page.to_dict()",
+        ),
+        ("catalog_entries", "CatalogPage", "to_json", "Text", "text = page.to_json()"),
     ):
         rows.append(
             _capability(
-                f"{owner}.details",
-                f"marivo.semantic.catalog.{owner}.details",
-                "Return this entry's typed details. Temporal entries inspect local certified snapshot state; no datasource connection or business data reads.",
+                f"{owner}.{name}",
+                f"marivo.semantic.{module}.{owner}.{name}",
+                "Read complete captured directory data or display a bounded projection. Related navigation stays within the loaded scope; no datasource or model calls.",
                 kind="method",
                 output=output,
                 inputs=(AuthoringInputRequirement(role="receiver", family=owner),),
-                effects=_LOCAL if owner in {"PeriodCalendarEntry", "TemporalSetEntry"} else _NONE,
-                example="details = entry.details()",
-                public_entrypoint="entry.details",
+                effects=_LOCAL,
+                example=example,
+                public_entrypoint=f"{'page' if owner == 'CatalogPage' else 'entry'}.{name}",
             )
         )
     for module, owner in (
@@ -3151,11 +3161,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "ai_context",
             "marivo.semantic._authoring_values.ai_context",
-            "Build an AI context value for agent-facing metadata.",
+            "Build captured business context, guardrails and normalized explicit search aliases. Aliases do not register new semantic identities.",
             output="AiContextValue",
             effects=_AUTHOR,
             constraints=("ai_context_schema",),
-            example="ms.ai_context(business_definition='Sum of accepted order amounts.')",
+            example="ms.ai_context(business_definition='Sum of accepted order amounts.', aliases=['accepted revenue'])",
         ),
         _capability(
             "snapshot",
@@ -3406,7 +3416,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check current physical semantic inputs, their compiled dependency closures and certified temporal artifacts without connecting or querying. Unrelated load warnings are excluded. Published expressions are inspected with catalog.describe(); computing or persisting a source AnalysisFrame qualifies physical types and execution support.",
+            "Check current physical semantic inputs, their compiled dependency closures and certified temporal artifacts without connecting or querying. Unrelated load warnings are excluded. Published expressions are inspected with catalog.get(); computing or persisting a source AnalysisFrame qualifies physical types and execution support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
@@ -3429,33 +3439,35 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
-            "SemanticCatalog.describe",
-            "marivo.semantic.catalog.SemanticCatalog.describe",
-            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and captured analysis facts live on AnalysisFrame.show(). Pending Frame display does not evaluate or prepare schema.",
+            "SemanticCatalog.get",
+            "marivo.semantic.catalog.SemanticCatalog.get",
+            "Retrieve one immutable directory entry by canonical kind:path identity. Check entry.kind before accessing variant-specific .value. No model calls or datasource reads; entry.show() and entry.definition disclose captured facts.",
             kind="method",
-            output="ExpressionContract",
+            output="SemanticEntry",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "LookupSymbol", "ref"),
+                _parameter_input("subject", "str", "id"),
             ),
             effects=_LOCAL,
-            example="catalog.describe(ms.ref.metric('sales.revenue')).show()",
-            public_entrypoint="catalog.describe",
+            example="entry = catalog.get('metric:sales.revenue')\nif entry.kind == 'metric':\n    revenue = entry.value",
+            public_entrypoint="catalog.get",
             see_also=(LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),),
         ),
         _capability(
-            "CatalogCollection.get",
-            "marivo.semantic.catalog.CatalogCollection.get",
-            "Select one current value or entry by a plain local name or full semantic path string. A local name must be unique; full paths retain the collection scope. Refs and kind-prefixed strings are rejected. The consuming operation checks its required semantic kind.",
+            "SemanticCatalog.search",
+            "marivo.semantic.catalog.SemanticCatalog.search",
+            "Discover business objects with text and explicit kind/domain/entity filters. Empty query browses without models. Text uses the frozen lexical or configured hybrid profile; hybrid may call the configured model and write derived local caches. Filters precede both recall channels. Scores express relevance, not execution authority. Follow next_cursor using the same query and filters; candidate_count counts the fixed candidate pool, not every possible semantic match.",
             kind="method",
-            output="CatalogEntry | Entity | Deferred | Relationship",
-            inputs=(
-                AuthoringInputRequirement(role="receiver", family="CatalogCollection"),
-                _parameter_input("subject", "str", "key"),
+            output="CatalogPage",
+            inputs=(AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),),
+            effects=AuthoringEffects(
+                data_access="local_metadata_read",
+                connection="none",
+                mutations=("project_state",),
+                flags=("may_call_model", "may_write_search_cache"),
             ),
-            effects=_LOCAL,
-            example="collection.get('sales.revenue')",
-            public_entrypoint="collection.get",
+            example="page = catalog.search('accepted revenue', kind='metric', limit=5)\npage.show()",
+            public_entrypoint="catalog.search",
         ),
     )
     descriptor_rows = tuple(
@@ -3516,7 +3528,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="field",
-                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Compose native field symbols directly; the loader binds their complete dependency scope before Catalog publication. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
+                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Compose native field symbols directly; the loader binds their complete dependency scope before Catalog publication. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.get('kind:path').show().",
                 members=(
                     _navigation_route(
                         "source boolean conditions", _target("predicate"), owns_discovery=False
@@ -3674,6 +3686,8 @@ REGISTRY = _build_registry()
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
+    from dataclasses import fields
+
     from marivo._symbolic import symbol_factory as ref_factory
     from marivo.preview import PreviewResult
     from marivo.refs import (
@@ -3681,20 +3695,35 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SemanticKind,
     )
     from marivo.semantic.catalog import (
-        CalendarLevelDetails,
         CalendarPeriodPage,
-        CatalogCollection,
         CatalogEntry,
-        DatasourceDetails,
         DatasourceEntry,
-        DomainDetails,
+        DimensionEntry,
         DomainEntry,
-        PeriodCalendarDetails,
+        EntityEntry,
+        MeasureEntry,
+        MetricEntry,
         PeriodCalendarEntry,
+        RelationshipEntry,
         SemanticCatalog,
         TemporalOccurrencePage,
-        TemporalSetDetails,
         TemporalSetEntry,
+        TimeDimensionEntry,
+    )
+    from marivo.semantic.catalog_entries import (
+        CatalogFilters,
+        CatalogPage,
+        CatalogScope,
+        DatasourceDefinition,
+        DomainDefinition,
+        EntityDefinition,
+        EntryProvenance,
+        FieldDefinition,
+        MetricDefinition,
+        MetricTimeBinding,
+        PeriodCalendarDefinition,
+        RelationshipDefinition,
+        TemporalSetDefinition,
     )
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import JoinKey
@@ -3755,8 +3784,10 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SemanticCatalog,
         "SemanticCatalog",
         ("load",),
-        properties=CATALOG_COLLECTION_PROPERTIES,
+        properties=("definition_fingerprint", "semantic_root", "workspace_dir"),
         methods=(
+            "get",
+            "search",
             "preview",
             "preview_many",
             "source_health",
@@ -3768,61 +3799,113 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         CatalogEntry,
         "CatalogEntry",
-        ("CatalogCollection.get",),
-        properties=("ref",),
-        methods=("details", "show", "render"),
+        ("SemanticCatalog.get", "SemanticCatalog.search"),
+        properties=("id", "kind", "path", "name", "domain", "summary", "definition", "provenance"),
+        methods=("related", "to_dict", "to_json", "show", "render"),
     )
     add(
-        CatalogCollection,
-        "CatalogCollection",
-        (),
-        properties=("items", "refs"),
-        methods=("get", *show_render),
+        CatalogPage,
+        "CatalogPage",
+        ("SemanticCatalog.search",),
+        properties=(
+            "items",
+            "candidate_count",
+            "scope",
+            "filters",
+            "retrieval",
+            "matches",
+            "next_cursor",
+            "outside_scope",
+        ),
+        methods=("to_dict", "to_json", "show", "render"),
+        guidance=(
+            "candidate_count is the fixed candidate pool size; next_cursor resumes API pages, independent of display truncation.",
+        ),
     )
+    for entry_type in (
+        EntityEntry,
+        DimensionEntry,
+        TimeDimensionEntry,
+        MeasureEntry,
+        MetricEntry,
+        RelationshipEntry,
+    ):
+        add(
+            entry_type,
+            entry_type.__name__,
+            ("SemanticCatalog.get", "SemanticCatalog.search"),
+            properties=(
+                "id",
+                "kind",
+                "path",
+                "name",
+                "domain",
+                "summary",
+                "definition",
+                "provenance",
+                "value",
+            ),
+            methods=("related", "to_dict", "to_json", "show", "render"),
+        )
+    for record_type in (
+        CatalogScope,
+        CatalogFilters,
+        EntryProvenance,
+        DomainDefinition,
+        DatasourceDefinition,
+        EntityDefinition,
+        FieldDefinition,
+        MetricDefinition,
+        MetricTimeBinding,
+        RelationshipDefinition,
+        PeriodCalendarDefinition,
+        TemporalSetDefinition,
+    ):
+        add(
+            record_type,
+            record_type.__name__,
+            ("SemanticCatalog.get",),
+            properties=tuple(field.name for field in fields(record_type)),
+            guidance=(
+                "Immutable captured definition data, independent of display budgets and query matching metadata.",
+            ),
+        )
     add(
         DomainEntry,
         "DomainEntry",
         (),
-        methods=("details", "show", "render"),
+        properties=("id", "kind", "path", "name", "domain", "summary", "definition", "provenance"),
+        methods=("related", "to_dict", "to_json", "show", "render"),
     )
-    add(
-        DomainDetails,
-        "DomainDetails",
-        (),
-        methods=show_render,
-    )
+
     add(
         PeriodCalendarEntry,
         "PeriodCalendarEntry",
         (),
-        properties=("ref",),
+        properties=(
+            "id",
+            "kind",
+            "path",
+            "name",
+            "domain",
+            "summary",
+            "definition",
+            "provenance",
+            "ref",
+        ),
         methods=(
+            "related",
+            "to_dict",
+            "to_json",
             "grain",
             "period",
             "period_on",
             "periods",
-            "details",
             "show",
             "render",
         ),
     )
-    add(
-        PeriodCalendarDetails,
-        "PeriodCalendarDetails",
-        (),
-        properties=(
-            "ref",
-            "boundary_timezone",
-            "coverage",
-            "source_date",
-            "levels",
-            "snapshot_status",
-            "parents",
-            "children",
-            "dependents",
-        ),
-        methods=show_render,
-    )
+
     add(
         CalendarPeriodPage,
         "CalendarPeriodPage",
@@ -3830,47 +3913,25 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties=("items", "next_cursor"),
         methods=show_render,
     )
-    add(
-        CalendarLevelDetails,
-        "CalendarLevelDetails",
-        (),
-        properties=(
-            "name",
-            "key_ref",
-            "period_count",
-            "direct_finer_levels",
-            "direct_coarser_levels",
-            "rollup_targets",
-        ),
-        methods=show_render,
-    )
+
     add(
         TemporalSetEntry,
         "TemporalSetEntry",
         (),
-        properties=("ref",),
-        methods=("occurrence", "occurrences", "details", "show", "render"),
-    )
-    add(
-        TemporalSetDetails,
-        "TemporalSetDetails",
-        (),
         properties=(
+            "id",
+            "kind",
+            "path",
+            "name",
+            "domain",
+            "summary",
+            "definition",
+            "provenance",
             "ref",
-            "boundary_timezone",
-            "coverage",
-            "occurrence_id",
-            "start",
-            "end",
-            "category",
-            "occurrence_count",
-            "snapshot_status",
-            "parents",
-            "children",
-            "dependents",
         ),
-        methods=show_render,
+        methods=("occurrence", "occurrences", "related", "to_dict", "to_json", "show", "render"),
     )
+
     add(
         TemporalOccurrencePage,
         "TemporalOccurrencePage",
@@ -3882,15 +3943,10 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DatasourceEntry,
         "DatasourceEntry",
         (),
-        methods=("details", "show", "render"),
+        properties=("id", "kind", "path", "name", "domain", "summary", "definition", "provenance"),
+        methods=("related", "to_dict", "to_json", "show", "render"),
     )
-    add(
-        DatasourceDetails,
-        "DatasourceDetails",
-        (),
-        methods=show_render,
-    )
-    # Result types
+
     add(
         PreviewResult,
         "PreviewResult",
@@ -3997,7 +4053,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "refs",
             "message",
             "repair",
-            "details",
             "catalog_definition_fingerprint",
         ),
         methods=("to_dict",),
@@ -4009,8 +4064,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
 
     for expression_type, family, producers, methods in (
-        (Entity, "Entity", ("CatalogCollection.get",), ("count", "contract", "show")),
-        (Relationship, "Relationship", ("CatalogCollection.get",), ("contract", "show")),
+        (Entity, "Entity", ("SemanticCatalog.get",), ("count", "contract", "show")),
+        (Relationship, "Relationship", ("SemanticCatalog.get",), ("contract", "show")),
     ):
         add(
             expression_type,
@@ -4024,7 +4079,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         ExpressionContract,
         "ExpressionContract",
-        ("SemanticCatalog.describe",),
+        (),
         methods=("show",),
         notes=(
             "Bounded source-free definition facts; analysis computation belongs to AnalysisFrame.compute()/persist().",
@@ -4078,6 +4133,7 @@ TYPE_CONTRACTS = _type_contracts()
 
 def _error_types() -> Mapping[str, type]:
     from marivo.semantic.errors import (
+        CatalogSearchError,
         SemanticContractScopeError,
         SemanticDecoratorError,
         SemanticError,
@@ -4090,6 +4146,7 @@ def _error_types() -> Mapping[str, type]:
 
     return MappingProxyType(
         {
+            "CatalogSearchError": CatalogSearchError,
             "SemanticError": SemanticError,
             "SemanticExpressionError": SemanticExpressionError,
             "SemanticDecoratorError": SemanticDecoratorError,

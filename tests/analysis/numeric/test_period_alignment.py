@@ -14,7 +14,12 @@ from marivo._temporal import CalendarAxis
 from marivo.analysis.core.data_schema import CalendarComparisonBinding, CalendarDataAxis, DataSchema
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models, terminal_runs
+from tests.shared_fixtures import (
+    DslCaseFactory,
+    catalog_value,
+    export_dsl_parquet_models,
+    terminal_runs,
+)
 
 
 def period(
@@ -28,14 +33,17 @@ def period(
     axis = session.time_scope(
         start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
     ).by(mv.grain("day"))
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     domain = (
-        members.classify(by=(session.catalog.fields.get("sales.customer.region"),))
+        members.classify(
+            by=(catalog_value(session.catalog, "sales.customer.region", kind="field"),)
+        )
         if grouped
         else members
     )
     return axis, session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)}, by=mv.product(axis, domain)
+        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
+        by=mv.product(axis, domain),
     )
 
 
@@ -216,10 +224,10 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
     current_axis, current = period(case.session, 8, 3, grouped=True)
     baseline_axis, baseline = period(case.session, 7, 3, grouped=True)
     current_totals = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(current_axis,)
+        {"value": case.session.catalog.get("metric:sales.order_count").value}, by=(current_axis,)
     )
     baseline_totals = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(baseline_axis,)
+        {"value": case.session.catalog.get("metric:sales.order_count").value}, by=(baseline_axis,)
     )
     comparison = current_totals.compare(
         {
@@ -246,14 +254,14 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET channel='mobile' WHERE order_id='j2_aa'")
     session = case.session
-    channel = session.catalog.fields.get("sales.order.channel")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
 
     def observe(month: int, start: int) -> mv.AnalysisFrame:
         axis = session.time_scope(
             start=f"2026-{month:02}-{start:02}", end=f"2026-{month:02}-{start + 3:02}"
         ).by(mv.grain("day"))
         return session.observe(
-            {"value": session.catalog.metrics.get("sales.order_count")}, by=(axis, channel)
+            {"value": session.catalog.get("metric:sales.order_count").value}, by=(axis, channel)
         )
 
     current, baseline = observe(8, 1), observe(7, 9)

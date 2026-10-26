@@ -9,7 +9,7 @@ import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from tests.analysis.graph.execution_fixtures import source_graph
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
 def test_public_observation_retains_components_values_and_laziness(
@@ -17,8 +17,10 @@ def test_public_observation_retains_components_values_and_laziness(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
-    revenue = case.session.catalog.metrics.get(f"{names.domain}.{names.revenue}")
-    count = case.session.catalog.metrics.get(f"{names.domain}.{names.order_count}")
+    revenue = catalog_value(case.session.catalog, f"{names.domain}.{names.revenue}", kind="metric")
+    count = catalog_value(
+        case.session.catalog, f"{names.domain}.{names.order_count}", kind="metric"
+    )
     window = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     for shape, metric, components, expected in (
         ("catalog", revenue, 1, 1000.0),
@@ -42,7 +44,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    revenue = case.session.catalog.metrics.get("sales.revenue")
+    revenue = case.session.catalog.get("metric:sales.revenue").value
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     grid = scope.by(mv.grain("day"))
     observed = case.session.observe({"revenue": revenue}, by=(grid,))
@@ -53,9 +55,9 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     assert values.sum() == 1000
     assert values.eq(0).sum() == 28
     with pytest.raises(SemanticRuntimeError, match=r"missing\.metric") as missing:
-        case.session.catalog.metrics.get("missing.metric")
+        _ = case.session.catalog.get("metric:missing.metric").value
     assert missing.value.repair
-    assert "sales.revenue" in missing.value.repair.candidates
+    assert "metric:sales.revenue" in missing.value.repair.candidates
 
 
 def test_next_observation_rechecks_physical_numeric_type(
@@ -64,7 +66,7 @@ def test_next_observation_rechecks_physical_numeric_type(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
-    metric = case.session.catalog.metrics.get(f"{names.domain}.{names.revenue}")
+    metric = catalog_value(case.session.catalog, f"{names.domain}.{names.revenue}", kind="metric")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("input type admission must not execute a business read")

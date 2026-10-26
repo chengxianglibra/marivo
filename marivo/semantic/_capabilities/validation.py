@@ -11,7 +11,7 @@ from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.targets import canonical_target
-from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
+from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.registry import (
     INPUT_FAMILIES,
     OUTPUT_FAMILIES,
@@ -204,8 +204,8 @@ def _annotation_output_family(
             return _RETURN_FAMILY_ALIASES.get(result, result)
 
         text = product(ast.parse(text, mode="eval").body)
-    if text.startswith("CatalogCollection["):
-        return "CatalogCollection"
+    if text.startswith("CatalogPage["):
+        return "CatalogPage"
     if text.startswith("CatalogEntry["):
         return "CatalogEntry"
     return _RETURN_FAMILY_ALIASES.get(text, text)
@@ -311,7 +311,7 @@ def validate_semantic_live_surface() -> None:
     }
     assert set(REGISTRY._source_contracts) == source_authored_ids
     for source_contract in REGISTRY._source_contracts.values():
-        assert source_contract.catalog_collection in CATALOG_COLLECTION_PROPERTIES
+        assert source_contract.catalog_kind in {kind.value for kind in SemanticKind}
         assert source_contract.path_template.startswith("models/semantic/")
         assert source_contract.canonical_identity_template.startswith("<domain>")
 

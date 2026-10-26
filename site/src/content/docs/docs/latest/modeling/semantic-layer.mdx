@@ -341,7 +341,9 @@ Start with the [local tutorial's model](/docs/latest/start/python/). Run these b
 import marivo.semantic as ms
 
 catalog = ms.load()
-amount = catalog.fields.get("sales.orders.amount")
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry.value
 catalog.readiness(refs=[amount]).show()
 ```
 
@@ -350,8 +352,10 @@ catalog.readiness(refs=[amount]).show()
 ```python
 import marivo.datasource as md
 
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
 preview = catalog.preview(
-    catalog.metrics.get("sales.revenue"),
+    revenue_entry.value,
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
     limit=20,
 )
@@ -360,7 +364,9 @@ preview = catalog.preview(
 {/* example: readiness-2 */}
 
 ```python
-amount = catalog.fields.get("sales.orders.amount")
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry.value
 health = catalog.source_health(
     [amount],
     checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],

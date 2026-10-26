@@ -113,7 +113,7 @@ def test_public_sql_owner_audit(
             monkeypatch.setattr(SourceSession, "execute", observe)
             session = mv.session.get_or_create("sql_ownership-sql-owner", timezone="UTC")
             if backend == "duckdb":
-                facts = session.catalog.entities.get("sales.facts")
+                facts = session.catalog.get("entity:sales.facts").value
                 result = session.observe({"rows": facts.count()}).compute()
                 assert result.to_pandas()["rows"].tolist() == [len(ROWS)]
             else:

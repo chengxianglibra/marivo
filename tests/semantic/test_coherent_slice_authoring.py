@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import marivo.semantic as ms
-from marivo.refs import ref as ref_factory
 from tests.support.refs import as_ref
 
 
@@ -57,16 +56,20 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     )
     assert calls == 1
     for ref in (*physical, *published):
-        identity = catalog.describe(ref).ref
+        identity = catalog.get(as_ref(ref).key).ref
         assert identity is not None and as_ref(identity) == as_ref(ref)
-    assert catalog.metrics._refs == tuple(as_ref(ref) for ref in published)
-    aov = catalog.describe(ms.ref.metric("sales.average_order_value"))
-    assert aov.unit == "USD"
+    assert tuple(entry.id for entry in catalog.search(kind="metric").items) == tuple(
+        as_ref(ref).key for ref in published
+    )
+    aov = catalog.get("metric:sales.average_order_value")
+    assert aov.definition.unit == "USD"
     # Named dependencies remain explicit; each component owns its physical closure.
-    assert aov._reads == (
-        ref_factory.metric("sales.order_count"),
-        ref_factory.metric("sales.revenue"),
+    assert aov.definition.dependencies == (
+        "metric:sales.order_count",
+        "metric:sales.revenue",
     )
     report = catalog.readiness(refs=list(physical))
     assert not report.blockers
-    assert report._analysis_ready_inputs == tuple(as_ref(ref) for ref in physical)
+    assert report._analysis_ready_inputs == tuple(
+        sorted((as_ref(ref) for ref in physical), key=lambda ref: ref.key)
+    )

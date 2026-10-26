@@ -31,8 +31,8 @@ Use the host-selected interpreter and start from current project state. Select
 the task's exit before acquiring evidence or changing definitions:
 
 - Explain an existing definition: load and read the current catalog. Inspect
-  expression definitions through `catalog.describe(ref).show()`; use entry cards
-  and details for entry-backed objects. Focused Help owns the usage contract.
+  complete captured entry definitions and their bounded cards. Focused Help owns
+  discovery, canonical lookup and native execution-value usage.
   Readiness and preview are unnecessary for explanation.
 - Set up or repair a datasource: reuse a suitable definition or register the
   required one, validate the requested connection, and stop at that outcome.
@@ -100,14 +100,14 @@ with participating fields, or a derived object with new governed dependencies.
 It is not a one-object checkpoint loop.
 
 Author the whole slice in Python, then run one `ms.load()`. Repair its structural
-failures together, reload, and select every authored root by plain path through
-its corresponding catalog collection, for example `catalog.entities.get(path)`.
+failures together, reload, and select every authored root by its canonical
+kind/path identity. Inspect the entry before taking its native execution value.
 Do not add a separate verification checkpoint.
 
 For analysis handoff, resolve every requested definition, then run scoped
-readiness on its physical inputs. Published Metrics and declared row expressions
-are not readiness inputs: inspect their definitions and check their physical
-dependencies. AnalysisFrame evaluation qualifies the selected computation and source;
+readiness on the selected entries and inspect the expanded physical dependency
+closure. Requested identities, checked dependencies and directly ready physical
+inputs have distinct meanings; dependency readiness is not Metric execution proof. AnalysisFrame evaluation qualifies the selected computation and source;
 compute fixes complete memory data and persist commits the completed result.
 Choose preview for a concrete runtime risk or repair, and source health for
 current source/data drift. Read each report's scope, findings and repair; no
@@ -120,7 +120,7 @@ Physical constructors and exact lookup factories capture native typed Deferred
 symbols. Compose them directly and load the complete dependency slice once;
 the loader binds forward references before publishing closed Catalog values.
 Use metadata selectors for supported lookup/check operations and retrieve closed
-analysis inputs through the matching Catalog collection. Unsupported recipes
+analysis inputs from the captured Catalog entry after checking its kind. Unsupported recipes
 fail at declaration or parameter capture; ordinary Python attribute access and
 already formatted strings do not establish identity or binding facts.
 Do not reject an input solely because a same-path definition changed. Assess

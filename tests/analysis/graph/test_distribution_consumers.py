@@ -19,7 +19,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.source_trace import SourceTrace
 
 
@@ -164,11 +164,13 @@ def test_native_distribution(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r93-distribution", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
-        field = session.catalog.fields.get(
-            "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        field = catalog_value(
+            session.catalog,
+            "sales.facts.identity" if kind == "identity" else "sales.facts.amount",
+            kind="field",
         )
-        time = session.catalog.fields.get("sales.facts.time")
+        time = catalog_value(session.catalog, "sales.facts.time", kind="field")
         metric = (
             field.count_distinct(time=time)
             if kind in ("distinct", "distinct_nonfinite", "identity")

@@ -12,7 +12,9 @@ if TYPE_CHECKING:
         mv.Session,
     )
     session = mv.session.get_or_create("recovery-typing")
-    members = session.members(session.catalog.entities.get("sales.orders"))
+    orders = session.catalog.get("entity:sales.orders")
+    assert orders.kind == "entity"
+    members = session.members(orders.value)
     assert_type(members, mv.Population)
     assert_type(session.frame(members), mv.AnalysisFrame)
     recovered = session.persisted_frame("artifact_current")
@@ -20,7 +22,9 @@ if TYPE_CHECKING:
     assert_type(session.population_from(recovered, on=()), mv.Population)
     assert_type(recovered.artifact, mv.Artifact)
     assert_type(recovered.artifact.show(), None)
-    metric = session.catalog.metrics.get("sales.revenue")
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    metric = revenue.value
     frame = session.observe({"revenue": metric})
     assert_type(frame, mv.AnalysisFrame)
     assert_type(frame.compute(), mv.AnalysisFrame)

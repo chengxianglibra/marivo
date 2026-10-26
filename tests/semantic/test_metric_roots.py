@@ -120,7 +120,7 @@ def test_single_entity_metric_roots_follow_its_source_reductions(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.metrics.get("sales.revenue")
+    revenue = catalog.get("metric:sales.revenue").value
     order_count = resolve(catalog, ms.ref.metric("sales.order_count"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
@@ -144,8 +144,8 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     users = resolve(catalog, ms.ref.entity("sales.users"))
 
-    per_user = consume_metric(catalog.metrics.get("sales.revenue_per_user"))
-    share = consume_metric(catalog.metrics.get("sales.user_revenue_share"))
+    per_user = consume_metric(catalog.get("metric:sales.revenue_per_user").value)
+    share = consume_metric(catalog.get("metric:sales.user_revenue_share").value)
 
     assert per_user.roots == (entity_exact(orders), entity_exact(users))
     assert share.roots == (entity_exact(users), entity_exact(orders))
@@ -157,11 +157,11 @@ def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
     semantic_project_factory, capsys
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.metrics.get("sales.revenue")
-    contract = catalog.describe(ms.ref.metric("sales.revenue"))
+    revenue = catalog.get("metric:sales.revenue").value
+    contract = catalog.get("metric:sales.revenue")
     rendered = repr(contract)
 
-    assert rendered.startswith("<ExpressionContract ")
+    assert rendered.startswith("<MetricEntry ")
     assert "call .show()" in rendered
     assert "\n" not in rendered and len(rendered) < 120
     assert capsys.readouterr().out == ""
@@ -169,8 +169,8 @@ def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
     contract.show()
 
     shown = capsys.readouterr().out
-    assert "stage: published_metric" in shown
-    assert "ref: metric:sales.revenue@sha256:" in shown
+    assert "MetricEntry metric:sales.revenue" in shown
+    assert "formula:" in shown
     assert "unit: CNY" in shown
     assert capsys.readouterr().out == ""
 
@@ -202,7 +202,7 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     )
     catalog = SemanticCatalog(project)
 
-    entity = catalog.entities.get("sales.user_profile_daily")
+    entity = catalog.get("entity:sales.user_profile_daily").value
     stored = catalog._state.registry.entities["sales.user_profile_daily"]
     versioning = stored.versioning
 

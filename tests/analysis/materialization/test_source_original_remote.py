@@ -13,6 +13,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -51,9 +52,9 @@ def test_mysql_original_integer_recompute(
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-original", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
-        weight = session.catalog.fields.get("sales.facts.weight")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         metric = (
             amount.weighted_mean(weight=weight)
             if method == "weighted_mean"
@@ -81,9 +82,9 @@ def test_mysql_original_drill_and_share(
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-original-related", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         query = session.observe({"value": amount.sum()}, by=(category, tenant))
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
@@ -128,9 +129,9 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-decimal-weighted", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
-        weight = session.catalog.fields.get("sales.facts.weight")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         trace = capture_source(monkeypatch)
         frame = (
             session.observe({"value": amount.weighted_mean(weight=weight)}).compute().to_pandas()
@@ -172,8 +173,8 @@ def test_mysql_unqualified_original_retains_actual_host_input(
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, data) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-original-boundary", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         metric = amount.count_distinct() if boundary == "nullable" else amount.sum()
         fine = session.observe({"value": metric}, by=(category,))
         if boundary == "parent_selection":
@@ -227,8 +228,8 @@ def test_remote_original_recompute_does_not_require_input_anchor(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original-input", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         query = session.observe({"value": amount.sum()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()

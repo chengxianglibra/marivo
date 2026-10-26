@@ -140,12 +140,12 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"
         )
         grain = (
-            catalog.period_calendars.get("sales.unequal").grain("period")
+            catalog.get("period_calendar:sales.unequal").grain("period")
             if calendar
             else mv.grain("day")
         )
         result = session.observe(
-            {"value": catalog.metrics.get("sales.maximum")}, by=(scope.by(grain),)
+            {"value": catalog.get("metric:sales.maximum").value}, by=(scope.by(grain),)
         ).persist()
         assert result.to_pandas()["value"].tolist() == [1, 2, 7]
         manifest_path.write_text(

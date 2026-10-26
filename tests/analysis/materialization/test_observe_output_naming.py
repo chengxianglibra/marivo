@@ -14,16 +14,16 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import MetricFacts
 from marivo.semantic.errors import SemanticError
-from tests.shared_fixtures import DSL_NAMES, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DSL_NAMES, DslCaseFactory, catalog_value, terminal_runs
 
 
 def test_observe_named_metric_forms_preserve_names_order_and_formula_values(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = analysis_dsl_case_factory("j3").session
-    line_revenue = session.catalog.metrics.get("sales.line_revenue")
-    count = session.catalog.metrics.get("sales.order_count")
-    formula = session.catalog.metrics.get("sales.aov_from_lines")
+    line_revenue = session.catalog.get("metric:sales.line_revenue").value
+    count = session.catalog.get("metric:sales.order_count").value
+    formula = session.catalog.get("metric:sales.aov_from_lines").value
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Naming must not read source data")
@@ -61,8 +61,8 @@ def test_observe_duplicate_names_reject_with_positions_and_explicit_repair(
     )
     (finance / "models.py").write_text((case.root / "models/semantic/sales/models.py").read_text())
     session = case.session
-    sales = session.catalog.metrics.get("sales.revenue")
-    other = session.catalog.metrics.get("finance.revenue")
+    sales = session.catalog.get("metric:sales.revenue").value
+    other = session.catalog.get("metric:finance.revenue").value
     assert (
         session.observe(sales).output_names == session.observe(other).output_names == ("revenue",)
     )
@@ -86,10 +86,10 @@ def test_observe_unnamed_recipes_require_mapping_even_with_one_metric_dependency
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    channel = session.catalog.fields.get("sales.order.channel")
-    amount = session.catalog.fields.get("sales.order.amount")
-    members = session.members(session.catalog.entities.get("sales.order"))
+    revenue = session.catalog.get("metric:sales.revenue").value
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    members = session.members(session.catalog.get("entity:sales.order").value)
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     recipes = (
         (revenue * 2, ()),
@@ -120,7 +120,7 @@ def test_observe_invalid_shapes_and_elements_reject_before_consumption(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.metrics.get("sales.revenue")
+    revenue = session.catalog.get("metric:sales.revenue").value
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Invalid shapes must not consume semantics or read data")
@@ -154,7 +154,7 @@ def test_observe_reserved_declaration_name_requires_explicit_mapping(
 ) -> None:
     names = replace(DSL_NAMES, revenue=name)
     session = analysis_dsl_case_factory("j1", names=names).session
-    metric = session.catalog.metrics.get(f"sales.{name}")
+    metric = catalog_value(session.catalog, f"sales.{name}", kind="metric")
     with pytest.raises(AnalysisError) as caught:
         session.observe(metric)
     assert caught.value.received and f"sales.{name}" in caught.value.received
@@ -173,7 +173,7 @@ def test_observe_naming_consumes_once_in_the_sessions_frozen_scope(
     model.write_text(
         model.read_text().replace("return amount_value.sum(", "return 2 * amount_value.sum(")
     )
-    changed = ms.load(workspace_dir=case.root).metrics.get("sales.revenue")
+    changed = ms.load(workspace_dir=case.root).get("metric:sales.revenue").value
     consume = source_capture.consume_metric_in_state
     consumed: list[CompiledSemanticState] = []
 
@@ -196,18 +196,18 @@ def test_observe_shorthand_preserves_semantic_and_session_rejections(
     session = case.session
     for invalid in (
         ms.ref.metric("sales.revenue"),
-        session.catalog.fields.get("sales.order.amount"),
+        catalog_value(session.catalog, "sales.order.amount", kind="field"),
     ):
         with pytest.raises(SemanticError):
             session.observe(invalid)
     other = mv.session.get_or_create("other-observation", timezone="UTC")
-    members = other.members(other.catalog.entities.get("sales.customer"))
+    members = other.members(other.catalog.get("entity:sales.customer").value)
     with pytest.raises(AnalysisError, match="another Store or Session") as caught:
         session.observe(
-            session.catalog.metrics.get("sales.revenue"), where=mv.in_population(members)
+            session.catalog.get("metric:sales.revenue").value, where=mv.in_population(members)
         )
     assert caught.value.expected and caught.value.received and caught.value.repair
     assert terminal_runs(session) == ()
     foreign = analysis_dsl_case_factory("j1", names=replace(DSL_NAMES, domain="finance"))
     with pytest.raises(SemanticError, match="frozen catalog"):
-        session.observe(foreign.session.catalog.metrics.get("finance.revenue"))
+        session.observe(foreign.session.catalog.get("metric:finance.revenue").value)

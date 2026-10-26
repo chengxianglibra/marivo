@@ -13,6 +13,7 @@ from marivo.analysis.materialization import frame_source_preparation
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -79,10 +80,10 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("observe-fusion", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        exact = session.catalog.fields.get("sales.facts.big")
-        weight = session.catalog.fields.get("sales.facts.weight")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        exact = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         by = (
             session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
             if calendar

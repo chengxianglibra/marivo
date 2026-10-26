@@ -19,6 +19,8 @@ from marivo.analysis.errors import AnalysisError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
+    catalog_entry,
+    catalog_value,
     fiscal_analysis_project_files,
     publish_fiscal_calendar_artifact,
     terminal_runs,
@@ -94,13 +96,16 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
     session = mv.session.get_or_create("scalar-calendar", timezone="UTC")
-    calendar = session.catalog.period_calendars.get("sales.fiscal")
-    anonymous = session.catalog.metrics.get("sales.gmv").window(
+    calendar = catalog_entry(session.catalog, "sales.fiscal", kind="period_calendar")
+    anonymous = catalog_value(session.catalog, "sales.gmv", kind="metric").window(
         mv.to_date(grain=calendar.grain("fiscal_month"))
     )
     data = (
         session.observe(
-            {"named": session.catalog.metrics.get("sales.fiscal_total"), "anonymous": anonymous},
+            {
+                "named": catalog_value(session.catalog, "sales.fiscal_total", kind="metric"),
+                "anonymous": anonymous,
+            },
             by=(session.time_scope(start="2026-01-20", end=end),),
         )
         .compute()
@@ -117,7 +122,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
     catalog = calendar_window_project
     publish_fiscal_calendar_artifact(catalog)
     session = mv.session.get_or_create("frozen-calendar", timezone="UTC")
-    metric = session.catalog.metrics.get("sales.fiscal_total")
+    metric = catalog_value(session.catalog, "sales.fiscal_total", kind="metric")
     query = session.observe(
         {"total": metric},
         by=(session.time_scope(start="2026-01-31", end="2026-02-04").by(mv.grain("day")),),
@@ -143,9 +148,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
 @pytest.mark.release
 @pytest.mark.parametrize("bucketed", [False, True])
 def test_explicit_grain_rejects_a_different_certified_snapshot(
-    calendar_window_project: SemanticCatalog,
-    monkeypatch: pytest.MonkeyPatch,
-    bucketed: bool,
+    calendar_window_project: SemanticCatalog, monkeypatch: pytest.MonkeyPatch, bucketed: bool
 ) -> None:
     catalog = calendar_window_project
     database = catalog.workspace_dir / "windows.duckdb"
@@ -164,37 +167,35 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
     session_a = mv.session.get_or_create("calendar-a", timezone="UTC")
-    calendar_a = session_a.catalog.period_calendars.get(as_ref(calendar_ref).path)
+    calendar_a = catalog_entry(session_a.catalog, as_ref(calendar_ref).path, kind="period_calendar")
     grain_a = calendar_a.grain("fiscal_month")
     scope_a = session_a.time_scope(start="2026-01-20", end="2026-02-01")
     query_a = session_a.observe(
         {
-            "named": session_a.catalog.metrics.get("sales.fiscal_total"),
-            "explicit": session_a.catalog.metrics.get("sales.gmv").window(
+            "named": catalog_value(session_a.catalog, "sales.fiscal_total", kind="metric"),
+            "explicit": catalog_value(session_a.catalog, "sales.gmv", kind="metric").window(
                 mv.to_date(grain=grain_a)
             ),
         },
         by=(scope_a.by(mv.grain("day")) if bucketed else scope_a,),
     )
     original_fingerprint = _source_graph(query_a).fingerprint
-
-    # Certify changed source rows under the same definition, not a fabricated digest.
     with duckdb.connect(str(database)) as connection:
         connection.execute(
             "UPDATE calendar SET fiscal_month = CASE WHEN calendar_date < DATE '2026-01-15' THEN 'M1' ELSE 'M2' END"
         )
     catalog.preview(calendar_ref, scope=acquisition)
     session_b = mv.session.get_or_create("calendar-b", timezone="UTC")
-    grain_b = session_b.catalog.period_calendars.get(as_ref(calendar_ref).path).grain(
-        "fiscal_month"
-    )
+    grain_b = catalog_entry(
+        session_b.catalog, as_ref(calendar_ref).path, kind="period_calendar"
+    ).grain("fiscal_month")
     assert grain_a._snapshot is not None and grain_b._snapshot is not None
     assert grain_a._snapshot.snapshot_digest != grain_b._snapshot.snapshot_digest
     scope_b = session_b.time_scope(start="2026-01-20", end="2026-02-01")
     query_b = session_b.observe(
         {
-            "named": session_b.catalog.metrics.get("sales.fiscal_total"),
-            "explicit": session_b.catalog.metrics.get("sales.gmv").window(
+            "named": catalog_value(session_b.catalog, "sales.fiscal_total", kind="metric"),
+            "explicit": catalog_value(session_b.catalog, "sales.gmv", kind="metric").window(
                 mv.to_date(grain=grain_b)
             ),
         },
@@ -210,13 +211,14 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             (session_a, grain_b, scope_a),
             (session_b, grain_a, scope_b),
         ):
-            metric = session.catalog.metrics.get("sales.gmv").window(mv.to_date(grain=foreign))
+            metric = catalog_value(session.catalog, "sales.gmv", kind="metric").window(
+                mv.to_date(grain=foreign)
+            )
             with pytest.raises(AnalysisError, match="same certified snapshot"):
                 session.observe(
                     {"total": metric}, by=(scope.by(mv.grain("day")) if bucketed else scope,)
                 )
             assert not terminal_runs(session)
-
     assert _source_graph(query_a).fingerprint == original_fingerprint
     for query, expected, snapshot in (
         (query_a, 120, grain_a._snapshot),
@@ -234,13 +236,11 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
 
 @pytest.mark.parametrize("status", ["missing", "stale", "invalid"])
 def test_unusable_calendar_rejects_before_business_reads(
-    calendar_window_project: SemanticCatalog,
-    monkeypatch: pytest.MonkeyPatch,
-    status: str,
+    calendar_window_project: SemanticCatalog, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", lambda *a, **kw: (status, None))
     session = mv.session.get_or_create("uncertified-calendar", timezone="UTC")
-    metric = session.catalog.metrics.get("sales.fiscal_total")
+    metric = catalog_value(session.catalog, "sales.fiscal_total", kind="metric")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("binding read a business source")
@@ -259,11 +259,13 @@ def test_calendar_window_validates_consumed_authority(
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
     session = mv.session.get_or_create("invalid-calendar", timezone="UTC")
-    calendar = session.catalog.period_calendars.get("sales.fiscal")
+    calendar = catalog_entry(session.catalog, "sales.fiscal", kind="period_calendar")
     grain = ms.calendar_grain(
         calendar=calendar.ref, level="unknown" if case == "level" else "fiscal_month"
     )
-    metric = session.catalog.metrics.get("sales.gmv").window(mv.to_date(grain=grain))
+    metric = catalog_value(session.catalog, "sales.gmv", kind="metric").window(
+        mv.to_date(grain=grain)
+    )
     scope = session.time_scope(
         start="2026-01-20",
         end="2026-04-01" if case == "coverage" else "2026-02-04",

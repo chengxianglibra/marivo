@@ -92,10 +92,10 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     publish_fiscal_calendar_artifact(catalog)
     monkeypatch.chdir(catalog.workspace_dir)
     session = mv.session.get_or_create("calendar", timezone="UTC")
-    calendar = session.catalog.period_calendars.get("sales.fiscal")
+    calendar = session.catalog.get("period_calendar:sales.fiscal")
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
-    metric = session.catalog.metrics.get("sales.gmv")
+    metric = session.catalog.get("metric:sales.gmv").value
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction reread the certified calendar")

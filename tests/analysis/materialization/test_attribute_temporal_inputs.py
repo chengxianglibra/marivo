@@ -13,6 +13,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -89,10 +90,10 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
 def test_reused_temporal_baseline_keeps_each_alias_projection(
     session: Session, calendar: bool
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
     left = session.observe(
@@ -143,11 +144,11 @@ def test_plain_calendar_complete_parent_order_independent_reads(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
     domain = mv.product(mv.coordinates(by=(region,), keys=(("east",),)), calendar)
@@ -178,11 +179,11 @@ def test_cross_period_paired_calendar_parent(
     from marivo._definition.correspondence import CalendarCorrespondence
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
@@ -223,10 +224,10 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     from marivo.analysis.materialization.query_components import AttributeRootInputs
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
     selected = _change(
@@ -323,13 +324,13 @@ def test_window_partition_context_is_scoped_before_classification(
         AttributeWindowFiber,
     )
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    identifier = session.catalog.fields.get("sales.facts.id")
-    label = session.catalog.fields.get("sales.tags.label")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
@@ -373,10 +374,10 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=0")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day, nulls="error")
     observed = session.observe({"q": metric}, by=(calendar,), where=phase == "current").compute()
@@ -439,9 +440,9 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
     from marivo.analysis.core.attribute import AttributeAggregateWitness, AttributeInputError
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum(time=day)
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
@@ -471,11 +472,11 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
 ) -> None:
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=NULL,weight=9 WHERE id=2")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.weighted_mean(weight=weight, time=day) if weighted else amount.mean(time=day)
     selected = _change(
@@ -503,9 +504,9 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum(time=day)
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
@@ -560,9 +561,9 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
 
 
 def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: Path) -> None:
-    amount = session.catalog.fields.get("sales.otherfacts.amount")
-    day = session.catalog.fields.get("sales.otherfacts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.otherfacts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.otherfacts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day)
     parent = session.observe({"q": metric}, by=(calendar,), where=channel == "A").compute()
@@ -579,9 +580,9 @@ def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: 
 
 
 def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     metric = amount.sum(time=day)
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
@@ -596,10 +597,10 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
     from marivo.analysis.binding.frame_attribute import source_inputs
     from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     parents = mv.product(mv.coordinates(by=(region,), keys=(("east",), ("absent",))), calendar)
     parent = session.observe({"q": amount.count(time=day)}, by=parents).compute()
@@ -635,12 +636,12 @@ def test_paired_source_failure_retains_original_full_parent(
     )
     from marivo.analysis.materialization.errors import MaterializationError
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    identifier = session.catalog.fields.get("sales.facts.id")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
     current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     original = (
@@ -653,10 +654,10 @@ def test_paired_source_failure_retains_original_full_parent(
         right = session.observe({"q": original}, by=(baseline, region), where=phase == "base")
         by = (channel,)
     else:
-        label = session.catalog.fields.get("sales.tags.label")
+        label = catalog_value(session.catalog, "sales.tags.label", kind="field")
         path = (
-            session.catalog.relationships.get("sales.fact_links"),
-            session.catalog.relationships.get("sales.link_tags"),
+            session.catalog.get("relationship:sales.fact_links").value,
+            session.catalog.get("relationship:sales.link_tags").value,
         )
         membership = mv.membership(label, via=(path,), unmatched="exclude")
         left = session.observe({"q": original}, by=(current, region), where=identifier == 1)
@@ -768,11 +769,11 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
         connection.executemany(
             "INSERT INTO facts(id,phase,region,channel,amount,weight) VALUES (?,?,?,?,?,?)", data
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.weighted_mean(weight=weight)
     left = session.observe({"q": metric}, by=(region,), where=phase == "current")
     right = session.observe({"q": metric}, by=(region,), where=phase == "base")
@@ -873,10 +874,10 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
             "(1,'base','A',1,1),(2,'current','A',?,4)",
             [2**62],
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.weighted_mean(weight=weight)
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": metric}, where=phase == "current").compute()
@@ -902,10 +903,10 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
 def test_independent_endpoint_time_scopes_keep_source_periods(
     session: Session, contribution: bool
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum(time=day)
     current = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
@@ -946,9 +947,9 @@ def test_interval_parent_builds_without_source_read(
 ) -> None:
     from marivo.datasource.adapters import SourceSession
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum(time=day)
     scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     parent = session.observe({"q": metric}, by=(scope,))
@@ -969,11 +970,11 @@ def test_interval_parent_builds_without_source_read(
 def test_captured_interval_parent_keeps_original_endpoint_scopes(
     session: Session, shape: str
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe(
         {"q": amount.sum(time=day)},
         by=(session.time_scope(start="2026-08-01", end="2026-08-03"), region),
@@ -1015,10 +1016,10 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 150 WHEN 5 THEN ? WHEN 11 THEN ? ELSE amount END",
             [exact, exact - 60],
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current_calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     baseline_calendar = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     current = session.observe(

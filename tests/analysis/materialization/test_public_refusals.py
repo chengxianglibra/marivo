@@ -18,7 +18,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.json import Json, encode
 from tests.support.refs import as_ref
 
@@ -37,15 +37,15 @@ def test_public_composition_refuses_before_source_or_run(
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
         live = session.read(
-            session.members(session.catalog.entities.get(as_ref(entity).path)),
-            {"value": session.catalog.fields.get(as_ref(measure).path)},
+            session.members(catalog_value(session.catalog, as_ref(entity).path, kind="entity")),
+            {"value": catalog_value(session.catalog, as_ref(measure).path, kind="field")},
         )
         previous = live.persist()
         saved = snapshot(previous)
         foreign = mv.session.get_or_create("r94-foreign", timezone="UTC")
         other = foreign.read(
-            foreign.members(foreign.catalog.entities.get(as_ref(entity).path)),
-            {"value": foreign.catalog.fields.get(as_ref(measure).path)},
+            foreign.members(catalog_value(foreign.catalog, as_ref(entity).path, kind="entity")),
+            {"value": catalog_value(foreign.catalog, as_ref(measure).path, kind="field")},
         )
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -132,8 +132,8 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("required-output", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.facts"))
-        metric = session.catalog.metrics.get("sales.total")
+        members = session.members(session.catalog.get("entity:sales.facts").value)
+        metric = session.catalog.get("metric:sales.total").value
         current = session.observe(
             {"value": metric},
             by=mv.product(
@@ -237,9 +237,14 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             }
         )
         session = mv.session.get_or_create("r94-cross-datasource", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
         previous = session.read(
-            members, {"value": session.catalog.fields.get("sales.subjects.subjects_amount")}
+            members,
+            {
+                "value": catalog_value(
+                    session.catalog, "sales.subjects.subjects_amount", kind="field"
+                )
+            },
         ).persist()
         saved = snapshot(previous)
         before = run_ids(session)
@@ -256,7 +261,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         monkeypatch.setattr(terminal_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             session.observe(
-                {"value": session.catalog.metrics.get("sales.total")}, by=members
+                {"value": session.catalog.get("metric:sales.total").value}, by=members
             ).persist()
         error = caught.value
         assert error.expected == "scalar relationship endpoints on one datasource"

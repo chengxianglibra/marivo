@@ -10,7 +10,9 @@ Population 表示完整坐标元组的有限集合，例如订单、客户、地
 ```python
 from analysis import mv, session, revenue, region, august, current
 
-Orders = session.catalog.entities.get("sales.orders")
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry.value
 ```
 
 ## 字面坐标：`mv.coordinates`

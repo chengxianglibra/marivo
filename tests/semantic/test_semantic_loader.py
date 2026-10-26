@@ -97,14 +97,14 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     assert project.is_ready()
     catalog = SemanticCatalog(project)
     assert sorted(project._registry.datasources) == ["default", "warehouse"]
-    datasources = catalog.datasources.items
+    datasources = catalog.search(kind="datasource").items
     assert [ds._ref.path for ds in datasources] == ["default", "warehouse"]
-    backed = catalog.datasources.get("warehouse").entities._refs
-    assert ref_factory.entity("sales.orders") in backed
-    assert ref_factory.entity("finance.refunds") in backed
-    assert catalog.metrics._refs == (
-        ref_factory.metric("finance.refunds_total"),
-        ref_factory.metric("sales.revenue"),
+    backed = {entry.id for entry in catalog.get("datasource:warehouse").related("members").items}
+    assert "entity:sales.orders" in backed
+    assert "entity:finance.refunds" in backed
+    assert tuple(entry.id for entry in catalog.search(kind="metric").items) == (
+        "metric:finance.refunds_total",
+        "metric:sales.revenue",
     )
 
 
@@ -1095,7 +1095,7 @@ def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) ->
     result = project.load()
     # scripts/ should NOT appear as a model dir — only models/semantic/ is scanned
     assert result.status == "ready"
-    assert len(SemanticCatalog(project).domains.items) == 0
+    assert SemanticCatalog(project).search(kind="domain").items == ()
 
 
 # ---------------------------------------------------------------------------

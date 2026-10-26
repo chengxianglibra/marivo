@@ -10,6 +10,7 @@ from ibis.backends.duckdb import Backend
 import marivo.analysis as mv
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+from tests.shared_fixtures import catalog_value
 
 
 def _bootstrap_project(tmp_path: Path) -> None:
@@ -121,7 +122,7 @@ def _observe(
     session: mv.Session, metric: str, start: str = "2026-07-01", end: str = "2026-07-04"
 ) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.metrics.get(metric)},
+        {"value": catalog_value(session.catalog, metric, kind="metric")},
         by=(session.time_scope(start=start, end=end).by(mv.grain("day")),),
     ).compute()
 

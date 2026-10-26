@@ -81,7 +81,7 @@ from marivo.analysis.materialization.terminal_protocol import (
 from marivo.analysis.materialization.terminal_storage import POLICY
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory, terminal_run, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_run, terminal_runs
 
 # Keep operation-specific extrema/order/reduce/selection checks on one native
 # timestamp unit, one duration unit, and date32. All temporal units still have
@@ -1795,9 +1795,9 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     source = case.session.observe(
-        {"sales": case.catalog.metrics.get("sales.revenue")},
+        {"sales": case.catalog.get("metric:sales.revenue").value},
         where=region == "east",
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -1878,15 +1878,15 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     members = case.session.members(
-        case.catalog.entities.get("sales.customer"), where=region == "east"
+        case.catalog.get("entity:sales.customer").value, where=region == "east"
     )
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
     anchored = case.session.frame(
-        case.session.members(case.catalog.entities.get("sales.customer"), at=instant)
+        case.session.members(case.catalog.get("entity:sales.customer").value, at=instant)
     ).reduce({"rows": mv.row_count()})
 
     capture = scope_summary
@@ -2344,8 +2344,8 @@ def attribute_request(
 ) -> AnalysisFrame:
     from marivo.analysis.binding.frame_attribute import attribute
 
-    amount = session.catalog.fields.get("sales.facts.amount")
-    phase = session.catalog.fields.get("sales.facts.phase")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
     parent_axes = () if parents is None else parents
     current = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "base")
@@ -2353,7 +2353,9 @@ def attribute_request(
         {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     selected = compared.select({"q": compared["base.absolute.q"]})
-    return attribute(selected, by=(session.catalog.fields.get("sales.facts." + axis),))
+    return attribute(
+        selected, by=(catalog_value(session.catalog, "sales.facts." + axis, kind="field"),)
+    )
 
 
 @pytest.mark.release
@@ -2414,7 +2416,7 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     attribute_session: Session,
 ) -> None:
     session = attribute_session
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     b = attribute_request(session, axis="region").compute()
     d = attribute_request(session, axis="region").compute()
 
@@ -2439,7 +2441,7 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     selected = ancestor.where(ancestor["contribution.q"] > 0)
     domain = session.population_from(selected, on=((selected.axes[0], region),))
     observed = session.observe(
-        {"q": session.catalog.fields.get("sales.facts.amount").sum()}, by=domain
+        {"q": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()}, by=domain
     ).compute()
     assert len(observed.method_facts) == 1
     assert observed.method_facts[0].origin_result_id != _memory_backing(observed).metadata.result_id
@@ -2745,8 +2747,8 @@ def test_source_report_and_observed_parent_reopen_without_declarations(
     import sys
 
     session = attribute_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     observed = session.observe({"q": amount.sum()}).compute().persist()
     report = observed.attribute(by=(channel,)).compute().persist()
     assert observed._derivation is not None

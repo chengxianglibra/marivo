@@ -17,6 +17,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 CASES = [
@@ -157,10 +158,10 @@ def test_same_owner_roots_reduce_separately_before_formula_alignment(
     operation: str,
 ) -> None:
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as session:
-        category = session.catalog.fields.get("sales.facts.category")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        metric = session.catalog.metrics.get("sales.combined")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        metric = session.catalog.get("metric:sales.combined").value
         if operation == "rollup":
             query = session.observe({"combined": metric, "amount": amount.sum()})
         else:
@@ -194,8 +195,8 @@ def test_row_recipes_recompute_at_source_with_both_physical_operands(
     name: str,
 ) -> None:
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as session:
-        category = session.catalog.fields.get("sales.facts.category")
-        metric = session.catalog.metrics.get("sales." + name)
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        metric = catalog_value(session.catalog, "sales." + name, kind="metric")
         query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
@@ -217,14 +218,15 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, boundary
     ) as session:
-        category = session.catalog.fields.get("sales.facts.category")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         name = {
             "formula_overflow": "combined",
             "row_overflow": "adjusted_total",
             "row_zero": "guarded_total",
         }[boundary]
         fine = session.observe(
-            {"value": session.catalog.metrics.get("sales." + name)}, by=(category,)
+            {"value": catalog_value(session.catalog, "sales." + name, kind="metric")},
+            by=(category,),
         )
         trace = capture_source(monkeypatch)
         if boundary == "formula_overflow":

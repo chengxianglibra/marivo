@@ -14,14 +14,16 @@ from marivo.analysis.materialization.errors import (
     RecoveryPendingError,
 )
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.execution_logs import execution_records
 
 
 def _members(case: DslCase) -> mv.AnalysisFrame:
     return case.session.frame(
         case.session.members(
-            case.session.catalog.entities.get(f"{case.names.domain}.{case.names.customer}")
+            catalog_value(
+                case.session.catalog, f"{case.names.domain}.{case.names.customer}", kind="entity"
+            )
         )
     )
 
@@ -161,14 +163,16 @@ def test_real_pairing_check_failure_has_no_publication_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j2").session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    region = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    region = session.read(
+        members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
+    )
     chosen = region.where(region["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
     )
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    metric = session.catalog.metrics.get("sales.revenue")
+    metric = session.catalog.get("metric:sales.revenue").value
     current = session.observe({"value": metric}, by=mv.product(scope, selected))
     baseline = session.observe({"value": metric}, by=mv.product(scope, members))
     with pytest.raises(AnalysisError) as caught:

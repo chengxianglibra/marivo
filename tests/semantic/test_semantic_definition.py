@@ -19,6 +19,7 @@ from marivo.semantic._definition_expression_types import (
     _UnsupportedExpression,
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+from tests.shared_fixtures import catalog_value
 from tests.support.refs import as_ref
 
 _DOMAIN_PY = "import marivo.semantic as ms\nms.domain(name='sales', owner='Owner')\n"
@@ -85,7 +86,7 @@ def _description(catalog: ms.SemanticCatalog, ref: Deferred) -> ExpressionDescri
 
 
 def _expression_fact(catalog: ms.SemanticCatalog, ref: Deferred) -> str | None:
-    facts = dict(catalog.describe(ref).facts)
+    facts = dict(catalog.get(as_ref(ref).key).definition.facts)
     return facts.get("expression")
 
 
@@ -104,7 +105,7 @@ def test_restricted_body_literals_are_disclosed_as_normalized_expression(
     assert text == "(t1['region'] == 'private-token-987').ifelse(73921, 0)"
     assert description.display is not None and description.display.text == text
     assert description.display.bindings == (("t1", ref_factory.entity("sales.rows")),)
-    rendered = catalog.describe(ref).render()
+    rendered = catalog.get(as_ref(ref).key).render()
     assert "private-token-987" in rendered and "73921" in rendered
 
 
@@ -114,14 +115,15 @@ def test_unsupported_structure_keeps_its_display_fact(catalog: ms.SemanticCatalo
     assert description.status == "unsupported"
     assert description.reason == "unsupported_syntax"
     assert _expression_fact(catalog, ref) == "t1['region'].upper()"
-    contract = catalog.describe(ref)
-    assert contract.location is not None and "models.py:" in contract.location
+    contract = catalog.get(as_ref(ref).key)
+    assert contract.provenance.source_file.endswith("models.py")
+    assert contract.provenance.source_line > 0
 
 
 def test_column_values_disclose_their_column_not_an_expression(
     catalog: ms.SemanticCatalog,
 ) -> None:
-    facts = dict(catalog.describe(ms.ref.measure("sales.rows.spend")).facts)
+    facts = dict(catalog.get("measure:sales.rows.spend").definition.facts)
     assert facts["column"] == "spend_cny"
     assert "expression" not in facts
 
@@ -138,9 +140,9 @@ def test_contract_reads_do_not_execute_or_print(
     from marivo.semantic import _expression_binding
 
     references = [
-        reference
-        for collection in (catalog.entities, catalog.fields, catalog.metrics)
-        for reference in collection.refs
+        entry.id
+        for entry in catalog.search(limit=100).items
+        if entry.kind in {"entity", "dimension", "time_dimension", "measure", "metric"}
     ]
     assert len(references) == 9
 
@@ -159,9 +161,9 @@ def test_contract_reads_do_not_execute_or_print(
         for method in ("preview", "readiness", "source_health"):
             guard.setattr(ms.SemanticCatalog, method, forbidden)
         for reference in references:
-            contract = catalog.describe(reference)
+            contract = catalog.get(reference)
             rendered = contract.render(max_output_bytes=None)
-            assert "boundary: definition only" in rendered
+            assert contract.id in rendered and "callable" not in rendered
             assert "\n" not in repr(contract) and ".show()" in repr(contract)
     assert capsys.readouterr().out == ""
 
@@ -179,8 +181,8 @@ def test_description_does_not_change_fingerprint(
     ref = ms.ref.dimension("sales.rows.literal_values")
     assert current.definition_fingerprint == catalog.definition_fingerprint
     assert (
-        consume_field(current.fields.get(as_ref(ref).path)).reference
-        == consume_field(catalog.fields.get(as_ref(ref).path)).reference
+        consume_field(catalog_value(current, as_ref(ref).path, kind="field")).reference
+        == consume_field(catalog_value(catalog, as_ref(ref).path, kind="field")).reference
     )
     assert _description(current, ref).status == "unsupported"
     assert _expression_fact(current, ref) is None
@@ -189,7 +191,7 @@ def test_description_does_not_change_fingerprint(
 
 
 def test_nonfinite_comparison_is_rejected_during_authoring(catalog: ms.SemanticCatalog) -> None:
-    region = catalog.fields.get("sales.rows.region")
+    region = catalog_value(catalog, "sales.rows.region", kind="field")
     for value in (float("nan"), float("inf"), float("-inf")):
         with pytest.raises(SemanticExpressionError) as exc:
             consume_predicate(region == value)

@@ -22,6 +22,7 @@ from tests.datasource.environment import (
     trino_analysis,
 )
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
 from tests.support.query_keys import integer_string_keys as _keys
 from tests.support.source_trace import capture_source
 
@@ -165,9 +166,9 @@ def _selected_original_case(
                     cursor.close()
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-original", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
-        tenant = session.catalog.fields.get("sales.facts.tenant")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         axes = (tenant, category) if operation == "rollup" else (category,)
         fine = session.observe({"value": amount.sum()}, by=axes)
         fixed = fine.top(0 if operation == "empty" else 1, by=fine["value"]).compute()
@@ -321,8 +322,8 @@ def test_empty_selection_retains_widened_parent_sum(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-overflow", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         fine = session.observe({"value": amount.sum()}, by=(category,))
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
@@ -350,8 +351,8 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-parent-mean", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         fine = session.observe({"value": amount.mean()}, by=(category,))
         fixed = fine.compute()
         threshold = fixed.to_pandas()["value"].iloc[0]
@@ -399,9 +400,9 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("selected-file", timezone="UTC")
-    amount = session.catalog.fields.get("sales.facts.amount")
-    tenant = session.catalog.fields.get("sales.facts.tenant")
-    category = session.catalog.fields.get("sales.facts.category")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     fine = session.observe({"value": amount.sum()}, by=(tenant, category))
     fixed = fine.top(1, by=fine["value"]).compute()
     initial = fixed.to_pandas()

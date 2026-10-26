@@ -32,6 +32,7 @@ from tests.shared_fixtures import (
     DslScenario,
     analysis_dsl_project_files,
     analysis_dsl_rows,
+    catalog_value,
     export_dsl_parquet_models,
     seed_analysis_dsl_database,
     terminal_runs,
@@ -147,8 +148,8 @@ def _offline(project: Path) -> Iterator[None]:
 def _observations(
     session: mv.Session,
 ) -> tuple[mv.Population, mv.AnalysisFrame, mv.AnalysisFrame, mv.AnalysisFrame]:
-    members = session.members(session.catalog.entities.get("operations.device"))
-    metric = session.catalog.metrics.get("operations.energy_total")
+    members = session.members(session.catalog.get("entity:operations.device").value)
+    metric = session.catalog.get("metric:operations.energy_total").value
     current = session.observe(
         {"value": metric},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
@@ -158,7 +159,7 @@ def _observations(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     count = session.observe(
-        {"value": session.catalog.metrics.get("operations.reading_count")},
+        {"value": session.catalog.get("metric:operations.reading_count").value},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     return members, current, baseline, count
@@ -189,8 +190,8 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
     with pytest.MonkeyPatch.context() as patch:
         trace = capture_source(patch)
         if scenario == "j1":
-            amount = session.catalog.fields.get("operations.reading.energy")
-            time = session.catalog.fields.get("operations.reading.recorded_at")
+            amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
+            time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")
             current = session.observe(
                 {"value": amount.sum(time=time)},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
@@ -220,7 +221,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
                 on=(
                     (
                         next(axis for axis in selected.axes if axis.role == "identity"),
-                        session.catalog.entities.get("operations.device"),
+                        session.catalog.get("entity:operations.device").value,
                     ),
                 ),
             )
@@ -234,9 +235,9 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
                 "selected_sum": selected.reduce({"value": selected["value"].sum()}),
             }
         elif scenario == "j3":
-            sensor = session.catalog.fields.get("operations.reading.sensor")
-            device = session.catalog.fields.get("operations.reading.device_id")
-            metric = session.catalog.metrics.get("operations.energy_per_reading")
+            sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="field")
+            device = catalog_value(session.catalog, "operations.reading.device_id", kind="field")
+            metric = session.catalog.get("metric:operations.energy_per_reading").value
             scope = session.time_scope(start="2026-08-01", end="2026-09-01")
             ratio = session.observe(
                 {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)

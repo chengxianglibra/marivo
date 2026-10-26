@@ -20,7 +20,7 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.loader import LoaderContext, loader_context
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
+from tests.shared_fixtures import captured_catalog, catalog_value, in_memory_datasource_ir
 
 ProjectFactory = Callable[..., SemanticProject]
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics")\n'
@@ -144,13 +144,13 @@ paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_a
     )
     catalog = _catalog(semantic_project_factory, source)
     assert marker.read_text() == "x"
-    margin = catalog.fields.get("sales.orders.margin")
+    margin = catalog_value(catalog, "sales.orders.margin", kind="field")
     assert consume_row(margin).unit == "CNY"
     assert consume_row(margin).root.ref.path == "sales.orders"
     assert consume_row(margin).default_time is not None
     assert consume_row(margin).default_time.ref.path == "sales.orders.paid_at"
     assert set(catalog._state.registry.declared_metrics) == {"sales.margin_per_order"}
-    assert not inspect_deferred(catalog.metrics.get("sales.margin_per_order")).symbols
+    assert not inspect_deferred(catalog.get("metric:sales.margin_per_order").value).symbols
 
 
 def test_complete_lookup_graph_rejects_missing_wrong_kind_and_self_cycles(
@@ -207,11 +207,11 @@ def test_same_template_binds_independently_without_calling_or_rereading_author()
     authored.__code__ = forbidden.__code__
     dependency = ms.ref.measure("sales.orders.missing")
     first = _physical_scope("CNY", (template,))
-    first_facts = consume_metric(first.metrics.get("sales.authored"))
+    first_facts = consume_metric(first.get("metric:sales.authored").value)
     second = _physical_scope("USD", (template,))
     assert first_facts.unit == "CNY"
-    assert consume_metric(second.metrics.get("sales.authored")).unit == "USD"
-    assert consume_metric(first.metrics.get("sales.authored")) == first_facts
+    assert consume_metric(second.get("metric:sales.authored").value).unit == "USD"
+    assert consume_metric(first.get("metric:sales.authored").value) == first_facts
     assert inspect_capture(template).fingerprint == captured
     assert inspect_capture(template).symbols == (ref_factory.measure("sales.orders.amount"),)
     assert root_declaration(template).reference is None
@@ -219,17 +219,17 @@ def test_same_template_binds_independently_without_calling_or_rereading_author()
 
 def test_old_closed_leaf_keeps_captured_facts_when_published_in_new_scope() -> None:
     first = _physical_scope("CNY", ())
-    old_amount = first.fields.get("sales.orders.amount")
+    old_amount = catalog_value(first, "sales.orders.amount", kind="field")
 
     @ms.metric(domain=ms.ref.domain("sales"))
     def old_revenue():
         return old_amount.sum()
 
     second = _physical_scope("USD", (old_revenue,))
-    reopened = consume_metric(second.metrics.get("sales.old_revenue"))
+    reopened = consume_metric(second.get("metric:sales.old_revenue").value)
     assert reopened.unit == "CNY"
     assert isinstance(reopened._declared[-1][1], SourceAggregate)
-    assert consume_row(second.fields.get("sales.orders.amount")).unit == "USD"
+    assert consume_row(catalog_value(second, "sales.orders.amount", kind="field")).unit == "USD"
     assert consume_row(old_amount).unit == "CNY"
 
 
@@ -258,10 +258,17 @@ def margin():
     )
     # Keep both same-name declarations reachable under distinct Python names.
     catalog = _catalog(semantic_project_factory, source)
-    assert consume_row(catalog.fields.get("sales.orders.adjusted")).root.ref.path == "sales.orders"
-    assert consume_row(catalog.fields.get("sales.orders.margin")).root.ref.path == "sales.orders"
     assert (
-        consume_row(catalog.fields.get("sales.customers.margin")).root.ref.path == "sales.customers"
+        consume_row(catalog_value(catalog, "sales.orders.adjusted", kind="field")).root.ref.path
+        == "sales.orders"
+    )
+    assert (
+        consume_row(catalog_value(catalog, "sales.orders.margin", kind="field")).root.ref.path
+        == "sales.orders"
+    )
+    assert (
+        consume_row(catalog_value(catalog, "sales.customers.margin", kind="field")).root.ref.path
+        == "sales.customers"
     )
 
 
@@ -313,8 +320,8 @@ def direct():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    direct = consume_metric(catalog.metrics.get("sales.direct"))
-    lookup = consume_metric(catalog.metrics.get("sales.lookup"))
+    direct = consume_metric(catalog.get("metric:sales.direct").value)
+    lookup = consume_metric(catalog.get("metric:sales.lookup").value)
     assert direct._declared[0][0] == lookup._declared[0][0]
     assert direct._declared[0][0].ref.path == "sales.revenue"
     assert computation_fingerprint(direct._declared[-1][1]) == computation_fingerprint(
@@ -327,7 +334,7 @@ def test_malformed_measure_additivity_rejects_equally_for_symbols_and_closed_row
     closed: bool,
 ) -> None:
     dependency = (
-        _physical_scope("CNY", ()).fields.get("sales.orders.amount")
+        catalog_value(_physical_scope("CNY", ()), "sales.orders.amount", kind="field")
         if closed
         else ms.ref.measure("sales.orders.amount")
     )
@@ -389,8 +396,8 @@ ms.dimension_column(name="region", entity=orders, column="region")
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    assert consume_metric(catalog.metrics.get("sales.selected_median")).unit == "CNY"
-    assert not inspect_deferred(catalog.metrics.get("sales.selected_median")).symbols
+    assert consume_metric(catalog.get("metric:sales.selected_median").value).unit == "CNY"
+    assert not inspect_deferred(catalog.get("metric:sales.selected_median").value).symbols
 
 
 _MALFORMED_CASE_CALLS = (
@@ -493,8 +500,11 @@ def all_valid_top_calls():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    assert consume_row(catalog.fields.get("sales.orders.native_top_calls")).unit == "CNY"
-    assert consume_metric(catalog.metrics.get("sales.all_valid_top_calls")).unit == "CNY"
+    assert (
+        consume_row(catalog_value(catalog, "sales.orders.native_top_calls", kind="field")).unit
+        == "CNY"
+    )
+    assert consume_metric(catalog.get("metric:sales.all_valid_top_calls").value).unit == "CNY"
 
 
 def test_publication_graph_matches_full_reconstruction_and_survives_failed_reload(

@@ -86,8 +86,8 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    metric = session.catalog.metrics.get("sales.order_count")
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    metric = session.catalog.get("metric:sales.order_count").value
     current = session.observe(
         {"value": metric},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),

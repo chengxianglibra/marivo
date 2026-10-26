@@ -4,7 +4,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.column import row_count
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -16,10 +16,11 @@ def test_full_entity_time_cohort(
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.entities.get("sales.customer"))
+    targets = session.members(session.catalog.get("entity:sales.customer").value)
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
-        {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
+        {"value": session.catalog.get("metric:sales.order_count").value},
+        by=mv.product(targets, grid),
     )
     active = values.where(values["value"] > 0)
     counts = active.reduce({"months": row_count()}, by=(active.axes[0],))
@@ -97,17 +98,17 @@ def spending_amount():
 """
     )
     session = case.session
-    users = session.members(session.catalog.entities.get("sales.customer"))
+    users = session.members(session.catalog.get("entity:sales.customer").value)
     usage = session.observe(
-        {"value": session.catalog.metrics.get("sales.avg_usage_hours")},
+        {"value": session.catalog.get("metric:sales.avg_usage_hours").value},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), users),
     )
     chosen = usage.where(usage["value"] > 10).compute()
     eligible = session.population_from(
-        chosen, on=((chosen.axes[1], session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[1], session.catalog.get("entity:sales.customer").value),)
     )
     spending = session.observe(
-        {"value": session.catalog.metrics.get("sales.spending_amount")},
+        {"value": session.catalog.get("metric:sales.spending_amount").value},
         by=mv.product(session.time_scope(start="2026-08-10", end="2026-08-17"), eligible),
         where=mv.in_population(eligible),
     )
@@ -125,10 +126,11 @@ def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.entities.get("sales.customer"))
+    targets = session.members(session.catalog.get("entity:sales.customer").value)
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
-        {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
+        {"value": session.catalog.get("metric:sales.order_count").value},
+        by=mv.product(targets, grid),
     )
     active = values.where(values["value"] > 0)
     counts = active.reduce({"count": row_count()}, by=(active.axes[0],))
@@ -187,9 +189,9 @@ def test_no_time_selection_preserves_complete_target_decisions(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(session.catalog.entities.get("sales.customer"))
+    targets = session.members(session.catalog.get("entity:sales.customer").value)
     category = session.read(
-        targets, {"region": session.catalog.fields.get("sales.customer.region")}
+        targets, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
     )
     expected = {member for member, region in analysis_dsl_rows("j2").customers if region == "east"}
     selected = category.where(~~(category["region"] == "east")).compute()

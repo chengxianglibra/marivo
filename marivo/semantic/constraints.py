@@ -272,7 +272,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
-        "Use business_definition and guardrails.",
+        "Use business_definition, guardrails and explicit search aliases.",
     ),
     ConstraintId.DOMAIN_OWNER_REQUIRED: _constraint(
         ConstraintId.DOMAIN_OWNER_REQUIRED,
@@ -568,7 +568,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.metrics.show() and use catalog.metrics.get('<semantic_id>').",
+        "catalog = ms.load(); catalog.search(kind='metric').show() and use catalog.get('metric:<semantic_id>').",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -577,7 +577,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.entities.show() and use catalog.entities.get('<semantic_id>').",
+        "catalog.search(kind='entity').show() and use catalog.get('entity:<semantic_id>').",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -586,7 +586,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.fields.show() and use catalog.fields.get('<semantic_id>').",
+        "catalog.search(kind='dimension').show() and use catalog.get('dimension:<semantic_id>').",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,
@@ -595,7 +595,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticCatalog",),
         "Requested semantic objects must exist in the loaded project.",
         "Lookup methods search across all registered symbol kinds.",
-        "catalog.domains.show() and catalog.datasources.show() for available names.",
+        "catalog.search().show() for loaded canonical identities.",
     ),
     ConstraintId.MATERIALIZE_EXECUTION: _constraint(
         ConstraintId.MATERIALIZE_EXECUTION,
@@ -653,7 +653,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
-        'Use catalog.<collection>.get("<typed_id>") to retrieve a specific object, or browse via catalog.domains, catalog.metrics, etc.',
+        'Use catalog.get("kind:path") for one object, or catalog.search() for bounded discovery.',
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
         ConstraintId.BACKEND_FACTORY_AVAILABLE,

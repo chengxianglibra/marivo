@@ -2,55 +2,11 @@
 
 from dataclasses import replace
 
-from marivo._authoring.model import AuthoringCapability
 from marivo.analysis._capabilities.model import ReadCapability
-from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
-from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
 
 def _catalog_inputs() -> tuple[ReadCapability, ...]:
     descriptors: list[ReadCapability] = []
-    outputs = {
-        member.property_name: f"CatalogCollection[{member.item_type_name}]"
-        for member in CATALOG_MEMBER_CONTRACTS
-    }
-    readiness = SEMANTIC_REGISTRY.by_canonical_id("readiness")
-    assert isinstance(readiness, AuthoringCapability) and readiness.output_family is not None
-    outputs["readiness"] = readiness.output_family
-    catalog_specs: tuple[tuple[str, str, str, str], ...] = (
-        *(
-            (
-                f"catalog.{member.property_name}",
-                f"catalog.{member.property_name}",
-                f"catalog.{member.property_name}",
-                f"Browse catalog {member.property_name}.",
-            )
-            for member in CATALOG_MEMBER_CONTRACTS
-        ),
-        (
-            "catalog.readiness",
-            "catalog.readiness(refs=...)",
-            "catalog.readiness",
-            "Check physical semantic inputs and their dependency closures without querying.",
-        ),
-    )
-
-    for cap_id, entrypoint, target, summary in catalog_specs:
-        descriptors.append(
-            ReadCapability(
-                id=cap_id,
-                public_entrypoint=entrypoint,
-                help_target=target,
-                summary=summary,
-                constraint_ids=(),
-                callable_path=f"marivo.semantic.catalog.SemanticCatalog.{cap_id.split('.', 1)[1]}",
-                receiver_family="SemanticCatalog",
-                result_kind="immutable_metadata",
-                read_bound="bounded",
-                output_type=outputs[cap_id.split(".", 1)[1]],
-            )
-        )
-
     temporal_catalog_reads = (
         ReadCapability(
             id="catalog.period_calendars.grain",
@@ -141,7 +97,6 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     descriptors.extend(temporal_catalog_reads)
 
     examples = {
-        "catalog.readiness": 'result = catalog.readiness(refs=[ms.ref.entity("sales.orders")])',
         "catalog.period_calendars.grain": 'result = calendar.grain("fiscal_week")',
         "catalog.period_calendars.period": 'scope = calendar.period("fiscal_week", "FY2026-W01")',
         "catalog.period_calendars.period_on": 'from datetime import date\nscope = calendar.period_on("fiscal_week", date(2026, 1, 1))',
@@ -154,9 +109,9 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     for descriptor in descriptors:
         preparation = ""
         if descriptor.receiver_family == "PeriodCalendarEntry":
-            preparation = 'calendar = catalog.period_calendars.get("sales.fiscal")\n'
+            preparation = 'calendar = catalog.get("period_calendar:sales.fiscal")\nassert calendar.kind == "period_calendar"\n'
         elif descriptor.receiver_family == "TemporalSetEntry":
-            preparation = 'temporal_set = catalog.temporal_sets.get("sales.campaigns")\n'
+            preparation = 'temporal_set = catalog.get("temporal_set:sales.campaigns")\nassert temporal_set.kind == "temporal_set"\n'
         example = examples.get(descriptor.id, "result = " + descriptor.public_entrypoint)
         result.append(
             replace(

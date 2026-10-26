@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -74,14 +75,16 @@ def test_drill_after_original_operations_prepares_related_fields(
     related_drill_session: Session, operation: str, member_count: bool, explicit_path: bool
 ) -> None:
     session = related_drill_session
-    channel = session.catalog.fields.get("sales.orders.channel")
-    tag = session.catalog.fields.get("sales.orders.tag")
-    amount = session.catalog.fields.get("sales.orders.amount")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    tag = catalog_value(session.catalog, "sales.orders.tag", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     members = (
-        session.members(session.catalog.entities.get("sales.orders")) if member_count else None
+        session.members(session.catalog.get("entity:sales.orders").value) if member_count else None
     )
     if operation == "rollup" and member_count:
-        members = session.members(session.catalog.entities.get("sales.orders"), where=tag == "keep")
+        members = session.members(
+            session.catalog.get("entity:sales.orders").value, where=tag == "keep"
+        )
     if members is not None:
         members = members.classify(by=(members.axes[0], channel))
     metric = members.count() if members is not None else amount.sum()
@@ -98,23 +101,25 @@ def test_drill_after_original_operations_prepares_related_fields(
             name = "retained"
     else:
         parent = fine
-    added = session.catalog.fields.get("sales.customers.region")
+    added = catalog_value(session.catalog, "sales.customers.region", kind="field")
     if explicit_path:
-        added = session.catalog.fields.get("sales.countries.name").via(
+        added = catalog_value(session.catalog, "sales.countries.name", kind="field").via(
             (
-                session.catalog.relationships.get("sales.buyer"),
-                session.catalog.relationships.get("sales.home"),
+                session.catalog.get("relationship:sales.buyer").value,
+                session.catalog.get("relationship:sales.home").value,
             )
         )
     fixed = parent.compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], channel),))
     where = mv.in_population(keys)
     if member_count:
-        entity = session.catalog.entities.get("sales.orders")
+        entity = session.catalog.get("entity:sales.orders").value
         selected_members = (
-            session.members(session.catalog.entities.get("sales.orders"), where=where)
+            session.members(session.catalog.get("entity:sales.orders").value, where=where)
             if operation != "rollup"
-            else session.members(session.catalog.entities.get("sales.orders"), where=tag == "keep")
+            else session.members(
+                session.catalog.get("entity:sales.orders").value, where=tag == "keep"
+            )
         )
         selected_ids = session.frame(selected_members).compute()
         expected_ids = (
@@ -150,8 +155,8 @@ def test_drill_projection_does_not_require_paths_for_removed_metric_roots(
     related_drill_session: Session,
 ) -> None:
     session = related_drill_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.customers.region")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
     result = session.observe({"retained": amount.sum()}, by=(region,)).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == ["North", "South", "West"]
     assert result["retained"].tolist() == [30, 30, 5]

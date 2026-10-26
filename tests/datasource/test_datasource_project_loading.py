@@ -17,7 +17,6 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
     DatasourceMissingError,
 )
-from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
 
@@ -79,9 +78,9 @@ def test_project_selection_and_bound_catalog_methods(
     monkeypatch.chdir(cwd)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(env))
 
-    assert ms.load().datasources._refs == (
-        ref_factory.datasource("default"),
-        ref_factory.datasource("env_source"),
+    assert tuple(entry.id for entry in ms.load().search(kind="datasource").items) == (
+        "datasource:default",
+        "datasource:env_source",
     )
     assert md.load().describe("env_source").name == "env_source"
     assert md.inspect(ms.ref.datasource("env_source"), md.table("orders"))._project_root == env
@@ -133,9 +132,9 @@ def test_external_datasource_is_usable_without_a_local_copy(
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
     semantic = ms.load()
     datasources = md.load()
-    assert semantic.datasources._refs == (
-        ref_factory.datasource("default"),
-        ref_factory.datasource("warehouse"),
+    assert tuple(entry.id for entry in semantic.search(kind="datasource").items) == (
+        "datasource:default",
+        "datasource:warehouse",
     )
     assert [item.name for item in datasources.list()] == ["default", "warehouse"]
     assert datasources.describe("warehouse").literal_fields["path"] == str(
@@ -278,7 +277,9 @@ def test_exact_arbitrary_directory_and_empty_projects_remain_valid(tmp_path: Pat
     assert not loader.load_datasources(empty).errors
     assert not loader.load_datasources(empty / "missing").errors
     assert [item.name for item in md.load(workspace_dir=empty).list()] == ["default"]
-    assert ms.load(workspace_dir=empty).datasources._refs == (ref_factory.datasource("default"),)
+    assert tuple(
+        entry.id for entry in ms.load(workspace_dir=empty).search(kind="datasource").items
+    ) == ("datasource:default",)
 
 
 def test_registration_saves_without_executing_other_declarations(tmp_path: Path) -> None:
@@ -332,7 +333,7 @@ def test_inspect_executes_declarations_once_and_reload_keeps_old_catalog(
         load=False,
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    old = catalog.datasources.get("warehouse").details()
+    old = catalog.get("datasource:warehouse").definition
     marker.write_text("")
     source = {
         "table": md.table("orders"),
@@ -346,9 +347,9 @@ def test_inspect_executes_declarations_once_and_reload_keeps_old_catalog(
     (tmp_path / "models" / "datasources" / "warehouse.py").write_text(
         declaration + f"md.duckdb(name='warehouse', path={str(second)!r})\n"
     )
-    assert old.fields["path"] == str(first)
-    assert catalog.datasources.get("warehouse").details().fields["path"] == str(first)
-    assert ms.load(workspace_dir=tmp_path).datasources.get("warehouse").details().fields[
+    assert dict(old.fields)["path"] == str(first)
+    assert dict(catalog.get("datasource:warehouse").definition.fields)["path"] == str(first)
+    assert dict(ms.load(workspace_dir=tmp_path).get("datasource:warehouse").definition.fields)[
         "path"
     ] == str(second)
     marker.write_text("")

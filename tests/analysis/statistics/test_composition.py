@@ -16,6 +16,7 @@ from tests.analysis.statistics.runs_worker import segments
 from tests.shared_fixtures import (
     DslCaseFactory,
     analysis_dsl_rows,
+    catalog_value,
     export_dsl_parquet_models,
     run_ids,
 )
@@ -32,8 +33,8 @@ def test_direct_score_runs_and_next_business_round(
         )
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    field = session.catalog.fields.get("sales.order.profile_0")
-    time = session.catalog.fields.get("sales.order.ordered_at")
+    field = catalog_value(session.catalog, "sales.order.profile_0", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe({"value": field.sum(time=time)}, by=(grid,)).compute()
     exported = artifact.to_pandas()
@@ -60,7 +61,7 @@ def test_direct_score_runs_and_next_business_round(
     constant["value"] = zero_scale.score
     assert segments(constant).empty
     assert run_ids(session) == before
-    axis = session.catalog.fields.get("sales.order.channel")
+    axis = catalog_value(session.catalog, "sales.order.channel", kind="field")
     domain = mv.coordinates(by=(axis,), keys=(("a",), ("b",), ("c",)))
     previous = session.observe(
         {"value": field.sum(time=time)},
@@ -97,8 +98,10 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    members = session.members(session.catalog.entities.get("sales.order"))
-    query = session.read(members, {"value": session.catalog.fields.get("sales.order.profile_0")})
+    members = session.members(session.catalog.get("entity:sales.order").value)
+    query = session.read(
+        members, {"value": catalog_value(session.catalog, "sales.order.profile_0", kind="field")}
+    )
     artifact = query.persist()
     frame = plain(artifact)
     assert frame.value.tolist() == [1, 2, 7]
@@ -124,15 +127,15 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     axes = (
-        session.catalog.fields.get("sales.customer.region"),
-        session.catalog.fields.get("sales.order.channel"),
+        catalog_value(session.catalog, "sales.customer.region", kind="field"),
+        catalog_value(session.catalog, "sales.order.channel", kind="field"),
     )
     current = session.observe(
-        {"value": session.catalog.metrics.get("sales.order_count")},
+        {"value": session.catalog.get("metric:sales.order_count").value},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), *axes),
     )
     baseline = session.observe(
-        {"value": session.catalog.metrics.get("sales.order_count")},
+        {"value": session.catalog.get("metric:sales.order_count").value},
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"), *axes),
     )
     frame = plain(
@@ -167,8 +170,8 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "parquet")
-    members = session.members(session.catalog.entities.get("sales.order"))
-    field = session.catalog.fields.get("sales.order.profile_0")
+    members = session.members(session.catalog.get("entity:sales.order").value)
+    field = catalog_value(session.catalog, "sales.order.profile_0", kind="field")
     captured = session.read(members, {"value": field}).persist()
     frame = deviation(plain(captured), method)
     before = run_ids(session)
@@ -176,11 +179,15 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     assert selected == [("c", 13)]
     assert run_ids(session) == before
     population = mv.coordinates(
-        by=(mv.identity(session.catalog.entities.get("sales.order")),),
+        by=(mv.identity(session.catalog.get("entity:sales.order").value),),
         keys=tuple((key,) for key in selected),
     )
     followup = session.observe(
-        {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
+        {
+            "value": field.sum(
+                time=catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+            )
+        },
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-04"), population),
     )
     output = plain(followup.persist())

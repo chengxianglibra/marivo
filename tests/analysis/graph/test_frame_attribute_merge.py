@@ -16,7 +16,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame_attribute_merge import merge_attribute_reports
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_union_preserves_exact_joint_null_keys_and_per_target_missingness() -> None:
@@ -83,7 +83,7 @@ def test_merge_uses_existing_frame_schedule_for_fixed_inputs(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    region = case.session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
     left = case.session.values(
         by=(region,), columns={"a": "CNY"}, rows=((("east",), {"a": 2}),)
     ).compute()

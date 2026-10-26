@@ -21,6 +21,7 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 def _contribution(
@@ -118,11 +119,11 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     assert totals == [("base", 10, 100), ("current", 10, 200)]
     assert Fraction(totals[0][1], totals[0][2]) == Fraction(1, 10)
     assert Fraction(totals[1][1], totals[1][2]) == Fraction(1, 20)
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum() / weight.sum()
     global_result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -235,10 +236,10 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
         ).fetchone()
     assert native == [("G1", Decimal("8.00")), ("G2", Decimal("10.00"))]
     assert root_change == (Decimal("18.00"),)
-    gross = session.catalog.fields.get("sales.facts.gross")
-    cost = session.catalog.fields.get("sales.facts.cost")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
+    gross = catalog_value(session.catalog, "sales.facts.gross", kind="field")
+    cost = catalog_value(session.catalog, "sales.facts.cost", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     metric = gross.sum() - 2 * cost.sum()
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -292,9 +293,9 @@ def test_disjoint_counted_identities_allow_exact_contributions(
         ("B", "base", 2, 2),
         ("B", "current", 3, 1),
     ]
-    value = session.catalog.fields.get("sales.facts.counted")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
+    value = catalog_value(session.catalog, "sales.facts.counted", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     metric = value.count_distinct() if distinct else value.count()
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -331,10 +332,10 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
             "SUM(amount*weight)/SUM(weight) FROM facts GROUP BY phase ORDER BY phase"
         ).fetchall()
     assert native == [("base", 5.0, 5, 1, 0.5), ("current", 10.0, 10, 1, 1.0)]
-    value = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    region = session.catalog.fields.get("sales.facts.region")
+    value = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     metric = value.weighted_mean(weight=weight)
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),

@@ -21,7 +21,7 @@ from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -174,10 +174,10 @@ def test_long_path_sum_and_count(
         )
         trace = capture_source(monkeypatch)
         session = mv.session.get_or_create("long-path", timezone="UTC")
-        population = session.members(session.catalog.entities.get("sales.subjects"))
+        population = session.members(session.catalog.get("entity:sales.subjects").value)
         expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
-            expression = session.catalog.metrics.get("sales." + metric)
+            expression = catalog_value(session.catalog, "sales." + metric, kind="metric")
             logical = session.observe(
                 {"value": expression},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), population),
@@ -196,8 +196,10 @@ def test_long_path_sum_and_count(
             )
             outputs[metric] = result
             if metric == "number":
-                field = session.catalog.fields.get(
-                    "sales.facts.segment" if compound else "sales.facts.owner"
+                field = catalog_value(
+                    session.catalog,
+                    "sales.facts.segment" if compound else "sales.facts.owner",
+                    kind="field",
                 )
                 sliced = expression.where(field == ("a" if compound else owner_values[0]))
                 selected = session.observe(

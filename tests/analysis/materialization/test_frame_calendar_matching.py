@@ -51,7 +51,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.refs import ref as ref_factory
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -438,8 +438,7 @@ def test_mutated_complete_attachment_is_checked_before_any_consumer(
 
 
 def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.analysis.materialization.frame_evaluation as evaluator
     from marivo.analysis.dsl import frame_sources
@@ -450,7 +449,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.metrics.get("sales.revenue")},
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(calendar,),
     )
     source = source.where(source["amount"] > 0)
@@ -690,7 +689,7 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.metrics.get("sales.revenue")},
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._backing, ExpressionFrameBacking)
@@ -716,16 +715,14 @@ def test_empty_actual_domains_keep_nominal_map_without_synthetic_rows(
 
 @pytest.mark.parametrize("fault", ["grain", "timezone", "hour_rule"])
 def test_captured_source_calendar_errors_precede_values_for_every_carrier(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    fault: str,
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
 ) -> None:
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
     from marivo.analysis.dsl import frame_sources
 
     session = analysis_dsl_case_factory("j2").session
-    metric = session.catalog.metrics.get("sales.revenue")
+    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     frozen = 0
     from marivo.analysis.core.frame_calendar import freeze_calendar as original
 
@@ -759,7 +756,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         "Asia/Shanghai" if fault == "timezone" else "UTC",
     )
     right = right.select({"other": right["amount"]})
-    fixed_left, fixed_right = left.compute(), right.compute()
+    fixed_left, fixed_right = (left.compute(), right.compute())
     assert frozen == 2
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -790,8 +787,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
 
 
 def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.dsl import frame_sources
 
@@ -800,7 +796,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.metrics.get("sales.revenue")},
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._schema, PendingDataSchema)
@@ -841,9 +837,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
 
 @pytest.mark.parametrize("fault", ["level", "digest"])
 def test_named_source_pending_interpretation_is_checked_before_value_names(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    fault: str,
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
 ) -> None:
     import marivo.semantic as ms
     from marivo._temporal import PeriodCalendarSnapshotV2, certify_period_calendar, semantic_grain
@@ -851,8 +845,8 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     from marivo.analysis.dsl import frame_sources
 
     session = analysis_dsl_case_factory("j2").session
-    metric = session.catalog.metrics.get("sales.revenue")
-    start, end = date(2026, 8, 1), date(2026, 8, 9)
+    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    start, end = (date(2026, 8, 1), date(2026, 8, 9))
     calendar = ms.ref.period_calendar("sales.fiscal")
 
     def snapshot(prefix: str) -> PeriodCalendarSnapshotV2:
@@ -1194,7 +1188,7 @@ def test_pending_source_comparison_continuations_match_completed_authority(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.metrics.get("sales.revenue")},
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
     )
     compared = source.compare({"reference": mv.baseline(source)})
@@ -1240,7 +1234,7 @@ def test_pending_shifted_self_align_owns_only_paired_endpoint_facts(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.metrics.get("sales.revenue")},
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(shifted,),
     )
     assert isinstance(source._schema, PendingDataSchema)
@@ -1261,7 +1255,6 @@ def test_pending_shifted_self_align_owns_only_paired_endpoint_facts(
     completed = fixed.align(fixed, match=mv.ordinal()).compute()
     assert completed._schema == output._schema
     pd.testing.assert_frame_equal(completed.to_pandas(), output.to_pandas())
-
     extra = memory(
         session._runtime.local,
         ("2026-08-01", "2026-09-01"),

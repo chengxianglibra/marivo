@@ -275,7 +275,7 @@ def test_members_consumes_resolved_entity_without_original_version_gate(
     from marivo.semantic.expressions import entity_exact
 
     case = analysis_dsl_case_factory("j1")
-    entity = case.session.catalog.entities.get("sales.customer")
+    entity = case.session.catalog.get("entity:sales.customer").value
     older = replace(entity, _exact_ref=ExactRef(entity_exact(entity).ref, "previous-definition"))
     population = case.session.members(older)
     assert isinstance(population._definition, PopulationProgram)

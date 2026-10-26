@@ -22,7 +22,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _ROWS = (
@@ -109,8 +109,8 @@ def _project(
 
 def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.metrics.get("sales.average")},
-        by=mv.product(scope, session.members(session.catalog.entities.get("sales.customers"))),
+        {"value": session.catalog.get("metric:sales.average").value},
+        by=mv.product(scope, session.members(session.catalog.get("entity:sales.customers").value)),
     )
 
 
@@ -134,11 +134,11 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     assert _values(values) == {"A": 20, "B": 60}
     chosen = values.where(values["value"] < 50)
     selected = session.population_from(
-        chosen, on=((chosen.axes[1], session.catalog.entities.get("sales.customers")),)
+        chosen, on=((chosen.axes[1], session.catalog.get("entity:sales.customers").value),)
     )
     assert case_members(session, selected) == ["A"]
     following = session.observe(
-        {"value": session.catalog.metrics.get("sales.total")},
+        {"value": session.catalog.get("metric:sales.total").value},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), selected),
         where=mv.in_population(selected),
     )
@@ -232,11 +232,11 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     assert (scope.end - scope.start).total_seconds() == hours * 3600
     assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
     grid = scope.by(mv.grain("day"))
-    members = session.members(session.catalog.entities.get("sales.customers"))
+    members = session.members(session.catalog.get("entity:sales.customers").value)
     gridded = _observe(session, grid)
     assert _values(gridded) == {"A": 20, "B": 60}
     running = session.observe(
-        {"value": session.catalog.metrics.get("sales.total").window(mv.all_history())},
+        {"value": session.catalog.get("metric:sales.total").value.window(mv.all_history())},
         by=mv.product(grid, members),
     )
     assert _values(running) == {"A": 928, "B": 60}
@@ -445,10 +445,10 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=read_zone)
     session = mv.session.get_or_create("within-members", timezone="Asia/Shanghai")
     scope = session.time_scope(start="2026-08-01", end="2026-08-02")
-    time = session.catalog.fields.get("sales.orders.happened")
-    metric = session.catalog.metrics.get("sales.total")
+    time = catalog_value(session.catalog, "sales.orders.happened", kind="field")
+    metric = session.catalog.get("metric:sales.total").value
     members = session.members(
-        session.catalog.entities.get("sales.orders"), where=time.within(scope)
+        session.catalog.get("entity:sales.orders").value, where=time.within(scope)
     )
     assert case_members(session, members) == expected_ids
     for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):
@@ -460,7 +460,7 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
             )
             assert query.compute().to_pandas()["value"].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
-    buyer = session.catalog.relationships.get("sales.buyer")
+    buyer = session.catalog.get("relationship:sales.buyer").value
     assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
     assert case_members(session, members.intersection(members)) == expected_ids
     assert case_members(session, members.difference(members)) == []

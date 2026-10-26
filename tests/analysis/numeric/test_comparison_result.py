@@ -12,14 +12,14 @@ import marivo.analysis as mv
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value
 
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     return session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)},
+        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(session.time_scope(start=start, end=end), members),
     )
 

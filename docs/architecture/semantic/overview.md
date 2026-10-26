@@ -73,9 +73,9 @@ consumed definitions; this policy permits neither live refresh nor import replay
 
 ## Handoff and proof boundaries
 
-`ms.load()` establishes project coherence without source reads. Catalog
-collections expose physical resolved values and published Deferred expressions;
-`catalog.describe(ref)` describes a published expression. Readiness checks
+`ms.load()` establishes project coherence without source reads. Catalog search
+and canonical get return immutable typed directory entries; complete definitions
+explain captured meaning and executable variants expose native closed `.value`. Readiness checks
 physical dependency closures and dedicated temporal artifacts without a query.
 Its `analysis_ready_inputs` contains only directly requested ready physical refs.
 

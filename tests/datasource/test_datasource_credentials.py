@@ -320,7 +320,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
     try:
         with pytest.raises(DatasourceConnectionError) as captured:
             session.observe(
-                {"revenue": session.catalog.metrics.get("sales.revenue")},
+                {"revenue": session.catalog.get("metric:sales.revenue").value},
                 by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
             ).compute()
         assert "<redacted>" in str(captured.value)
@@ -497,8 +497,10 @@ def test_public_semantic_analysis_and_resume(
         assert preview.rows
         assert catalog.source_health([ms.ref.entity("sales.orders")]).status == "current"
         query = session.observe(
-            {"revenue": catalog.metrics.get("sales.revenue")},
-            where=mv.in_population(session.members(session.catalog.entities.get("sales.orders"))),
+            {"revenue": catalog.get("metric:sales.revenue").value},
+            where=mv.in_population(
+                session.members(session.catalog.get("entity:sales.orders").value)
+            ),
         )
         frame = query.compute()
         assert not frame.to_pandas().empty
@@ -538,9 +540,9 @@ def test_public_semantic_analysis_and_resume(
     try:
         assert (
             not resumed.observe(
-                {"revenue": resumed.catalog.metrics.get("sales.revenue")},
+                {"revenue": resumed.catalog.get("metric:sales.revenue").value},
                 where=mv.in_population(
-                    resumed.members(resumed.catalog.entities.get("sales.orders"))
+                    resumed.members(resumed.catalog.get("entity:sales.orders").value)
                 ),
             )
             .compute()
@@ -549,28 +551,7 @@ def test_public_semantic_analysis_and_resume(
         )
     finally:
         pass
-    cold_code = """
-import sys
-import marivo.analysis as mv
-import marivo.datasource as md
-class Resolver:
-    def __init__(self):
-        self.value = sys.stdin.read()
-    def resolve(self, request):
-        return md.SecretValue(self.value)
-with md.credential_scope(resolver=Resolver()):
-    session = mv.session.resume(sys.argv[1])
-try:
-    members = session.members(session.catalog.entities.get('sales.orders'))
-    frame = session.observe(
-        {'revenue': session.catalog.metrics.get('sales.revenue')},
-        where=mv.in_population(members),
-    ).compute()
-    assert not frame.to_pandas().empty
-finally:
-    pass
-print('cold-resume-ok')
-"""
+    cold_code = "\nimport sys\nimport marivo.analysis as mv\nimport marivo.datasource as md\nclass Resolver:\n    def __init__(self):\n        self.value = sys.stdin.read()\n    def resolve(self, request):\n        return md.SecretValue(self.value)\nwith md.credential_scope(resolver=Resolver()):\n    session = mv.session.resume(sys.argv[1])\ntry:\n    members = session.members(session.catalog.get('entity:sales.orders').value)\n    frame = session.observe(\n        {'revenue': session.catalog.get('metric:sales.revenue').value},\n        where=mv.in_population(members),\n    ).compute()\n    assert not frame.to_pandas().empty\nfinally:\n    pass\nprint('cold-resume-ok')\n"
     cold = subprocess.run(
         [sys.executable, "-c", cold_code, session_id],
         env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2])),

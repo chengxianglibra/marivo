@@ -26,7 +26,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from tests.datasource.source_cases import source_params
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 _ROWS = "INSERT INTO orders VALUES (1,'2026-07-01',15.75,5.25,3), (2,'2026-07-01',4.25,1.75,1)"
 
@@ -127,7 +127,9 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
 
 
 def _aggregate(session: mv.Session, metric: str) -> mv.AnalysisFrame:
-    return session.observe({"value": session.catalog.metrics.get(f"sales.{metric}")}).persist()
+    return session.observe(
+        {"value": catalog_value(session.catalog, f"sales.{metric}", kind="metric")}
+    ).persist()
 
 
 def _semantic_value(session: mv.Session, metric: str) -> object:
@@ -168,8 +170,8 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
 def test_runtime_linear_over_integer_sums_returns_decimal(
     computation_session: mv.Session,
 ) -> None:
-    quantity = computation_session.catalog.metrics.get("sales.quantity_total")
-    count = computation_session.catalog.metrics.get("sales.gmv_quantity")
+    quantity = computation_session.catalog.get("metric:sales.quantity_total").value
+    count = computation_session.catalog.get("metric:sales.gmv_quantity").value
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
     assert pa.array(rows["value"]).type == pa.decimal128(38, 0)
@@ -501,7 +503,7 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
     from marivo.analysis.errors import AnalysisError
 
     logical = trino_session.observe(
-        {"value": trino_session.catalog.metrics.get("sales.amount_mean")}
+        {"value": trino_session.catalog.get("metric:sales.amount_mean").value}
     )
     with pytest.raises(AnalysisError):
         logical.persist()
@@ -519,7 +521,7 @@ def test_computed_measure_graph_reads_only_at_execute(
     with monkeypatch.context() as patch:
         patch.setattr(SourceSession, "execute", forbidden)
         query = computation_session.observe(
-            {"value": computation_session.catalog.metrics.get(f"sales.{metric}")}
+            {"value": catalog_value(computation_session.catalog, f"sales.{metric}", kind="metric")}
         )
         query.show()
         assert terminal_runs(computation_session) == ()

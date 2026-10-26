@@ -83,6 +83,7 @@ def ai_context(
     *,
     business_definition: str | None = None,
     guardrails: _Sequence[str] | None = None,
+    aliases: _Sequence[str] | None = None,
 ) -> AiContextValue:
     """Construct a validated AiContext for semantic objects.
 
@@ -95,6 +96,9 @@ def ai_context(
     Args:
         business_definition: Plain-language description of what the object represents.
         guardrails: Constraints on how the object should be used.
+        aliases: Non-empty search terms. Unicode and whitespace are normalized;
+            case-insensitive duplicates retain their first spelling and order.
+            An empty sequence declares no aliases. Aliases never create object identities.
 
     Returns:
         A validated ``AiContextValue`` for use with ``ai_context=`` parameters.
@@ -112,6 +116,19 @@ def ai_context(
         SemanticDecoratorError: If any value has the wrong type.
     """
     location = _caller_location()
+
+    if aliases is not None and (
+        not isinstance(aliases, _Sequence)
+        or isinstance(aliases, str | bytes | bytearray)
+        or not all(isinstance(item, str) and item.strip() for item in aliases)
+    ):
+        _raise(
+            ErrorKind.INVALID_AI_CONTEXT,
+            "ms.ai_context(aliases=...) requires a sequence of non-empty strings, "
+            f"got {aliases!r}. Use aliases=['Revenue', '销售额'] or omit aliases.",
+            cls=SemanticDecoratorError,
+            location=location,
+        )
 
     if guardrails is not None and (
         not isinstance(guardrails, list | tuple)
@@ -137,6 +154,7 @@ def ai_context(
     return AiContextValue(
         business_definition=business_definition,
         guardrails=tuple(guardrails) if guardrails is not None else (),
+        aliases=tuple(aliases) if aliases is not None else (),
     )
 
 
@@ -162,6 +180,7 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     return AiContextIR(
         business_definition=ai_context.business_definition,
         guardrails=ai_context.guardrails,
+        aliases=ai_context.aliases,
     )
 
 

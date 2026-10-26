@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.terminal_store import TerminalRun
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
-    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.catalog import SemanticCatalog, SemanticEntry
     from marivo.semantic.expressions import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
     from marivo.semantic.loader import LoaderContext, LoadResult
@@ -44,6 +44,61 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticEntry, name: str, *, kind: str
+) -> SemanticEntry:
+    """Select one test input through public browse pages and exact identity facts."""
+    from marivo.semantic.catalog import SemanticCatalog
+
+    kinds = {"dimension", "time_dimension", "measure"} if kind == "field" else {kind}
+    selected: list[SemanticEntry] = []
+    cursor: str | None = None
+    while True:
+        page = (
+            catalog.search(query="", limit=100, cursor=cursor)
+            if isinstance(catalog, SemanticCatalog)
+            else catalog.related("members", limit=100, cursor=cursor)
+        )
+        selected.extend(
+            entry
+            for entry in page.items
+            if entry.kind in kinds and (entry.path == name or entry.name == name)
+        )
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+    assert len(selected) == 1, (kind, name, tuple(entry.id for entry in selected))
+    return selected[0]
+
+
+def catalog_value(
+    catalog: SemanticCatalog | SemanticEntry, name: str, *, kind: str
+) -> ResolvedValue:
+    """Return a native closed test operand selected through the current Catalog API."""
+    from marivo.semantic.catalog import (
+        DimensionEntry,
+        EntityEntry,
+        MeasureEntry,
+        MetricEntry,
+        RelationshipEntry,
+        TimeDimensionEntry,
+    )
+
+    entry = catalog_entry(catalog, name, kind=kind)
+    assert isinstance(
+        entry,
+        (
+            DimensionEntry,
+            EntityEntry,
+            MeasureEntry,
+            MetricEntry,
+            RelationshipEntry,
+            TimeDimensionEntry,
+        ),
+    )
+    return entry.value
 
 
 class _PreviewConnections:
@@ -1053,3 +1108,32 @@ def numeric_literal_node(value: int) -> MetricExpression:
     from marivo._definition.expressions import MetricExpression
 
     return MetricExpression(Just(value), ())
+
+
+def write_minimal_catalog_project(tmp_path: Path) -> None:
+    semantic = tmp_path / "models" / "semantic" / "sales"
+    semantic.mkdir(parents=True)
+    (semantic / "_domain.py").write_text(
+        'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
+    )
+    (semantic / "objects.py").write_text("""import marivo.datasource as md
+import marivo.semantic as ms
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"), primary_key=["order_id"])
+status = ms.dimension_column(name="status", entity=orders, column="status")
+paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at",
+    parse=ms.timestamp(timezone="UTC"), is_default=True)
+amount = ms.measure_column(name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="USD")
+ms.relationship(name="orders_self", from_entity=orders, to_entity=orders,
+    keys=[ms.join_on(status, status)])
+amount_value = amount
+@ms.metric()
+def revenue():
+    return amount_value.sum()
+""")
+    datasource = tmp_path / "models" / "datasources"
+    datasource.mkdir()
+    (datasource / "warehouse.py").write_text(
+        'import marivo.datasource as md\nmd.duckdb(name="warehouse", path=":memory:")\n'
+    )

@@ -90,12 +90,12 @@ def test_exported_scores_select_an_explicit_followup_query(
     assert selected == ["B", "D"]
     assert run_ids(case.session) == before
     population = mv.coordinates(
-        by=(mv.identity(case.session.catalog.entities.get("sales.customer")),),
+        by=(mv.identity(case.session.catalog.get("entity:sales.customer").value),),
         keys=tuple(((key,),) for key in selected),
     )
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     following = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.revenue")},
+        {"value": case.session.catalog.get("metric:sales.revenue").value},
         by=mv.product(scope.by(mv.grain("day")), population),
         where=mv.in_population(population),
     )

@@ -26,7 +26,7 @@ from marivo.analysis.materialization.graph_reading import (
 )
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _create, _frame, _offline, _remove_sources
-from tests.shared_fixtures import analysis_dsl_rows, run_ids
+from tests.shared_fixtures import analysis_dsl_rows, catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
@@ -102,14 +102,15 @@ def journey(phase: str, project: Path) -> dict[str, object]:
     state_path = project / "display.json"
     if phase == "produce":
         session = _create(project, "j2", "parquet")
-        members = session.members(session.catalog.entities.get("operations.device"))
+        members = session.members(session.catalog.get("entity:operations.device").value)
         grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         values = session.observe(
-            {"value": session.catalog.metrics.get("operations.reading_count")},
+            {"value": session.catalog.get("metric:operations.reading_count").value},
             by=mv.product(grid, members),
         ).persist()
         categories = session.read(
-            members, {"value": session.catalog.fields.get("operations.device.zone")}
+            members,
+            {"value": catalog_value(session.catalog, "operations.device.zone", kind="field")},
         ).persist()
         frame = _table(values, categories)
         _verify(frame)
@@ -128,8 +129,8 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         # These explicit field keys come from observed calendar bounds, not a hand-authored calendar.
         table = session.values(
             by=(
-                session.catalog.fields.get("operations.reading.device_id"),
-                session.catalog.fields.get("operations.reading.recorded_at"),
+                catalog_value(session.catalog, "operations.reading.device_id", kind="field"),
+                catalog_value(session.catalog, "operations.reading.recorded_at", kind="field"),
             ),
             columns={"amount": None, "zone": None, "rank": None},
             rows=tuple(rows),

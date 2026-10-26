@@ -59,9 +59,9 @@ def test_project_handoff_separates_static_and_physical_evidence(
     revenue = ms.ref.metric("sales.revenue")
     amount = ms.ref.measure("sales.orders.amount")
     calendar = ms.ref.period_calendar("sales.fiscal")
-    revenue_identity = catalog.describe(revenue).ref
+    revenue_identity = catalog.get(as_ref(revenue).key).ref
     assert revenue_identity is not None and as_ref(revenue_identity) == as_ref(revenue)
-    assert as_ref(catalog.period_calendars.get("sales.fiscal").ref) == as_ref(calendar)
+    assert as_ref(catalog.get("period_calendar:sales.fiscal").ref) == as_ref(calendar)
 
     baseline = catalog.readiness(refs=[amount])
     assert baseline._analysis_ready_inputs == (as_ref(amount),)

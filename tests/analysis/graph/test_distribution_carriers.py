@@ -15,7 +15,7 @@ import marivo.semantic as ms
 from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
@@ -57,8 +57,8 @@ def test_named_distribution_carriers_recover_independently(
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
     session = case.session
-    amount_field = session.catalog.fields.get("sales.order.amount")
-    time = session.catalog.fields.get("sales.order.ordered_at")
+    amount_field = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     methods = {"quantile": amount_field.quantile(0.25, time=time)}
     if physical == "float":
         methods.update(
@@ -71,7 +71,7 @@ def test_named_distribution_carriers_recover_independently(
         with pytest.raises(SemanticExpressionError, match="qualified approximate quantile route"):
             session.observe(
                 {"value": amount_field.approx_quantile(0.25, time=time)},
-                by=session.members(session.catalog.entities.get("sales.customer")),
+                by=session.members(session.catalog.get("entity:sales.customer").value),
             ).persist()
         assert len(terminal_runs(session)) == before
     originals: dict[str, Json] = {}
@@ -80,7 +80,7 @@ def test_named_distribution_carriers_recover_independently(
             {"value": metric},
             by=mv.product(
                 session.time_scope(start="2026-08-01", end="2026-09-01"),
-                session.members(session.catalog.entities.get("sales.customer")),
+                session.members(session.catalog.get("entity:sales.customer").value),
             ),
         ).persist()
         exported = value.to_pandas()

@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import ibis
 import pytest
@@ -81,19 +80,22 @@ def _ready_project(
     return semantic_project_factory(files)
 
 
-def test_analysis_readiness_help_example_accepts_physical_selection(
+def test_semantic_readiness_help_example_accepts_physical_selection(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
+    from marivo._authoring.model import AuthoringCapability
+    from marivo.semantic._capabilities.registry import REGISTRY
 
     catalog = ms.SemanticCatalog(_ready_project(semantic_project_factory))
-    descriptor = next(item for item in CATALOG_INPUTS if item.id == "catalog.readiness")
-    assert descriptor.example is not None
-    namespace: dict[str, object] = {"session": SimpleNamespace(catalog=catalog)}
-    exec(compile(descriptor.example, "<readiness-help-example>", "exec"), namespace)
-    report = namespace["result"]
+    descriptor = REGISTRY.by_canonical_id("readiness")
+    assert isinstance(descriptor, AuthoringCapability)
+    assert descriptor.minimal_example is not None
+    namespace: dict[str, object] = {"catalog": catalog, "ms": ms}
+    report = eval(
+        compile(descriptor.minimal_example, "<readiness-help-example>", "eval"), namespace
+    )
     assert isinstance(report, ReadinessReport)
-    assert report._analysis_ready_inputs == (ref_factory.entity("sales.orders"),)
+    assert report._analysis_ready_inputs == (ref_factory.measure("sales.orders.amount"),)
 
 
 def _without_checked_at(report: ReadinessReport) -> dict[str, object]:
@@ -111,6 +113,8 @@ def test_report_has_one_ready_input_projection() -> None:
         "input_summary",
         "checked_at",
         "catalog_definition_fingerprint",
+        "requested_ids",
+        "checked_ids",
     )
 
 
@@ -151,6 +155,8 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
         "input_summary",
         "checked_at",
         "catalog_definition_fingerprint",
+        "requested_ids",
+        "checked_ids",
     }
     assert payload["analysis_ready_inputs"] == [
         {"schema": "marivo.semantic_ref/v1", "kind": "metric", "path": "sales.revenue"}
@@ -330,17 +336,15 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
     )
 
     catalog = ms.SemanticCatalog(project)
-    with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
-        catalog.readiness(refs=[ms.ref.metric("sales.net_revenue")])
-    assert caught.value.kind == "invalid_expression_stage"
-    assert caught.value.repair is not None
-    assert "physical fields and Entities" in caught.value.repair.action
-    assert caught.value.hint == (
-        'Run marivo.help("semantic.readiness") to inspect physical input requirements.'
+    selected = catalog.readiness(refs=[catalog.get("metric:sales.net_revenue")])
+    assert selected.requested_ids == ("metric:sales.net_revenue",)
+    assert {"measure:sales.orders.amount", "measure:sales.refunds.amount"} <= set(
+        selected.checked_ids
     )
-    assert caught.value.repair.help_target == LiveHelpTarget(
-        surface="semantic", canonical_id="readiness"
+    assert all(
+        as_ref(value).kind is not ms.SemanticKind.METRIC for value in selected.analysis_ready_inputs
     )
+    assert set(selected.input_summary.datasources) == {"warehouse", "finance"}
     inputs = (ms.ref.measure("sales.orders.amount"), ms.ref.measure("sales.refunds.amount"))
     report = catalog.readiness(refs=inputs)
     assert report.status == "ready"

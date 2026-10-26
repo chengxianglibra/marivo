@@ -23,13 +23,13 @@ from marivo.analysis.errors import (
 from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.cli import main
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.fixture
 def literal_frame(analysis_dsl_case_factory: DslCaseFactory) -> mv.AnalysisFrame:
     session = analysis_dsl_case_factory("j1").session
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     return session.values(
         by=(region,),
         columns={"value": None},
@@ -62,7 +62,7 @@ def _cli_facts(text: str) -> str:
         ("semantic.analysis_frame.output_names", "analysis.analysis_frame.output_names"),
         ("readiness_report.to_dict", "semantic.readiness_report.to_dict"),
         ("datasource_summary", "datasource.datasource_summary"),
-        ("semantic_catalog.fields", "semantic.semantic_catalog.fields"),
+        ("semantic_catalog.search", "semantic.semantic_catalog.search"),
     ],
 )
 def test_cross_surface_suggestions_are_complete_resolvable_targets(

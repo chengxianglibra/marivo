@@ -1,182 +1,87 @@
-"""SemanticCatalog named member collections.
-
-``SemanticCatalog`` exposes exactly one named collection property per member
-contract in ``catalog_members.py``. These tests lock the closed member contract
-against the live catalog: every declared property exists, returns a
-``CatalogCollection`` restricted to the declared kinds, and resolves its
-members by local name and full path.
-"""
+"""The canonical catalog identity and closed Entry execution boundary."""
 
 from __future__ import annotations
 
-import textwrap
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
-from marivo.refs import SemanticKind
-from marivo.semantic._capabilities.catalog_members import (
-    CATALOG_MEMBER_CONTRACTS,
-)
-from marivo.semantic._deferred_semantics import consume_field
-from marivo.semantic.catalog import CatalogCollection
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-
-_DOMAIN_PY = """\
-import marivo.semantic as ms
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-"""
-
-_OBJECTS_PY = """import marivo.datasource as md
-import marivo.semantic as ms
-
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"),
-    primary_key=["order_id"],
-)
-status = ms.dimension_column(name="status", entity=orders, column="status")
-paid_at = ms.time_dimension_column(
-    name="paid_at",
-    entity=orders,
-    column="paid_at",
-    parse=ms.timestamp(timezone="UTC"),
-)
-amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity=ms.additive_all()
-)
-ms.relationship(
-    name="orders_self",
-    from_entity=orders,
-    to_entity=orders,
-    keys=[ms.join_on(status, status)],
-)
-
-amount_value = amount
-paid_at_value = paid_at
+from tests.shared_fixtures import write_minimal_catalog_project
 
 
-@ms.metric()
-def revenue():
-    return amount_value.sum(time=paid_at_value)
-"""
-
-# Declared members present in the fixture project, in displayed key order.
-_EXPECTED_MEMBER_KEYS: dict[str, tuple[str, ...]] = {
-    "domains": ("domain:sales",),
-    "entities": ("entity:sales.orders",),
-    "fields": (
-        "dimension:sales.orders.status",
-        "measure:sales.orders.amount",
-        "time_dimension:sales.orders.paid_at",
-    ),
-    "metrics": ("metric:sales.revenue",),
-    "relationships": ("relationship:sales.orders_self",),
-    "period_calendars": (),
-    "temporal_sets": (),
-}
-
-
-def _write_minimal_project(tmp_path: Path) -> None:
-    semantic = tmp_path / "models" / "semantic" / "sales"
-    ds = tmp_path / "models" / "datasources"
-    semantic.mkdir(parents=True)
-    ds.mkdir(parents=True)
-    (ds / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    page = catalog.search()
+    assert tuple(entry.id for entry in page.items) == tuple(
+        sorted(entry.id for entry in page.items)
     )
-    (semantic / "_domain.py").write_text(_DOMAIN_PY)
-    (semantic / "objects.py").write_text(textwrap.dedent(_OBJECTS_PY))
-
-
-def test_every_member_property_is_a_typed_collection_of_its_declared_kinds(
-    tmp_path: Path,
-) -> None:
-    _write_minimal_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-
-    for member in CATALOG_MEMBER_CONTRACTS:
-        collection = getattr(catalog, member.property_name)
-        assert isinstance(collection, CatalogCollection)
-        # The collection holds only the kinds its contract declares.
-        assert {ref.kind for ref in collection._refs} <= set(member.kinds)
-        assert len(collection) == len(collection._refs)
-        if collection._refs:
-            assert member.item_type_name in collection.render()
-
-
-def test_every_member_property_lists_its_declared_members_in_key_order(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-
-    for property_name, expected_keys in _EXPECTED_MEMBER_KEYS.items():
-        collection = getattr(catalog, property_name)
-        assert tuple(ref.key for ref in collection._refs) == expected_keys
-
-    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources._refs}
-    assert {ref.kind for ref in catalog.datasources._refs} == {SemanticKind.DATASOURCE}
-
-
-def test_every_member_value_round_trips_through_get_by_name_and_path(
-    tmp_path: Path,
-) -> None:
-    _write_minimal_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-
-    for member in CATALOG_MEMBER_CONTRACTS:
-        collection = getattr(catalog, member.property_name)
-        for ref, item in zip(collection._refs, collection.items, strict=True):
-            assert (
-                (consume_field(collection.get(ref.path)) == consume_field(item))
-                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
-                else collection.get(ref.path) is item
-            )
-        names = [ref.name for ref in collection._refs]
-        if len(set(names)) == len(names):
-            for ref, item in zip(collection._refs, collection.items, strict=True):
-                assert (
-                    (consume_field(collection.get(ref.name)) == consume_field(item))
-                    if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
-                    else collection.get(ref.name) is item
-                )
-
-
-def test_fields_collection_spans_dimension_time_field_and_measure(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-
-    fields = catalog.fields
-    assert [ref.kind.value for ref in fields._refs] == [
+    assert {entry.kind for entry in page.items} == {
+        "domain",
+        "datasource",
+        "entity",
         "dimension",
-        "measure",
         "time_dimension",
-    ]
-    for ref in fields._refs:
-        assert consume_field(fields.get(ref.path)).reference.ref == ref
+        "measure",
+        "metric",
+        "relationship",
+    }
+    for entry in page.items:
+        assert catalog.get(entry.id) is entry
+        assert entry.id == f"{entry.kind}:{entry.path}"
+        assert len(repr(entry).encode()) < 200
+        assert "show" in repr(entry)
+        with pytest.raises((FrozenInstanceError, AttributeError)):
+            entry.name = "changed"
+        with pytest.raises((FrozenInstanceError, AttributeError)):
+            entry.new_attribute = 1
+    assert not hasattr(catalog, "metrics")
+    assert not hasattr(catalog, "describe")
+    assert "CatalogCollection" not in ms.__all__
 
 
-def test_scoped_collection_matches_the_global_collection(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
+def test_entry_kind_narrowing_exposes_only_native_closed_values(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
+    metric = catalog.get("metric:sales.revenue")
+    assert metric.kind == "metric"
+    assert isinstance(metric.value, Deferred)
+    assert consume_metric(metric.value).roots[0].ref.key == "entity:sales.orders"
+    field = catalog.get("dimension:sales.orders.status")
+    assert field.kind == "dimension"
+    assert consume_field(field.value).reference.ref.key == field.id
+    entity = catalog.get("entity:sales.orders")
+    assert entity.kind == "entity"
+    assert entity.value.primary_key == ("order_id",)
+    assert not hasattr(catalog.get("domain:sales"), "value")
+    assert not hasattr(catalog.get("datasource:warehouse"), "value")
 
-    sales = catalog.domains.get("sales")
 
-    assert sales.metrics._refs == catalog.metrics._refs
-    assert sales.fields._refs == catalog.fields._refs
-    assert sales.metrics.get("sales.revenue") is catalog.metrics.get("sales.revenue")
-
-
-def test_every_collection_rejects_refs_and_kind_prefixed_strings(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
+@pytest.mark.parametrize(
+    "identity", ["revenue", "sales.revenue", "metric:", "unknown:sales.revenue"]
+)
+def test_get_requires_a_canonical_kind_and_complete_path(tmp_path: Path, identity: str) -> None:
+    write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
-    for member in CATALOG_MEMBER_CONTRACTS:
-        collection = getattr(catalog, member.property_name)
-        for key in (ms.ref.entity("sales.orders"), "entity:sales.orders"):
-            with pytest.raises(SemanticRuntimeError) as captured:
-                collection.get(key)  # type: ignore[arg-type]  # Deliberately exercise rejected inputs.
-            assert captured.value.kind == ErrorKind.INVALID_REF
-            assert captured.value.repair is not None
-            assert set(captured.value.repair.candidates) <= {ref.path for ref in collection._refs}
+    with pytest.raises(SemanticRuntimeError):
+        catalog.get(identity)
+
+
+def test_get_preserves_requested_kind_and_relevant_repair(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    with pytest.raises(SemanticRuntimeError) as wrong:
+        catalog.get("measure:sales.orders.status")
+    assert wrong.value.kind == ErrorKind.NOT_FOUND
+    assert wrong.value.details["reason"] == "wrong_kind"
+    assert wrong.value.repair is not None
+    assert wrong.value.repair.candidates == ("dimension:sales.orders.status",)
+    with pytest.raises(SemanticRuntimeError) as typo:
+        catalog.get("metric:sales.reveneu")
+    assert typo.value.repair is not None
+    assert typo.value.repair.candidates[0] == "metric:sales.revenue"

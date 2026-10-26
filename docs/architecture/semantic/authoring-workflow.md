@@ -5,7 +5,7 @@
 An agent loads current project state, establishes the physical facts needed for
 the task, authors the smallest dependency-coherent semantic slice, and uses one
 `ms.load()` as the project-level static validation event. Exact authored roots
-are then selected with the corresponding `collection.get(path)`. Scoped readiness
+are then selected with canonical `catalog.get("kind:path")`. Scoped readiness
 is required when
 the delivery needs analysis-ready roots; analysis handoff additionally requires
 current authority for their business meaning. Explanation and datasource tasks
@@ -52,7 +52,7 @@ load current datasource and semantic catalogs
 -> choose inspection, optional bounded sampling, and/or governed raw SQL
 -> author one dependency-coherent semantic slice
 -> one ms.load()
--> collection.get(path) for every authored root
+-> catalog.get("kind:path") for every authored root
 -> scoped readiness when analysis-ready delivery is required
 -> targeted runtime/source-health probes for concrete remaining risks
 -> selected authoring exit or first typed analysis use
@@ -140,8 +140,12 @@ After a successful load, select each authored root through its owning collection
 ```python
 catalog = ms.load(workspace_dir=project_root)
 
-orders = catalog.entities.get("sales.orders")
-revenue = catalog.metrics.get("sales.revenue")
+orders_entry = catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+orders = orders_entry.value
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry.value
 ```
 
 Repair all structural failures for the slice and reload. Do not insert a
@@ -151,7 +155,7 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
 the exact requested physical inputs and their governed dependency closures.
-Inspect published Measure/Metric definitions through `catalog.describe()` and select
+Inspect published Measure/Metric definitions through `catalog.get("kind:path").definition` and select
 the physical fields and Entities they consume for readiness. Object Help states
 this input scope; a rejected expression supplies physical dependency candidates
 from the compiled closure and a direct retry when the complete list fits the

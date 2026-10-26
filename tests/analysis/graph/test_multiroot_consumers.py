@@ -22,7 +22,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -304,9 +304,11 @@ def test_independent_roots_and_temporal_fold(
             {name.removeprefix("semantic/"): content for name, content in files.items()}
         )
         session = mv.session.get_or_create("r93-multiroot", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
-        metrics = session.catalog.metrics
-        left_total, right_total = metrics.get("sales.left_total"), metrics.get("sales.right_total")
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        left_total, right_total = (
+            session.catalog.get("metric:sales.left_total").value,
+            session.catalog.get("metric:sales.right_total").value,
+        )
         expression = left_total / right_total if ratio else left_total + right_total
         if mode == "linear_fanout":
             before = set(root.rglob("*.parquet"))
@@ -323,7 +325,11 @@ def test_independent_roots_and_temporal_fold(
             assert not source_trace.native_sql
             return
         values = session.observe(
-            {"value": expression if runtime_mode else metrics.get("sales.left_folded")},
+            {
+                "value": expression
+                if runtime_mode
+                else session.catalog.get("metric:sales.left_folded").value
+            },
             by=members
             if runtime_mode
             else mv.product(
@@ -370,8 +376,8 @@ def test_independent_roots_and_temporal_fold(
             assert actual.loc["a"] == expected[mode]
         if spatial_fold:
             assert pd.isna(actual.loc["b"])
-            clock = session.catalog.fields.get("sales.left.time")
-            amount = session.catalog.fields.get("sales.left.amount")
+            clock = catalog_value(session.catalog, "sales.left.time", kind="field")
+            amount = catalog_value(session.catalog, "sales.left.amount", kind="field")
             samples = session.observe(
                 {"value": left_total, "count": amount.count(time=clock)},
                 by=mv.product(

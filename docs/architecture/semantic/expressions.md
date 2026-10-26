@@ -73,8 +73,9 @@ qualified identity. Local named expressions can be composed without a loader or
 Session. Session-bound Population dependencies cannot be published as reusable
 model closures; independently resolvable literal domains can be collected.
 
-Published expressions are read through catalog.fields/catalog.metrics and
-catalog.describe(ref).show(). Deferred itself has no Marivo show, contract or
+Published expressions are selected with canonical `catalog.get("kind:path")`;
+`entry.show()` and `entry.definition` explain captured meaning, and `entry.value`
+delivers native closed expressions after kind narrowing. Deferred itself has no Marivo show, contract or
 public manual schema-resolution step. Do not call the decorated value as a
 function after capture.
 

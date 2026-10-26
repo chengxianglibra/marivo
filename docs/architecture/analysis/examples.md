@@ -24,10 +24,18 @@ import marivo.semantic as ms
 
 session = mv.session.get_or_create("architecture-examples", timezone="UTC")
 catalog = session.catalog
-orders = catalog.entities.get("sales.orders")
-region = catalog.fields.get("sales.orders.region")
-amount = catalog.fields.get("sales.orders.amount")
-revenue = catalog.metrics.get("sales.revenue")
+orders_entry = catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+orders = orders_entry.value
+region_entry = catalog.get("dimension:sales.orders.region")
+assert region_entry.kind == "dimension"
+region = region_entry.value
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry.value
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry.value
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 

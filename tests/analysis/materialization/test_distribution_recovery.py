@@ -22,7 +22,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, datasource, source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -117,10 +117,12 @@ def test_native_distributions_independent_fixed_and_cold(
         session = mv.session.get_or_create("r94-distribution", timezone="UTC")
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("approx_distinct", "distinct", "identity", "quantile", "approx_quantile"):
-            field = session.catalog.fields.get(
-                "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
+            field = catalog_value(
+                session.catalog,
+                "sales.facts.identity" if kind == "identity" else "sales.facts.amount",
+                kind="field",
             )
-            time = session.catalog.fields.get("sales.facts.time")
+            time = catalog_value(session.catalog, "sales.facts.time", kind="field")
             metric = (
                 field.count_distinct(time=time)
                 if kind in ("distinct", "identity")
@@ -134,7 +136,7 @@ def test_native_distributions_independent_fixed_and_cold(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-08-01", end="2026-08-02"),
-                    session.members(session.catalog.entities.get("sales.subjects")),
+                    session.members(session.catalog.get("entity:sales.subjects").value),
                 ),
             )
             if kind == "approx_quantile":

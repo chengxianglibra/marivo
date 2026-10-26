@@ -135,7 +135,7 @@ def provider() -> DisclosureProvider:
     parameter_facts = {
         "target": "Pass a resolved Entity or a nonempty connected directed relationship path; its endpoint determines the Entity.",
         "keys": "Give one value per ordered axis; each identity value is a complete nonnull primary-key tuple. Duplicate complete tuples collapse; field None remains a category.",
-        "entity": "Pass a resolved Entity from session.catalog.entities or a finalized scope; bare EntityRef inputs are rejected.",
+        "entity": "Pass a resolved Entity from session.catalog.get('entity:<path>').value or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
         "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
         "factors": "Pass at least two Populations, CalendarAxis or TimeScope values with disjoint axes and compatible owners.",

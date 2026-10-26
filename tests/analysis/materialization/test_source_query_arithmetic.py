@@ -18,7 +18,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
@@ -42,8 +42,8 @@ def test_valid_nonfinite_source_values_keep_validity_through_projection_and_cold
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("typed-validity", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")),
-            {"amount": session.catalog.fields.get("sales.facts.amount")},
+            session.members(session.catalog.get("entity:sales.facts").value),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         fixed = source.compute()
         projected = fixed.select({"copy": fixed["amount"], "missing": fixed["amount"].is_null()})
@@ -146,10 +146,10 @@ def test_query_arithmetic_keeps_selected_completed_values(
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("source-query-arithmetic", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        big = session.catalog.fields.get("sales.facts.big")
-        weight = session.catalog.fields.get("sales.facts.weight")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         if operation == "formula":
             source = session.observe(
                 {
@@ -164,7 +164,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
             expected_rows = 1
         else:
             source = session.read(
-                session.members(session.catalog.entities.get("sales.facts")),
+                session.members(session.catalog.get("entity:sales.facts").value),
                 {"amount": amount, "big": big, "weight": weight},
             )
             if operation == "na_zero":
@@ -216,9 +216,9 @@ def test_local_query_overflow_survives_projection(
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("source-query-checks", timezone="UTC")
-        big = session.catalog.fields.get("sales.facts.big")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")), {"big": big}
+            session.members(session.catalog.get("entity:sales.facts").value), {"big": big}
         )
         source = source.select({"value": source["big"] + 1})
         query = source.top(0, by=source["value"]) if projection == "top" else source.select({})
@@ -247,8 +247,8 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("unary-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")),
-            {"amount": session.catalog.fields.get("sales.facts.amount")},
+            session.members(session.catalog.get("entity:sales.facts").value),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         score = -source["amount"]
         query = source.where(score > 100) if operation == "filter" else source.top(2, by=score)
@@ -309,8 +309,8 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("finite-select", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")),
-            {"amount": session.catalog.fields.get("sales.facts.amount")},
+            session.members(session.catalog.get("entity:sales.facts").value),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         query = source.select({"value": -source["amount"] if negated else source["amount"]})
         if top_zero:

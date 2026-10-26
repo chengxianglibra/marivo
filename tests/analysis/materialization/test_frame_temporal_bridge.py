@@ -42,7 +42,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.expressions import Entity
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -125,13 +125,16 @@ def _population(
     session: Session, frame: AnalysisFrame, *, joint: bool = False, identity: bool = False
 ) -> Population:
     target = (
-        session.catalog.entities.get("sales.facts")
+        session.catalog.get("entity:sales.facts").value
         if identity
-        else session.catalog.fields.get("sales.facts.t")
+        else catalog_value(session.catalog, "sales.facts.t", kind="field")
     )
     on: tuple[tuple[FrameAxis, Entity | Deferred], ...] = ((frame.axes[0], target),)
     if joint:
-        on = (*on, (frame.axes[1], session.catalog.fields.get("sales.facts.channel")))
+        on = (
+            *on,
+            (frame.axes[1], catalog_value(session.catalog, "sales.facts.channel", kind="field")),
+        )
     return session.population_from(frame, on=on)
 
 
@@ -163,7 +166,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
     stored = memory.persist()
     reopened = session.persisted_frame(stored.artifact.id)
     # Catalog resolution is metadata only; the dependent fixed-key plan remains source free.
-    session.catalog.fields.get("sales.facts.t")
+    catalog_value(session.catalog, "sales.facts.t", kind="field")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed temporal key projection attempted a source read")
@@ -219,7 +222,8 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
     frame = _frame(session, dtype, physical, [minimum, 0, None])
     selected = _population(session, frame)
     finite = mv.coordinates(
-        by=(session.catalog.fields.get("sales.facts.t"),), keys=((literal,), (None,))
+        by=(catalog_value(session.catalog, "sales.facts.t", kind="field"),),
+        keys=((literal,), (None,)),
     )
     rows = pd.DataFrame({"t": _series([minimum, 0, None], physical)})
     for operation, expected in (
@@ -293,28 +297,7 @@ def test_cold_frame_key_bridge_keeps_minimum_separate_from_null(session: Session
     saved = _frame(
         session, TimestampDataType("ns", "UTC"), pa.timestamp("ns", "UTC"), [-(2**63), 0, None]
     ).persist()
-    script = """
-import os, sys
-from unittest.mock import patch
-import pyarrow as pa
-import marivo.analysis as mv
-from tests.shared_fixtures import terminal_runs
-from marivo.analysis.materialization import frame_source_preparation
-from marivo.datasource.adapters import SourceSession
-os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
-def forbidden(*args, **kwargs):
-    raise AssertionError('cold FrameKeys projection attempted source access')
-with patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):
-    session = mv.session.resume(sys.argv[2])
-    saved = session.persisted_frame(sys.argv[3])
-    before = terminal_runs(session)
-    target = session.catalog.fields.get('sales.facts.t')
-    population = session.population_from(saved, on=((saved.axes[0], target),))
-    result = session.frame(population).compute()
-    assert pa.array(result.to_pandas().iloc[:, 0]).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]
-    assert terminal_runs(session) == before
-print('cold-frame-keys-temporal-exact')
-"""
+    script = "\nfrom tests.shared_fixtures import catalog_value\n\nimport os, sys\nfrom unittest.mock import patch\nimport pyarrow as pa\nimport marivo.analysis as mv\nfrom tests.shared_fixtures import terminal_runs\nfrom marivo.analysis.materialization import frame_source_preparation\nfrom marivo.datasource.adapters import SourceSession\nos.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]\ndef forbidden(*args, **kwargs):\n    raise AssertionError('cold FrameKeys projection attempted source access')\nwith patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):\n    session = mv.session.resume(sys.argv[2])\n    saved = session.persisted_frame(sys.argv[3])\n    before = terminal_runs(session)\n    target = catalog_value(session.catalog, 'sales.facts.t', kind='field')\n    population = session.population_from(saved, on=((saved.axes[0], target),))\n    result = session.frame(population).compute()\n    assert pa.array(result.to_pandas().iloc[:, 0]).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]\n    assert terminal_runs(session) == before\nprint('cold-frame-keys-temporal-exact')\n"
     result = subprocess.run(
         [
             sys.executable,
@@ -352,7 +335,7 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
     population = _population(session, selected, joint=True)
     computed = session.observe(
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
         where=mv.in_population(population),
     ).compute()
     assert len(transported) == 1

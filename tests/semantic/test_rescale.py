@@ -13,6 +13,7 @@ from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 ProjectFactory = Callable[..., SemanticProject]
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="traffic", owner="Analytics")\n'
@@ -50,8 +51,8 @@ def test_rescale_row_and_metric_units_compose_without_mutating_sources(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("traffic.flows.total_in_flow_value")
-    duration = catalog.fields.get("traffic.flows.duration")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
+    duration = catalog_value(catalog, "traffic.flows.duration", kind="field")
     source = consume_row(amount)
     scaled = ms.rescale(amount, divisor=Decimal("1024"), unit="s.GiB/s.s")
     facts = consume_row(scaled)
@@ -75,7 +76,7 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     for name in ("blocked", "fixed"):
-        value = catalog.fields.get(f"traffic.flows.{name}")
+        value = catalog_value(catalog, f"traffic.flows.{name}", kind="field")
         scaled = ms.rescale(value, divisor=2, unit="GiB")
         assert consume_row(scaled).permission == consume_row(value).permission
         assert consume_row(scaled).default_time == consume_row(value).default_time
@@ -86,8 +87,8 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
                 consume_metric(scaled.sum())
             assert rescaled.value.kind == original.value.kind
             assert rescaled.value.expected and rescaled.value.received and rescaled.value.repair
-    local = catalog.fields.get("traffic.flows.total_in_flow_value")
-    foreign = catalog.fields.get("traffic.other.bytes")
+    local = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
+    foreign = catalog_value(catalog, "traffic.other.bytes", kind="field")
     with pytest.raises(SemanticExpressionError) as cross_root:
         consume_row(ms.rescale(local + foreign, divisor=1, unit="GiB"))
     assert cross_root.value.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION.value
@@ -133,15 +134,15 @@ def test_rescale_rejects_unknown_units_and_nonnumeric_or_unfinished_inputs(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    unknown = catalog.fields.get("traffic.flows.unknown")
+    unknown = catalog_value(catalog, "traffic.flows.unknown", kind="field")
     with pytest.raises(SemanticExpressionError) as failure:
         consume_row(ms.rescale(unknown, divisor=1, unit="GiB"))
     assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert failure.value.received == "unknown input unit"
     assert failure.value.expected and failure.value.repair
-    amount = catalog.fields.get("traffic.flows.total_in_flow_value")
-    category = catalog.fields.get("traffic.flows.category")
-    day = catalog.fields.get("traffic.flows.day")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
+    category = catalog_value(catalog, "traffic.flows.category", kind="field")
+    day = catalog_value(catalog, "traffic.flows.day", kind="field")
     for value in (category, day, amount > 1, amount.sum() > 1, amount.sum().per(category)):
         with pytest.raises(SemanticExpressionError) as invalid:
             consume_row(ms.rescale(value, divisor=1, unit="GiB"))
@@ -170,10 +171,10 @@ def nested():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog.fields.get("traffic.flows.total_in_flow_value")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
     original = ms.rescale(amount.sum(), divisor=1024, unit="GiB/s")
     assert (
-        inspect_deferred(catalog.metrics.get("traffic.bandwidth")).fingerprint
+        inspect_deferred(catalog.get("metric:traffic.bandwidth").value).fingerprint
         == inspect_deferred(original).fingerprint
     )
     variants = (
@@ -184,13 +185,13 @@ def nested():
     )
     assert len({inspect_deferred(value).fingerprint for value in variants}) == 4
     assert len({computation_fingerprint(consume_metric(value).node) for value in variants}) == 4
-    contract = catalog.describe(ms.ref.metric("traffic.bandwidth"))
-    assert ("rescale", "input_unit='By', divisor=1024, unit='GiB/s'") in contract.facts
+    contract = catalog.get("metric:traffic.bandwidth")
+    assert ("rescale", "input_unit='By', divisor=1024, unit='GiB/s'") in contract.definition.facts
     contract.show()
     shown = capsys.readouterr().out
     assert "rescale" in shown and "divisor=1024" in shown and "GiB/s" in shown
-    nested = catalog.describe(ms.ref.metric("traffic.nested"))
-    assert nested.facts == (
+    nested = catalog.get("metric:traffic.nested")
+    assert nested.definition.facts == (
         ("rescale", "input_unit='GiB', divisor=2, unit='GiB/s'"),
         ("rescale", "input_unit='By', divisor=1024, unit='GiB'"),
     )

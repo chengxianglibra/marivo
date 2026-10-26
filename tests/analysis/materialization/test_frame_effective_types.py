@@ -18,7 +18,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -56,8 +56,8 @@ def session(
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:
     return session.read(
-        session.members(session.catalog.entities.get("sales.facts")),
-        {name: session.catalog.fields.get("sales.facts." + name)},
+        session.members(session.catalog.get("entity:sales.facts").value),
+        {name: catalog_value(session.catalog, "sales.facts." + name, kind="field")},
     )
 
 
@@ -252,10 +252,10 @@ def test_native_all_null_and_empty_source_carriers(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _native_float(monkeypatch)
-    big = session.catalog.fields.get("sales.facts.big")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
     for condition, count in ((big.isnull(), 2), (big < 0, 0)):
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts"), where=condition),
+            session.members(session.catalog.get("entity:sales.facts").value, where=condition),
             {"big": big},
         )
         fixed = source.compute()
@@ -280,7 +280,7 @@ def test_native_invalid_integer_keys_and_strict_nulls_publish_nothing(
             source.top(1, by=source["big"]).compute()
         assert calls == [1] and failure.value.stage == "stage_output"
     assert terminal_runs(session) == ()
-    big = session.catalog.fields.get("sales.facts.big")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
     source = session.observe({"strict": big.sum(nulls="error")})
     with pytest.raises(MaterializationError, match="non-NA"):
         source.top(0, by=source["strict"]).compute()
@@ -304,7 +304,7 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         ).fetchone()
     assert oracle is not None and math.isinf(oracle[0]) and math.isnan(oracle[1])
     assert oracle[2] is None
-    big = session.catalog.fields.get("sales.facts.big")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
     total = big.sum()
     fixed = session.observe(
         {"infinite": total, "not_a_number": total - total, "missing": total / 0}

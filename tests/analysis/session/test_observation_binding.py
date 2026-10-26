@@ -26,7 +26,7 @@ from marivo.semantic._deferred_semantics import consume_field, consume_metric, c
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.expressions import Entity, relationship_parameter
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 class ProjectFactory(Protocol):
@@ -162,8 +162,8 @@ def test_execute_checks_every_repeated_field_anchor(
     bound_catalog: BoundCatalogFactory, anchored_first: bool
 ) -> None:
     session = bound_catalog(versioned=True)
-    entity = session.catalog.entities.get("sales.customers")
-    region = session.catalog.fields.get("sales.customers.region")
+    entity = session.catalog.get("entity:sales.customers").value
+    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
     assert isinstance(entity, Entity) and isinstance(region, Deferred)
     direct = region == "APAC"
     anchored = region.at(session.instant("2026-01-01")) == "APAC"
@@ -181,11 +181,11 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
 ) -> None:
     session = bound_catalog()
     catalog = session.catalog
-    region = catalog.fields.get("sales.customers.region")
-    revenue = catalog.metrics.get("sales.revenue")
-    refunds = catalog.metrics.get("sales.refund_total")
+    region = catalog_value(catalog, "sales.customers.region", kind="field")
+    revenue = catalog.get("metric:sales.revenue").value
+    refunds = catalog.get("metric:sales.refund_total").value
     # Two occurrences of the same fact root with different intrinsic conditions.
-    amount = catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     branches = amount.sum().where(amount > 10) + amount.sum().where(amount < 5)
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     query = session.observe(
@@ -229,8 +229,8 @@ def test_each_root_must_have_an_unambiguous_directed_path(
     bound_catalog: BoundCatalogFactory, problem: str
 ) -> None:
     session = bound_catalog(missing=problem == "missing", alternate=problem == "alternate")
-    region = session.catalog.fields.get("sales.customers.region")
-    net = session.catalog.metrics.get("sales.net")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
+    net = session.catalog.get("metric:sales.net").value
     with pytest.raises(AnalysisError) as caught:
         session.observe({"net": net}, where=region == "APAC")
     assert caught.value.expected and caught.value.received and caught.value.repair
@@ -244,18 +244,18 @@ def test_explicit_field_routes_and_during_none_are_frozen(
 ) -> None:
     session = bound_catalog(alternate=True)
     catalog = session.catalog
-    region = catalog.fields.get("sales.customers.region")
-    buyer = catalog.relationships.get("sales.buyer")
+    region = catalog_value(catalog, "sales.customers.region", kind="field")
+    buyer = catalog.get("relationship:sales.buyer").value
     routed = region.via((buyer,))
     with pytest.raises(SemanticError):
         consume_metric(routed.count())
     with pytest.raises(SemanticError):
         ms.additive(over=(routed,))
     query = session.observe(
-        {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "APAC"
+        {"revenue": catalog.get("metric:sales.revenue").value}, by=(routed,), where=routed == "APAC"
     )
     explicit_none = session.observe(
-        {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "APAC"
+        {"revenue": catalog.get("metric:sales.revenue").value}, by=(routed,), where=routed == "APAC"
     )
     binding = _captured_observation(query)
     assert binding is not None and binding.period is None
@@ -263,7 +263,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(
     assert _captured_graph(query).fingerprint == _captured_graph(explicit_none).fingerprint
     assert binding.contributions[0].reads[-1].path == (relationship_parameter(buyer).ref,)
     changed = session.observe(
-        {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "EMEA"
+        {"revenue": catalog.get("metric:sales.revenue").value}, by=(routed,), where=routed == "EMEA"
     )
     assert _captured_graph(query).fingerprint != _captured_graph(changed).fingerprint
     for bad in ((), [buyer], buyer):
@@ -277,8 +277,8 @@ def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
     session = bound_catalog()
-    revenue = session.catalog.metrics.get("sales.revenue")
-    field = session.catalog.fields.get("sales.orders.ordered_at")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    field = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     mean = revenue.per((field,)).mean() * 0
     assert _captured_observation(session.observe({"zero": mean})).period is None
     nested = revenue.per((field,)).median() * 0
@@ -299,15 +299,15 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
 ) -> None:
     session = bound_catalog()
     catalog = session.catalog
-    customers = catalog.entities.get("sales.customers")
+    customers = catalog.get("entity:sales.customers").value
     query = session.observe({"count": customers.count()})
     assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     with pytest.raises(CoreRuleError, match="business time role"):
         session.observe({"count": customers.count()}, by=(scope,))
-    time = catalog.fields.get("sales.customers.created_at")
-    buyer = catalog.relationships.get("sales.buyer")
-    amount = catalog.fields.get("sales.orders.amount")
+    time = catalog_value(catalog, "sales.customers.created_at", kind="field")
+    buyer = catalog.get("relationship:sales.buyer").value
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, by=(scope,))
     contribution = _captured_observation(query).contributions[0]
     assert contribution.time is not None
@@ -324,7 +324,7 @@ def test_same_path_definition_versions_are_not_an_admission_gate(
     from marivo._definition.types import ExactRef
 
     session = bound_catalog()
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     current = consume_field(amount)
     previous = replace(
         current,
@@ -384,12 +384,12 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(
 ) -> None:
     session = bound_catalog(versioned=True)
     catalog = session.catalog
-    region = catalog.fields.get("sales.customers.region")
-    revenue = catalog.metrics.get("sales.revenue")
+    region = catalog_value(catalog, "sales.customers.region", kind="field")
+    revenue = catalog.get("metric:sales.revenue").value
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     with pytest.raises(CoreRuleError, match="attribute anchor"):
         session.observe({"revenue": revenue}, by=(region,))
-    field = region.via((catalog.relationships.get("sales.buyer"),)).at(scope.end)
+    field = region.via((catalog.get("relationship:sales.buyer").value,)).at(scope.end)
     query = session.observe({"revenue": revenue}, by=(field,), where=field == "APAC")
     binding = _captured_observation(query)
     assert binding is not None
@@ -408,12 +408,14 @@ def test_to_many_scalar_path_is_rejected_without_source_reads(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
     session = bound_catalog(fanout=True)
-    region = session.catalog.fields.get("sales.customers.region")
-    buyer = session.catalog.relationships.get("sales.buyer")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
+    buyer = session.catalog.get("relationship:sales.buyer").value
     with pytest.raises(SemanticError, match="single-valued"):
         consume_field(region.via((buyer,)))
     with pytest.raises(AnalysisError):
-        session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}, by=(region,))
+        session.observe(
+            {"revenue": session.catalog.get("metric:sales.revenue").value}, by=(region,)
+        )
     assert terminal_runs(session) == ()
 
 
@@ -421,7 +423,7 @@ def test_sampled_time_requirement_survives_nested_declarations_and_zero(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
     session = bound_catalog(sampled=True)
-    net = session.catalog.metrics.get("sales.net")
+    net = session.catalog.get("metric:sales.net").value
     with pytest.raises(CoreRuleError, match="sampled time"):
         session.observe({"zero": net * 0})
     assert terminal_runs(session) == ()
@@ -507,16 +509,16 @@ def filtered():
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
     session = mv.session.get_or_create("inline-via", timezone="UTC")
     catalog = session.catalog
-    metric = catalog.metrics.get("sales.filtered")
+    metric = catalog.get("metric:sales.filtered").value
     query = session.observe({"filtered": metric})
     contribution = _captured_observation(query).contributions[0]
     assert len(contribution.intrinsic_conditions) == 1
     assert contribution.reads[-1].path == (
-        relationship_parameter(catalog.relationships.get("sales.buyer")).ref,
+        relationship_parameter(catalog.get("relationship:sales.buyer").value).ref,
     )
     assert contribution.reads[-1].field.ref.path == f"sales.customers.{field_name}"
-    routed = catalog.fields.get(f"sales.customers.{field_name}").via(
-        (catalog.relationships.get("sales.buyer"),)
+    routed = catalog_value(catalog, f"sales.customers.{field_name}", kind="field").via(
+        (catalog.get("relationship:sales.buyer").value,)
     )
     with pytest.raises(SemanticError, match="native field"):
         consume_metric(routed.count())
@@ -531,8 +533,8 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     from marivo.datasource.adapters import SourceSession
 
     session = bound_catalog()
-    entity = session.catalog.entities.get("sales.orders")
-    amount = session.catalog.fields.get("sales.orders.amount")
+    entity = session.catalog.get("entity:sales.orders").value
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     p = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),), ((999,),)))
     q = mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))
 

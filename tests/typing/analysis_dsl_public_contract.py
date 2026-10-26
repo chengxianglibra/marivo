@@ -52,7 +52,9 @@ if TYPE_CHECKING:
     def population_contract(
         entity: Entity, region: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        members = session.members(session.catalog.entities.get("sales.customer"))
+        customer = session.catalog.get("entity:sales.customer")
+        assert customer.kind == "entity"
+        members = session.members(customer.value)
         assert_type(members, mv.Population)
         assert_type(members.axes, tuple[mv.Grouping, ...])
         assert_type(
@@ -81,7 +83,9 @@ if TYPE_CHECKING:
         assert_type(mv.product(scope, complete), mv.Population)
         assert_type(mv.product(complete, scope.by(mv.grain("day"))), mv.Population)
         assert_type(mv.product(complete, region), mv.Population | Deferred)
-        revenue = session.catalog.metrics.get("sales.revenue")
+        revenue_entry = session.catalog.get("metric:sales.revenue")
+        assert revenue_entry.kind == "metric"
+        revenue = revenue_entry.value
         assert_type(revenue, Deferred)
         assert_type(
             session.observe({"value": revenue}, by=(descriptor,)),
@@ -163,16 +167,16 @@ if TYPE_CHECKING:
     def explicit_identity(
         metric: Deferred, field: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        people = session.members(session.catalog.entities.get("sales.customer"))
-        assert_type(
-            mv.identity(session.catalog.entities.get("sales.customer")), mv.Grouping | Deferred
-        )
+        customer = session.catalog.get("entity:sales.customer")
+        assert customer.kind == "entity"
+        people = session.members(customer.value)
+        assert_type(mv.identity(customer.value), mv.Grouping | Deferred)
         assert_type(people.classify(by=(people.axes[0], field)), mv.Population | Deferred)
         assert_type(people.project(by=(people.axes[0],)), mv.Population | Deferred)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(
             session.members(
-                session.catalog.entities.get("sales.customer"),
+                customer.value,
                 where=mv.in_population(people),
             ),
             mv.Population,

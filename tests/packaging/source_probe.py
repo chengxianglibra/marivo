@@ -27,7 +27,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.packaging.graph_journeys import _frame
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.source_trace import capture_source
 
@@ -207,8 +207,10 @@ ORIGINAL_VALUES = {
 
 
 def observed_rows(session: mv.Session, name: str) -> mv.AnalysisFrame:
-    members = session.members(session.catalog.entities.get("sales.customers"))
-    return session.observe({"value": session.catalog.metrics.get("sales." + name)}, by=members)
+    members = session.members(session.catalog.get("entity:sales.customers").value)
+    return session.observe(
+        {"value": catalog_value(session.catalog, "sales." + name, kind="metric")}, by=members
+    )
 
 
 def _integer(value: object) -> int:
@@ -399,7 +401,7 @@ def produce(project: Path) -> dict[str, object]:
         completed = {name: observed_rows(session, name).compute() for name in MEMBER_VALUES}
         for name in ORIGINAL_VALUES:
             completed["original_" + name] = session.observe(
-                {"value": session.catalog.metrics.get("sales." + name)}
+                {"value": catalog_value(session.catalog, "sales." + name, kind="metric")}
             ).compute()
         exports = {name: result.to_pandas() for name, result in completed.items()}
         receipts = _numeric_receipts(completed, exports)

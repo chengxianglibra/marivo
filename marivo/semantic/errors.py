@@ -28,6 +28,7 @@ from marivo.semantic.ir import SourceLocation, TargetDimensionContract
 
 __all__ = [
     "HINTS",
+    "CatalogSearchError",
     "ErrorKind",
     "SemanticContractScopeError",
     "SemanticDecoratorError",
@@ -157,6 +158,8 @@ class ErrorKind(StrEnum):
     INVALID_STATUS_TIME_DIMENSION = "invalid_status_time_dimension"
 
     # runtime
+    CATALOG_SEARCH_FAILED = "catalog_search_failed"
+    CATALOG_SEARCH_STALE_CURSOR = "catalog_search_stale_cursor"
     NOT_FOUND = "not_found"
     ENTITY_NOT_FOUND = "entity_not_found"
     DIMENSION_NOT_FOUND = "dimension_not_found"
@@ -376,7 +379,7 @@ class SemanticExpressionError(SemanticError):
                 message=f"{operation} references a Metric that is not published.",
                 expected="a Metric published by a loaded model",
                 received=str(error),
-                action="Publish the Metric at module level in a loaded model, or take it from catalog.metrics.",
+                action="Publish the Metric at module level in a loaded model, or take catalog.get('metric:<path>').value after checking kind.",
                 details=details,
                 location_label=path,
             )
@@ -397,6 +400,43 @@ class SemanticLoadError(SemanticError):
 
 class SemanticRuntimeError(SemanticError):
     """Error raised during runtime operations (materialize, compile)."""
+
+
+class CatalogSearchError(SemanticRuntimeError):
+    """A typed retrieval failure with a concrete stage and repair action."""
+
+    stage: str
+    configuration: str
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        message: str,
+        expected: str,
+        received: str,
+        action: str,
+        configuration: str = "",
+    ) -> None:
+        self.stage = stage
+        self.configuration = configuration
+        super().__init__(
+            kind=(
+                ErrorKind.CATALOG_SEARCH_STALE_CURSOR
+                if stage == "cursor"
+                else ErrorKind.CATALOG_SEARCH_FAILED
+            ),
+            message=message,
+            expected=expected,
+            received=received,
+            hint=action,
+            details={"stage": stage, "configuration": configuration},
+            repair=repair(
+                kind="configure" if stage == "configuration" else "retry",
+                canonical_id="semantic_catalog.search",
+                action=action,
+            ),
+        )
 
 
 class SemanticHelpTargetError(SemanticError):

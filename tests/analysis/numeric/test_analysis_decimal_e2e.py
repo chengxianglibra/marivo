@@ -64,14 +64,14 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
 def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:
     return session.observe(
         {
-            "gmv": session.catalog.metrics.get("sales.gmv"),
-            "fee": session.catalog.metrics.get("sales.fee"),
+            "gmv": session.catalog.get("metric:sales.gmv").value,
+            "fee": session.catalog.get("metric:sales.fee").value,
         },
         by=(session.time_scope(start="2026-07-01", end="2026-07-02"),)
         if overall
         else mv.product(
             session.time_scope(start="2026-07-01", end="2026-07-02"),
-            session.members(session.catalog.entities.get("sales.orders")),
+            session.members(session.catalog.get("entity:sales.orders").value),
         ),
     )
 
@@ -88,9 +88,9 @@ def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) 
 
 def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Session) -> None:
     session = decimal_session
-    gmv = session.catalog.metrics.get("sales.gmv")
-    fee = session.catalog.metrics.get("sales.fee")
-    normalized_fee = session.catalog.metrics.get("sales.normalized_fee")
+    gmv = session.catalog.get("metric:sales.gmv").value
+    fee = session.catalog.get("metric:sales.fee").value
+    normalized_fee = session.catalog.get("metric:sales.normalized_fee").value
     for numerator in (fee, normalized_fee):
         observed = session.observe(
             {"rate": numerator / gmv},

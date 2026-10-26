@@ -19,8 +19,8 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.expressions import entity_exact
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
-from tests.support.refs import as_ref
 
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
@@ -95,7 +95,7 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
     assert type(amount) is Deferred
@@ -105,7 +105,7 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     assert amount.root == entity_exact(orders)
     assert amount.unit == "USD"
     assert amount.permission == SumAll()
-    assert "\n" not in repr(catalog.describe(ms.ref.measure("sales.orders.amount")))
+    assert "\n" not in repr(catalog.get("measure:sales.orders.amount"))
 
 
 def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
@@ -113,36 +113,45 @@ def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert [as_ref(ref).key for ref in catalog.fields.refs] == [
+    assert [
+        entry.id
+        for entry in catalog.search().items
+        if entry.kind in {"dimension", "measure", "time_dimension"}
+    ] == [
         "dimension:sales.orders.region",
         "measure:sales.orders.amount",
         "measure:sales.orders.margin",
         "time_dimension:sales.orders.order_date",
     ]
-    assert type(catalog.fields.get("sales.orders.region")) is Deferred
-    assert type(catalog.fields.get("sales.orders.amount")) is Deferred
-    assert type(catalog.fields.get("sales.orders.order_date")) is Deferred
-    assert type(catalog.fields.get("sales.orders.margin")) is Deferred
+    assert type(catalog_value(catalog, "sales.orders.region", kind="field")) is Deferred
+    assert type(catalog_value(catalog, "sales.orders.amount", kind="field")) is Deferred
+    assert type(catalog_value(catalog, "sales.orders.order_date", kind="field")) is Deferred
+    assert type(catalog_value(catalog, "sales.orders.margin", kind="field")) is Deferred
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.fields.get("sales.revenue")
+        catalog.get("measure:sales.orders.missing")
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
-    assert "catalog.fields" in str(exc_info.value)
+    assert "catalog.search" in str(exc_info.value)
 
 
 def test_domain_and_catalog_collections_agree_on_metric_membership(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    domain = catalog.domains.get("sales")
+    domain = catalog.get("domain:sales")
 
-    assert [as_ref(ref).key for ref in catalog.metrics.refs] == ["metric:sales.revenue"]
-    assert [as_ref(ref).key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
-    scoped = domain.fields.get("sales.orders.amount")
-    global_amount = catalog.fields.get("sales.orders.amount")
+    assert [entry.id for entry in catalog.search(kind="metric").items] == ["metric:sales.revenue"]
+    assert [entry.id for entry in domain.related("members").items if entry.kind == "metric"] == [
+        "metric:sales.revenue"
+    ]
+    scoped = catalog_value(domain, "sales.orders.amount", kind="field")
+    global_amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     assert type(scoped) is Deferred and type(global_amount) is Deferred
     assert consume_field(scoped) == consume_field(global_amount)
-    assert catalog.metrics.get("revenue") is catalog.metrics.get("sales.revenue")
+    assert (
+        catalog_value(catalog, "revenue", kind="metric")
+        is catalog.get("metric:sales.revenue").value
+    )
 
 
 def test_metric_value_carries_roots_unit_and_business_context(
@@ -150,17 +159,20 @@ def test_metric_value_carries_roots_unit_and_business_context(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
-    revenue = catalog.metrics.get("sales.revenue")
-    contract = catalog.describe(ms.ref.metric("sales.revenue"))
+    revenue = catalog.get("metric:sales.revenue").value
+    contract = catalog.get("metric:sales.revenue")
 
     assert type(revenue) is Deferred
     revenue = consume_metric(revenue)
     assert isinstance(revenue.node, DeclaredMetricRef)
     assert revenue.roots == (entity_exact(orders),)
     assert revenue.unit == "USD"
-    assert contract.stage == "published_metric"
-    assert contract.business_definition == "Historical SQL: select sum(amount) from orders"
-    assert tuple(as_ref(ref) for ref in contract.roots) == (entity_exact(orders).ref,)
+    assert contract.kind == "metric"
+    assert (
+        contract.definition.context.business_definition
+        == "Historical SQL: select sum(amount) from orders"
+    )
+    assert contract.definition.roots == (entity_exact(orders).ref.key,)
 
 
 def test_measure_preview_uses_measure_expression_without_context_columns(
@@ -189,7 +201,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     )
 
     preview = catalog.preview(
-        catalog.fields.get("sales.orders.amount"),
+        catalog_value(catalog, "sales.orders.amount", kind="field"),
         scope=snapshot.scope,
         limit=3,
     )
@@ -200,7 +212,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
-            catalog.fields.get("sales.orders.amount"),
+            catalog_value(catalog, "sales.orders.amount", kind="field"),
             scope=snapshot.scope,
             context_columns=("region",),
         )
@@ -234,9 +246,15 @@ def test_published_metric_and_declared_measure_have_no_physical_preview(
         columns=("order_id", "amount", "region", "order_date"),
     )
 
-    preview = catalog.preview(catalog.metrics.get("sales.revenue"), scope=snapshot.scope, limit=1)
+    preview = catalog.preview(
+        catalog.get("metric:sales.revenue").value, scope=snapshot.scope, limit=1
+    )
     assert preview.kind == "semantic_metric"
     assert preview.returned_row_count == 1
     with pytest.raises(SemanticRuntimeError, match="requires physical inputs") as exc_info:
-        catalog.preview(catalog.fields.get("sales.orders.margin"), scope=snapshot.scope, limit=1)
+        catalog.preview(
+            catalog_value(catalog, "sales.orders.margin", kind="field"),
+            scope=snapshot.scope,
+            limit=1,
+        )
     assert exc_info.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE

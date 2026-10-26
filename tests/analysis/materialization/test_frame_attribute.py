@@ -18,7 +18,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -83,8 +83,8 @@ def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
 def test_explicit_investigation_outer_presence_and_original_nullable_values(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe({"q": amount}, by=(channel,), where=channel != "B")
     baseline = session.observe({"q": amount}, by=(channel,), where=channel != "C")
     pending = _compare(current, baseline)
@@ -113,8 +113,8 @@ def test_attribute_has_only_receiver_and_keyword_classifications(session: Sessio
     import inspect
 
     assert tuple(inspect.signature(AnalysisFrame.attribute).parameters) == ("self", "by")
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     original = {"q": amount}
     source = session.observe(original)
     original["later"] = amount
@@ -135,10 +135,10 @@ def test_ordinary_parent_selection_keeps_fixed_keys_and_fresh_source_values(
         connection.execute(
             "INSERT INTO facts(id,region,channel,amount,denominator,day) VALUES (1,'east','A',100,1,'2026-07-01'),(2,'east','B',100,1,'2026-07-01'),(3,'west','A',10,1,'2026-07-01'),(4,'east','A',140,1,'2026-08-01'),(5,'east','B',80,1,'2026-08-01'),(6,'west','A',15,1,'2026-08-01')"
         )
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    identifier = session.catalog.fields.get("sales.facts.id")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     current = session.observe({"q": amount}, by=(region,), where=identifier >= 4)
     baseline = session.observe({"q": amount}, by=(region,), where=identifier < 4)
     compared = _compare(current, baseline).compute()
@@ -166,9 +166,9 @@ def test_ordinary_parent_selection_keeps_fixed_keys_and_fresh_source_values(
 
 
 def test_joint_product_and_correlated_population_keep_complete_keys(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     regions = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     channels = mv.coordinates(by=(channel,), keys=(("A",), ("B",)))
     domains = (
@@ -202,10 +202,10 @@ def test_unsupported_max_can_still_be_investigated_against_native_sql(
         oracle = connection.execute(
             "SELECT channel,MAX(denominator) FILTER(WHERE id<=3)-MAX(denominator) FILTER(WHERE id>3),SUM(amount) FILTER(WHERE id<=3)-SUM(amount) FILTER(WHERE id>3) FROM facts GROUP BY channel ORDER BY channel"
         ).fetchall()
-    amount = session.catalog.fields.get("sales.facts.amount")
-    denominator = session.catalog.fields.get("sales.facts.denominator")
-    identifier = session.catalog.fields.get("sales.facts.id")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="field")
+    identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metrics = {"peak": denominator.max(), "net": amount.sum()}
     parent = session.observe(metrics, where=identifier <= 3).compute()
     with pytest.raises(AnalysisError):
@@ -234,9 +234,9 @@ def test_unsupported_max_can_still_be_investigated_against_native_sql(
 def test_explicit_fine_question_keeps_original_ratio_without_parent_formula(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    denominator = session.catalog.fields.get("sales.facts.denominator")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum() / denominator.sum()
     fine = session.observe({"q": metric}, by=(channel,), where=(channel == "A") | (channel == "C"))
     rows = _compare(fine, fine).compute().to_pandas()
@@ -245,9 +245,9 @@ def test_explicit_fine_question_keeps_original_ratio_without_parent_formula(
 
 
 def test_complete_population_null_keys_and_empty_parent(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parents = mv.coordinates(by=(region,), keys=((None,), ("missing",)))
     rows = (
         session.observe({"q": amount}, by=(region, channel), where=mv.in_population(parents))
@@ -269,9 +269,9 @@ def test_complete_population_null_keys_and_empty_parent(session: Session) -> Non
 def test_fixed_and_pending_selection_keep_original_execution_boundary(
     session: Session, tmp_path: Path
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     selection = session.observe({"q": amount}, by=(region,), where=channel != "N")
     selection = selection.top(1, by=selection["q"])
     fixed = selection.compute()
@@ -283,9 +283,9 @@ def test_fixed_and_pending_selection_keep_original_execution_boundary(
 
 
 def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day)
     fine = session.observe({"q": metric}, by=(calendar, channel))
@@ -351,9 +351,9 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
 def test_compound_identity_parent_and_member_candidate_policy(
     session: Session, tmp_path: Path
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    channel = session.catalog.fields.get("sales.facts.channel")
-    entity = session.catalog.entities.get("sales.facts")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    entity = session.catalog.get("entity:sales.facts").value
     with duckdb.connect(str(tmp_path / "attribute.duckdb")) as connection:
         connection.execute(
             "INSERT INTO facts(id,tenant,region,channel,amount,denominator,day) VALUES (1,'other','east','C',99,1,'2026-08-01')"
@@ -372,8 +372,8 @@ def test_compound_identity_parent_and_member_candidate_policy(
 def test_original_checks_survive_projection_top_zero_and_empty_investigation(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     invalid = session.observe({"q": amount.sum(nulls="error")}).attribute(by=(channel,))
     selected = invalid.select({"ignored": 1})
     with pytest.raises(AnalysisError, match="non-NA source values"):
@@ -384,24 +384,25 @@ def test_original_checks_survive_projection_top_zero_and_empty_investigation(
 
 
 def test_overlapping_membership_rejects_parent_attribution(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    label = session.catalog.fields.get("sales.tags.label")
-    kind = session.catalog.fields.get("sales.tags.kind")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     route = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     buckets = mv.membership((label, kind), via=(route,), unmatched="exclude")
     parent = session.observe(
-        {"q": amount.sum()}, where=session.catalog.fields.get("sales.facts.id") <= 2
+        {"q": amount.sum()},
+        where=catalog_value(session.catalog, "sales.facts.id", kind="field") <= 2,
     )
     with pytest.raises(AnalysisError):
         parent.attribute(by=(buckets,)).compute()
 
 
 def test_explicit_compare_validates_names_units_and_session_ownership(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    denominator = session.catalog.fields.get("sales.facts.denominator")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="field")
     current = session.observe({"q": amount.sum()})
     for baseline in (
         session.observe({"other": amount.sum()}),
@@ -416,10 +417,10 @@ def test_explicit_compare_validates_names_units_and_session_ownership(session: S
 
 
 def test_public_parent_key_bridge_checks_physical_types_before_top_zero(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    denominator = session.catalog.fields.get("sales.facts.denominator")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parent = session.frame(mv.coordinates(by=(denominator,), keys=((1,),))).compute()
     keys = session.population_from(parent, on=((parent.axes[0], region),))
     invalid = session.observe({"q": amount}, by=(region, channel), where=mv.in_population(keys))
@@ -429,9 +430,9 @@ def test_public_parent_key_bridge_checks_physical_types_before_top_zero(session:
 
 @pytest.mark.release
 def test_window_parent_calendar_keeps_original_history_scope(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
     unknown_parent = session.observe({"q": metric}, by=(calendar,)).compute()
@@ -443,9 +444,9 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
 
 
 def test_completed_calendar_top_retains_full_original_directory(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     parent = session.observe({"q": amount.sum(time=day)}, by=(calendar,))
     parent = parent.top(1, by=parent["q"]).compute()
@@ -459,9 +460,9 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
 def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_investigation(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = amount.sum(time=day)
     august = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     july = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
@@ -485,9 +486,9 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
 def test_reduced_report_uses_explicit_source_bridge_without_slot_collisions(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     source = session.observe({"q": amount}, where=channel != "N")
     first = source.attribute(by=(region, channel)).compute()
     reduced = first.reduce({"delta": first["contribution.q"].sum()}, by=(first.axes[1],)).compute()
@@ -504,8 +505,8 @@ def test_reduced_report_uses_explicit_source_bridge_without_slot_collisions(
 def test_population_count_classified_identity_domain_is_explicit_source_authority(
     session: Session,
 ) -> None:
-    entity = session.catalog.entities.get("sales.facts")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    entity = session.catalog.get("entity:sales.facts").value
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     members = mv.coordinates(
         by=(mv.identity(entity),), keys=((("t", 1),), (("t", 2),), (("t", 3),))
     ).classify(by=(mv.identity(entity), channel))
@@ -524,8 +525,8 @@ def test_population_count_classified_identity_domain_is_explicit_source_authorit
 def test_member_count_effective_root_rejects_unrelated_identity_targets(
     session: Session,
 ) -> None:
-    tags = session.catalog.entities.get("sales.tags")
-    links = session.catalog.entities.get("sales.links")
+    tags = session.catalog.get("entity:sales.tags").value
+    links = session.catalog.get("entity:sales.links").value
     first = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     second = mv.coordinates(by=(mv.identity(links),), keys=(((1,),), ((2,),), ((3,),)))
     for scaled in (False, True):
@@ -557,9 +558,9 @@ def test_member_count_effective_root_rejects_unrelated_identity_targets(
 def test_selected_parent_scopes_member_count_before_fine_candidates(
     session: Session, complete_fine: bool
 ) -> None:
-    entity = session.catalog.entities.get("sales.facts")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    region = session.catalog.fields.get("sales.facts.region")
+    entity = session.catalog.get("entity:sales.facts").value
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     members = mv.coordinates(
         by=(mv.identity(entity),), keys=((("t", 1),), (("t", 2),), (("t", 3),))
     ).classify(by=(mv.identity(entity), region, channel))
@@ -579,13 +580,13 @@ def test_selected_parent_scopes_member_count_before_fine_candidates(
 def test_correlated_overlapping_parent_membership_is_preserved_for_investigation(
     session: Session,
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    label = session.catalog.fields.get("sales.tags.label")
-    kind = session.catalog.fields.get("sales.tags.kind")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     route = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
@@ -614,10 +615,10 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
         connection.execute(
             "INSERT INTO facts(id,region,channel,amount,denominator,day) VALUES (1,'east','A',100,1,'2026-08-01'),(2,'east','B',100,1,'2026-08-01'),(3,'east','A',160.25,1,'2026-08-02'),(4,'east','B',80.25,1,'2026-08-02'),(5,'east',NULL,NULL,1,'2026-08-02'),(6,'west','outside',1,1,'2026-08-02')"
         )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    identifier = session.catalog.fields.get("sales.facts.id")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     metric = (amount.sum() + amount.sum()) * Decimal("0.5")
     parent_query = session.observe({"q": metric}, by=(region,))
     parents = parent_query.top(1, by=parent_query["q"]).compute()
@@ -653,8 +654,8 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
 
 
 def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     parent = session.observe({"q": amount.sum()}, where=channel != "N")
     fixed = parent.attribute(by=(channel,)).compute()
     on = tuple(zip(fixed.axes, fixed.axes, strict=True))
@@ -670,9 +671,9 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
 
 
 def test_member_count_compound_identity_and_nonleading_calendar_order(session: Session) -> None:
-    entity = session.catalog.entities.get("sales.facts")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    entity = session.catalog.get("entity:sales.facts").value
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     members = mv.coordinates(
         by=(mv.identity(entity),), keys=((("t", 1),), (("t", 2),), (("t", 3),))
     ).classify(by=(mv.identity(entity), region, channel))
@@ -706,13 +707,13 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
 def test_fix_keeps_allocated_parent_membership_for_attribute(
     session: Session, fix_remaining: bool
 ) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    label = session.catalog.fields.get("sales.tags.label")
-    kind = session.catalog.fields.get("sales.tags.kind")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     route = (
-        session.catalog.relationships.get("sales.fact_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.fact_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
     frame = session.observe({"q": amount}, by=(membership, kind))
@@ -725,10 +726,10 @@ def test_fix_keeps_allocated_parent_membership_for_attribute(
 
 
 def test_fix_keeps_time_identity_for_attribute(session: Session) -> None:
-    amount = session.catalog.fields.get("sales.facts.amount")
-    day = session.catalog.fields.get("sales.facts.day")
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     frame = session.observe({"q": amount.sum(time=day)}, by=(region, calendar))
     fixed = frame.fix(frame.axes[0], "east")

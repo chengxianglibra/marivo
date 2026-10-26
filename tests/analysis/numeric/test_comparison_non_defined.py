@@ -13,7 +13,13 @@ import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models, terminal_runs
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    catalog_value,
+    export_dsl_parquet_models,
+    terminal_runs,
+)
 
 
 def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
@@ -47,14 +53,14 @@ def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
 
 def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.AnalysisFrame:
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    time = session.catalog.fields.get("sales.order.ordered_at")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     during = session.time_scope(start=start, end=end)
     return session.observe(
         {"value": amount.sum(time=time)},
         by=mv.product(
             during.by(mv.grain("day")) if daily else during,
-            session.members(session.catalog.entities.get("sales.customer")),
+            session.members(session.catalog.get("entity:sales.customer").value),
         ),
     )
 
@@ -141,8 +147,8 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
 ) -> None:
     case = _case(analysis_dsl_case_factory, double=True)
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    time = session.catalog.fields.get("sales.order.ordered_at")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     q = session.observe(
         {
             "revenue": amount.sum(time=time),
@@ -150,7 +156,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         },
         by=mv.product(
             session.time_scope(start="2026-09-01", end="2026-10-01"),
-            session.members(session.catalog.entities.get("sales.customer")),
+            session.members(session.catalog.get("entity:sales.customer").value),
         ),
     )
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})

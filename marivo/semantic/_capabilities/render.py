@@ -237,7 +237,7 @@ def _render_object_contract(descriptor: SemanticObjectContract) -> str:
     lines = [
         descriptor.canonical_id,
         f"  Meaning: {descriptor.summary}",
-        f"  lookup symbol: ms.ref.{descriptor.semantic_kind.value}(path); catalog.{descriptor.catalog_collection}; {descriptor.placement_kind}",
+        f"  lookup symbol: ms.ref.{descriptor.semantic_kind.value}(path); catalog.search(kind={descriptor.semantic_kind.value!r}); {descriptor.placement_kind}",
         f"  Forward/cross-file refs: {_help_invocation(descriptor.ref_target)}",
         "",
         "  Construction modes:",
@@ -388,7 +388,9 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
             (
                 "  Postcondition after saving:",
                 "    catalog = ms.load()",
-                (f"    entry = catalog.{source_contract.catalog_collection}.get({identity!r})"),
+                (
+                    f"    entry = catalog.get({(next(contract.semantic_kind.value for contract in REGISTRY.object_contracts if descriptor.output_family in contract.construction_families) + chr(58) + identity)!r})"
+                ),
                 "    entry.show()",
             )
         )
@@ -443,27 +445,19 @@ def _render_type(type_name: str, original: object | None) -> str:
     if type_name == "ref":
         lines.append(
             "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
-            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; collection.get(path) returns closed values."
+            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; catalog.get(kind:path).value returns closed executable values after kind narrowing."
         )
     if type_name == "SourceCheckNamespace":
         lines.append(
             "  Data boundary: pass these values only to catalog.source_health(..., "
             "checks=[...], scope=<explicit bounded scope>); no expectation is inferred."
         )
-    if type_name == "CatalogEntry":
-        lines.append(
-            "  Runtime handoff: pass the current entry directly to catalog.preview, "
-            "catalog.readiness, or qualifying analysis APIs; use "
-            "entry.ref only when a stable configured or persisted identity is needed."
-        )
-        lines.append("  Inspection: entry.show() and entry.details() own current definition facts.")
-    if type_name == "CatalogCollection":
+    if type_name.endswith("Entry"):
         lines.extend(
             (
-                "  Lookup: pass a plain local name or full semantic path string.",
-                "  Copyable key example: catalog.metrics.get('sales.revenue').",
-                "  Handoff: inspect the selected entry with entry.show(), then "
-                "pass the entry or entry.ref to its consuming capability.",
+                "  Inspection: entry.definition is complete; entry.show() is bounded and entry.to_dict() is machine readable.",
+                "  Execution: check entry.kind and use entry.value for executable variants; Domain/Datasource have no value.",
+                "  Navigation: entry.related(relation) uses this Catalog's full loaded scope, independently from the discovery query filters.",
             )
         )
     if "details" in contract.public_methods:

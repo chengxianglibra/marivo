@@ -27,10 +27,13 @@ from marivo.refs import (
 )
 from marivo.semantic import bind
 from marivo.semantic.catalog import (
-    CatalogCollection,
     DomainEntry,
+    EntityEntry,
+    MeasureEntry,
+    MetricEntry,
     SemanticCatalog,
 )
+from marivo.semantic.catalog_entries import CatalogPage
 from marivo.semantic.expressions import Entity
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
@@ -77,29 +80,27 @@ def _metric_is_not_a_row_field_contract(table: Table) -> None:
     bind(ref_factory.metric("sales.revenue"), table)  # type: ignore[arg-type]
 
 
-def _catalog_collection_contract(catalog: SemanticCatalog) -> None:
-    assert_type(catalog.domains, CatalogCollection[DomainEntry])
-    assert_type(catalog.domains.get("sales"), DomainEntry)
-    assert_type(catalog.entities.get("sales.orders"), Entity)
-    assert_type(catalog.fields.get("sales.orders.region"), Deferred)
-    assert_type(catalog.metrics.get("sales.revenue"), Deferred)
+def _catalog_entry_contract(catalog: SemanticCatalog) -> None:
+    assert_type(catalog.search(kind="domain"), CatalogPage[DomainEntry])
+    entity = catalog.get("entity:sales.orders")
+    if isinstance(entity, EntityEntry):
+        assert_type(entity.value, Entity)
+    metric = catalog.get("metric:sales.revenue")
+    if isinstance(metric, MetricEntry):
+        assert_type(metric.value, Deferred)
 
 
 def _native_selector_roundtrip(catalog: SemanticCatalog, ordinary: Deferred) -> None:
-    catalog.describe(ms.ref.entity("sales.orders"))
-    catalog.describe(catalog.entities.get("sales.orders").ref)
-    catalog.describe(catalog.domains.get("sales").ref)
-    for selector in catalog.fields.refs:
-        assert_type(selector, LookupSymbol)
-        catalog.describe(selector)
-    description = catalog.describe(ms.ref.measure("sales.orders.amount"))
-    assert_type(description.ref, LookupSymbol | None)
-    if description.ref is not None:
-        catalog.describe(description.ref)
-    for selector in description.reads:
-        catalog.describe(selector)
+    for entry in catalog.search().items:
+        assert_type(entry.ref, LookupSymbol)
+        catalog.get(entry.id)
+    amount = catalog.get("measure:sales.orders.amount")
+    if isinstance(amount, MeasureEntry):
+        assert_type(amount.value, Deferred)
+        for identity in amount.definition.dependencies:
+            catalog.get(identity)
     report = catalog.readiness(refs=[ms.ref.entity("sales.orders")])
     for selector in report.analysis_ready_inputs:
-        catalog.describe(selector)
-    catalog.describe(ordinary)  # type: ignore[arg-type]  # A closed or composite expression is not a native lookup leaf.
-    catalog.describe(ms.ref.measure("sales.orders.amount") + 1)  # type: ignore[arg-type]
+        assert_type(selector, LookupSymbol)
+    catalog.get(ordinary)  # type: ignore[arg-type]  # Exact lookup requires a canonical identity string.
+    catalog.get(ms.ref.measure("sales.orders.amount") + 1)  # type: ignore[arg-type]

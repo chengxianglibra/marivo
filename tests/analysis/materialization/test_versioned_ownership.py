@@ -17,7 +17,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import catalog_value, run_ids
 from tests.support.json import Json, checked, encode
 
 
@@ -89,12 +89,14 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
         logical = []
         for owner in sessions:
             at = owner.instant(point)
-            members = owner.members(owner.catalog.entities.get("sales.subjects"), at=at)
+            members = owner.members(owner.catalog.get("entity:sales.subjects").value, at=at)
             logical.append(
                 owner.read(
                     members,
                     {
-                        name: owner.catalog.fields.get("sales.subjects." + name).at(at)
+                        name: catalog_value(
+                            owner.catalog, "sales.subjects." + name, kind="field"
+                        ).at(at)
                         for _, name in families
                     },
                 )

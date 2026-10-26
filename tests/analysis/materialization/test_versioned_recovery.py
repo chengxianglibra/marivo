@@ -18,7 +18,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -105,7 +105,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
-            entity = session.catalog.entities.get("sales.subjects_" + kind)
+            entity = catalog_value(session.catalog, "sales.subjects_" + kind, kind="entity")
             before = terminal_runs(session)
             with monkeypatch.context() as construction:
                 construction.setattr(SourceSession, "execute", forbidden)
@@ -113,7 +113,11 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 unanchored = session.members(entity)
                 missing = session.read(
                     unanchored,
-                    {"value": session.catalog.fields.get("sales.subjects_" + kind + ".amount")},
+                    {
+                        "value": catalog_value(
+                            session.catalog, "sales.subjects_" + kind + ".amount", kind="field"
+                        )
+                    },
                 )
                 current = session.members(entity, at=august)
                 boundary = session.time_scope(start="2026-08-01", end="2026-09-01")
@@ -152,8 +156,8 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 label: session.read(
                     current,
                     {
-                        "value": session.catalog.fields.get(
-                            "sales.subjects_" + kind + "." + field
+                        "value": catalog_value(
+                            session.catalog, "sales.subjects_" + kind + "." + field, kind="field"
                         ).at(august)
                     },
                 )
@@ -187,8 +191,8 @@ def test_native_versioned_members_independent_fixed_and_cold(
                     product = session.read(
                         current,
                         {
-                            "value": session.catalog.fields.get(
-                                "sales.subjects_snapshot.amount"
+                            "value": catalog_value(
+                                session.catalog, "sales.subjects_snapshot.amount", kind="field"
                             ).at(point)
                         },
                     ).persist()

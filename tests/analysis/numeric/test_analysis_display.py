@@ -16,6 +16,7 @@ from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
     analysis_dsl_rows,
+    catalog_value,
     export_dsl_parquet_models,
     terminal_runs,
 )
@@ -36,11 +37,11 @@ def _values(
 ) -> mv.AnalysisFrame:
     session = case.session
     members = (
-        session.members(session.catalog.entities.get("sales.customer"))
+        session.members(session.catalog.get("entity:sales.customer").value)
         if members is None
         else members
     )
-    field = session.catalog.fields.get("sales.customer.region")
+    field = catalog_value(session.catalog, "sales.customer.region", kind="field")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     domain = (
         (scope,)
@@ -52,7 +53,7 @@ def _values(
         else mv.product(scope, members)
     )
     return session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)},
+        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=domain,
         where=mv.in_population(members) if region or grouped or overall else None,
     )
@@ -102,13 +103,15 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel = ?', ["retained" * 200])
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.order"))
-    logical = session.read(members, {"value": session.catalog.fields.get("sales.order.amount")})
+    members = session.members(session.catalog.get("entity:sales.order").value)
+    logical = session.read(
+        members, {"value": catalog_value(session.catalog, "sales.order.amount", kind="field")}
+    )
     values = logical.persist()
     ratio = logical.select({"value": logical["value"] / logical["value"]}).persist()
     table = logical.select({"amount": logical["value"]}).persist()
     category = session.read(
-        members, {"value": session.catalog.fields.get("sales.order.channel")}
+        members, {"value": catalog_value(session.catalog, "sales.order.channel", kind="field")}
     ).persist()
     assert plain(ratio)["value"].isna().sum() == 4
     assert plain(category)["value"].tolist() == ["retained" * 200] * 11
@@ -151,10 +154,10 @@ def test_business_display_identifies_current_and_baseline_windows(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     current_scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-08-01")
-    metric = session.catalog.metrics.get("sales.revenue")
+    metric = session.catalog.get("metric:sales.revenue").value
     current = session.observe({"value": metric}, by=mv.product(current_scope, members))
     baseline = session.observe({"value": metric}, by=mv.product(baseline_scope, members))
     for query, start, end in (
@@ -494,9 +497,9 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     ms.load(workspace_dir=case.root)
     session = case.session
     query = session.read(
-        session.members(session.catalog.entities.get("sales.display")),
+        session.members(session.catalog.get("entity:sales.display").value),
         {
-            name: session.catalog.fields.get("sales.display." + name)
+            name: catalog_value(session.catalog, "sales.display." + name, kind="field")
             for name in ("moment", "day", "region", "amount", "enabled")
         },
     )
@@ -565,7 +568,12 @@ def test_empty_original_domain_and_numeric_view_continuations(
             chosen_values = chosen.compute()
             selected_members = case.session.population_from(
                 chosen_values,
-                on=((chosen_values.axes[1], case.session.catalog.entities.get("sales.customer")),),
+                on=(
+                    (
+                        chosen_values.axes[1],
+                        case.session.catalog.get("entity:sales.customer").value,
+                    ),
+                ),
             )
             assert _values(case, overall=True, members=selected_members).compute().to_pandas()[
                 "value"
@@ -584,16 +592,16 @@ def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory
 def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    region = session.catalog.fields.get("sales.customer.region")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     groups = _values(case, grouped=True)
     group_values = plain(groups.compute())
     ranking = _rank(group_values, ties="dense")
     assert ranking["rank"].tolist() == [1, 2, 2]
     assert group_values["value"].tolist() == [2, 1, 1]
     period = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
-    members = session.members(session.catalog.entities.get("sales.customer"))
+    members = session.members(session.catalog.get("entity:sales.customer").value)
     values = session.observe(
-        {"value": session.catalog.metrics.get("sales.order_count")},
+        {"value": session.catalog.get("metric:sales.order_count").value},
         by=(period, members.axes[0], region),
         where=mv.in_population(members),
     )

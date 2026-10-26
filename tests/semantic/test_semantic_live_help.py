@@ -245,8 +245,8 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
     catalog = ms.load()
-    entry = catalog.domains.get("sales")
-    revenue = catalog.metrics.get("sales.revenue")
+    entry = catalog.get("domain:sales")
+    revenue = catalog.get("metric:sales.revenue").value
 
     def fail(*args: object, **kwargs: object) -> object:
         raise AssertionError("reference help must not load or query")
@@ -257,7 +257,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     with pytest.raises(SemanticHelpTargetError):
         resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
     # Definition facts remain available through the explicit Catalog operation.
-    value = catalog.describe(ms.ref.metric("sales.revenue"))
+    value = catalog.get("metric:sales.revenue")
     assert value is not None
     assert marivo.help(type(value)) is None
 
@@ -424,8 +424,8 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
         if row.callable_path == "marivo.semantic.expressions._ExpressionDisplay.show"
     ]
     assert owners == ["entity.show"]
-    marivo.help("semantic.semantic_catalog.describe")
-    assert "catalog.describe(" in capsys.readouterr().out
+    marivo.help("semantic.semantic_catalog.get")
+    assert "catalog.get" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -435,7 +435,7 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
             "semantic.metric",
             (
                 "Readiness checks physical dependencies, not Metrics",
-                "catalog.describe(ref).show()",
+                "catalog.get('kind:path').show()",
                 "AnalysisFrame.compute()/persist()",
             ),
         ),
@@ -474,12 +474,11 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
             ),
         ),
         (
-            "semantic.semantic_catalog.describe",
+            "semantic.semantic_catalog.get",
             (
-                "Describe one compiled Entity, field, Metric or Relationship without source reads",
-                "definition facts live here",
-                "captured analysis facts live on AnalysisFrame.show()",
-                "Pending Frame display does not evaluate or prepare schema",
+                "canonical kind:path identity",
+                "No model calls or datasource reads",
+                "entry.definition",
             ),
         ),
         (
@@ -511,13 +510,13 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
     from marivo.semantic.expressions import Entity, ExpressionContract, Relationship
 
     catalog = ms.load()
-    orders = catalog.entities.get("sales.orders")
-    contract = catalog.describe(ms.ref.metric("sales.revenue"))
+    orders = catalog.get("entity:sales.orders").value
+    contract = orders.contract()
     for target, receivers in (
         ("semantic.entity.show", (Entity.show, Relationship.show, orders.show)),
         ("semantic.entity.contract", (Entity.contract, Relationship.contract, orders.contract)),
         ("semantic.readiness", (ms.SemanticCatalog.readiness, catalog.readiness)),
-        ("semantic.semantic_catalog.describe", (ms.SemanticCatalog.describe, catalog.describe)),
+        ("semantic.semantic_catalog.get", (ms.SemanticCatalog.get, catalog.get)),
         ("semantic.expression_contract", (ExpressionContract, contract.show)),
     ):
         expected = render_help_text(target)[0]
@@ -528,7 +527,7 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
     for source, method_name in (
         ("semantic.entity.show", "show"),
         ("semantic.entity.contract", "show"),
-        ("semantic.semantic_catalog.describe", "show"),
+        ("semantic.semantic_catalog.get", "show"),
         ("semantic.metric.where", "where"),
         ("semantic.readiness", "compute"),
         ("semantic.readiness", "persist"),

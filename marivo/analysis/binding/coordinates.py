@@ -163,7 +163,7 @@ def native_read(target: ExactRef, registry: Registry, resolver: _Resolver) -> Fi
             reject(
                 "a declared field with the required kind",
                 target.ref.key,
-                "Resolve an existing field from catalog.fields. Available fields: "
+                "Resolve an existing field with catalog.search(kind='dimension'). Available fields: "
                 + ", ".join(sorted(registry.dimensions)[:6]),
                 "session.observe",
             )
@@ -174,7 +174,7 @@ def native_read(target: ExactRef, registry: Registry, resolver: _Resolver) -> Fi
             reject(
                 "a declared Measure",
                 target.ref.key,
-                "Resolve an existing Measure from catalog.fields. Available Measures: "
+                "Resolve an existing Measure with catalog.search(kind='dimension'). Available Measures: "
                 + ", ".join(sorted(registry.measures)[:6]),
                 "session.observe",
             )

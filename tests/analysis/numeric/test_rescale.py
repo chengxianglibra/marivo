@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.session.core import Session
+from tests.shared_fixtures import catalog_value
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -69,15 +70,17 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
 ) -> None:
     session = traffic_session
     catalog = session.catalog
-    daily = catalog.fields.get("traffic.flows.total_in_flow_value")
-    hourly = catalog.fields.get("traffic.flows.total_in_p95_flow_value")
-    group = catalog.fields.get("traffic.flows.category")
+    daily = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
+    hourly = catalog_value(catalog, "traffic.flows.total_in_p95_flow_value", kind="field")
+    group = catalog_value(catalog, "traffic.flows.category", kind="field")
     metrics = {
-        "daily": catalog.metrics.get("traffic.daily_bandwidth"),
-        "hourly": catalog.metrics.get("traffic.hourly_p95_bandwidth"),
+        "daily": catalog.get("metric:traffic.daily_bandwidth").value,
+        "hourly": catalog.get("metric:traffic.hourly_p95_bandwidth").value,
         "local_daily": ms.rescale(daily.sum(), divisor=86400 * 1024**3, unit="GiB/s"),
         "local_hourly": ms.rescale(hourly.sum(), divisor=3600 * 1024**3, unit="GiB/s"),
-        "row_daily": catalog.fields.get("traffic.flows.row_daily_bandwidth").sum(),
+        "row_daily": catalog_value(
+            catalog, "traffic.flows.row_daily_bandwidth", kind="field"
+        ).sum(),
         "combined_rows": (
             ms.rescale(daily, divisor=86400 * 1024**3, unit="GiB/s")
             + ms.rescale(hourly, divisor=3600 * 1024**3, unit="GiB/s")
@@ -96,7 +99,7 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
     assert {column.name: column.unit for column in saved._schema.values} == {
         name: "By" if name == "ordinary" else "GiB/s" for name in metrics
     }
-    assert catalog.describe(ms.ref.measure("traffic.flows.total_in_flow_value")).unit == "By"
+    assert catalog.get("measure:traffic.flows.total_in_flow_value").definition.unit == "By"
     reopened = session.persisted_frame(saved.artifact.id)
     assert reopened.to_pandas().equals(saved_data)
     assert reopened._schema.values == saved._schema.values
@@ -106,8 +109,8 @@ def test_rescale_decimal_division_and_divisor_one_keep_existing_numeric_null_rul
     traffic_session: Session,
 ) -> None:
     session = traffic_session
-    amount = session.catalog.fields.get("traffic.flows.amount")
-    group = session.catalog.fields.get("traffic.flows.category")
+    amount = catalog_value(session.catalog, "traffic.flows.amount", kind="field")
+    group = catalog_value(session.catalog, "traffic.flows.category", kind="field")
     frame = session.observe(
         {
             "row": ms.rescale(amount, divisor=Decimal("0.1"), unit="scaled_CNY").sum(),

@@ -11,6 +11,7 @@ import marivo.analysis as mv
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -62,9 +63,9 @@ def test_remote_terminal_string_relations(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")),
+            session.members(session.catalog.get("entity:sales.facts").value),
             {
-                "category": session.catalog.fields.get("sales.facts.category"),
+                "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
             },
         )
         query = (
@@ -110,8 +111,8 @@ def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-keys", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         producer = session.observe({"n": amount.count()}, by=(category,))
         selected = producer.top(1, by=producer["n"])
         fixed = selected.compute()
@@ -138,9 +139,9 @@ def test_remote_fixed_strings_keep_reader_bytes(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-char", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.entities.get("sales.facts")),
+            session.members(session.catalog.get("entity:sales.facts").value),
             {
-                "category": session.catalog.fields.get("sales.facts.category"),
+                "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
             },
         )
         for index, query in enumerate(
@@ -176,8 +177,8 @@ def test_mysql_native_collated_groups_keep_the_existing_source_membership(
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, _data()) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-native-group", timezone="UTC")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        category = session.catalog.fields.get("sales.facts.category")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         source = session.observe({"n": amount.count()}, by=(category,))
         selected = source.top(1, by=source["n"])
         fixed = selected.compute()

@@ -23,6 +23,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -125,9 +126,9 @@ def test_native_count_rollup_and_group_state(
             }
         )
         session = mv.session.get_or_create("native-count", timezone="UTC")
-        metric = session.catalog.metrics.get("counts.event_count")
-        category = session.catalog.fields.get("counts.events.category")
-        members = session.members(session.catalog.entities.get("counts.events"))
+        metric = session.catalog.get("metric:counts.event_count").value
+        category = catalog_value(session.catalog, "counts.events.category", kind="field")
+        members = session.members(session.catalog.get("entity:counts.events").value)
         window = session.time_scope(start="2026-09-01", end="2026-09-02")
         scalar = session.observe({"value": metric}, by=(window,))
         individual = session.observe({"value": metric}, by=mv.product(window, members))
@@ -202,7 +203,7 @@ def test_native_count_rollup_and_group_state(
         classifications = session.read(members, {"category": category})
         chosen = classifications.where(classifications["category"] == "absent")
         empty = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.entities.get("counts.events")),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:counts.events").value),)
         )
         for query in (
             session.observe({"value": metric}, by=(window,), where=mv.in_population(empty)),

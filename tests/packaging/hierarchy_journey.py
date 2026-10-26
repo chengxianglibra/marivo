@@ -16,7 +16,7 @@ from tests.packaging.graph_journeys import (
     _ordinary_keys,
     _remove_sources,
 )
-from tests.shared_fixtures import analysis_dsl_rows, run_ids
+from tests.shared_fixtures import analysis_dsl_rows, catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
@@ -79,12 +79,12 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "hierarchy.json"
     if phase == "produce":
         session = _create(root, "j1", "parquet")
-        members = session.members(session.catalog.entities.get("operations.device"))
-        category = session.catalog.fields.get("operations.device.zone")
-        amount = session.catalog.fields.get("operations.reading.energy")
-        time = session.catalog.fields.get("operations.reading.recorded_at")
-        device = session.catalog.fields.get("operations.reading.device_id")
-        sensor = session.catalog.fields.get("operations.reading.sensor")
+        members = session.members(session.catalog.get("entity:operations.device").value)
+        category = catalog_value(session.catalog, "operations.device.zone", kind="field")
+        amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
+        time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")
+        device = catalog_value(session.catalog, "operations.reading.device_id", kind="field")
+        sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="field")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         metric = amount.sum(time=time)
         base = session.observe({"value": metric}, by=mv.product(scope, members))

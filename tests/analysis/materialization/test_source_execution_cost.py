@@ -23,7 +23,7 @@ from tests.analysis.materialization.test_population_membership import _session
 from tests.analysis.materialization.test_source_original_recompute import (
     original_session as original_session,
 )
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.slow
@@ -131,12 +131,12 @@ def test_source_execution_cost(
     with duckdb.connect(str(database)) as db:
         db.execute("DELETE FROM orders")
         db.execute(f"INSERT INTO orders SELECT i,i%{groups},i%2,i%7,i%3+1 FROM range({facts}) t(i)")
-    amount = session.catalog.fields.get("sales.orders.amount")
-    bucket = session.catalog.fields.get("sales.orders.bucket")
-    channel = session.catalog.fields.get("sales.orders.channel")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     if scenario == "numeric_top":
         parent = session.read(
-            session.members(session.catalog.entities.get("sales.orders")),
+            session.members(session.catalog.get("entity:sales.orders").value),
             {"metric": amount},
         )
         eligible = parent.where(parent["metric"] >= 5)
@@ -188,15 +188,15 @@ def test_population_source_execution_cost(
         db.execute(f"INSERT INTO orders SELECT i,i%10,1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i,i,i%2+1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i+{facts},i,i%2+1 FROM range({facts}) t(i)")
-    orders = session.members(session.catalog.entities.get("sales.orders"))
+    orders = session.members(session.catalog.get("entity:sales.orders").value)
     path = (
-        session.catalog.relationships.get("sales.order_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.order_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     if scenario == "image_count":
         query = session.observe(
             {
-                "metric": session.catalog.fields.get("sales.tags.id")
+                "metric": catalog_value(session.catalog, "sales.tags.id", kind="field")
                 .count()
                 .where(mv.in_population(orders.image(via=path)))
             }
@@ -204,15 +204,15 @@ def test_population_source_execution_cost(
         expected = 2
     else:
         fields = session.read(
-            session.members(session.catalog.entities.get("sales.tags")),
-            {"label": session.catalog.fields.get("sales.tags.label")},
+            session.members(session.catalog.get("entity:sales.tags").value),
+            {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")},
         )
         fixed = fields.where(fields["label"] == "A").compute()
         targets = session.population_from(
-            fixed, on=((fixed.axes[0], session.catalog.entities.get("sales.tags")),)
+            fixed, on=((fixed.axes[0], session.catalog.get("entity:sales.tags").value),)
         )
         query = session.observe(
-            {"metric": session.catalog.metrics.get("sales.revenue")},
+            {"metric": session.catalog.get("metric:sales.revenue").value},
             where=mv.in_population(orders.preimage(targets, via=path)),
         )
         expected = facts // 2

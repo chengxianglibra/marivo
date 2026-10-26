@@ -16,6 +16,7 @@ from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -97,8 +98,8 @@ def test_sampling_uses_source_clock_across_report_zones(
     window_session: Session, tmp_path: Path
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    sampled = session.catalog.fields.get("sales.orders.sample_at")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    sampled = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(
@@ -127,8 +128,8 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
     window_session: Session, tmp_path: Path, month: int
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    sampled = session.catalog.fields.get("sales.orders.sample_two")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    sampled = catalog_value(session.catalog, "sales.orders.sample_two", kind="field")
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.executemany(
@@ -160,9 +161,9 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
     window_session: Session, tmp_path: Path
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     fields = [
-        session.catalog.fields.get(f"sales.orders.{name}")
+        catalog_value(session.catalog, f"sales.orders.{name}", kind="field")
         for name in ("sample_at", "encoded_at", "hour_at")
     ]
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
@@ -187,7 +188,7 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
             session.observe(
                 {"mean": amount.sum(time=field).per(field).median()}, by=(scope,)
             ).compute()
-    unsampled = session.catalog.fields.get("sales.orders.ordered_at")
+    unsampled = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     assert session.observe(
         {"mean": amount.sum(time=unsampled).per(unsampled).mean()}, by=(scope,)
     ).compute().to_pandas()["mean"].tolist() == [20.0]
@@ -198,12 +199,12 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     window_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-08")
     assert session.observe(
         {"revenue": amount.sum()}, by=(scope.by(mv.grain("day")),)
     ).compute().to_pandas()["revenue"].tolist() == [20]
-    at = session.catalog.fields.get("sales.orders.ordered_at")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     assert session.observe({"revenue": amount.sum()}, where=at.within(scope)).compute().to_pandas()[
         "revenue"
     ].tolist() == [20]
@@ -238,8 +239,8 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
     window_session: Session, tmp_path: Path
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    sample = session.catalog.fields.get("sales.orders.sample_at")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    sample = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
     metric = amount.sum(time=sample).per(sample).median()
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
@@ -353,8 +354,8 @@ def test_wall_membership_calendar_windows_and_population_agree(
             [(index + 1, clock, 2**index) for index, clock in enumerate(clocks)],
         )
         connection.execute("INSERT INTO orders (id, amount) VALUES (99, 999)")
-    amount = session.catalog.fields.get("sales.orders.amount")
-    at = session.catalog.fields.get("sales.orders.sample_at")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
     metric = amount.sum(time=at)
     scope = session.time_scope(start=start, end=end)
     calendar = scope.by(mv.grain("hour"))
@@ -374,7 +375,7 @@ def test_wall_membership_calendar_windows_and_population_agree(
     ]
     selected_scope = session.time_scope(start=clipped[0], end=clipped[1])
     members = session.members(
-        session.catalog.entities.get("sales.orders"), where=at.within(selected_scope)
+        session.catalog.get("entity:sales.orders").value, where=at.within(selected_scope)
     )
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == selected_ids
     total = sum(2 ** (index - 1) for index in selected_ids)
@@ -392,8 +393,8 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
 ) -> None:
     _weekly_facts(tmp_path)
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     calendar = (
         session.time_scope(start="2019-12-23", end="2020-01-06")
         .by(mv.grain("week"))
@@ -439,7 +440,7 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
     window_session: Session, windowed: bool
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     calendar = (
         session.time_scope(start="2020-12-28", end="2021-01-04")
         .by(mv.grain("week"))
@@ -448,7 +449,7 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
     metric = amount.count() / (amount.count() * 0)
     if windowed:
         metric = metric.window(mv.trailing_periods(count=2))
-    sampled = session.catalog.fields.get("sales.orders.sample_at")
+    sampled = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
     result = session.observe(
         {"aov": metric, "sampled": amount.sum(time=sampled).per(sampled).mean()}, by=(calendar,)
     ).compute()
@@ -470,9 +471,9 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
 ) -> None:
     _weekly_facts(tmp_path)
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    channel = session.catalog.fields.get("sales.orders.channel")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     calendar = (
         session.time_scope(start="2019-12-23", end="2020-01-06")
         .by(mv.grain("week"))
@@ -516,7 +517,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         ("2021-01-04", "south", "shop"),
     ]
     assert explicit["total"].to_dict() == {0: 10, 1: 30, 2: 50, 3: 0}
-    orders = session.catalog.entities.get("sales.orders")
+    orders = session.catalog.get("entity:sales.orders").value
     selected = mv.coordinates(by=(mv.identity(orders),), keys=(((2,),), ((5,),)))
     filtered = (
         session.observe(
@@ -529,7 +530,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     )
     assert filtered["total"].tolist() == [10, 20]
     assert filtered["history"].tolist() == [10, 20]
-    at = session.catalog.fields.get("sales.orders.ordered_at")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     hard = (
         session.observe(
             {"history": amount.sum().window(mv.trailing_periods(count=2))},
@@ -551,9 +552,9 @@ def test_window_recomputes_history_ratio_and_distinct(
         connection.execute(
             "INSERT INTO orders (id, customer, ordered_at, amount) VALUES (1,7,'2026-09-20 00:00:00+00',100), (2,7,'2026-10-07 00:00:00+00',10), (3,7,'2026-10-07 12:00:00+00',30), (4,7,'2026-10-08 00:00:00+00',60)"
         )
-    revenue = session.catalog.metrics.get("sales.revenue")
-    customer = session.catalog.fields.get("sales.orders.customer")
-    amount = session.catalog.fields.get("sales.orders.amount")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     values = (
         session.observe(
@@ -587,7 +588,7 @@ def test_window_recomputes_history_ratio_and_distinct(
 
 def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.metrics.get("sales.revenue")
+    revenue = session.catalog.get("metric:sales.revenue").value
     metric = revenue.window(mv.to_date(grain=mv.grain("month")))
     for start in ("2026-09-01", "2026-10-01"):
         result = (
@@ -609,7 +610,7 @@ def test_partial_month_windows_stop_at_actual_endpoint(
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1, '2026-10-01 00:00:00+00', 1), (2, '2026-10-14 11:00:00+00', 10), (3, '2026-10-14 12:00:00+00', 20), (4, '2026-10-15 11:00:00+00', 30), (5, '2026-10-15 12:00:00+00', 1000), (6, '2026-10-31 00:00:00+00', 10000)"
         )
-    revenue = session.catalog.metrics.get("sales.revenue")
+    revenue = session.catalog.get("metric:sales.revenue").value
     scope = session.time_scope(start="2026-10-01", end="2026-10-15T12:00Z")
     values = (
         session.observe(
@@ -663,7 +664,7 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 05:30:00+00',10), (2,'2026-11-01 06:30:00+00',30)"
         )
-    revenue = window_session.catalog.metrics.get("sales.revenue")
+    revenue = window_session.catalog.get("metric:sales.revenue").value
     hours = window_session.time_scope(
         start="2026-11-01T04:00Z", end="2026-11-01T07:00Z", timezone="America/New_York"
     ).by(mv.grain("hour"))
@@ -681,8 +682,8 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
 @pytest.mark.parametrize("calendar_first", [False, True])
 def test_calendar_population_axis_order(window_session: Session, calendar_first: bool) -> None:
     session = window_session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     domain = mv.product(calendar, customers) if calendar_first else mv.product(customers, calendar)
@@ -715,8 +716,8 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
 
 def test_per_calendar_population_retains_empty_samples(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     result = (
@@ -735,9 +736,9 @@ def test_per_calendar_population_retains_empty_samples(window_session: Session) 
 
 def test_source_population_calendar_product(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    customer = session.catalog.fields.get("sales.orders.customer")
-    customers = session.members(session.catalog.entities.get("sales.orders")).classify(
+    revenue = session.catalog.get("metric:sales.revenue").value
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    customers = session.members(session.catalog.get("entity:sales.orders").value).classify(
         by=(customer,)
     )
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
@@ -750,8 +751,8 @@ def test_source_population_calendar_product(window_session: Session) -> None:
 
 def test_population_calendar_supplies_explicit_window_endpoints(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    revenue = session.catalog.get("metric:sales.revenue").value
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,),))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     result = (
@@ -768,9 +769,9 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     window_session: Session,
 ) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    at = session.catalog.fields.get("sales.orders.ordered_at")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     domain = mv.product(scope, customers)
@@ -802,7 +803,7 @@ def test_explicit_count_repeats_time_and_rejects_ineffective_window(
     from marivo.analysis.errors import AnalysisError
 
     session = window_session
-    entity = session.catalog.entities.get("sales.orders")
+    entity = session.catalog.get("entity:sales.orders").value
     people = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),), ((999,),)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     rows = session.observe({"people": people.count()}, by=(calendar,)).compute().to_pandas()
@@ -813,8 +814,8 @@ def test_explicit_count_repeats_time_and_rejects_ineffective_window(
 
 def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Session) -> None:
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    customer = session.catalog.fields.get("sales.orders.customer")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     rows = (
@@ -838,8 +839,8 @@ def test_time_product_reuses_checked_domain_with_direct_count(
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = window_session
-    people = session.members(session.catalog.entities.get("sales.orders"))
-    amount = session.catalog.fields.get("sales.orders.amount")
+    people = session.members(session.catalog.get("entity:sales.orders").value)
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     frame = session.observe(
         {"value": amount.sum(), "people": people.count()},
@@ -887,9 +888,9 @@ def test_coverage_diagnostics_bound_groups_and_keep_exact_offgrid_clocks(
             ],
         )
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    point = session.catalog.fields.get("sales.orders.sample_at")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    point = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
     sample = amount.cast("float64").mean(time=point).per(point)
     trace = capture_source(monkeypatch)
@@ -935,9 +936,9 @@ def test_nested_sample_layers_keep_coverage_and_conditional_demand(
             "INSERT INTO orders(id,ordered_at,amount,region) VALUES (1,'2026-01-15 00:00:00+00',10,'A'),(2,'2026-01-15 02:00:00+00',30,'A')"
         )
     session = window_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    point = session.catalog.fields.get("sales.orders.sample_at")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    point = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
     strict = amount.sum(time=point).per(point).quantile(0.95)
     nested = strict.per(region).mean()

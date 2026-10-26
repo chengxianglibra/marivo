@@ -15,6 +15,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.mark.parametrize(
@@ -112,16 +113,18 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
             by=(), columns={"v": "s"}, rows=(((), {"v": timedelta(microseconds=19)}),)
         )
     elif endpoint == "metric":
-        identifier = session.catalog.fields.get("sales.observations.id")
-        elapsed = session.catalog.fields.get("sales.observations.elapsed")
+        identifier = catalog_value(session.catalog, "sales.observations.id", kind="field")
+        elapsed = catalog_value(session.catalog, "sales.observations.elapsed", kind="field")
         current = session.observe({"v": elapsed.sum()}, where=identifier == 1)
         baseline = session.observe({"v": elapsed.sum()}, where=identifier == 2)
     else:
-        entity = session.catalog.entities.get("sales.observations")
-        elapsed = session.catalog.fields.get(
+        entity = session.catalog.get("entity:sales.observations").value
+        elapsed = catalog_value(
+            session.catalog,
             "sales.observations.elapsed_field"
             if endpoint == "read"
-            else "sales.observations.elapsed"
+            else "sales.observations.elapsed",
+            kind="field",
         )
         current = session.read(
             mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),)), {"v": elapsed}
@@ -157,7 +160,7 @@ def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Sess
 def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
     comparison_session: mv.Session,
 ) -> None:
-    elapsed = comparison_session.catalog.fields.get("sales.observations.elapsed")
+    elapsed = catalog_value(comparison_session.catalog, "sales.observations.elapsed", kind="field")
     query = comparison_session.observe({"v": elapsed.sum()})
     comparison = query.compare(
         {"base": mv.baseline(query, on=tuple(zip(query.axes, query.axes, strict=True)))}

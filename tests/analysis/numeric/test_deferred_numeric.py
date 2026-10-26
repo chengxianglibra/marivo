@@ -29,7 +29,7 @@ from marivo.refs import ref
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_nonnullable_source_inputs_keep_null_branches_physically_nullable() -> None:
@@ -599,8 +599,8 @@ def test_cancelled_sample_weights_do_not_hide_numeric_overflow(
             "('b','B','web','paid',TIMESTAMPTZ '2026-08-01',-1e308)"
         )
     session = case.session
-    amount = session.catalog.fields.get("sales.order.amount")
-    customer = session.catalog.fields.get("sales.order.customer_id")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     value = amount.max()
     # Weights are +/-scale. Products or their sum overflow despite zero total weight.
     metric = value.per(customer).weighted_mean(weight=value / 1e308 * scale)

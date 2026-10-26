@@ -45,6 +45,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import source_params
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -129,11 +130,11 @@ def _population(
     on = (
         ()
         if scalar
-        else ((frame.axes[0], session.catalog.entities.get("sales.facts")),)
+        else ((frame.axes[0], session.catalog.get("entity:sales.facts").value),)
         if identity
         else (
-            (frame.axes[0], session.catalog.fields.get("sales.facts.region")),
-            (frame.axes[1], session.catalog.fields.get("sales.facts.channel")),
+            (frame.axes[0], catalog_value(session.catalog, "sales.facts.region", kind="field")),
+            (frame.axes[1], catalog_value(session.catalog, "sales.facts.channel", kind="field")),
         )
     )
     return population_from(session._runtime.local, session.catalog._state, frame, on=on)
@@ -142,7 +143,7 @@ def _population(
 def _observe(
     session: Session, population: Population, *, metric_where: bool = False, negate: bool = False
 ) -> AnalysisFrame:
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
     condition = ~in_population(population) if negate else in_population(population)
     return frame_sources.observe(
         session._runtime.local,
@@ -150,8 +151,8 @@ def _observe(
         session._runtime.connection_config,
         {"amount": amount.where(condition) if metric_where else amount},
         by=(
-            session.catalog.fields.get("sales.facts.region"),
-            session.catalog.fields.get("sales.facts.channel"),
+            catalog_value(session.catalog, "sales.facts.region", kind="field"),
+            catalog_value(session.catalog, "sales.facts.channel", kind="field"),
         ),
         where=None if metric_where else condition,
     )
@@ -217,7 +218,7 @@ def test_complete_identity_read_and_members_use_the_retained_keys(session: Sessi
             session.catalog._state,
             session._runtime.connection_config,
             population,
-            {"city": session.catalog.fields.get("sales.facts.city")},
+            {"city": catalog_value(session.catalog, "sales.facts.city", kind="field")},
         )
         .compute()
         .to_pandas()
@@ -240,12 +241,12 @@ def test_complete_identity_read_and_members_use_the_retained_keys(session: Sessi
 
 
 def test_fixed_top_keeps_old_region_while_expression_top_reselects(session: Session) -> None:
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
         by=(region,),
     )
     selected = source.top(1, by=source["amount"])
@@ -329,7 +330,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
         by=selected,
     )
     with pytest.raises(MaterializationError, match="missing output coordinates"):
@@ -339,7 +340,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
-            {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
             by=selected,
             where=in_population(selected),
         )
@@ -369,12 +370,12 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
         return original(prepared, stage, lowered, value_keys=value_keys)
 
     monkeypatch.setattr(executor, "read_stage", read)
-    region = session.catalog.fields.get("sales.facts.region")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
         by=(region,),
     )
     invalid = source.select({"invalid": source["amount"] * 1e308})
@@ -490,7 +491,12 @@ def test_physical_target_type_conflict_fails_before_business_read(
         session._runtime.local,
         session.catalog._state,
         selected,
-        on=((selected.axes[0], session.catalog.fields.get("sales.facts.denominator")),),
+        on=(
+            (
+                selected.axes[0],
+                catalog_value(session.catalog, "sales.facts.denominator", kind="field"),
+            ),
+        ),
     )
     calls: list[str] = []
 
@@ -640,12 +646,12 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         session._runtime.local,
         session.catalog._state,
         fixed,
-        on=((fixed.axes[0], session.catalog.entities.get("sales.tags")),),
+        on=((fixed.axes[0], session.catalog.get("entity:sales.tags").value),),
     )
-    orders = session.members(session.catalog.entities.get("sales.orders"))
+    orders = session.members(session.catalog.get("entity:sales.orders").value)
     path = (
-        session.catalog.relationships.get("sales.order_links"),
-        session.catalog.relationships.get("sales.link_tags"),
+        session.catalog.get("relationship:sales.order_links").value,
+        session.catalog.get("relationship:sales.link_tags").value,
     )
     selected = orders.preimage(targets, via=path)
     result = (
@@ -653,7 +659,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
-            {"amount": session.catalog.fields.get("sales.orders.amount").sum()},
+            {"amount": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
             where=mv.in_population(selected),
         )
         .compute()
@@ -744,7 +750,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
                 remote.catalog._state,
                 remote._runtime.connection_config,
                 domain,
-                {"amount": remote.catalog.fields.get("sales.facts.amount")},
+                {"amount": catalog_value(remote.catalog, "sales.facts.amount", kind="field")},
             )
             .compute()
             .to_pandas()
@@ -771,7 +777,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
 
 def test_frame_only_nested_metric_where_survives_private_capture_guard(session: Session) -> None:
     domain = _population(session, _memory(session))
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
     metric = amount.where(~~in_population(domain)) / 2
     result = (
         frame_sources.observe(
@@ -780,8 +786,8 @@ def test_frame_only_nested_metric_where_survives_private_capture_guard(session: 
             session._runtime.connection_config,
             {"amount": metric},
             by=(
-                session.catalog.fields.get("sales.facts.region"),
-                session.catalog.fields.get("sales.facts.channel"),
+                catalog_value(session.catalog, "sales.facts.region", kind="field"),
+                catalog_value(session.catalog, "sales.facts.channel", kind="field"),
             ),
         )
         .compute()

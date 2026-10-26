@@ -78,7 +78,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_key_fusion import fuse_query_keys, fuse_query_terminal
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def _captured_graph(frame: AnalysisFrame) -> BoundGraph:
@@ -241,7 +241,7 @@ def test_later_native_rewrite_removes_invalid_group_output_but_keeps_decisions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum()})
     graph = _captured_graph(query)
     with open_query_sources(
@@ -279,7 +279,7 @@ def test_composed_common_members_keep_embedded_prefixed_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"one": amount.sum(), "two": amount.sum()})
     graph = _captured_graph(query)
     with open_query_sources(
@@ -559,7 +559,7 @@ def test_native_source_child_keeps_one_prefixed_schedule(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum()})
     with open_query_sources(
         case.session._runtime.connection_service(),
@@ -610,7 +610,7 @@ def test_paired_reductions_stay_local_and_keep_both_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = case.session.catalog.fields.get("sales.order.amount")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum(), "other": amount.mean()})
     graph = _captured_graph(query)
     with open_query_sources(

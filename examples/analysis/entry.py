@@ -34,7 +34,7 @@ parser.add_argument(
     dest="fields",
     action="append",
     default=[],
-    help="Exact grouping field path; repeat for more axes",
+    help="Canonical grouping field identity (dimension:path or time_dimension:path); repeat for more axes",
 )
 parser.add_argument("--start", help="Inclusive interval boundary; requires --end")
 parser.add_argument("--end", help="Exclusive interval boundary; requires --start")
@@ -74,14 +74,24 @@ else:
     session = mv.session.resume(args.session_id)
 catalog = session.catalog
 if listing:
-    collection = catalog.metrics if args.list_metrics else catalog.fields
-    if args.full_output:
-        collection.show(max_output_bytes=None)
-    else:
-        collection.show()
+    for kind in ("metric",) if args.list_metrics else ("dimension", "time_dimension", "measure"):
+        page = catalog.search(kind=kind, limit=10)
+        page.show(max_output_bytes=None if args.full_output else 8192)
+        while args.full_output and page.next_cursor is not None:
+            page = catalog.search(kind=kind, limit=10, cursor=page.next_cursor)
+            page.show(max_output_bytes=None)
 elif args.metric_path is not None:
-    metric = catalog.metrics.get(args.metric_path)
-    fields = tuple(catalog.fields.get(path) for path in args.fields)
+    metric_entry = catalog.get("metric:" + args.metric_path)
+    assert metric_entry.kind == "metric"
+    metric = metric_entry.value
+    selected_fields = [catalog.get(identity) for identity in args.fields]
+    fields = tuple(
+        entry.value
+        for entry in selected_fields
+        if entry.kind == "dimension" or entry.kind == "time_dimension" or entry.kind == "measure"
+    )
+    if len(fields) != len(selected_fields):
+        parser.error("--field requires a dimension, time_dimension or measure identity")
     scope = (
         session.time_scope(start=args.start, end=args.end)
         if args.start is not None and args.end is not None

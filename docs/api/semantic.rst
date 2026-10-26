@@ -54,7 +54,7 @@ cache keys describe actual consumed definitions; persisted provenance and record
 retain their owning contracts.
 
 Use ``marivo.help("semantic.expressions")`` for receiver operations and
-``catalog.describe(ms.ref.measure("sales.orders.amount")).show()`` for captured
+``catalog.get("measure:sales.orders.amount").show()`` for captured
 definition facts. Deferred itself has no Marivo contract or show method. Numeric
 rows reduce through ``sum/mean/min/max/median/quantile/weighted_mean``; completed
 Metrics combine through arithmetic and accept scope-checked ``where`` and
@@ -152,7 +152,7 @@ Dimension/TimeDimension body. Loader binding checks kind, owner and time role.
 
 Metadata identity fields return unbound lookup selectors. Use them for supported
 Catalog lookup/check operations; select closed analysis inputs through the
-matching collection's ``get(path)``. Ordinary Analysis does not bind a symbol.
+canonical ``catalog.get("kind:path").value`` after checking kind. Ordinary Analysis does not bind a symbol.
 Equality builds a recipe rather than testing identity. Symbols are not supported
 as boolean identities, hash keys, dictionary keys or container membership keys.
 Invalid attributes and methods fail when a declaration or parameter captures the
@@ -180,11 +180,9 @@ executes semantic operations and intentionally has no ``ms.help()`` alias.
 
 The packaged semantic skill owns task exits, reuse and business authority,
 evidence selection, and delivery. Help owns static usage and proof boundaries.
-Catalog values show their definition through ``value.contract()``; domain,
-datasource and temporal entries keep ``entry.show()`` and ``entry.details()``.
-``marivo.help(entry)`` adds identity, usage navigation, and kind-level analysis
-handoff without checking readiness or execution admission. Explaining an
-existing definition does not require readiness or preview.
+Catalog entries expose complete ``entry.definition`` and bounded ``entry.show()``.
+Use type Help for static API navigation; query matching facts belong to result
+pages. Inspecting a definition does not require readiness or preview.
 
 Registered error instances retain concrete facts in Help even without a repair.
 Aggregate load failures preserve child order and disclose omitted errors with
@@ -197,33 +195,47 @@ attached with ``Metric.where(...)``. The retained legacy materializer can raise
 qualify the new R2 execution route. Any required code/label mapping needs
 confirmation from the business owner.
 
-Details types
--------------
+Captured definitions
+--------------------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   DomainDetails
-   DatasourceDetails
-   PeriodCalendarDetails
-   CalendarLevelDetails
-   TemporalSetDetails
+   CatalogScope
+   CatalogFilters
+   EntryProvenance
+   DomainDefinition
+   DatasourceDefinition
+   EntityDefinition
+   FieldDefinition
+   MetricDefinition
+   MetricTimeBinding
+   RelationshipDefinition
+   PeriodCalendarDefinition
+   TemporalSetDefinition
 
 Catalog & objects
 -----------------
 
-``catalog.entities``, ``catalog.fields`` (Dimension, TimeField and Measure),
-``catalog.metrics`` and ``catalog.relationships`` hold composable expression
-values, so ``revenue = catalog.metrics.get("sales.revenue")`` and
-``revenue / catalog.entities.get("sales.orders").count()`` compose directly.
-Domains, datasources, period calendars and temporal sets remain
-navigation entries. ``collection.get(key)`` accepts only a plain string
-containing a local name or full semantic path within the collection's scope.
-Ambiguous names require a full path. Lookup symbols and kind-prefixed strings are rejected;
-scoped collections do not widen to out-of-scope objects. The consuming operation
-checks its required kind, root, grain, unit, time role, and null semantics.
-Private identity keys remain internal to definitions, dependencies and records.
+``catalog.search(query, kind=..., domain=..., entity=..., limit=10)`` returns
+bounded ``CatalogPage`` candidates. Empty queries browse without models;
+configured hybrid text search combines lexical and vector recall with RRF and
+optional reranking. Search configuration is frozen at load. The optional
+``semantic-search`` extra uses explicitly prepared revision-pinned local models;
+model or input-length failures are explicit. Derived vector/index/ranking caches
+live in ``<project_root>/.marivo/semantic/search/``. No business datasource is read.
+
+``catalog.get("metric:sales.revenue")`` returns one immutable entry by canonical
+identity. Check ``entry.kind`` before accessing ``entry.value``. Executable
+variants retain native closed expression values; Domain/Datasource have no value.
+``entry.related("dependencies")`` uses the complete loaded scope independently
+from search filters; unloaded identities are separate ``outside_scope`` metadata.
+Complete definitions and ``to_dict()/to_json()`` are independent of display
+budgets. Query scores/snippets remain on pages. ``candidate_count`` is a fixed
+candidate-pool count, and cursors bind that ranking across short-lived processes.
+Changed scope, definitions, configuration or missing cached results rejects a
+cursor and requires restarting the search.
 
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
 ``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
@@ -240,19 +252,26 @@ Measures still have no physical preview; published expression certification
 and source checks remain unavailable. One ``ms.load()`` is the project-level static validation event for a
 dependency-coherent authored slice; there is no separate per-object verify step.
 
-For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the
-focused ``analysis.catalog.<family>`` pages for the bounded collection,
-exact lookup, entry-detail, and handoff contracts. ``CatalogCollection`` owns
-lookup grammar, ``catalog.describe(...)`` owns captured definition facts,
-``CatalogEntry`` owns navigation-entry detail, and ``ms.ref.*`` owns exact lookup construction. The packaged ``marivo-analysis`` skill provides
-routing and boundaries only; it does not duplicate these API recipes.
+For analysis-agent discovery, use ``marivo.help("analysis.inputs.catalog")``.
+``catalog.search`` owns discovery, ``catalog.get`` owns canonical lookup,
+``CatalogEntry`` owns captured meaning/navigation, and ``ms.ref.*`` owns authored
+lookup symbols. Explicit ``ms.ai_context(aliases=[...])`` helps search without
+creating alternate identities.
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
    SemanticCatalog
-   CatalogCollection
+   CatalogPage
+   DomainEntry
+   DatasourceEntry
+   EntityEntry
+   DimensionEntry
+   TimeDimensionEntry
+   MeasureEntry
+   MetricEntry
+   RelationshipEntry
    CatalogEntry
    SemanticKind
    PeriodCalendarEntry

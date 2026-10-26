@@ -93,6 +93,8 @@ class ReadinessReport(RenderableResult):
     input_summary: ReadinessInputSummary
     checked_at: str
     catalog_definition_fingerprint: str | None = None
+    requested_ids: tuple[str, ...] = ()
+    checked_ids: tuple[str, ...] = ()
 
     @property
     def analysis_ready_inputs(self) -> tuple[LookupSymbol, ...]:
@@ -118,6 +120,10 @@ class ReadinessReport(RenderableResult):
             ),
         )
         card = card.field(label="scope", value=self.scope)
+        if self.requested_ids:
+            card.listing("requested identities", self.requested_ids)
+        if self.checked_ids:
+            card.listing("checked dependency identities", self.checked_ids)
         if self.blockers:
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
@@ -150,6 +156,8 @@ class ReadinessReport(RenderableResult):
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "requested_ids": list(self.requested_ids),
+            "checked_ids": list(self.checked_ids),
             "scope": self.scope,
             "status": self.status,
             "analysis_ready_inputs": [
@@ -485,7 +493,7 @@ def build_readiness_report(
                 repair(
                     kind="inspect",
                     canonical_id="load",
-                    action="Browse loaded refs with catalog.domains.show() or catalog.fields.show(), then select a displayed path with the corresponding collection.get(path).",
+                    action="Browse loaded entries with catalog.search().show(), then select a displayed canonical identity with catalog.get(identity).",
                 ),
             )
         )

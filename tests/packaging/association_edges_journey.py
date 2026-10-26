@@ -20,7 +20,13 @@ from tests.packaging.graph_journeys import (
     _offline,
     _remove_sources,
 )
-from tests.shared_fixtures import DslCase, analysis_dsl_rows, export_dsl_parquet_models, run_ids
+from tests.shared_fixtures import (
+    DslCase,
+    analysis_dsl_rows,
+    catalog_value,
+    export_dsl_parquet_models,
+    run_ids,
+)
 from tests.support.json import Json, checked, encode, read
 
 
@@ -49,15 +55,15 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             DslCase("j4", NAMES, root, root / "warehouse.duckdb", catalog, session), root
         )
         ms.load(workspace_dir=root)
-        population = session.members(session.catalog.entities.get("operations.device"))
+        population = session.members(session.catalog.get("entity:operations.device").value)
         window = session.time_scope(start="2026-08-01", end="2026-09-01")
-        amount = session.catalog.fields.get("operations.reading.energy")
-        time = session.catalog.fields.get("operations.reading.recorded_at")
+        amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
+        time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")
         left = session.observe(
             {"value": amount.sum(time=time)}, by=mv.product(window, population)
         ).persist()
         right = session.observe(
-            {"value": session.catalog.metrics.get("operations.reading_count")},
+            {"value": session.catalog.get("metric:operations.reading_count").value},
             by=mv.product(window, population),
         ).persist()
         before = publication_counts(session)

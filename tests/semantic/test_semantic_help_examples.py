@@ -44,7 +44,7 @@ def test_modeling_tutorial_capture_sequence(
     catalog = SemanticCatalog(project)
     from marivo.semantic._deferred_semantics import consume_field
 
-    value = catalog.fields.get("sales.orders.normalized_region")
+    value = catalog.get("dimension:sales.orders.normalized_region").value
     assert consume_field(value).reference.ref == ref_factory.dimension(
         "sales.orders.normalized_region"
     )

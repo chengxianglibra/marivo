@@ -6,6 +6,7 @@ import pytest
 
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.graph.physical_workloads import workload
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -14,8 +15,8 @@ def test_file_original_rollup_returns_compact_result(
     profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", profile, 1000, "baseline", tmp_path, monkeypatch) as work:
-        amount = work.session.catalog.fields.get("cost.facts.amount")
-        owner = work.session.catalog.fields.get("cost.facts.owner")
+        amount = catalog_value(work.session.catalog, "cost.facts.amount", kind="field")
+        owner = catalog_value(work.session.catalog, "cost.facts.owner", kind="field")
         fine = work.session.observe({"value": amount.sum()}, by=(owner,))
         trace = capture_source(monkeypatch)
         frame = work.session.observe({"value": amount.sum()}).compute().to_pandas()
@@ -30,8 +31,8 @@ def test_file_original_retains_default_collation_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "parquet", 1000, "baseline", tmp_path, monkeypatch) as work:
-        amount = work.session.catalog.fields.get("cost.facts.amount")
-        owner = work.session.catalog.fields.get("cost.facts.owner")
+        amount = catalog_value(work.session.catalog, "cost.facts.amount", kind="field")
+        owner = catalog_value(work.session.catalog, "cost.facts.owner", kind="field")
         fine = work.session.observe({"value": amount.sum()}, by=(owner,))
         trace = capture_source(monkeypatch)
         enter = SourceSession.__enter__
@@ -53,8 +54,8 @@ def test_view_original_retains_unknown_inherited_collation_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "view", 1000, "baseline", tmp_path, monkeypatch) as work:
-        amount = work.session.catalog.fields.get("cost.facts.amount")
-        owner = work.session.catalog.fields.get("cost.facts.owner")
+        amount = catalog_value(work.session.catalog, "cost.facts.amount", kind="field")
+        owner = catalog_value(work.session.catalog, "cost.facts.owner", kind="field")
         fine = work.session.observe({"value": amount.sum()}, by=(owner,))
         trace = capture_source(monkeypatch)
         frame = work.session.observe({"value": amount.sum().per(owner).sum()}).compute().to_pandas()

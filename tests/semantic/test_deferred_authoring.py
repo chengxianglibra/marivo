@@ -8,13 +8,13 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred, root_declaration
 from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import catalog_value
 
 ProjectFactory = Callable[..., SemanticProject]
 
@@ -59,13 +59,13 @@ def test_deferred_capture_declaration_collection_and_native_composition(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount")
-    revenue = catalog.metrics.get("sales.revenue")
-    margin = catalog.fields.get("sales.orders.margin")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    revenue = catalog.get("metric:sales.revenue").value
+    margin = catalog_value(catalog, "sales.orders.margin", kind="field")
     assert isinstance(amount, Deferred)
     assert isinstance(revenue, Deferred)
     assert isinstance(margin, Deferred)
-    assert tuple(ref.path for ref in catalog.metrics._refs) == (
+    assert tuple(entry.path for entry in catalog.search(kind="metric").items) == (
         "sales.margin_total",
         "sales.revenue",
     )
@@ -101,8 +101,8 @@ def average_sample():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog.fields.get("sales.orders.amount")
-    status = catalog.fields.get("sales.orders.status")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    status = catalog_value(catalog, "sales.orders.status", kind="field")
     samples = (
         mv.coordinates(by=(status,), keys=(("paid",),)).axes[0]
         if kind == "field"
@@ -110,8 +110,8 @@ def average_sample():
     )
     sample = samples
     argument_value = (sample,) if as_tuple else sample
-    expected = catalog.metrics.get("sales.revenue").per(argument_value).mean()
-    declared = catalog.metrics.get("sales.average_sample")
+    expected = catalog.get("metric:sales.revenue").value.per(argument_value).mean()
+    declared = catalog.get("metric:sales.average_sample").value
     body = next(
         body
         for reference, body in consume_metric(declared)._declared
@@ -131,8 +131,8 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount")
-    cost = catalog.fields.get("sales.orders.cost")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    cost = catalog_value(catalog, "sales.orders.cost", kind="field")
     positive = ibis.ifelse(amount > cost, amount - cost, 0)
     assert consume_row(positive).unit == "CNY"
     with pytest.raises(SemanticExpressionError):
@@ -144,7 +144,7 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     }
     with pytest.raises(SemanticExpressionError):
         consume_metric(amount.sum() + amount)
-    status = catalog.fields.get("sales.orders.status")
+    status = catalog_value(catalog, "sales.orders.status", kind="field")
     with pytest.raises(SemanticExpressionError):
         consume_row(status.cast("float64"))
 
@@ -208,8 +208,8 @@ def test_native_selection_units_and_reciprocal_authorization(
         'column="cost", unit="CNY"', 'column="cost", unit="USD"'
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog.fields.get("sales.orders.amount")
-    cost = catalog.fields.get("sales.orders.cost")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    cost = catalog_value(catalog, "sales.orders.cost", kind="field")
     for expression in (amount > cost, ibis.least(amount, cost), amount.clip(lower=cost)):
         with pytest.raises(SemanticExpressionError, match="incompatible units"):
             consume_row(expression)
@@ -223,13 +223,13 @@ def test_catalog_description_owns_definition_facts(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.describe(ms.ref.metric("sales.revenue"))
-    margin = catalog.describe(ms.ref.measure("sales.orders.margin"))
-    assert revenue.stage == "published_metric"
-    assert revenue.unit == margin.unit == "CNY"
-    assert revenue.ref is not None and revenue._ref.ref.path == "sales.revenue"
+    revenue = catalog.get("metric:sales.revenue")
+    margin = catalog.get("measure:sales.orders.margin")
+    assert revenue.kind == "metric"
+    assert revenue.definition.unit == margin.definition.unit == "CNY"
+    assert revenue.id == "metric:sales.revenue"
     assert ".show()" in repr(revenue)
-    assert margin.computation is not None
+    assert margin.definition.expression
 
 
 def test_published_metric_rebinds_in_the_consumers_frozen_scope(
@@ -238,7 +238,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     from marivo.semantic._deferred_semantics import consume_metric_in_state
 
     original = _catalog(semantic_project_factory)
-    revenue = original.metrics.get("sales.revenue")
+    revenue = original.get("metric:sales.revenue").value
     old_reference = root_declaration(revenue).reference
     changed_root = tmp_path / "changed"
     changed_root.mkdir()
@@ -250,7 +250,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
         workspace_dir=changed_root,
     )
     changed = SemanticCatalog(project)
-    current = changed.metrics.get("sales.revenue")
+    current = changed.get("metric:sales.revenue").value
     rebound = consume_metric_in_state(revenue, changed._state)
     assert rebound.node == consume_metric(current).node
     assert rebound._declared == consume_metric(current)._declared
@@ -262,8 +262,8 @@ def test_sum_has_one_fixed_rule_and_rejects_removed_empty_parameter(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount")
-    status = catalog.fields.get("sales.orders.status")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    status = catalog_value(catalog, "sales.orders.status", kind="field")
     for expression in (amount.sum(), amount.sum().per(status).sum()):
         node = consume_metric(expression).node
         assert isinstance(node, (SourceAggregate, PerReduce))

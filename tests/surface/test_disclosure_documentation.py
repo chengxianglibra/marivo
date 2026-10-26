@@ -19,7 +19,7 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.mark.parametrize(
@@ -66,8 +66,8 @@ def test_public_attribute_help_example_uses_real_source(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    region = session.catalog.fields.get("sales.customer.region")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     source_frame = session.observe({"revenue": revenue})
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
     assert isinstance(descriptor, CallableInput)
@@ -84,7 +84,7 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = case.catalog.fields.get("sales.customer.region")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     frame = case.session.values(
         by=(region,),
         columns={"value": None},

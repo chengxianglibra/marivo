@@ -15,6 +15,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.driver_protocols import _DriverExecute, _MysqlCursor
 from tests.datasource.source_cases import SourceData, source_case
 from tests.datasource.source_receipts import receipt
+from tests.shared_fixtures import catalog_entry
 from tests.support.refs import as_ref
 
 
@@ -64,8 +65,8 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
             )
             catalog = ms.load(workspace_dir=tmp_path)
             calendar = ms.ref.period_calendar("sales.fiscal")
-            entry = catalog.period_calendars.get(as_ref(calendar).path)
-            assert entry.details().snapshot_status == "missing"
+            entry = catalog_entry(catalog, as_ref(calendar).path, kind="period_calendar")
+            assert entry.definition.snapshot_status == "missing"
             source_session = DatasourceConnectionService.source_session
             owners: list[SourceSession] = []
             native_ids: list[int] = []
@@ -112,7 +113,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
             assert failure.value.details["query_executed"] is True
             assert failure.value.details["backend_code"] == "3024"
             assert failure.value.details["timeout_seconds"] == 1
-            assert entry.details().snapshot_status == "missing"
+            assert entry.definition.snapshot_status == "missing"
             assert owners and all(owner._closed for owner in owners)
             submissions = [submission for owner in owners for submission in owner.submissions]
             assert len(submissions) == 1
@@ -143,7 +144,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
                     "scope_timeout_seconds": 1,
                     "elapsed_seconds": elapsed,
                     "native_error_code": 3024,
-                    "snapshot_status": entry.details().snapshot_status,
+                    "snapshot_status": entry.definition.snapshot_status,
                     "connection_disconnected": True,
                     "business_driver_submission_verified": True,
                     "independent_connection_termination": True,
@@ -173,8 +174,8 @@ def test_certified_capture_error_keeps_prior_snapshot_and_submission_facts(
     )
     calendar = ms.ref.period_calendar("sales.fiscal")
     catalog.preview(calendar, scope=default_scope(max_rows=4))
-    entry = catalog.period_calendars.get(as_ref(calendar).path)
-    previous = entry.details()
+    entry = catalog_entry(catalog, as_ref(calendar).path, kind="period_calendar")
+    previous = entry.definition
     assert previous.snapshot_status == "current"
     typed_failure = _invalid("a qualified source capture", "fixture rejection before submission")
 
@@ -204,7 +205,7 @@ def test_certified_capture_error_keeps_prior_snapshot_and_submission_facts(
         assert native.value.details["backend_exception"] == "RuntimeError"
         assert "private-test-secret" not in str(native.value)
         assert native.value.repair is not None
-    assert entry.details() == previous
+    assert entry.definition == previous
 
 
 @pytest.mark.parametrize("code", [3024, True, "3024"])

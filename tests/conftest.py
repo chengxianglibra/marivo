@@ -295,12 +295,16 @@ def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
 
 @pytest.fixture
 def acquisition_channel_entry(funnel_session: Any) -> Any:
-    return funnel_session.catalog.dimensions.get("acquisition_channel")
+    from tests.shared_fixtures import catalog_value
+
+    return catalog_value(funnel_session.catalog, "acquisition_channel", kind="dimension")
 
 
 @pytest.fixture
 def plan_tier_entry(funnel_session: Any) -> Any:
-    return funnel_session.catalog.dimensions.get("plan_tier")
+    from tests.shared_fixtures import catalog_value
+
+    return catalog_value(funnel_session.catalog, "plan_tier", kind="dimension")
 
 
 def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:

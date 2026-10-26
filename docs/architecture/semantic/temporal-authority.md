@@ -120,12 +120,12 @@ and indexing remain private; no public sync/prepare or second calendar store exi
 ## Catalog navigation
 
 ```python
-calendar = catalog.period_calendars.get("commerce.retail_445")
+calendar = catalog.get("period_calendar:commerce.retail_445")
 month = calendar.grain("month")
 period = calendar.period_on("month", date(2026, 5, 15))
 page = calendar.periods("month", limit=20)
 
-campaigns = catalog.temporal_sets.get("commerce.campaigns")
+campaigns = catalog.get("temporal_set:commerce.campaigns")
 occurrence = campaigns.occurrence("launch-2026")
 occurrences = campaigns.occurrences(
     start=date(2026, 1, 1), end=date(2027, 1, 1), limit=20,

@@ -15,6 +15,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import catalog_value
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -56,20 +57,20 @@ def test_native_original_mean_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-mean", timezone="UTC")
-        bucket = session.catalog.fields.get("sales.facts.bucket")
-        amount = session.catalog.fields.get("sales.facts.amount")
-        time = session.catalog.fields.get("sales.facts.happened")
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
         grouped = session.observe(
             {
-                "value": session.catalog.metrics.get("sales.average"),
-                "sum": session.catalog.metrics.get("sales.total"),
+                "value": session.catalog.get("metric:sales.average").value,
+                "sum": session.catalog.get("metric:sales.total").value,
                 "count": amount.count(time=time),
             },
             by=(bucket,),
         )
         source = grouped.persist()
         original = session.observe(
-            {"value": session.catalog.metrics.get("sales.average")}
+            {"value": session.catalog.get("metric:sales.average").value}
         ).persist()
         current = grouped.reduce({"value": grouped["value"].mean()}).persist()
         assert source.to_pandas()["value"].tolist() == [1.0, 100.0]

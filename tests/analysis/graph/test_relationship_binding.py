@@ -17,7 +17,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.refs import ref as private_ref
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 CUSTOMER = private_ref.entity("sales.customer")
@@ -90,11 +90,11 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     case = analysis_dsl_case_factory("j1")
     session = case.session
     customers, orders = (
-        session.members(session.catalog.entities.get(CUSTOMER.path)),
-        session.members(session.catalog.entities.get(ORDER.path)),
+        session.members(catalog_value(session.catalog, CUSTOMER.path, kind="entity")),
+        session.members(catalog_value(session.catalog, ORDER.path, kind="entity")),
     )
     automatic = session.observe(
-        {"value": session.catalog.metrics.get(LINE_REVENUE.path)},
+        {"value": catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")},
         by=mv.product(_window(session), customers),
     )
     binding = source_graph(automatic).signature.observation
@@ -103,8 +103,8 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         LINE_ORDER.path,
         BUYER.path,
     )
-    region = session.catalog.fields.get(REGION.path)
-    buyer = session.catalog.relationships.get(BUYER.path)
+    region = catalog_value(session.catalog, REGION.path, kind="field")
+    buyer = catalog_value(session.catalog, BUYER.path, kind="relationship")
     inferred = session.read(orders, {"region": region})
     explicit = session.read(orders, {"region": region.via((buyer,))})
     assert source_graph(inferred).fingerprint == source_graph(explicit).fingerprint
@@ -112,7 +112,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         source_graph(session.read(customers, {"region": region})).signature.owner
         == source_graph(automatic).signature.owner
     )
-    ratio = session.catalog.metrics.get("sales.aov_from_lines")
+    ratio = session.catalog.get("metric:sales.aov_from_lines").value
     observed = session.observe({"value": ratio}, by=mv.product(_window(session), customers))
     binding = source_graph(observed).signature.observation
     assert binding is not None
@@ -120,7 +120,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     assert {
         tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
     } == {(LINE_ORDER.path, BUYER.path), (BUYER.path,)}
-    line_order = session.catalog.relationships.get(LINE_ORDER.path)
+    line_order = catalog_value(session.catalog, LINE_ORDER.path, kind="relationship")
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.read(orders, {"region": region.via((line_order, buyer))})
     identity = session.observe({"value": ratio}, by=mv.product(_window(session), orders))
@@ -138,9 +138,9 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    customers = session.members(session.catalog.entities.get(CUSTOMER.path))
+    customers = session.members(catalog_value(session.catalog, CUSTOMER.path, kind="entity"))
     original = session.observe(
-        {"value": session.catalog.metrics.get(REVENUE.path)},
+        {"value": catalog_value(session.catalog, REVENUE.path, kind="metric")},
         by=mv.product(_window(session), customers),
     )
     observation = source_graph(original).signature.observation
@@ -156,8 +156,11 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     other = mv.session.get_or_create("new-role", timezone="UTC")
     with pytest.raises(AnalysisError):
         other.observe(
-            {"value": other.catalog.metrics.get(REVENUE.path)},
-            by=mv.product(_window(other), other.members(other.catalog.entities.get(CUSTOMER.path))),
+            {"value": catalog_value(other.catalog, REVENUE.path, kind="metric")},
+            by=mv.product(
+                _window(other),
+                other.members(catalog_value(other.catalog, CUSTOMER.path, kind="entity")),
+            ),
         )
     assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
     frame = original.persist().to_pandas()
@@ -167,14 +170,14 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
 def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFactory) -> None:
     session = _extend(analysis_dsl_case_factory("j1"), roles=True)
     customers, orders = (
-        session.members(session.catalog.entities.get(CUSTOMER.path)),
-        session.members(session.catalog.entities.get(ORDER.path)),
+        session.members(catalog_value(session.catalog, CUSTOMER.path, kind="entity")),
+        session.members(catalog_value(session.catalog, ORDER.path, kind="entity")),
     )
-    revenue = session.catalog.metrics.get(REVENUE.path)
-    customer_id = session.catalog.fields.get("sales.customer.customer_id")
-    region = session.catalog.fields.get(REGION.path)
-    buyer = session.catalog.relationships.get(BUYER.path)
-    recipient = session.catalog.relationships.get(RECIPIENT.path)
+    revenue = catalog_value(session.catalog, REVENUE.path, kind="metric")
+    customer_id = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
+    region = catalog_value(session.catalog, REGION.path, kind="field")
+    buyer = catalog_value(session.catalog, BUYER.path, kind="relationship")
+    recipient = catalog_value(session.catalog, RECIPIENT.path, kind="relationship")
     with pytest.raises(AnalysisError) as ambiguous:
         session.observe({"value": revenue}, by=mv.product(_window(session), customers))
     assert ambiguous.value.repair
@@ -237,20 +240,20 @@ def test_classification_scope_and_complete_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = _extend(analysis_dsl_case_factory("j1"))
-    revenue = session.catalog.metrics.get(LINE_REVENUE.path)
-    category = session.catalog.fields.get(CATEGORY.path)
+    revenue = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
+    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe({"value": revenue}, by=(_window(session), category, category))
-    lines = session.members(session.catalog.entities.get(LINE.path))
+    lines = session.members(catalog_value(session.catalog, LINE.path, kind="entity"))
     read = session.read(lines, {"category": category})
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         # Intentional runtime negative: a Query cannot be used as an observation axis.
         session.observe({"value": revenue}, by=(_window(session), read))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
     other = mv.session.get_or_create("another-session", timezone="UTC")
     with pytest.raises(AnalysisError):
-        session.frame(other.members(other.catalog.entities.get(LINE.path)))
-    ratio = session.catalog.metrics.get(LINE_REVENUE.path) / session.catalog.metrics.get(
-        REVENUE.path
+        session.frame(other.members(catalog_value(other.catalog, LINE.path, kind="entity")))
+    ratio = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric") / catalog_value(
+        session.catalog, REVENUE.path, kind="metric"
     )
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe({"value": ratio}, by=(_window(session), category))
@@ -269,13 +272,14 @@ def test_classification_read_preserves_missing_owner_as_null(
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
-    category = session.catalog.fields.get(CATEGORY.path)
-    route = session.catalog.relationships.get(LINE_PRODUCT.path)
+    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    route = catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship")
     if explicit:
         category = category.via((route,))
     attributes = (
         session.read(
-            session.members(session.catalog.entities.get(LINE.path)), {"category": category}
+            session.members(catalog_value(session.catalog, LINE.path, kind="entity")),
+            {"category": category},
         )
         .persist()
         .to_pandas()
@@ -294,7 +298,7 @@ def test_classification_read_preserves_missing_owner_as_null(
     # relationship is outside this read scope.
     frame = (
         session.observe(
-            {"value": session.catalog.metrics.get(LINE_REVENUE.path)},
+            {"value": catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")},
             by=(_window(session), category),
         )
         .persist()
@@ -312,9 +316,9 @@ def test_classification_read_preserves_missing_owner_as_null(
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
-    category = session.catalog.fields.get(CATEGORY.path)
-    route = session.catalog.relationships.get(LINE_PRODUCT.path)
-    metric = session.catalog.metrics.get(LINE_REVENUE.path)
+    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    route = catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship")
+    metric = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
     automatic = session.observe({"value": metric}, by=(_window(session), category))
     explicit = session.observe({"value": metric}, by=(_window(session), category.via((route,))))
     automatic_axis = next(
@@ -380,14 +384,14 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("INSERT INTO product VALUES ('R', 'spare')")
         connection.execute("UPDATE order_line SET product_id='R' WHERE line_id='outside'")
-    category = session.catalog.fields.get(CATEGORY.path)
-    line_revenue = session.catalog.metrics.get(LINE_REVENUE.path)
-    revenue = session.catalog.metrics.get(REVENUE.path)
+    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    line_revenue = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
+    revenue = catalog_value(session.catalog, REVENUE.path, kind="metric")
     buckets = mv.membership(
         category,
         via=(
-            (session.catalog.relationships.get(LINE_PRODUCT.path),),
-            (session.catalog.relationships.get("sales.order_product"),),
+            (catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship"),),
+            (session.catalog.get("relationship:sales.order_product").value,),
         ),
         unmatched="exclude",
     )
@@ -438,8 +442,8 @@ def test_timed_classification_cannot_remove_consumed_contributions(
     fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending')\n"
     model.write_text(contents.replace("# Named expressions", fields + "# Named expressions", 1))
     session = mv.session.get_or_create("timed-coverage", timezone="UTC")
-    metric = session.catalog.metrics.get(LINE_REVENUE.path)
-    field = session.catalog.fields.get(CATEGORY.path)
+    metric = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
+    field = catalog_value(session.catalog, CATEGORY.path, kind="field")
     observed = []
     for start, end, instant, key, expected in (
         ("2026-08-01", "2026-09-01", "2026-08-31T23:59:59.999999+00:00", "book", 1000),

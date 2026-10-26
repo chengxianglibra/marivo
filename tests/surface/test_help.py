@@ -154,7 +154,7 @@ def test_surface_name_routes_to_the_exact_native_root(owner: HelpSurface) -> Non
 
 @pytest.mark.parametrize(
     "method_name, canonical_target",
-    [("describe", "semantic_catalog.describe")],
+    [("get", "semantic_catalog.get"), ("search", "semantic_catalog.search")],
 )
 def test_shared_catalog_callable_uses_its_native_semantic_contract(
     authoring_evidence_project: Path,

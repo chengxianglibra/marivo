@@ -55,11 +55,10 @@ def test_published_metrics_direct_certification_routes_to_physical_inputs(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
-        catalog.readiness(refs=[catalog.metrics.get("sales.revenue")])
-    assert caught.value.kind == "invalid_expression_stage"
-    assert caught.value.repair is not None
-    assert "physical fields and Entities" in caught.value.repair.action
+    report = catalog.readiness(refs=[catalog.get("metric:sales.revenue")])
+    assert report.requested_ids == ("metric:sales.revenue",)
+    assert "measure:sales.orders.amount" in report.checked_ids
+    assert report._analysis_ready_inputs == ()
 
 
 def test_cli_certifies_current_physical_inputs(

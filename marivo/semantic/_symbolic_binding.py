@@ -484,6 +484,7 @@ def publish_declarations(
                 name=declaration.name,
                 node=facts.node,
                 unit=facts.unit,
+                ai_context=declaration.ai_context,
             )
             resolver.advance()
             if target.kind is SemanticKind.MEASURE:

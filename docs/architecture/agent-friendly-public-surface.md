@@ -56,7 +56,7 @@ or aggregation authority requires authoring; a missing published name alone
 does not.
 
 Task names follow their main navigation parent. Exact API and role targets keep
-their owning identities: analysis.catalog.metrics and analysis.runtime.values.show
+their owning identities: semantic.semantic_catalog.search and analysis.runtime.values.show
 remain exact references even though their intermediate prefixes are not task
 pages. Native registries own both the task links and exact reference; retiring a
 topic removes that entry without redirecting it or renaming its precise leaves.
@@ -102,7 +102,9 @@ Only the returned completed object fixes values and keys.
 import marivo.analysis as mv
 
 session = mv.session.get_or_create("revenue-review", timezone="UTC")
-revenue = session.catalog.metrics.get("sales.revenue")
+revenue_entry = session.catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry.value
 period = session.time_scope(start="2026-06-01", end="2026-06-08")
 saved = session.observe({"revenue": revenue}, by=(period,)).persist()
 saved.show(n=10)

@@ -15,13 +15,13 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import checked_sum
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 
 def _values(case: DslCase, values: tuple[int | float | Decimal, ...]) -> AnalysisFrame:
     return case.session.values(
-        by=(case.catalog.fields.get("sales.customer.customer_id"),),
+        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),),
         columns={"x": "CNY"},
         rows=tuple(((str(index),), {"x": value}) for index, value in enumerate(values)),
     )
@@ -137,8 +137,8 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     case = analysis_dsl_case_factory("j1")
     base = case.session.values(
         by=(
-            case.catalog.fields.get("sales.customer.region"),
-            case.catalog.fields.get("sales.customer.customer_id"),
+            catalog_value(case.catalog, "sales.customer.region", kind="field"),
+            catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),
         ),
         columns={"x": None, "y": None},
         rows=tuple(
@@ -181,8 +181,8 @@ def test_source_read_wide_mean_retains_receipts_and_decimal_sum(
             [2**62, 2**62],
         )
     source = case.session.read(
-        case.session.members(case.session.catalog.entities.get("sales.order")),
-        {"x": case.catalog.fields.get("sales.order.amount")},
+        case.session.members(case.session.catalog.get("entity:sales.order").value),
+        {"x": catalog_value(case.catalog, "sales.order.amount", kind="field")},
     )
     trace = capture_source(monkeypatch)
     fixed = source.compute()

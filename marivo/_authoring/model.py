@@ -29,6 +29,8 @@ EffectFlag = Literal[
     "may_publish_certified_artifact",
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",
+    "may_call_model",
+    "may_write_search_cache",
 ]
 
 

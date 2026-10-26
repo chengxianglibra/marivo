@@ -13,7 +13,7 @@ from marivo._authoring.model import AuthoringCapability
 from marivo._help.render import render_help_text
 from marivo.cli import main
 from marivo.semantic._capabilities.registry import REGISTRY
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 def test_rescale_callable_and_cli_share_the_bounded_native_help(
@@ -67,7 +67,7 @@ def test_rescale_help_and_bilingual_site_examples_execute_their_actual_code(
     assert examples[0] == examples[1]
 
     case = analysis_dsl_case_factory("j2", revenue_unit="B")
-    byte_count = case.catalog.fields.get("sales.order.amount")
+    byte_count = catalog_value(case.catalog, "sales.order.amount", kind="field")
     namespace: dict[str, object] = {
         "ms": ms,
         "total_bytes": byte_count.sum(),

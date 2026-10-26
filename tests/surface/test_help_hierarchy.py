@@ -128,7 +128,12 @@ def test_required_secondary_routes_keep_their_real_native_owners() -> None:
         ("analysis.inputs", ("semantic.expressions",)),
         (
             "analysis.inputs.catalog",
-            ("semantic.catalog_collection.get", "semantic.semantic_catalog.describe", "authoring"),
+            (
+                "semantic.semantic_catalog.search",
+                "semantic.semantic_catalog.get",
+                "semantic.readiness",
+                "authoring",
+            ),
         ),
         ("analysis.inputs.population", ("analysis.population.count", "semantic.predicate")),
         (

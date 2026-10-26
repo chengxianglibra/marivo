@@ -417,9 +417,6 @@ def provider() -> DisclosureProvider:
     temporal = tuple(
         d.canonical_id for d in CATALOG_INPUTS if d.receiver_family != "SemanticCatalog"
     )
-    ordinary = tuple(
-        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family == "SemanticCatalog"
-    )
     descriptors.append(
         NavigationInput(
             "inputs.time.calendars",
@@ -446,41 +443,26 @@ def provider() -> DisclosureProvider:
         NavigationInput(
             "inputs.catalog",
             "Find governed inputs, retrieve an exact path or explain a definition.",
-            (
-                "catalog.readiness",
-                *(t for t in ordinary if t != "catalog.readiness"),
-            ),
+            (),
             guidance=(
-                "Acquire catalog = session.catalog. Select a value with its collection.get(path); check physical dependencies with readiness.",
-                "Discover bounded choices with collection.show() and copy a displayed plain path. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); use the exact definition explanation link below.",
-                "collection.get(full_path) returns expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming AnalysisFrame.show() explains its captured scope and operations.",
+                "Acquire catalog = session.catalog. Discover entries with search; copy canonical kind:path identities and retrieve with get.",
+                "Use page.show() for bounded candidates and entry.show() for captured definitions. Explicit filters constrain discovery; related navigation uses the full loaded Catalog scope.",
+                "Check entry.kind before accessing entry.value. Native closed execution values retain expression semantics; the consuming AnalysisFrame.show() explains captured scope and operations.",
             ),
             related=(
-                "semantic.catalog_collection.get",
-                "semantic.semantic_catalog.describe",
+                "semantic.semantic_catalog.search",
+                "semantic.semantic_catalog.get",
+                "semantic.readiness",
                 "authoring",
             ),
             discovery_group="inputs",
             route_summaries=(
-                *(
-                    ("catalog." + name, "Browse " + name.replace("_", " ") + ".")
-                    for name in (
-                        "domains",
-                        "datasources",
-                        "entities",
-                        "fields",
-                        "metrics",
-                        "relationships",
-                        "period_calendars",
-                        "temporal_sets",
-                    )
-                ),
                 (
-                    "catalog.readiness",
+                    "semantic.readiness",
                     "Check dependency readiness without proving method execution.",
                 ),
-                ("semantic.catalog_collection.get", "Known full path: retrieve the closed input."),
-                ("semantic.semantic_catalog.describe", "Explain an existing definition."),
+                ("semantic.semantic_catalog.search", "Discover business candidates."),
+                ("semantic.semantic_catalog.get", "Retrieve and explain an existing definition."),
                 (
                     "authoring",
                     "Missing business meaning or aggregation permission: author it explicitly.",

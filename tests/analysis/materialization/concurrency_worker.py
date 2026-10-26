@@ -18,6 +18,7 @@ from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
+from tests.shared_fixtures import catalog_value
 
 
 def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
@@ -37,10 +38,10 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
 
 def observation(session: Session, metric: str) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.metrics.get(metric)},
+        {"value": catalog_value(session.catalog, metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.entities.get("sales.customer")),
+            session.members(session.catalog.get("entity:sales.customer").value),
         ),
     )
 

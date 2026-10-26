@@ -14,7 +14,7 @@ def test_unconfirmed_source_disconnect_prevents_publication(
     from marivo.datasource._lifetime import BackendLease
 
     case = analysis_dsl_case_factory("j2")
-    logical = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
+    logical = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue").value})
     original = BackendLease.close
 
     def unconfirmed(lease: BackendLease, *, suppress_errors: bool = True) -> bool:

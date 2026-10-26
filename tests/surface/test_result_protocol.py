@@ -30,7 +30,7 @@ from marivo.semantic.dtos import (
     PreviewBatchResult,
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 from tests.support.refs import as_ref
 
 datasource_ref = ref_factory.datasource
@@ -230,7 +230,9 @@ def test_session_metadata_satisfies_terminal_protocol(
     import marivo.analysis as mv
 
     case = analysis_dsl_case_factory("j2")
-    output = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).persist()
+    output = case.session.observe(
+        {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")}
+    ).persist()
     assert case.session.persisted_frame(output.artifact.id).artifact.id == output.artifact.id
     for candidate in (mv.session.inspect(case.session.id), mv.session.recent(), _artifact_digest()):
         assert_conforms(candidate)

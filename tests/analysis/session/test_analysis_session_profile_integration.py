@@ -31,7 +31,7 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     session = mv.session.get_or_create("missing-source")
     assert terminal_runs(session) == ()
     with pytest.raises(SemanticLoadFailed) as caught:
-        session.observe({"revenue": session.catalog.metrics.get("sales.revenue")})
+        session.observe({"revenue": session.catalog.get("metric:sales.revenue").value})
     assert "warehouse" in str(caught.value)
     assert "unknown datasource" in str(caught.value)
     assert terminal_runs(session) == ()
@@ -64,7 +64,9 @@ def test_observe_uses_registered_global_datasource(
         .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
     session = mv.session.get_or_create("registered", timezone="UTC")
-    output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).compute()
+    output = session.observe(
+        {"revenue": session.catalog.get("metric:sales.revenue").value}
+    ).compute()
     assert output.to_pandas()["revenue"].tolist() == [expected]
     assert terminal_runs(session) == ()
     saved = output.persist()

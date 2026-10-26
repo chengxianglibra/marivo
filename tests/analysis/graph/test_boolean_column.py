@@ -9,7 +9,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value
 
 
 @pytest.fixture
@@ -18,8 +18,10 @@ def boolean_frame(analysis_dsl_case_factory: DslCaseFactory) -> tuple[DslCase, m
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE customer SET region=NULL WHERE customer_id='B'")
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    source = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    source = session.read(
+        members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
+    )
     flags = source.select({"flag": source["region"] == "east", "region": source["region"]})
     return case, flags.compute()
 

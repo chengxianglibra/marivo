@@ -12,8 +12,12 @@ end = split + timedelta(days=1)
 
 session = mv.session.get_or_create(f"axes-{uuid4().hex[:8]}", timezone="UTC", domains=None)
 catalog = session.catalog
-metric = catalog.metrics.get("sample.measurement")
-group = catalog.fields.get("sample.readings.group")
+metric_entry = catalog.get("metric:sample.measurement")
+assert metric_entry.kind == "metric"
+metric = metric_entry.value
+group_entry = catalog.get("dimension:sample.readings.group")
+assert group_entry.kind == "dimension"
+group = group_entry.value
 left_scope = session.time_scope(start=start, end=split)
 right_scope = session.time_scope(start=split, end=end)
 left = session.observe({"value": metric}, by=(left_scope, group)).compute()

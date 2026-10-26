@@ -14,7 +14,7 @@ from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -99,7 +99,7 @@ def test_complete_versioned_members(
             }
         )
         session = mv.session.get_or_create("c03-versions", timezone="UTC")
-        entity = session.catalog.entities.get("sales.subjects")
+        entity = session.catalog.get("entity:sales.subjects").value
         august = session.instant("2026-08-01")
         before_runs = len(terminal_runs(session))
         calls: list[str] = []
@@ -113,7 +113,8 @@ def test_complete_versioned_members(
             construction.setattr(SourceSession, "execute", no_construction_read)
             unanchored = session.members(entity)
             unanchored_read = session.read(
-                unanchored, {"amount": session.catalog.fields.get("sales.subjects.amount")}
+                unanchored,
+                {"amount": catalog_value(session.catalog, "sales.subjects.amount", kind="field")},
             )
             current = session.members(entity, at=august)
         assert calls == [] and len(terminal_runs(session)) == before_runs
@@ -137,7 +138,7 @@ def test_complete_versioned_members(
         assert set(frame.iloc[:, 0]) == expected
         assert len(frame) == 3
         fields = {
-            name: session.catalog.fields.get(f"sales.subjects.{name}").at(august)
+            name: catalog_value(session.catalog, f"sales.subjects.{name}", kind="field").at(august)
             for name in ("amount", "tenant", "enabled", "beginning")
         }
         values = session.read(current, fields)
@@ -169,7 +170,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["enabled"] == enabled)
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == {
             (9007199254740993, "a"),
@@ -178,7 +179,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["tenant"] == "b")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
         )
         assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [
             (9007199254740993, "b")
@@ -186,7 +187,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["beginning"] == date(2026, 8, 1))
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == expected
         for point, expected_count in (
@@ -291,9 +292,9 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         )
         root.environment["profile"] = profile
         session = mv.session.get_or_create("c03-scalar-path", timezone="UTC")
-        members = session.members(session.catalog.entities.get("sales.subjects"))
-        field = session.catalog.fields.get("sales.attributes.amount")
-        via = session.catalog.relationships.get("sales.attributes_path")
+        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        field = catalog_value(session.catalog, "sales.attributes.amount", kind="field")
+        via = session.catalog.get("relationship:sales.attributes_path").value
         inferred = session.read(members, {"value": field})
         explicit = session.read(members, {"value": field.via((via,))})
         inferred_backing, explicit_backing = inferred._backing, explicit._backing
@@ -303,12 +304,13 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         assert isinstance(explicit_backing.root, SourceFrameBinding)
         assert inferred_backing.root.graph.fingerprint == explicit_backing.root.graph.fingerprint
         category = session.read(
-            members, {"tenant": session.catalog.fields.get("sales.subjects.tenant")}
+            members,
+            {"tenant": catalog_value(session.catalog, "sales.subjects.tenant", kind="field")},
         )
         selected_values = category.where(category["tenant"] == "a")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
         )
         scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
         scoped = scoped_result.to_pandas()

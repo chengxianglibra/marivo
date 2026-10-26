@@ -32,6 +32,7 @@ from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
 from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
+from tests.shared_fixtures import catalog_value
 from tests.support.refs import as_ref
 
 
@@ -70,15 +71,15 @@ def test_definition_read_does_not_prescribe_readiness(
     )
     catalog = ms.load(workspace_dir=tmp_path)
     assert marivo.help is show_help
-    revenue = catalog.metrics.get("sales.revenue")
+    revenue = catalog.get("metric:sales.revenue").value
     monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
 
-    contract = catalog.describe(ms.ref.metric("sales.revenue")).render()
+    contract = catalog.get("metric:sales.revenue").render()
     assert "metric:sales.revenue" in contract
     assert "readiness(" not in contract
-    show_help(type(catalog.describe(ms.ref.metric("sales.revenue"))))
+    show_help(type(catalog.get("metric:sales.revenue")))
     briefing = capsys.readouterr().out
     assert ".show()" in briefing
     assert "readiness(" not in briefing
@@ -100,7 +101,7 @@ def test_definition_read_does_not_prescribe_readiness(
     constructor = capsys.readouterr().out
     assert "Postcondition after saving" in constructor
     assert "catalog = ms.load()" in constructor
-    assert "catalog.fields.get(" in constructor
+    assert "catalog.get(" in constructor
     assert "readiness(" not in constructor
 
 
@@ -279,8 +280,7 @@ def test_decorator_help_example_loads_the_declared_object(
         }
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    collection = catalog.metrics if target == "metric" else catalog.fields
-    value = collection.get(path)
+    value = catalog_value(catalog, path, kind="metric" if target == "metric" else "field")
     if target in {"measure", "metric"}:
         # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
@@ -295,7 +295,7 @@ def test_decorator_help_example_loads_the_declared_object(
             assert metric.node.ref.ref == ref_factory.metric(path)
             assert metric.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
-            dependency_value = catalog.fields.get(f"sales.orders.{dependency}")
+            dependency_value = catalog_value(catalog, f"sales.orders.{dependency}", kind="field")
             assert isinstance(dependency_value, Deferred)
             assert consume_field(dependency_value).reference.ref == ref_factory.measure(
                 f"sales.orders.{dependency}"
@@ -338,36 +338,34 @@ def expression_catalog(
 def test_readiness_repair_names_admissible_physical_dependencies(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
-    with pytest.raises(SemanticRuntimeError) as captured:
-        expression_catalog.readiness(refs=[ms.ref.metric("sales.zeta_revenue")])
-    repair = captured.value.repair
-    assert repair is not None and repair.snippet is not None
-    assert "metric:sales.zeta_revenue" not in repair.candidates
-    assert "measure:sales.orders.amount" in repair.candidates
-    # Run the concrete public repair. It may report readiness blockers but must
-    # not repeat the invalid-expression input rejection.
-    eval(repair.snippet, {"catalog": expression_catalog, "ms": ms})
+    report = expression_catalog.readiness(
+        refs=[expression_catalog.get("metric:sales.zeta_revenue")]
+    )
+    assert report.requested_ids == ("metric:sales.zeta_revenue",)
+    assert "measure:sales.orders.amount" in report.checked_ids
+    assert "metric:sales.zeta_revenue" not in report.checked_ids
+    assert all(
+        as_ref(value).kind is not ms.SemanticKind.METRIC for value in report.analysis_ready_inputs
+    )
 
 
 def test_missing_path_ranks_real_collection_paths_before_bounding(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
     with pytest.raises(SemanticRuntimeError) as captured:
-        expression_catalog.metrics.get("sales.zeta_revenu")
+        _ = expression_catalog.get("metric:sales.zeta_revenu").value
     repair = captured.value.repair
-    assert repair is not None and repair.snippet is not None
-    assert repair.candidates[0] == "sales.zeta_revenue"
-    assert "catalog.metrics.show()" in str(captured.value)
-    assert "catalog.domains.show()" not in str(captured.value)
-    assert eval(repair.snippet, {"catalog": expression_catalog, "ms": ms}) is not None
+    assert repair is not None
+    assert repair.candidates[0] == "metric:sales.zeta_revenue"
+    assert "catalog.search" in str(captured.value)
     for key in repair.candidates:
-        assert key in {ref.path for ref in expression_catalog.metrics._refs}
+        assert expression_catalog.get(key).id == key
 
 
 def test_row_filter_failure_points_to_its_exact_expression_role(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
-    amount = expression_catalog.fields.get("sales.orders.amount")
+    amount = catalog_value(expression_catalog, "sales.orders.amount", kind="field")
     with pytest.raises(SemanticExpressionError) as captured:
         consume_metric(amount.where(amount > 0).sum())
     repair = captured.value.repair

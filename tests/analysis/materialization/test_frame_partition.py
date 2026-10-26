@@ -24,7 +24,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 INT64 = ScalarDataType("int64")
 
@@ -219,7 +219,7 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     pending = case.session.values(
-        by=(case.catalog.fields.get("sales.customer.customer_id"),),
+        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),),
         columns={"x": None},
         rows=((("A",), {"x": Decimal("1.25")}), (("B",), {"x": Decimal("3.75")})),
     )
@@ -280,13 +280,15 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
 
     case = analysis_dsl_case_factory("j2")
     scope = case.session.time_scope(start="2026-08-01", end="2026-08-03")
-    interval = case.session.observe({"x": case.catalog.metrics.get("sales.revenue")}, by=(scope,))
+    interval = case.session.observe(
+        {"x": case.catalog.get("metric:sales.revenue").value}, by=(scope,)
+    )
     assert isinstance(interval._schema.axes[0], IntervalDataAxis)
     grouped = interval.select({"rows": interval.over(mv.row_count(), by=interval.axes)})
     assert grouped._schema.axes == interval._schema.axes
     assert grouped.compute().to_pandas()["rows"].tolist() == [1]
     daily = case.session.observe(
-        {"x": case.catalog.metrics.get("sales.revenue")}, by=(scope.by(mv.grain("day")),)
+        {"x": case.catalog.get("metric:sales.revenue").value}, by=(scope.by(mv.grain("day")),)
     )
     paired = daily.align(daily, match=CalendarCorrespondence("ordinal"))
     assert isinstance(paired._schema.axes[0], PairedDataAxis)
@@ -369,10 +371,10 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     observed = session.observe(
-        {"revenue": case.catalog.metrics.get("sales.revenue")},
+        {"revenue": case.catalog.get("metric:sales.revenue").value},
         by=(
             session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month")),
-            case.catalog.fields.get("sales.customer.region"),
+            catalog_value(case.catalog, "sales.customer.region", kind="field"),
         ),
     ).compute()
     month = next(axis for axis in observed.axes if axis.role == "calendar")

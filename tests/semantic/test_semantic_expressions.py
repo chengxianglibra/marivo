@@ -56,7 +56,7 @@ from marivo.semantic.expressions import (
 )
 from marivo.semantic.loader import LoaderContext, loader_context
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import captured_catalog
+from tests.shared_fixtures import captured_catalog, catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
 
@@ -600,7 +600,7 @@ def test_pure_declaration_captures_symbols_before_complete_binding(
         ctx.declarations.append(named_amount)
         loaded = captured_catalog()
     assert (
-        consume_row(loaded.fields.get("sales.orders.named_amount")).node
+        consume_row(catalog_value(loaded, "sales.orders.named_amount", kind="field")).node
         == consume_row(resolve(loaded, amount)).node
     )
 
@@ -647,10 +647,10 @@ def revenue():
         )
     )
     assert counter.read_text() == "capture\n"
-    amount = loaded.fields.get("sales.orders.amount")
-    cost = loaded.fields.get("sales.orders.cost")
-    normalized = loaded.fields.get("sales.orders.normalized")
-    orders = loaded.entities.get("sales.orders")
+    amount = catalog_value(loaded, "sales.orders.amount", kind="field")
+    cost = catalog_value(loaded, "sales.orders.cost", kind="field")
+    normalized = catalog_value(loaded, "sales.orders.normalized", kind="field")
+    orders = loaded.get("entity:sales.orders").value
     assert (
         consume_metric((amount + cost).sum()).node.time
         == consume_metric((cost + amount).sum()).node.time
@@ -1088,7 +1088,7 @@ def test_resolved_values_are_immutable_with_bounded_repr(catalog: SemanticCatalo
     amount = _physical(catalog, ms.ref.measure("sales.orders.amount"))
     with pytest.raises(AttributeError):
         amount.unit = _consume_value("USD")
-    contract = catalog.describe(ms.ref.measure("sales.orders.amount"))
+    contract = catalog.get("measure:sales.orders.amount")
     assert "\n" not in repr(contract) and len(repr(contract)) < 120
     assert isinstance(consume_field(amount).reference, ExactRef)
 

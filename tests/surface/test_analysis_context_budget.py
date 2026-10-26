@@ -19,7 +19,7 @@ from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 BASELINE = Path(__file__).with_name("analysis_context_baseline.json")
 
@@ -95,8 +95,8 @@ def test_baseline_retains_complete_outputs() -> None:
 def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.entities.get("sales.customer"))
-    metric = session.catalog.metrics.get("sales.order_count")
+    members = session.members(catalog_value(session.catalog, "sales.customer", kind="entity"))
+    metric = catalog_value(session.catalog, "sales.order_count", kind="metric")
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
     values = session.observe({"value": metric}, by=mv.product(august, members))
     traces: dict[str, Trace] = {}
@@ -145,7 +145,10 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         "reference.relative.value",
     )
     amounts = session.observe(
-        {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
+        {
+            "count": metric,
+            "revenue": catalog_value(session.catalog, "sales.revenue", kind="metric"),
+        },
         by=mv.product(august, members),
     )
     trace.help(mv.Column.__truediv__)
@@ -157,7 +160,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     selected = values.where(values["value"] > 0)
     trace.read("selection metadata", selected.show)
     trace.help(session.population_from)
-    entity = session.catalog.entities.get("sales.customer")
+    entity = catalog_value(session.catalog, "sales.customer", kind="entity")
     selected_members = session.population_from(selected, on=((selected.axes[1], entity),))
     trace.read("selected members metadata", selected_members.show)
     assert isinstance(selected_members, mv.Population)
@@ -188,7 +191,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
     forecast_session = mv.session.get_or_create("context-budget-forecast", timezone="UTC")
     daily = forecast_session.observe(
-        {"value": forecast_session.catalog.metrics.get("sales.total_0")},
+        {"value": catalog_value(forecast_session.catalog, "sales.total_0", kind="metric")},
         by=(forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
     )
     trace = traces["drift"] = Trace(case.root)
@@ -240,8 +243,8 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     """Charge the new source-to-facts journey separately from historical savings."""
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = session.catalog.metrics.get("sales.revenue")
-    region = session.catalog.fields.get("sales.customer.region")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
     july = session.time_scope(start="2026-07-01", end="2026-08-01")
     trace = Trace(case.root)

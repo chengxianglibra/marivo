@@ -46,11 +46,13 @@ def test_defined_quantiles_survive_source_offline_recovery(
     session = case.session
     query = session.observe(
         {
-            "median": session.catalog.metrics.get("sales.median_amount"),
-            "approximate_median": session.catalog.metrics.get("sales.approximate_median_amount"),
-            "approximate_p95": session.catalog.metrics.get("sales.approximate_p95_amount"),
+            "median": session.catalog.get("metric:sales.median_amount").value,
+            "approximate_median": session.catalog.get(
+                "metric:sales.approximate_median_amount"
+            ).value,
+            "approximate_p95": session.catalog.get("metric:sales.approximate_p95_amount").value,
         },
-        by=session.members(session.catalog.entities.get("sales.customer")),
+        by=session.members(session.catalog.get("entity:sales.customer").value),
     )
     output = query.persist()
     exported = output.to_pandas()
@@ -71,10 +73,10 @@ def test_defined_quantiles_survive_source_offline_recovery(
     total = (
         session.observe(
             {
-                "median": session.catalog.metrics.get("sales.median_amount"),
-                "approximate_median": session.catalog.metrics.get(
-                    "sales.approximate_median_amount"
-                ),
+                "median": session.catalog.get("metric:sales.median_amount").value,
+                "approximate_median": session.catalog.get(
+                    "metric:sales.approximate_median_amount"
+                ).value,
             }
         )
         .compute()

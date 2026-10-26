@@ -92,7 +92,7 @@ def test_session_catalog_loads_external_semantic_layer(
 
     session = mv.session.get_or_create(name="external_layer_session")
 
-    refunds = consume_metric(session.catalog.metrics.get("finance.refunds_total"))
+    refunds = consume_metric(session.catalog.get("metric:finance.refunds_total").value)
     assert isinstance(refunds.node, DeclaredMetricRef)
     assert refunds.node.ref.ref.path == "finance.refunds_total"
 
@@ -158,7 +158,7 @@ def test_session_observe_uses_external_layer_datasource(
     monkeypatch.chdir(project_root)
 
     session = mv.session.get_or_create(name="external_layer_observe", timezone="UTC")
-    metric = session.catalog.metrics.get("finance.refunds_total")
+    metric = session.catalog.get("metric:finance.refunds_total").value
     frame = session.observe({"refunds": metric}).compute()
 
     assert frame.to_pandas()["refunds"].tolist() == [150.0]
