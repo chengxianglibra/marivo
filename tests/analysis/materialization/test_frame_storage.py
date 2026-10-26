@@ -51,6 +51,7 @@ from marivo.analysis.core.frozen_calendar import (
     read_calendar_records,
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication
@@ -463,6 +464,32 @@ def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> Non
     assert value.metadata.evaluated_at < datetime.fromisoformat(run.admitted_at)
     assert counts(local) == (1, 1)
     assert "display_order" not in encode(value)
+
+
+@pytest.mark.parametrize("row_count", (0, 1))
+def test_zero_axis_empty_select_preserves_cardinality_through_storage(
+    local: LocalFrameServices, row_count: int
+) -> None:
+    source = values(local, columns={"value": None}, rows=(((), {"value": 7}),))
+    if row_count == 0:
+        source = source.where(source["value"] < 0)
+    projected = source.select({})
+    completed = projected.compute()
+    assert completed.axes == () and completed.output_names == ()
+    assert completed.presence_names == ()
+    assert completed.to_pandas().shape == (row_count, 0)
+    saved = completed.persist()
+    backing = local.open_frame(saved.artifact.id)
+    reopened = AnalysisFrame._from_stored(
+        local,
+        backing.data,
+        artifact_id=backing.artifact_id,
+        metadata=backing.metadata,
+    )
+    for frame in (saved, reopened, reopened.compute()):
+        assert frame.to_pandas().shape == (row_count, 0)
+        counted = frame.reduce(mv.row_count()).compute().to_pandas()
+        assert counted["row_count"].tolist() == [row_count]
 
 
 def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) -> None:

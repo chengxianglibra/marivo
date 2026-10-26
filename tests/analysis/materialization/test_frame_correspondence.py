@@ -937,8 +937,14 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
         ("one",),
         ("two",),
     )
-    presence_only = selected.select({"literal": 1}).compute()
+    presence_only = selected.select({}).compute()
+    table = presence_only.to_pandas()
+    assert presence_only.output_names == ()
+    assert table[presence_only.axes[0].name].tolist() == ["A", "B"]
+    assert table["current.present"].tolist() == [True, False]
+    assert table["reference.present"].tolist() == [False, True]
     assert presence_only._schema.comparisons[0].values == ()
+    presence_only = presence_only.select({"literal": 1}).compute()
     second = presence_only.compare(
         {
             "reference": mv.baseline(

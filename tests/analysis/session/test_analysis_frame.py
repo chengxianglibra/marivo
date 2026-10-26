@@ -113,6 +113,39 @@ def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServ
     assert count.to_pandas()["rows"].tolist() == [0]
 
 
+def test_empty_select_preserves_rows_order_coordinates_and_presence(
+    local: LocalFrameServices,
+) -> None:
+    root = _memory(local)
+    pending = root.select({})
+    assert pending.output_names == ()
+    assert pending.presence_names == ("right_present",)
+    with pytest.raises(CoreRuleError, match="compute"):
+        pending.to_pandas()
+    result = pending.compute()
+    table = result.to_pandas()
+    assert table.columns.tolist() == ["region", "right_present"]
+    assert table["region"].tolist() == ["B", "A"]
+    assert table["right_present"].tolist() == [False, True]
+    pd.testing.assert_frame_equal(result.select({}).compute().to_pandas(), table)
+    assert root.output_names == ("value",)
+    assert root.to_pandas()["value"].tolist() == [10, 100]
+
+
+@pytest.mark.parametrize("invalid", (None, (), []))
+def test_select_rejects_non_mapping_with_structured_repair(
+    local: LocalFrameServices, invalid: object
+) -> None:
+    with pytest.raises(CoreRuleError) as caught:
+        _memory(local).select(invalid)
+    error = caught.value
+    assert error.expected == "a named value mapping (possibly empty)"
+    assert error.received == type(invalid).__name__
+    assert error.location == "frame.select"
+    assert error.repair is not None and "select({})" in error.repair.action
+    assert error.repair.help_target.canonical_id == "analysis_frame.select"
+
+
 def test_show_is_metadata_only_for_pending_and_n_zero(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

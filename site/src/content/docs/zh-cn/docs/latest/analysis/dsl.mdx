@@ -505,6 +505,15 @@ followup.show()
 | --- | --- | --- | --- |
 | `values` | 是 | — | 输出名映射到确切当前 Frame 的 Column 或受支持字面值。 |
 
+传入空映射可移除全部值，同时保留当前行域、行序、完整坐标和 presence，以及必要的冻结坐标映射。
+求值仍执行上游必须完成的计算和检查。
+
+```python
+coordinates_only = saved.select({}).compute()
+assert coordinates_only.output_names == ()
+assert coordinates_only.presence_names == saved.presence_names
+```
+
 ### `frame.where`
 
 | 参数 | 必填 | 默认值 | 语义 |

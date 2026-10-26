@@ -42,6 +42,12 @@ from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
 
 
+def test_empty_select_help_discloses_retained_domain() -> None:
+    text = render_help_text("analysis.analysis_frame.select")[0]
+    assert "{} removes all values" in text
+    assert "preserving rows, order, complete coordinates and presence" in text
+
+
 def test_simplified_policies_have_one_public_route() -> None:
     assert not hasattr(mv.Column, "divide")
     with pytest.raises((AnalysisError, MarivoHelpTargetError)):

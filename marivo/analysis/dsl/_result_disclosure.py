@@ -240,11 +240,11 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "values",
-                    "Nonempty named mapping of same-input Columns or immutable non-null literals.",
+                    "Named mapping of same-input Columns or immutable non-null literals; {} removes all values.",
                 ),
             ),
             "AnalysisFrame",
-            "Select named values, preserving complete coordinates and presence without hiding deleted values.",
+            "Project values while preserving rows, order, complete coordinates and presence.",
             "result = frame.select({'value': frame['value']})",
             ("frame",),
             "frame.expressions",

@@ -426,16 +426,17 @@ class AnalysisFrame:
     def select(self, values: Mapping[str, Column | LiteralValue]) -> AnalysisFrame:
         """Name current Columns or non-null supported literals, preserving the row domain.
 
-        Args: values: Nonempty ordered mapping of user name segments to bound Columns/literals.
+        Args: values: Ordered mapping of user name segments to bound Columns/literals; may be empty.
         Returns: A lazy Frame retaining axes and all presence, with only the selected values.
         Example: ``selected = frame.select({'change': frame['reference.absolute.revenue']})``.
-        Constraints: Does not recover removed values or endpoint inputs; no source reads.
+        Constraints: An empty mapping removes all values while retaining rows, axes and presence.
+        Does not recover removed values or endpoint inputs; no source reads during capture.
         """
-        if not isinstance(values, Mapping) or not values:
+        if not isinstance(values, Mapping):
             reject(
-                "a nonempty named value mapping",
+                "a named value mapping (possibly empty)",
                 type(values).__name__,
-                "Pass select({'name': column}).",
+                "Pass select({'name': column}) or select({}) to retain only coordinates and presence.",
                 "frame.select",
                 canonical_id="analysis_frame.select",
             )

@@ -328,6 +328,9 @@ def test_static_display_errors_are_zero_read(
         raise AssertionError("static display admission read business data")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
+    projected = values.select({})
+    assert projected.output_names == ()
+    assert projected.presence_names == values.presence_names
     for bad in (True, False, -1, 1.5, "1"):
         with pytest.raises(AnalysisError):
             values.top(bad, by=values["value"])  # type: ignore[arg-type]  # Deliberately invalid public n values.
@@ -335,7 +338,6 @@ def test_static_display_errors_are_zero_read(
         with pytest.raises(AnalysisError):
             values.top(1, by=values["value"], descending=bad)  # type: ignore[arg-type]  # Deliberately invalid closed policy.
     for columns in (
-        {},
         {"": values["value"]},
         {"a": fixed},
         {"a": values["value"], "b": foreign["value"]},

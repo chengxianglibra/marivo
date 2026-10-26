@@ -104,12 +104,14 @@ def test_query_arithmetic_keeps_selected_completed_values(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_local_query_overflow_fails_before_empty_top(
+@pytest.mark.parametrize("projection", ("top", "empty_select"))
+def test_local_query_overflow_survives_projection(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
+    projection: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with source_case(
@@ -122,7 +124,7 @@ def test_local_query_overflow_fails_before_empty_top(
             session.members(session.catalog.entities.get("sales.facts")), {"big": big}
         )
         source = source.select({"value": source["big"] + 1})
-        query = source.top(0, by=source["value"])
+        query = source.top(0, by=source["value"]) if projection == "top" else source.select({})
         trace = capture_source(monkeypatch)
         with pytest.raises(MaterializationError, match="overflow"):
             query.compute()

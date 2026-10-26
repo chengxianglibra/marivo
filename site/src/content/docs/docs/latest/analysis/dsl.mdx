@@ -516,6 +516,16 @@ A missing comparison row is different from a present row whose value is unknown.
 | --- | --- | --- | --- |
 | `values` | Yes | — | Output names mapped to Columns from this exact Frame or supported literal values. |
 
+Pass an empty mapping to remove all values while retaining the current rows, row order,
+complete coordinates and presence. This also preserves necessary frozen coordinate mappings.
+Evaluation still runs required upstream calculations and checks.
+
+```python
+coordinates_only = saved.select({}).compute()
+assert coordinates_only.output_names == ()
+assert coordinates_only.presence_names == saved.presence_names
+```
+
 ### `frame.where`
 
 | Parameter | Required | Default | Meaning |

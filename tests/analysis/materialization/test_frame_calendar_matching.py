@@ -610,9 +610,10 @@ def test_select_filter_and_top_keep_complete_pair_interpretation(local: LocalFra
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (2, 3))
     output = left.align(right, match=CalendarCorrespondence("ordinal")).compute()
     selected = output.select({"copied": output["left.amount"]})
+    coordinates_only = output.select({})
     filtered = output.where(output["left.amount"] > 2)
     top = output.top(1, by=output["left.amount"])
-    for derived in (selected, filtered, top):
+    for derived in (selected, coordinates_only, filtered, top):
         result = derived.compute()
         assert result.presence_names == ("left_present", "right_present")
         assert tuple(len(a.rows) for a in _memory_backing(result).data.copy_attachments()) == (
@@ -623,6 +624,10 @@ def test_select_filter_and_top_keep_complete_pair_interpretation(local: LocalFra
         with pytest.raises(AnalysisError, match="without paired"):
             result.align(result)
     assert selected.output_names == ("copied",)
+    table = coordinates_only.compute().to_pandas()
+    expected = output.to_pandas().drop(columns=list(output.output_names))
+    pd.testing.assert_frame_equal(table, expected)
+    assert coordinates_only.output_names == ()
     assert _memory_backing(top.compute()).data.copy_rows()[
         _complete_schema(output).key_fields[0]
     ].tolist() == [1]
