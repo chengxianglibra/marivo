@@ -380,9 +380,13 @@ def test_mixed_component_attribution_source_and_fixed(
         where=mv.in_population(members),
     )
     changed = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).persist()
     changed_rows = changed.to_pandas()
     for method in methods:
@@ -480,9 +484,13 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         where=mv.in_population(members),
     )
     fixed = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).persist()
     for result in (fixed, session.persisted_frame(fixed.artifact.id)):
         values = result.to_pandas()["reference.absolute.value"]
@@ -568,9 +576,13 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     result = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).persist()
     assert result.to_pandas()["reference.relative.value"].tolist() == [1.0]
     current_values, baseline_values = _value(current.compute()), _value(baseline.compute())

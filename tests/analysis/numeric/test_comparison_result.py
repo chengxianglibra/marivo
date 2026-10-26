@@ -43,9 +43,13 @@ def test_comparison_owns_independent_nullable_columns(
     current = _monthly(case, "2026-09-01", "2026-10-01")
     baseline = _monthly(case, "2026-08-01", "2026-09-01")
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     assert isinstance(comparison, mv.AnalysisFrame)
     before = run_ids(case.session)
@@ -83,13 +87,17 @@ def test_comparison_owns_independent_nullable_columns(
     assert frame["reference.relative.value"].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare({"reference": result.artifact}, match={"reference": mv.ordinal()})  # type: ignore[arg-type]  # Audit views are not Frame operands.
+        current.compare({"reference": mv.baseline(result.artifact, match=mv.ordinal())})  # type: ignore[arg-type]  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
     same = (
         current.compare(
-            {"reference": current},
-            on={"reference": tuple(zip(current.axes, current.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    current,
+                    on=tuple(zip(current.axes, current.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         .compute()
         .to_pandas()
@@ -114,9 +122,13 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     baseline = _monthly(case, "2026-07-01", "2026-08-01")
     frame = (
         current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         .compute()
         .to_pandas()
@@ -136,9 +148,13 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
     current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
     baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
     saved = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)

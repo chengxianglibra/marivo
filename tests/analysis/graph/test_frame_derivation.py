@@ -37,7 +37,7 @@ def test_compare_tracks_every_alias_and_rejects_column_arithmetic_promotion(
     case = analysis_dsl_case_factory("j1")
     amount = case.session.catalog.fields.get("sales.order.amount")
     source = case.session.observe({"q": amount.sum()}).compute()
-    compared = source.compare({"a": source, "b": source})
+    compared = source.compare({"a": mv.baseline(source), "b": mv.baseline(source)})
     assert compared._derivation is not None
     outputs = {output.path: output.target for output in compared._derivation.outputs}
     assert outputs[("a", "absolute", "q")].mode == "absolute"
@@ -46,7 +46,7 @@ def test_compare_tracks_every_alias_and_rejects_column_arithmetic_promotion(
     arithmetic = source.select({"q": source["q"] + 1})
     assert arithmetic._derivation is not None
     assert arithmetic._derivation.outputs == ()
-    wrapped = arithmetic.compare({"a": arithmetic})
+    wrapped = arithmetic.compare({"a": mv.baseline(arithmetic)})
     assert wrapped._derivation is not None
     assert wrapped._derivation.outputs == ()
     aligned = source.align(source)

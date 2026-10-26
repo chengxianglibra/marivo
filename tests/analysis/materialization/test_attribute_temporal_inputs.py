@@ -74,9 +74,13 @@ def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.Analysi
     """Build a fixed absolute target from actual captured observed endpoints."""
     temporal = any(axis.role in ("calendar", "interval") for axis in current.axes)
     compared = current.compare(
-        {"base": baseline},
-        on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"base": mv.ordinal()} if temporal else None,
+        {
+            "base": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal() if temporal else None,
+            )
+        },
     )
     return compared.select({"q": compared["base.absolute.q"]}).compute()
 
@@ -102,9 +106,12 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
         where=phase == "base",
     )
     compared = left.compare(
-        {"one": right, "two": right},
-        on={name: tuple(zip(left.axes, right.axes, strict=True)) for name in ("one", "two")},
-        match={name: mv.ordinal() for name in ("one", "two")},
+        {
+            name: mv.baseline(
+                right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+            )
+            for name in ("one", "two")
+        },
     ).compute()
     report = compared.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
@@ -770,7 +777,9 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     left = session.observe({"q": metric}, by=(region,), where=phase == "current")
     right = session.observe({"q": metric}, by=(region,), where=phase == "base")
     # Retain both native parent values without reading the same endpoints again.
-    parent = left.compare({"base": right}, on={"base": ((left.axes[0], right.axes[0]),)}).compute()
+    parent = left.compare(
+        {"base": mv.baseline(right, on=((left.axes[0], right.axes[0]),))}
+    ).compute()
     parent_rows = parent.to_pandas()
     selected = parent.select({"q": parent["base.absolute.q"]})
     calls: list[object] = []
@@ -910,9 +919,11 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
         left = session.observe({"q": metric}, by=(current, channel), where=phase == "current")
         right = session.observe({"q": metric}, by=(baseline, channel), where=phase == "base")
         result = left.compare(
-            {"base": right},
-            on={"base": tuple(zip(left.axes, right.axes, strict=True))},
-            match={"base": mv.ordinal()},
+            {
+                "base": mv.baseline(
+                    right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+                )
+            }
         ).compute()
     rows = result.to_pandas()
     assert len(result.axes) == 2
@@ -975,9 +986,7 @@ def test_captured_interval_parent_keeps_original_endpoint_scopes(
     )
     pairs = tuple(zip(current.axes, baseline.axes, strict=True))
     if shape == "compare":
-        compared = current.compare(
-            {"base": baseline}, on={"base": pairs}, match={"base": mv.ordinal()}
-        )
+        compared = current.compare({"base": mv.baseline(baseline, on=pairs, match=mv.ordinal())})
         selected = compared.select({"q": compared["base.absolute.q"]}).compute()
     else:
         paired = current.align(baseline, on=pairs, match=mv.ordinal())
@@ -1019,9 +1028,11 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
         {"q": amount.sum(time=day)}, by=(baseline_calendar,), where=phase == "base"
     )
     comparison = current.compare(
-        {"base": baseline},
-        on={"base": ((current.axes[0], baseline.axes[0]),)},
-        match={"base": mv.ordinal()},
+        {
+            "base": mv.baseline(
+                baseline, on=((current.axes[0], baseline.axes[0]),), match=mv.ordinal()
+            )
+        }
     )
     selected = comparison.select({"q": comparison["base.absolute.q"]})
     selected = selected.top(1, by=selected["q"]).compute()

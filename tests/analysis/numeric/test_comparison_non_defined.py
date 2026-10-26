@@ -77,9 +77,11 @@ def test_null_operand_propagates_in_time_comparison(
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     for first, second, sign in ((current, baseline, 1), (baseline, current, -1)):
         result = first.compare(
-            {"reference": second},
-            on={"reference": tuple(zip(first.axes, second.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    second, on=tuple(zip(first.axes, second.axes, strict=True)), match=mv.ordinal()
+                )
+            }
         ).compute()
         frame = result.to_pandas()
         frame = frame.set_index(ordinary_columns(frame)[0])
@@ -95,9 +97,13 @@ def test_null_operand_propagates_in_time_comparison(
         assert frame.loc["D", populated_endpoint] == 0
     frame = (
         current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         .compute()
         .to_pandas()
@@ -112,9 +118,13 @@ def test_null_operands_propagate_in_period_comparison(
     current = _observe(case, "2026-08-14", "2026-08-17", daily=True)
     baseline = _observe(case, "2026-07-09", "2026-07-12", daily=True)
     result = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     ).persist()
     frame = result.to_pandas()
     assert len(frame) == 12
@@ -173,9 +183,13 @@ def test_native_nan_operand_is_retained_in_comparison_endpoints(
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     rows = (
         current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         .compute()
         .to_pandas()

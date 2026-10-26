@@ -215,7 +215,7 @@ def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
         if consumer == "align":
             literal_frame.align(other)
         else:
-            literal_frame.compare({"reference": other})
+            literal_frame.compare({"reference": mv.baseline(other)})
     _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
     assert captured.value.location == f"frame.{consumer}"
     assert captured.value.expected == "a complete explicit axis bijection"
@@ -223,7 +223,7 @@ def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
     repaired = (
         literal_frame.align(other, on=pairs)
         if consumer == "align"
-        else literal_frame.compare({"reference": other}, on={"reference": pairs})
+        else literal_frame.compare({"reference": mv.baseline(other, on=pairs)})
     )
     rows = repaired.compute().to_pandas()
     path = "left.value" if consumer == "align" else "value"

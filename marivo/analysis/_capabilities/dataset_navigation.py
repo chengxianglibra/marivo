@@ -202,6 +202,7 @@ _PAGES = (
         route_summaries=(
             ("analysis_frame.align", "Retain both endpoints and their presence."),
             ("analysis_frame.compare", "Add baseline values, absolute change and relative change."),
+            ("baseline", "Bundle a named baseline Frame with its correspondence rules."),
             ("inputs.time", "Choose explicit time identity and calendar correspondence."),
         ),
     ),

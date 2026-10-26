@@ -29,7 +29,7 @@ def _contribution(
     *,
     by: tuple[Deferred | Grouping, ...] | Population,
 ) -> AnalysisFrame:
-    compared = current.compare({"base": baseline})
+    compared = current.compare({"base": mv.baseline(baseline)})
     selected = compared.select(
         {name: compared[f"base.absolute.{name}"] for name in current.output_names}
     )

@@ -139,11 +139,11 @@ and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge
 
 ``align`` preserves left/right values and general paired time unions.
 ``compare`` accepts one same-Session Frame with fixed alias ``reference``, or a
-nonempty ordered Mapping of named Frames. Multiple baselines require explicit
+nonempty ordered Mapping of named ComparisonBaseline declarations from ``mv.baseline(...)``. Multiple baselines require explicit
 aliases. ``current.compare(baseline)`` is equivalent to
-``current.compare({'reference': baseline})``. It retains current axes and values, then adds each
+``current.compare({'reference': mv.baseline(baseline)})``. It retains current axes and values, then adds each
 alias's ``baseline``, ``absolute`` and ``relative`` groups. For example,
-``current.compare({"yoy": baseline}, match={"yoy": mv.offset(years=-1)})``
+``current.compare({"yoy": mv.baseline(baseline, match=mv.offset(years=-1))})``
 produces ``revenue`` and ``yoy.baseline.revenue``, ``yoy.absolute.revenue``,
 ``yoy.relative.revenue``. Relative is ``(current-baseline)/abs(baseline)``.
 ``current.present`` and ``yoy.present`` are row-existence flags independent of
@@ -154,7 +154,8 @@ unit and relative is dimensionless; strict child policies remain required.
 For a bare baseline Frame, ``on`` is a bare axis-pair tuple and ``match`` is a
 bare CalendarCorrespondence, for example
 ``current.compare(baseline, on=((current.axes[0], baseline.axes[0]),), match=mv.ordinal())``.
-For baseline Mapping input, both parameters are per-alias Mappings; the two
+For named input, put each Frame and its rules in ``mv.baseline(frame, on=..., match=...)``;
+no top-level rules or bare Frame Mapping are accepted. The two
 parameter shapes cannot be mixed. Omitting the alias does not infer a date shift
 or business relationship. A generated ``reference`` path collision requires an
 explicit alias or prior select; no suffix is generated automatically.
@@ -330,6 +331,7 @@ Canonical public exports
    Population
    Grouping
    CalendarCorrespondence
+   ComparisonBaseline
    Grain
    TimeScope
    InstantAnchor
@@ -351,6 +353,7 @@ Canonical public exports
    product
    in_population
    identity
+   baseline
    row_count
    ordinal
    offset

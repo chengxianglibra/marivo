@@ -185,8 +185,11 @@ def test_member_classification_survives_rollup_for_additive_comparison(
 
     current, baseline = endpoint(8), endpoint(7)
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+            )
+        }
     )
     selected = comparison.where(comparison["reference.absolute.value"] != 0)
     selected = selected.select({"value": selected["reference.absolute.value"]})
@@ -488,16 +491,19 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
 
     current, baseline = endpoint(8), endpoint(7)
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     saved = comparison.persist()
     expected = {("east",): -20, ("south",): -50, ("west",): 0}
     assert _keyed(saved.to_pandas(), "reference.absolute.value") == expected
     self_comparison = current.compare(
-        {"reference": current},
-        on={"reference": tuple(zip(current.axes, current.axes, strict=True))},
+        {"reference": mv.baseline(current, on=tuple(zip(current.axes, current.axes, strict=True)))}
     ).persist()
     assert self_comparison.to_pandas()["reference.absolute.value"].tolist() == [0, 0, 0]
     fixed_current, fixed_baseline = current.persist(), baseline.persist()

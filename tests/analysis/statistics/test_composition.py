@@ -72,9 +72,13 @@ def test_direct_score_runs_and_next_business_round(
     )
     changes = plain(
         following.compare(
-            {"reference": previous},
-            on={"reference": tuple(zip(following.axes, previous.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    previous,
+                    on=tuple(zip(following.axes, previous.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         ).compute()
     )
     assert changes.set_index("key_1")["reference.absolute.value"].to_dict() == {
@@ -133,9 +137,13 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     frame = plain(
         current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         ).compute()
     )
     facts = analysis_dsl_rows("j2")

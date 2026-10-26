@@ -165,9 +165,13 @@ def test_business_display_identifies_current_and_baseline_windows(
         period = capsys.readouterr().out
         assert start in period and end in period and "UTC" in period
     output = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).compute()
     assert {column.name for column in output._schema.values} == {
         "value",

@@ -100,7 +100,7 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
         query = (
             left.align(right, on=on)
             if operation == "align"
-            else left.compare({"base": right}, on={"base": on})
+            else left.compare({"base": mv.baseline(right, on=on)})
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()

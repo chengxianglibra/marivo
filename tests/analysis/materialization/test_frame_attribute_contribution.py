@@ -89,7 +89,7 @@ def test_attribute_constant_division_retains_original_operation(
     )
     current = session.observe({"q": metric}, where=phase == "current")
     baseline = session.observe({"q": metric}, where=phase == "base")
-    compared = current.compare({"base": baseline})
+    compared = current.compare({"base": mv.baseline(baseline)})
     report = compared.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
     assert rows["contribution.q"].tolist() == pytest.approx([80 / divisor, 40 / divisor])
@@ -142,7 +142,7 @@ def test_attribute_division_rounds_operands_before_large_integer_cancellation(
     assert report["contribution.scaled"]._unit == "USD"
     assert report["contribution.rescaled"]._unit == "GiB/s"
     baseline = session.observe(metrics, where=phase == "base")
-    compared = current.compare({"base": baseline})
+    compared = current.compare({"base": mv.baseline(baseline)})
     changes = compared.select({"q": compared["base.absolute.residual"]})
     rows = changes.attribute(by=(channel,)).compute().to_pandas()
     assert rows["contribution.q"].tolist() == [-0.5, 0.0]
@@ -170,7 +170,7 @@ def test_nested_additive_scaling_retains_ordered_level_and_paired_facts(
     )
     current = session.observe({"q": metric}, where=phase == "current")
     baseline = session.observe({"q": metric}, where=phase == "base")
-    compared = current.compare({"base": baseline})
+    compared = current.compare({"base": mv.baseline(baseline)})
     report = (
         compared.select({"q": compared["q"], "change": compared["base.absolute.q"]})
         .attribute(by=(channel,))
@@ -306,7 +306,7 @@ def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
     assert child.method.value.column.unit == "1"
     current = session.observe({"q": metric}, where=phase == "current")
     baseline = session.observe({"q": metric}, where=phase == "base")
-    compared = current.compare({"base": baseline})
+    compared = current.compare({"base": mv.baseline(baseline)})
     target = compared.select({"change": compared["base.absolute.q"]})
     changes = target.attribute(by=(channel,)).compute().to_pandas()
     assert changes["contribution.change"].tolist() == pytest.approx([1 / 9, -1 / 9])
@@ -319,7 +319,7 @@ def _contribution(
     by: tuple[Deferred | Grouping, ...] | Population,
 ) -> AnalysisFrame:
     compared = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     selected = compared.select(
         {name: compared[f"base.absolute.{name}"] for name in current.output_names}
@@ -690,7 +690,7 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
     compared = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     selected = compared.select({"q": compared["base.absolute.q"]}).compute()
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -1266,7 +1266,7 @@ def test_captured_frame_attribute_absolute(session: Session) -> None:
     channel = session.catalog.fields.get("sales.facts.channel")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
-    comparison = current.compare({"base": baseline})
+    comparison = current.compare({"base": mv.baseline(baseline)})
     selected = comparison.select({"change": comparison["base.absolute.q"]}).compute()
     result = attribute(selected, by=(channel,)).compute().to_pandas()
     assert result["contribution.change"].tolist() == [60, -20]
@@ -1307,7 +1307,7 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
     compared = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     selected = compared.select({"change": compared["base.absolute.q"]}).compute()
     with duckdb.connect(str(database)) as connection:
@@ -1336,8 +1336,11 @@ def test_captured_rule_families(session: Session) -> None:
     current_frame = session.observe(metrics, where=phase == "current").compute()
     baseline = session.observe(metrics, where=phase == "base").compute()
     comparison = current_frame.compare(
-        {"base": baseline},
-        on={"base": tuple(zip(current_frame.axes, baseline.axes, strict=True))},
+        {
+            "base": mv.baseline(
+                baseline, on=tuple(zip(current_frame.axes, baseline.axes, strict=True))
+            )
+        }
     )
     # Captured level and comparison modes share immutable endpoints and one attribution pass.
     selected_outputs = {f"level_{name}": comparison[name] for name in metrics}
@@ -1480,7 +1483,7 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
     channel = session.catalog.fields.get("sales.facts.channel")
     current = session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, where=phase == "base")
-    comparison = current.compare({"base": baseline})
+    comparison = current.compare({"base": mv.baseline(baseline)})
     selected = (
         comparison.select({"q": comparison["base.absolute.q"]}) if mode == "absolute" else current
     ).compute()
@@ -1639,7 +1642,7 @@ def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: 
         {"q": amount.sum()}, by=(region,), where=mv.in_population(keys) & (phase == "base")
     )
     compared = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     target = compared.select({"q": compared["base.absolute.q"]}).compute()
     rows = target.attribute(by=(channel,)).compute().to_pandas()

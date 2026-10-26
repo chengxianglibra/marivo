@@ -16,6 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import marivo.analysis as mv
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.core.artifact_data import (
     ArtifactManifest,
@@ -261,7 +262,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
     from marivo.analysis.core.frame_structure import coordinate_attachments
 
     current, baseline = period_endpoints(local)
-    report = current.compare({"base": baseline}).compute()
+    report = current.compare({"base": mv.baseline(baseline)}).compute()
     literal = report.select({"constant": 1}).compute()
     assert literal._schema.comparisons[0].values == ()
     nested = report.align(report).compute()
@@ -299,7 +300,7 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
     from marivo.analysis.materialization.terminal_storage import physical_schema
 
     current, baseline = period_endpoints(local)
-    saved = current.compare({"base": baseline}).persist()
+    saved = current.compare({"base": mv.baseline(baseline)}).persist()
     value = manifest(saved)
     binding = value.data.schema.comparisons[0].binding
     assert isinstance(binding, CalendarComparisonBinding)
@@ -1658,9 +1659,9 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     assert positive.to_pandas()["amount"].tolist() == [1, 2]
     read_calls = 0
     compared = (
-        saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
+        saved.compare({"base": mv.baseline(saved, on=((saved.axes[0], saved.axes[0]),))})
         if kind == "ordinary"
-        else saved.compare({"base": saved}, match={"base": CalendarCorrespondence("ordinal")})
+        else saved.compare({"base": mv.baseline(saved, match=CalendarCorrespondence("ordinal"))})
     ).compute()
     assert compared.to_pandas()["base.absolute.amount"].tolist() == (
         [pd.NA, 0, 0] if kind == "ordinary" else [0, 0, 0]
@@ -1677,7 +1678,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
         assert reopened._input_id == saved._input_id
         read_calls = 0
         shared = saved.compare(
-            {"base": reopened}, on={"base": ((saved.axes[0], reopened.axes[0]),)}
+            {"base": mv.baseline(reopened, on=((saved.axes[0], reopened.axes[0]),))}
         ).compute()
         assert read_calls == 1
         pd.testing.assert_frame_equal(shared.to_pandas(), compared.to_pandas())
@@ -1711,8 +1712,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     derived = saved.where(saved["amount"] > 0)
     result = derived.top(2, by=derived["amount"]).compute()
     assert result.to_pandas()["amount"].tolist() == [2, 1]
-    compared = (saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
-                if sys.argv[4] == "ordinary" else saved.compare({"base": saved}, match={"base": mv.ordinal()})).compute()
+    compared = (saved.compare({"base": mv.baseline(saved, on=((saved.axes[0], saved.axes[0]),))})
+                if sys.argv[4] == "ordinary" else saved.compare({"base": mv.baseline(saved, match=mv.ordinal())})).compute()
     assert len(compared.to_pandas()) == 3
     assert len(terminal_runs(session)) == before
     copied = result.persist()
@@ -2267,7 +2268,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     assert "Asia/Shanghai" in capsys.readouterr().out
     assert len(first.align(first).compute().to_pandas()) == 1
     paired = first.compare(
-        {"base": second}, match={"base": CalendarCorrespondence("ordinal")}
+        {"base": mv.baseline(second, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     assert paired.to_pandas()["base.absolute.amount"].tolist() == [0]
     assert paired.to_pandas()["base.present"].tolist() == [True]
@@ -2322,7 +2323,7 @@ def attribute_request(
     current = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "base")
     compared = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     selected = compared.select({"q": compared["base.absolute.q"]})
     return attribute(selected, by=(session.catalog.fields.get("sales.facts." + axis),))
@@ -2364,7 +2365,7 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
         empty = renamed.top(0, by=renamed["doubled"]).compute()
         combined = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
         compared = renamed.compare(
-            {"base": renamed}, on={"base": ((renamed.axes[0], renamed.axes[0]),)}
+            {"base": mv.baseline(renamed, on=((renamed.axes[0], renamed.axes[0]),))}
         ).compute()
         for derived in (total, positive, subtotal, partitioned, empty, combined, compared):
             assert derived.method_facts == original

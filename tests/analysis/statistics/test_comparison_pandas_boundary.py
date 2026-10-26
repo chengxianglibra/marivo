@@ -5,6 +5,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
@@ -36,7 +37,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
         rows=((("A",), {"sales": 2.0}), (("B",), {"sales": 0.0}), (("D",), {"sales": 7.0})),
     )
     artifact = current.compare(
-        {"reference": baseline}, on={"reference": ((current.axes[0], baseline.axes[0]),)}
+        {"reference": mv.baseline(baseline, on=((current.axes[0], baseline.axes[0]),))}
     ).persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
     assert frame["reference.absolute.sales"].iloc[:2].tolist() == [8.0, 0.0]

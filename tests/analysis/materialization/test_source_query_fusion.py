@@ -697,7 +697,7 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
     paired = (
         left.align(right, on=on)
         if operation == "align"
-        else left.compare({"base": right}, on={"base": on})
+        else left.compare({"base": mv.baseline(right, on=on)})
     )
     rows = paired.compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == [1, 3, 4, 2]
@@ -738,7 +738,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     current = source.select({"value": source["amount"]})
     baseline = source.select({"value": source["baseline"]})
     rows = (
-        current.compare({"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)})
+        current.compare({"base": mv.baseline(baseline, on=((current.axes[0], baseline.axes[0]),))})
         .compute()
         .to_pandas()
     )
@@ -750,7 +750,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     zero = nullable.select({"value": nullable["baseline"]})
     nullable = nullable.select({"value": nullable["amount"]})
     rows = (
-        nullable.compare({"base": zero}, on={"base": ((nullable.axes[0], zero.axes[0]),)})
+        nullable.compare({"base": mv.baseline(zero, on=((nullable.axes[0], zero.axes[0]),))})
         .compute()
         .to_pandas()
     )

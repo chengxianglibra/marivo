@@ -203,9 +203,13 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
         elif scenario == "j2":
             current, baseline = current.compute(), baseline.compute()
             comparison = current.compare(
-                {"reference": baseline},
-                on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-                match={"reference": mv.ordinal()},
+                {
+                    "reference": mv.baseline(
+                        baseline,
+                        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                        match=mv.ordinal(),
+                    )
+                }
             )
             difference = comparison.select(
                 {"value": comparison["reference.absolute.value"]}

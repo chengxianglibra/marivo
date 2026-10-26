@@ -105,9 +105,13 @@ def test_empty_numeric_selection_has_distinct_row_policies(
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     empty = comparison.where(comparison["reference.absolute.value"] < -1000)
     assert empty.persist().to_pandas().empty
@@ -281,13 +285,19 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     monkeypatch.setattr(terminal_storage, "read_output", forbidden)
     with pytest.raises(AnalysisError):
         current.compare(
-            {"reference": fixed.artifact},
-            on={"reference": tuple(zip(current.axes, fixed.axes, strict=True))},
+            {
+                "reference": mv.baseline(
+                    fixed.artifact, on=tuple(zip(current.axes, fixed.axes, strict=True))
+                )
+            }
         )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
     with pytest.raises(AnalysisError):
         current.compare(
-            {"reference": foreign},
-            on={"reference": tuple(zip(current.axes, foreign.axes, strict=False))},
+            {
+                "reference": mv.baseline(
+                    foreign, on=tuple(zip(current.axes, foreign.axes, strict=False))
+                )
+            }
         )
     with pytest.raises(AnalysisError):
         baseline.align(foreign, on=tuple(zip(baseline.axes, foreign.axes, strict=False)))
@@ -318,9 +328,13 @@ def test_invalid_threshold_rejects_without_another_run(
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
     difference = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     with pytest.raises(AnalysisError):
         predicate = difference["reference.absolute.value"] < threshold

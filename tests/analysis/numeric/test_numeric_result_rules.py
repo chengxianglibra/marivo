@@ -201,6 +201,6 @@ def test_comparison_uses_bound_decimal_difference_for_relative_value(
         return rows.reduce({"x": rows["x"].sum()}).compute()
 
     current, baseline = total("1.05"), total("1.00")
-    result = current.compare({"base": baseline}).compute().to_pandas()
+    result = current.compare({"base": mv.baseline(baseline)}).compute().to_pandas()
     assert result["base.absolute.x"].tolist() == [Decimal("0.1")]
     assert result["base.relative.x"].tolist() == [0.1]

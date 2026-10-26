@@ -50,7 +50,7 @@ def provider() -> DisclosureProvider:
                 parameters=(),
                 output="str",
                 constraints=(
-                    "shift accepts offset only and freezes a direct relation without business reads. align uses explicit match; named compare may consume a verified immediate shift relation, or an explicit per-alias match. ordinal pairs explicit complete endpoints only.",
+                    "shift accepts offset only and freezes a direct relation without business reads. align uses explicit match; named compare may consume a verified immediate shift relation, or an explicit rule inside mv.baseline(...). ordinal pairs explicit complete endpoints only.",
                 ),
                 effects="Pure value rendering without I/O.",
                 failures=(),

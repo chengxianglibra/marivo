@@ -31,8 +31,11 @@ from tests.shared_fixtures import terminal_runs
 
 def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
     return current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+            )
+        }
     )
 
 

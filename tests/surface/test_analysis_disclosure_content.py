@@ -71,7 +71,7 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         "session": session,
         "revenue": revenue,
         "frame": frame,
-        "baseline": baseline,
+        "previous": baseline,
     }
     registry = prepare()
     for target, implementation, bound, expected_names in (
@@ -121,7 +121,12 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         assert fact in reduction
     comparison = render_help_text("analysis.analysis_frame.compare")[0]
     assert comparison.count("\nSignature:") == 2
-    for fact in ("bare tuple", "per-alias", "reference.present", "infers no time relationship"):
+    for fact in (
+        "Bare Frame only",
+        "mv.baseline",
+        "reference.present",
+        "infers no time relationship",
+    ):
         assert fact in comparison
     for fact in (
         "relative is dimensionless (unit=None)",
@@ -532,6 +537,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "grain",
         "time_scope",
         "calendar_correspondence",
+        "comparison_baseline",
         "artifact_digest",
         "artifact_ref",
         "finding",
@@ -571,7 +577,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 17
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 18
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

@@ -97,9 +97,13 @@ def test_required_terminal_receipts_reject_corruption_without_source(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     difference = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     ).persist()
     previous = current.persist()
     expected = difference.to_pandas()

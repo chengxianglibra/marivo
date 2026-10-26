@@ -144,7 +144,7 @@ coefficients/counts cannot reconstruct pooled correlation.
 source_current = session.observe({"revenue": revenue}, by=(august,))
 source_baseline = session.observe({"revenue": revenue}, by=(july,))
 comparison = source_current.compare(
-    {"reference": source_baseline}, match={"reference": mv.ordinal()},
+    {"reference": mv.baseline(source_baseline, match=mv.ordinal())}
 ).compute()
 target = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
 explained = target.attribute(by=(region,)).persist()

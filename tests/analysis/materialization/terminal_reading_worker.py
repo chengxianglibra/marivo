@@ -41,11 +41,11 @@ def period_produce(root: Path, name: str) -> None:
     metric = amount.sum(time=stamp)
     current = session.observe({"total": metric}, by=(periods,))
     baseline = session.observe({"total": metric}, by=(periods.shift(mv.offset(years=-1)),))
-    pending_report = current.compare({"base": baseline}).compute()
+    pending_report = current.compare({"base": mv.baseline(baseline)}).compute()
     memory_current, memory_baseline = current.compute(), baseline.compute()
-    memory_report = memory_current.compare({"base": memory_baseline}).compute()
+    memory_report = memory_current.compare({"base": mv.baseline(memory_baseline)}).compute()
     saved_current, saved_baseline = memory_current.persist(), memory_baseline.persist()
-    stored_report = saved_current.compare({"base": saved_baseline}).compute()
+    stored_report = saved_current.compare({"base": mv.baseline(saved_baseline)}).compute()
     for report in (pending_report, memory_report, stored_report):
         rows = report.to_pandas()
         assert rows["total"].tolist() == [180, 30]
@@ -81,7 +81,7 @@ def period_read(name: str, identities: list[str]) -> None:
         patches.enter_context(patch.object(_timezones, "ZoneInfo", forbidden))
         current, baseline, report = (session.persisted_frame(value) for value in identities)
         before = len(terminal_runs(session))
-        recomputed = current.compare({"base": baseline}).compute()
+        recomputed = current.compare({"base": mv.baseline(baseline)}).compute()
         assert recomputed._schema == report._schema
         pd.testing.assert_frame_equal(recomputed.to_pandas(), report.to_pandas())
         rows = report.to_pandas()
@@ -180,7 +180,7 @@ def main() -> None:
         positive = artifact.where(artifact["total"] > 0).compute()
         assert len(positive.to_pandas()) == 2
         comparison = artifact.compare(
-            {"base": artifact}, on={"base": ((artifact.axes[0], artifact.axes[0]),)}
+            {"base": mv.baseline(artifact, on=((artifact.axes[0], artifact.axes[0]),))}
         ).compute()
         assert comparison.to_pandas()["base.absolute.total"].tolist() == [0, 0]
         reduced = artifact.reduce({"rows": mv.row_count()}).compute()

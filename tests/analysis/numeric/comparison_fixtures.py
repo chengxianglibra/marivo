@@ -28,28 +28,36 @@ def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]
 
     current, baseline, earlier = observe(8), observe(7), observe(6)
     first = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     first = first.reduce({"value": first["reference.absolute.value"].sum()}, by=(first.axes[1],))
     second = baseline.compare(
-        {"reference": earlier},
-        on={"reference": tuple(zip(baseline.axes, earlier.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                earlier, on=tuple(zip(baseline.axes, earlier.axes, strict=True)), match=mv.ordinal()
+            )
+        }
     )
     second = second.reduce(
         {"value": second["reference.absolute.value"].sum()}, by=(second.axes[1],)
     )
     nested = first.compare(
-        {"reference": second}, on={"reference": tuple(zip(first.axes, second.axes, strict=True))}
+        {"reference": mv.baseline(second, on=tuple(zip(first.axes, second.axes, strict=True)))}
     )
     nested = nested.select({"value": nested["reference.absolute.value"]})
     left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
     union = left.compare(
-        {"reference": right},
-        on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+            )
+        }
     )
     union = union.select({"value": union["reference.absolute.value"]})
     return {

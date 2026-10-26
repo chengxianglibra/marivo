@@ -143,18 +143,22 @@ TimeScope 包含起点、不包含终点。显式选定的 Population 可以保�
 
 ## compare：比较基准
 
-使用 `current.compare(baseline, ...)` 比较同一 Session 内的单个基准，固定别名为 `reference`。用 `current.compare({"prior": baseline}, ...)` 选择业务别名，多个基准使用不同 Mapping 键。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定，包括不同域中具有相同本地名的 Metric。
+`mv.baseline(frame, *, on=None, match=None)` 捕获不可变的 `ComparisonBaseline`，
+公开只读 `frame`、`on` 和 `match`。工厂仅检查形状，不读数据；`compare` 将声明绑定到本期 Frame。
+`.show()` 提供有界元数据。选列、命名、来源时域和聚合应在比较前准备；结果选列、筛选在比较后完成。
+
+使用 `current.compare(baseline, ...)` 比较同一 Session 内的单个基准，固定别名为 `reference`。用 `current.compare({"prior": mv.baseline(baseline)})` 选择业务别名，多个基准使用不同 Mapping 键。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定，包括不同域中具有相同本地名的 Metric。
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `baselines` | 是 | — | 单个 Frame（别名 `reference`），或非空有序的别名 → 同 Session Frame Mapping；`current` 为保留名。 |
-| `on` | 否 | `None` | 裸 Frame 使用轴对 tuple；基准 Mapping 使用按别名指定的 Mapping。`None` 仅推导零轴或两端各一个时间轴，普通轴须显式完整映射。 |
-| `match` | 否 | `None` | 裸 Frame 使用单个 CalendarCorrespondence；基准 Mapping 使用按别名指定的 Mapping。`None` 使用兼容的冻结直接关系或坐标相等。 |
+| `baselines` | 是 | — | 单个 Frame（别名 `reference`），或非空有序的别名 → `mv.baseline(frame, ...)` Mapping；`current` 为保留名。 |
+| `on` | 否 | `None` | 仅裸 Frame 使用轴对 tuple；命名基期在 `mv.baseline(...)` 中指定 `on`。`None` 仅推导零轴或两端各一个时间轴，普通轴须显式完整映射。 |
+| `match` | 否 | `None` | 仅裸 Frame 使用单个 CalendarCorrespondence；命名基期在 `mv.baseline(...)` 中指定 `match`。`None` 使用兼容的冻结直接关系或坐标相等。 |
 
 输出保留当前值，添加 `<alias>.baseline.<name>`、`<alias>.absolute.<name>` 和 `<alias>.relative.<name>`；`current.present` 与 `<alias>.present` 独立表示行是否存在，不等于数值是否为 NA。
 
-裸 Frame 等价于 `{"reference": baseline}`，包括 `reference.baseline.revenue` 和
-`reference.present`。裸 on/match 不能与基准 Mapping 混用，按别名的参数也不能用于裸 Frame。
+裸 Frame 等价于 `{"reference": mv.baseline(baseline)}`，包括 `reference.baseline.revenue` 和
+`reference.present`。命名输入统一使用 `mv.baseline(frame, on=..., match=...)`，不接受顶层 `on/match`、裸 Frame Mapping 或裸声明。
 多个基准必须命名。省略别名不推断同比、预算或日期关系。`reference` 路径冲突时应显式改别名
 或先 select，不自动编号，也不按值列位置配对。
 
@@ -215,9 +219,13 @@ Float64 接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值
 fresh_current = session.observe({"revenue": revenue}, by=(august, region))
 fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
 investigation = fresh_current.compare(
-    {"reference": fresh_baseline},
-    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            fresh_baseline,
+            on=tuple(zip(fresh_current.axes, fresh_baseline.axes)),
+            match=mv.ordinal(),
+        )
+    }
 ).compute()
 ```
 
@@ -227,12 +235,9 @@ investigation = fresh_current.compare(
 overall_current = session.observe({"revenue": revenue}, by=(august,))
 overall_baseline = session.observe({"revenue": revenue}, by=(july,))
 overall_change = overall_current.compare(
-    {"reference": overall_baseline},
-    match={"reference": mv.ordinal()},
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
 ).compute()
-target = overall_change.select(
-    {"revenue": overall_change["reference.absolute.revenue"]}
-)
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
 explained = target.attribute(by=(region,)).compute()
 assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
 facts = explained.method_facts
@@ -251,9 +256,11 @@ nonlinear = revenue * revenue
 fine_current = session.observe({"squared": nonlinear}, by=(august, region))
 fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
 nonlinear_investigation = fine_current.compare(
-    {"reference": fine_baseline},
-    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            fine_baseline, on=tuple(zip(fine_current.axes, fine_baseline.axes)), match=mv.ordinal()
+        )
+    }
 ).compute()
 ```
 
@@ -446,9 +453,11 @@ prior_selected = session.observe(
     {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
 ).compute()
 followup = chosen.compare(
-    {"reference": prior_selected},
-    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal()
+        )
+    }
 ).compute()
 followup.show()
 ```

@@ -567,7 +567,7 @@ def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_o
     channel = numeric_session.catalog.fields.get("sales.facts.channel")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
-    comparison = current.compare({"base": baseline})
+    comparison = current.compare({"base": mv.baseline(baseline)})
     selected = comparison.select({"q": comparison["base.relative.q"]}).compute()
     assert selected.to_pandas()["q"].tolist() == [10 / 90]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
@@ -627,7 +627,7 @@ def test_relative_zero_fresh_baseline_is_rejected_before_closure(
     channel = numeric_session.catalog.fields.get("sales.facts.channel")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
-    comparison = current.compare({"base": baseline})
+    comparison = current.compare({"base": mv.baseline(baseline)})
     selected = comparison.select({"q": comparison["base.relative.q"]}).compute()
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=0 WHERE phase='base'")

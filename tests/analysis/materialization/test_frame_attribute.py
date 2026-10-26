@@ -72,8 +72,11 @@ link_tags = ms.relationship(name='link_tags', from_entity=links, to_entity=tags,
 
 def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
     return current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+            )
+        }
     )
 
 
@@ -295,11 +298,12 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     complete = complete.select({"q": complete["contribution.q"]})
     rows = (
         fine.compare(
-            {"actual": actual, "complete": complete},
-            on={
-                "actual": tuple(zip(fine.axes, actual.axes, strict=True)),
-                "complete": tuple(zip(fine.axes, complete.axes, strict=True)),
-            },
+            {
+                "actual": mv.baseline(actual, on=tuple(zip(fine.axes, actual.axes, strict=True))),
+                "complete": mv.baseline(
+                    complete, on=tuple(zip(fine.axes, complete.axes, strict=True))
+                ),
+            }
         )
         .compute()
         .to_pandas()
@@ -408,7 +412,7 @@ def test_explicit_compare_validates_names_units_and_session_ownership(session: S
     foreign_session = mv.session.get_or_create("foreign", timezone="UTC")
     foreign = foreign_session.values(by=(), columns={"q": "USD"}, rows=(((), {"q": 1}),))
     with pytest.raises(AnalysisError):
-        current.compare({"foreign": foreign})
+        current.compare({"foreign": mv.baseline(foreign)})
 
 
 def test_public_parent_key_bridge_checks_physical_types_before_top_zero(session: Session) -> None:
@@ -654,7 +658,9 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
     parent = session.observe({"q": amount.sum()}, where=channel != "N")
     fixed = parent.attribute(by=(channel,)).compute()
     on = tuple(zip(fixed.axes, fixed.axes, strict=True))
-    compared = fixed.compare({"one": fixed, "two": fixed}, on={"one": on, "two": on}).compute()
+    compared = fixed.compare(
+        {"one": mv.baseline(fixed, on=on), "two": mv.baseline(fixed, on=on)}
+    ).compute()
     assert len(fixed.method_facts) == 1 and compared.method_facts == fixed.method_facts
     rows = compared.to_pandas()
     for alias in ("one", "two"):

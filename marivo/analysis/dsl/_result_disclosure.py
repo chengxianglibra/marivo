@@ -12,6 +12,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
+from marivo.analysis.dsl.baseline import ComparisonBaseline, baseline
 from marivo.analysis.dsl.column import Column, _Statistic, row_count
 from marivo.analysis.dsl.correspondence import offset
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -21,8 +22,60 @@ def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
     group: str | None
-    descriptors: list[Descriptor] = []
-    exports: list[ExportInput] = []
+    descriptors: list[Descriptor] = [
+        operation(
+            "baseline",
+            "mv.baseline",
+            baseline,
+            summary="Capture one named baseline Frame and its correspondence rules.",
+            parameters=(
+                P("frame", "Baseline Frame; compare binds same-Session ownership."),
+                P("on", "Complete (current axis, baseline axis) tuples, or None for inference."),
+                P(
+                    "match",
+                    "Closed calendar rule, or None for frozen direct relation/equality inference.",
+                ),
+            ),
+            output="ComparisonBaseline",
+            constraints=(
+                "Shape validation only. compare binds full axes, units and time compatibility. No alias is stored in the declaration; name it in compare's Mapping.",
+            ),
+            effects="Capture an immutable declaration without data reads or matching.",
+            failures=("AnalysisError: pass a Frame, complete axis pairs and a closed rule.",),
+            example=ExampleInput(
+                "result = mv.baseline(frame)", ("frame",), "result", "ComparisonBaseline"
+            ),
+            discovery_group="frame.compare",
+        ),
+        value_type(
+            "comparison_baseline",
+            ComparisonBaseline,
+            summary="Immutable named comparison input with read-only frame, on and match.",
+            acquisition="Use mv.baseline(frame, on=..., match=...). Direct construction and extension are unsupported.",
+            producers=("baseline",),
+            consumers=("analysis_frame.compare",),
+            constraints=(
+                "Pass inside an alias-to-declaration Mapping. Bare declarations are not compare inputs. Metadata access does not read data.",
+            ),
+        ),
+        operation(
+            "comparison_baseline.show",
+            "declaration.show",
+            ComparisonBaseline.show,
+            bindings=(bind(ComparisonBaseline.show, ComparisonBaseline),),
+            summary="Print bounded captured Frame identity, axis pairs and calendar rule.",
+            parameters=(),
+            output="None",
+            constraints=("Does not show Frame rows, execute inputs or bind a current Frame.",),
+            effects="Print captured metadata only.",
+            failures=(),
+            example=ExampleInput("result = declaration.show()", ("declaration",), "result", "None"),
+        ),
+    ]
+    exports: list[ExportInput] = [
+        ExportInput("baseline", baseline, "baseline"),
+        ExportInput("ComparisonBaseline", ComparisonBaseline, "comparison_baseline"),
+    ]
     for target, value, parameters, output, summary, code, requires, group in (
         (
             "row_count",
@@ -305,21 +358,21 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "baselines",
-                    "Same-Session Frame (alias reference), or nonempty ordered alias-to-Frame Mapping. Require equal nonempty value paths/units: numeric or matching-tick Duration. Names certify no Metric identity/business comparability; current is reserved.",
+                    "Same-Session Frame (alias reference), or nonempty ordered alias-to-ComparisonBaseline Mapping via mv.baseline(...). Require equal nonempty value paths/units: numeric or matching-tick Duration. Names certify no Metric identity/business comparability; current is reserved.",
                 ),
                 P(
                     "on",
-                    "Bare Frame: bare tuple of complete axis pairs. Mapping: per-alias tuples. Caller owns business correspondence; Entity/Field identity is not checked. Omission infers only zero axes or one time axis.",
+                    "Bare Frame only: complete axis pairs. Named inputs put on in mv.baseline(...). Caller owns business correspondence; Entity/Field identity is not checked. Omission infers only zero axes or one time axis.",
                 ),
                 P(
                     "match",
-                    "Bare Frame: CalendarCorrespondence. Mapping: per-alias rules. Omission uses compatible frozen direct relations or equality. Do not mix shapes.",
+                    "Bare Frame only: CalendarCorrespondence. Named inputs put match in mv.baseline(...). Omission uses compatible frozen direct relations or equality. Do not mix shapes.",
                 ),
             ),
             "AnalysisFrame",
             "Keep current axes/values; add <alias>.baseline.<name>, <alias>.absolute.<name>, <alias>.relative.<name>. Relative = difference / absolute baseline; zero gives NA.",
-            "result = frame.compare(baseline)",
-            ("frame", "baseline"),
+            "result = frame.compare(previous)",
+            ("frame", "previous"),
             "frame.compare",
         ),
         (
@@ -451,7 +504,7 @@ def provider() -> DisclosureProvider:
                 example=ExampleInput(code, requires, "result", output),
                 related=("value_statistic",)
                 if output == "_Statistic"
-                else ("ordinal",)
+                else ("baseline", "ordinal")
                 if name == "compare"
                 else (),
                 discovery_group=group,

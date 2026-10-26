@@ -173,7 +173,7 @@ def test_real_pairing_check_failure_has_no_publication_run(
     baseline = session.observe({"value": metric}, by=mv.product(scope, members))
     with pytest.raises(AnalysisError) as caught:
         current.compare(
-            {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+            {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
         ).persist()
     assert caught.value.expected and caught.value.received
     assert not hasattr(caught.value, "run_ref")

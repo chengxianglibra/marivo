@@ -148,19 +148,25 @@ TimeScopes use inclusive start and exclusive end. An explicitly selected Populat
 
 ## compare — compare baselines
 
-Call `current.compare(baseline, ...)` for one baseline in the same Session; its fixed alias is `reference`. Use `current.compare({"prior": baseline}, ...)` to choose a business alias, and distinct Mapping keys for multiple baselines. Endpoints need matching nonempty numeric value paths and compatible units (exact Duration comparisons are also supported). Equal names choose pairs; the caller still establishes business comparability, including Metrics from different domains with the same local name.
+`mv.baseline(frame, *, on=None, match=None)` captures an immutable
+`ComparisonBaseline` with read-only `frame`, `on` and `match`. It checks shapes
+without reading data; `compare` binds the declaration to the current Frame.
+Use `.show()` for bounded metadata. Select/name values, choose source scopes and
+prepare aggregation before comparison; select/filter results afterwards.
+
+Call `current.compare(baseline, ...)` for one baseline in the same Session; its fixed alias is `reference`. Use `current.compare({"prior": mv.baseline(baseline)})` to choose a business alias, and distinct Mapping keys for multiple baselines. Endpoints need matching nonempty numeric value paths and compatible units (exact Duration comparisons are also supported). Equal names choose pairs; the caller still establishes business comparability, including Metrics from different domains with the same local name.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `baselines` | Yes | — | One Frame (alias `reference`), or a nonempty ordered alias → same-Session Frame Mapping; `current` is reserved. |
-| `on` | No | `None` | Bare axis-pair tuple for a bare Frame; per-alias Mapping for baseline Mapping input. `None` infers only zero axes or one time axis per side; ordinary axes require complete explicit mapping. |
-| `match` | No | `None` | Bare CalendarCorrespondence for a bare Frame; per-alias Mapping for baseline Mapping input. `None` uses compatible frozen direct relations or coordinate equality. |
+| `baselines` | Yes | — | One Frame (alias `reference`), or a nonempty ordered alias → `mv.baseline(frame, ...)` Mapping; `current` is reserved. |
+| `on` | No | `None` | Axis-pair tuple for a bare Frame only; named inputs put `on` in `mv.baseline(...)`. `None` infers only zero axes or one time axis per side; ordinary axes require complete explicit mapping. |
+| `match` | No | `None` | CalendarCorrespondence for a bare Frame only; named inputs put `match` in `mv.baseline(...)`. `None` uses compatible frozen direct relations or coordinate equality. |
 
 Outputs retain current values and add `<alias>.baseline.<name>`, `<alias>.absolute.<name>` and `<alias>.relative.<name>`. `current.present` and `<alias>.present` report row presence independently of numeric NA.
 
-The bare form is equivalent to `{"reference": baseline}`, including
-`reference.baseline.revenue` and `reference.present`. Do not mix bare on/match
-with Mapping baselines, or per-alias parameters with a bare Frame. Multiple
+The bare form is equivalent to `{"reference": mv.baseline(baseline)}`, including
+`reference.baseline.revenue` and `reference.present`. Named inputs always use `mv.baseline(frame, on=..., match=...)` values, without
+top-level `on/match`. Bare Frame Mappings and bare declarations are rejected. Multiple
 baselines require names. Alias omission infers no year-over-year, budget or date
 relationship. A `reference` path collision requires an explicit alias or select;
 names are never numbered, and values are never paired by their column position.
@@ -222,9 +228,13 @@ Start with the total decline, then ask which regions account for it.
 fresh_current = session.observe({"revenue": revenue}, by=(august, region))
 fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
 investigation = fresh_current.compare(
-    {"reference": fresh_baseline},
-    on={"reference": tuple(zip(fresh_current.axes, fresh_baseline.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            fresh_baseline,
+            on=tuple(zip(fresh_current.axes, fresh_baseline.axes)),
+            match=mv.ordinal(),
+        )
+    }
 ).compute()
 ```
 
@@ -234,12 +244,9 @@ investigation = fresh_current.compare(
 overall_current = session.observe({"revenue": revenue}, by=(august,))
 overall_baseline = session.observe({"revenue": revenue}, by=(july,))
 overall_change = overall_current.compare(
-    {"reference": overall_baseline},
-    match={"reference": mv.ordinal()},
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
 ).compute()
-target = overall_change.select(
-    {"revenue": overall_change["reference.absolute.revenue"]}
-)
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
 explained = target.attribute(by=(region,)).compute()
 assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
 facts = explained.method_facts
@@ -258,9 +265,11 @@ nonlinear = revenue * revenue
 fine_current = session.observe({"squared": nonlinear}, by=(august, region))
 fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
 nonlinear_investigation = fine_current.compare(
-    {"reference": fine_baseline},
-    on={"reference": tuple(zip(fine_current.axes, fine_baseline.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            fine_baseline, on=tuple(zip(fine_current.axes, fine_baseline.axes)), match=mv.ordinal()
+        )
+    }
 ).compute()
 ```
 
@@ -455,9 +464,11 @@ prior_selected = session.observe(
     {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
 ).compute()
 followup = chosen.compare(
-    {"reference": prior_selected},
-    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal()
+        )
+    }
 ).compute()
 followup.show()
 ```

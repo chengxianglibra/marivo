@@ -30,9 +30,13 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     artifact = comparison.persist()
     frame = plain(artifact).assign(value=lambda data: data["reference.absolute.value"])
@@ -71,9 +75,13 @@ def test_exported_scores_select_an_explicit_followup_query(
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
     comparison = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     frame = plain(comparison.compute()).assign(value=lambda data: data["reference.absolute.value"])
     before = run_ids(case.session)

@@ -1280,7 +1280,7 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
             fixed.align(right, on=((fixed.axes[0], right.axes[0]),))
             if operation == "align"
             else fixed.compare(
-                {"reference": right}, on={"reference": ((fixed.axes[0], right.axes[0]),)}
+                {"reference": mv.baseline(right, on=((fixed.axes[0], right.axes[0]),))}
             )
         ).compute()
         combined_rows = combined.to_pandas()

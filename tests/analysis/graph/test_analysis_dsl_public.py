@@ -194,8 +194,11 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
         live.compare(
-            {"reference": fixed.artifact},
-            on={"reference": tuple(zip(live.axes, fixed.axes, strict=True))},
+            {
+                "reference": mv.baseline(
+                    fixed.artifact, on=tuple(zip(live.axes, fixed.axes, strict=True))
+                )
+            }
         )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
     assert terminal_runs(case.session) == before
 
@@ -208,9 +211,13 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
     separate = _observe(case, "2026-07-01", "2026-08-01")
     compared = (
         current.compare(
-            {"reference": separate},
-            on={"reference": tuple(zip(current.axes, separate.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    separate,
+                    on=tuple(zip(current.axes, separate.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         .persist()
         .to_pandas()
@@ -221,8 +228,7 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
     before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
         current.compare(
-            {"reference": count},
-            on={"reference": tuple(zip(current.axes, count.axes, strict=True))},
+            {"reference": mv.baseline(count, on=tuple(zip(current.axes, count.axes, strict=True)))}
         )
     assert terminal_runs(case.session) == before
 
@@ -253,9 +259,13 @@ def test_public_j2_selected_members_and_next_month_mean(
     current = _observe(case, "2026-08-01", "2026-09-01")
     baseline = _observe(case, "2026-07-01", "2026-08-01")
     change = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
     )
     chosen = change.where(change["reference.absolute.value"] < 0)
     selected = case.session.population_from(

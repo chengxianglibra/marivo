@@ -167,12 +167,15 @@ sum/divide 合同。筛选前后的位置有意义：先筛选改变分母，后
 ## Correspondence and comparison
 
 align 接收另一 Frame；compare 接收单个裸 Frame（固定别名 reference），或非空有序
-命名 Frame Mapping。多个基期必须命名；单基期也可显式选择业务别名。
+命名 ComparisonBaseline Mapping。每个声明通过 mv.baseline(frame, on=..., match=...) 获取。多个基期必须命名；单基期也可显式选择业务别名。
 每端先验证同 Session、无 paired 轴、相等轴数与相容的完整键/角色/时间解释。
 零轴或双方唯一同种 interval/calendar 轴可唯一推导；含普通轴时必须显式完整双射。
-裸 Frame 的 on 是完整轴对 tuple，match 是单个 CalendarCorrespondence；基期 Mapping
-的 on/match 按基期别名分别提供 Mapping。两种形态不能混用，不按 Mapping 长度猜测。
-未知别名拒绝，部分 on 不自动补足。reference 路径冲突要求显式别名或先 select，不自动编号。
+裸 Frame 的 on 是完整轴对 tuple，match 是单个 CalendarCorrespondence；命名基期的
+Frame、on、match 集中在 mv.baseline(...) 中，外层 Mapping 只声明一次别名。
+命名形态不接受顶层 on/match，也不接受裸 Frame Mapping 或裸 ComparisonBaseline。
+ComparisonBaseline 是不可变声明，公开只读 frame/on/match，repr/show 只披露有限元数据；
+工厂只检查输入形状，compare 再绑定当前 Frame 的所有权、完整轴双射和时间相容性。
+部分 on 不自动补足。reference 路径冲突要求显式别名或先 select，不自动编号。
 省略别名不推断同比、环比、预算或时间对应，也不按唯一值列的位置配对。
 FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
 普通轴显式 on 声明本次业务对应；检查只保证结构相容以及所选政策下的实际键域，
@@ -223,7 +226,7 @@ periods = session.time_scope(start="2026-01-01", end="2026-10-20T12:00:00Z").by(
 metrics = {"revenue": revenue}
 current_series = session.observe(metrics, by=(periods,))
 previous_series = session.observe(metrics, by=(periods.shift(mv.offset(years=-1)),))
-yearly = current_series.compare({"yoy": previous_series}).compute()
+yearly = current_series.compare({"yoy": mv.baseline(previous_series)}).compute()
 ```
 
 这里 revenue 为显式已解析来源 Metric。每个端点独立完整求值；同图可以共享合格依赖，

@@ -144,7 +144,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                     }
                 )
             with pytest.raises(AnalysisError) as caught:
-                left.compare({"reference": right})
+                left.compare({"reference": mv.baseline(right)})
             error = caught.value
             assert error.expected and error.received and error.repair is not None
             assert error.repair.action

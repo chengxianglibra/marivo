@@ -160,7 +160,7 @@ def test_native_float_binary_pending_shared_input_matches_completed(
         right = frame.where(~frame["big"].is_null())
         if operation == "compare":
             return frame.compare(
-                {"reference": right}, on={"reference": ((frame.axes[0], right.axes[0]),)}
+                {"reference": mv.baseline(right, on=((frame.axes[0], right.axes[0]),))}
             )
         return getattr(frame, operation)(right, on=((frame.axes[0], right.axes[0]),))
 

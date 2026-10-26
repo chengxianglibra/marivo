@@ -131,9 +131,11 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     change = values.compare(
-        {"reference": earlier},
-        on={"reference": tuple(zip(values.axes, earlier.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                earlier, on=tuple(zip(values.axes, earlier.axes, strict=True)), match=mv.ordinal()
+            )
+        }
     )
     assert isinstance(change, mv.AnalysisFrame)
     assert change.output_names == (
@@ -251,9 +253,7 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
         trace.help(target)
     current = session.observe({"revenue": revenue}, by=(august,))
     baseline = session.observe({"revenue": revenue}, by=(july,))
-    comparison = current.compare(
-        {"reference": baseline}, match={"reference": mv.ordinal()}
-    ).compute()
+    comparison = current.compare({"reference": mv.baseline(baseline, match=mv.ordinal())}).compute()
     targets = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
     request = targets.attribute(by=(region,))
     trace.read("attribute captured request", lambda: request.show(n=0))

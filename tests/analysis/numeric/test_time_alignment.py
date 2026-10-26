@@ -25,9 +25,13 @@ def test_public_ordinal_retains_original_positions_after_selection(
     _, baseline = period(case.session, 7, lengths[1])
     selected = current.where(current["value"] > 0)
     comparison = selected.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(selected.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     paired = lengths[1] > lengths[0]
     if paired:
@@ -98,9 +102,11 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
     current = session.observe({"value": metric}, by=mv.product(current_axis, members))
     baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
     result = current.compare(
-        {"reference": baseline},
-        match={"reference": match},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline, match=match, on=tuple(zip(current.axes, baseline.axes, strict=True))
+            )
+        }
     ).compute()
     frame = result.to_pandas()
     assert len(frame) == 8 and frame[["current.present", "reference.present"]].all().all()
@@ -121,9 +127,13 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     current = session.observe({"value": metric}, by=(current_axis,))
     baseline = session.observe({"value": metric}, by=(baseline_axis,))
     result = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.offset(years=-1)},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.offset(years=-1),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     ).compute()
     frame = result.to_pandas()
     mapping, left_directory, _ = comparison_tables(result, frame)

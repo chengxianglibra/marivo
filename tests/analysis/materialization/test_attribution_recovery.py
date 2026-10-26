@@ -100,12 +100,18 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         current, baseline = endpoint(8), endpoint(7)
         outputs = {
             "groups": current.compare(
-                {"reference": baseline},
-                on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-                match={"reference": mv.ordinal()},
+                {
+                    "reference": mv.baseline(
+                        baseline,
+                        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                        match=mv.ordinal(),
+                    )
+                }
             ).persist(),
             "difference": current.reduce({"value": current["value"].sum()})
-            .compare({"reference": baseline.reduce({"value": baseline["value"].sum()})})
+            .compare(
+                {"reference": mv.baseline(baseline.reduce({"value": baseline["value"].sum()}))}
+            )
             .persist(),
             "current": facts(8).persist(),
             "baseline": facts(7).persist(),

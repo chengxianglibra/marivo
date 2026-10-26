@@ -59,9 +59,13 @@ def test_period_alignment_native_carriers(
         current = session.observe({"value": metric}, by=mv.product(current_axis, members))
         baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
         comparison = current.compare(
-            {"reference": baseline},
-            match={"reference": mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1)},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    match=mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1),
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                )
+            }
         )
         with pytest.raises(AnalysisError, match="actual baseline time row"):
             comparison.compute()

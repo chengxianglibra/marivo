@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 import marivo
+import marivo.analysis as mv
 from marivo._help import help as help_coordinator
+from marivo._help.render import render_help_text
 from tests.analysis.numeric.test_period_alignment import period
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
@@ -43,9 +45,13 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     _, current = period(case.session, 8, 3)
     _, baseline = period(case.session, 7, 3)
     comparison = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     comparison.show()
     assert "pending" in capsys.readouterr().out
@@ -72,14 +78,12 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
 ) -> None:
     import marivo.analysis as mv
     from marivo._help.render import render_help_text
-    from marivo.analysis._capabilities.dataset_model import CallableInput
-    from marivo.analysis._capabilities.dataset_registry import prepare
 
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("period-help", timezone="UTC")
     axis = session.time_scope(start="2026-01-01", end="2026-02-01").by(mv.grain("month"))
     frame = session.values(by=(), columns={"value": "CNY"}, rows=(((), {"value": 12}),))
-    baseline = session.values(by=(), columns={"value": "CNY"}, rows=(((), {"value": 8}),))
+    previous = session.values(by=(), columns={"value": "CNY"}, rows=(((), {"value": 8}),))
     text = render_help_text("analysis.offset")[0]
     assert [line for line in text.splitlines() if line.startswith("Signature:")] == [
         "Signature: mv.offset(*, years: 'int')",
@@ -87,26 +91,24 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
     ]
     assert "_Omitted" not in text and "<omitted>" not in text
     assert text == render_help_text(mv.offset)[0]
-    registry = prepare()
     for target in ("offset", "calendar_axis.shift", "analysis_frame.compare"):
-        descriptor = registry.by_canonical_id(target)
-        assert isinstance(descriptor, CallableInput)
+        page = render_help_text("analysis." + target)[0]
+        code = page.split("Example:\n", 1)[1].split("\nExpected:", 1)[0].split("\nSee:", 1)[0]
         namespace: dict[str, object] = {
-            "mv": mv,
-            "offset": mv.offset,
             "axis": axis,
             "frame": frame,
-            "baseline": baseline,
+            "previous": previous,
         }
-        exec(compile(descriptor.example.code, "<period-help-example>", "exec"), namespace)
+        exec(compile(code, "<period-help-example>", "exec"), namespace)
         result = namespace["result"]
-        assert len(render_help_text("analysis." + target)[0]) < 5000
+        assert len(page) < 5000
         if target == "calendar_axis.shift":
             assert isinstance(result, mv.CalendarAxis)
             assert render_help_text(axis.shift)[0] == render_help_text(mv.CalendarAxis.shift)[0]
             result.show()
             assert "Direct offset years=-1" in capsys.readouterr().out
         elif target == "analysis_frame.compare":
+            assert "Example inputs: frame, previous" in page
             assert isinstance(result, mv.AnalysisFrame)
             assert result.output_names == (
                 "value",
@@ -145,7 +147,7 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     assert "numeric or matching-tick Duration" in text
     assert "Duration keeps ticks" in text
     assert "relative is dimensionless" in text
-    result = current.compare({"reference": baseline}).compute()
+    result = current.compare({"reference": mv.baseline(baseline)}).compute()
     data = result.to_pandas()
     assert data["reference.baseline.elapsed"].tolist() == [timedelta(microseconds=19)]
     assert data["reference.absolute.elapsed"].tolist() == [timedelta(microseconds=19)]
@@ -153,3 +155,38 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     assert data.attrs["units"][-1] == ("reference.relative.elapsed", None)
     assert result.presence_names == ("current.present", "reference.present")
     assert terminal_runs(session) == ()
+
+
+def test_baseline_help_routes_fields_and_example_without_execution(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.analysis._capabilities.dataset_model import CallableInput
+    from marivo.analysis._capabilities.dataset_registry import prepare
+    from marivo.cli import main
+
+    session = analysis_dsl_case_factory("j2").session
+    frame = session.values(by=(), columns={"value": None}, rows=(((), {"value": 3}),))
+    text = render_help_text("analysis.baseline")[0]
+    assert text == render_help_text(mv.baseline)[0]
+    assert "ComparisonBaseline" in text and "without data reads" in text
+    assert "analysis.baseline" in render_help_text("analysis.frame.compare")[0]
+    descriptor = prepare().by_canonical_id("baseline")
+    assert isinstance(descriptor, CallableInput)
+    namespace: dict[str, object] = {"mv": mv, "frame": frame}
+    exec(descriptor.example.code, namespace)
+    assert isinstance(namespace["result"], mv.ComparisonBaseline)
+    assert namespace["result"].frame is frame
+    type_help = render_help_text("analysis.comparison_baseline")[0]
+    assert type_help == render_help_text(mv.ComparisonBaseline)[0]
+    for field in ("frame", "on", "match"):
+        field_help = render_help_text(f"analysis.comparison_baseline.{field}")[0]
+        assert "Kind: attribute" in field_help and "read-only" in field_help
+    assert "Does not show Frame rows" in render_help_text("analysis.comparison_baseline.show")[0]
+    capsys.readouterr()
+    main(["help", "analysis.baseline"])
+    cli_text = capsys.readouterr().out
+    assert "Target: analysis.baseline" in cli_text
+    signature = next(line for line in text.splitlines() if line.startswith("Signature:"))
+    assert signature in cli_text
+    assert "analysis.comparison_baseline" in cli_text

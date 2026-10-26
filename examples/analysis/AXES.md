@@ -50,9 +50,13 @@ aligned = left.align(
 ).compute()
 
 change = right.compare(
-    {"reference": left},
-    on={"reference": ((right.axes[0], left.axes[0]), (right.axes[1], left.axes[1]))},
-    match={"reference": mv.ordinal()},
+    {
+        "reference": mv.baseline(
+            left,
+            on=((right.axes[0], left.axes[0]), (right.axes[1], left.axes[1])),
+            match=mv.ordinal(),
+        )
+    }
 ).compute()
 
 association = aligned.correlate(

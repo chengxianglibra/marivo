@@ -665,7 +665,7 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
     left = source.where(source["a"] > 10)
     right = source.where(source["a"] < 30)
     query = left.compare(
-        {"base": right}, on={"base": tuple(zip(left.axes, right.axes, strict=True))}
+        {"base": mv.baseline(right, on=tuple(zip(left.axes, right.axes, strict=True)))}
     )
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
@@ -1168,7 +1168,7 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
     assert frame["mean"].tolist() == [Decimal("33.33")]
     assert str(frame["mean"].dtype) == "decimal128(5, 2)[pyarrow]"
     comparison = (
-        mean.compare({"base": mean}, on={"base": tuple(zip(mean.axes, mean.axes, strict=True))})
+        mean.compare({"base": mv.baseline(mean, on=tuple(zip(mean.axes, mean.axes, strict=True)))})
         .compute()
         .to_pandas()
     )

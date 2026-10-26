@@ -59,6 +59,8 @@ SEMANTIC_PUBLIC = {
 ANALYSIS_PUBLIC = (
     "AnalysisFrame",
     "FrameAxis",
+    "ComparisonBaseline",
+    "baseline",
     "FrameMethodFacts",
     "Column",
     "Grouping",

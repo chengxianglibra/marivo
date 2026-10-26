@@ -372,9 +372,13 @@ def test_period_buckets_and_retained_coarsened_partition(
 
     current, baseline = endpoint(8), endpoint(7)
     result = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     ).compute()
     compared = plain(result)
     assert len(compared) == 4

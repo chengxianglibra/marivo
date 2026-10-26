@@ -271,9 +271,13 @@ def test_source_coordinates_statistics_and_original_state(
             )
             difference = (
                 current.compare(
-                    {"reference": baseline},
-                    on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-                    match={"reference": mv.ordinal()},
+                    {
+                        "reference": mv.baseline(
+                            baseline,
+                            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                            match=mv.ordinal(),
+                        )
+                    }
                 )
                 .persist()
                 .to_pandas()

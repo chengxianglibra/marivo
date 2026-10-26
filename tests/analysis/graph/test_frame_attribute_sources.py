@@ -2,6 +2,7 @@
 
 import pytest
 
+import marivo.analysis as mv
 from marivo.analysis.binding.frame_attribute_sources import collect_source_groups
 from tests.shared_fixtures import DslCaseFactory
 
@@ -62,7 +63,7 @@ def test_comparison_and_level_references_share_each_endpoint_requested_inventory
     amount = case.session.catalog.fields.get("sales.order.amount")
     current = case.session.observe({"sum": amount.sum(), "mean": amount.mean()})
     baseline = case.session.observe({"sum": amount.sum(), "mean": amount.mean()})
-    compared = current.compare({"reference": baseline})
+    compared = current.compare({"reference": mv.baseline(baseline)})
     targets = compared.select(
         {"level": compared["sum"], "change": compared["reference.absolute.mean"]}
     )
@@ -134,7 +135,7 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
     channel = case.session.catalog.fields.get("sales.order.channel")
     current = case.session.observe({"sum": amount.sum(), "count": amount.count()})
     baseline = case.session.observe({"count": amount.count(), "sum": amount.sum()})
-    compared = current.compare({"reference": baseline}).compute()
+    compared = current.compare({"reference": mv.baseline(baseline)}).compute()
     selected = compared.select(
         {
             "level": compared["sum"],

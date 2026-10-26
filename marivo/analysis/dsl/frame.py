@@ -71,6 +71,8 @@ from marivo.analysis.core.frame_structure import (
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.artifact import Artifact
+from marivo.analysis.dsl.baseline import ComparisonBaseline
+from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.materialization.frame_services import LocalFrameServices
@@ -937,100 +939,75 @@ class AnalysisFrame:
     ) -> AnalysisFrame: ...
 
     @overload
-    def compare(
-        self,
-        baselines: Mapping[str, AnalysisFrame],
-        *,
-        on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None = None,
-        match: Mapping[str, CalendarCorrespondence] | None = None,
-    ) -> AnalysisFrame: ...
+    def compare(self, baselines: Mapping[str, ComparisonBaseline]) -> AnalysisFrame: ...
 
     def compare(
         self,
-        baselines: AnalysisFrame | Mapping[str, AnalysisFrame],
+        baselines: AnalysisFrame | Mapping[str, ComparisonBaseline],
         *,
-        on: tuple[tuple[FrameAxis, FrameAxis], ...]
-        | Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]]
-        | None = None,
-        match: CalendarCorrespondence | Mapping[str, CalendarCorrespondence] | None = None,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
+        match: CalendarCorrespondence | None = None,
     ) -> AnalysisFrame:
-        """Compare current values with one reference Frame or named baseline Frames.
+        """Compare current values with one Frame or named baseline declarations.
 
         Args:
-            baselines: One same-Session Frame, or a nonempty ordered mapping of them.
-                A bare Frame uses the alias reference; current is reserved.
-            on: A complete axis-pair tuple for a bare Frame; a per-alias Mapping for
-                named baselines. Omitted bindings require unique inference.
-            match: A closed time rule for a bare Frame; a per-alias Mapping for named
-                baselines. Rules must agree with any frozen direct relation.
+            baselines: One same-Session Frame, or a nonempty ordered mapping of
+                mv.baseline(...) declarations. A bare Frame uses alias reference;
+                current is reserved.
+            on: Complete axis-pair tuple for a bare Frame only. For named inputs,
+                put on inside mv.baseline(...). Omission requires unique inference.
+            match: Closed time rule for a bare Frame only. For named inputs, put
+                match inside mv.baseline(...). Must agree with a frozen direct relation.
 
         Returns:
-            A lazy ordinary Frame with current values, named baseline/difference groups and presence.
+            A lazy ordinary Frame with current values, named baseline/difference
+            groups and presence.
 
         Example:
-            ``change = current.compare(baseline, match=mv.ordinal())``.
+            ``change = current.compare({'prior': mv.baseline(previous, match=mv.ordinal())})``.
 
         Constraints: Equal nonempty value paths with compatible numeric or matching-tick
-        Duration endpoints and matching units; no paired inputs. Relative
-        change is (current-baseline)/abs(baseline). Missing rows and NA propagate; zero baselines return NA. Outer correspondence preserves missing-side rows.
-        Ordinary-axis on declares caller business correspondence without checking original
-        Entity/Field equality. Equal value names select pairs, not Metric identity or business comparability.
-        No source replay or date inference from alias names.
-        Bare Frame and named Mapping forms cannot mix on/match parameter shapes.
-        The reference alias retains full reference.baseline/absolute/relative paths.
+        Duration endpoints and matching units; no paired inputs. Relative change is
+        (current-baseline)/abs(baseline). Missing rows and NA propagate; zero baselines
+        return NA. Outer correspondence preserves missing-side rows. Ordinary-axis on
+        declares caller business correspondence without checking original Entity/Field
+        equality. Equal value names select pairs, not Metric identity or business
+        comparability. No source replay or date inference from alias names. Select,
+        name and prepare inputs before compare. The reference alias retains full
+        reference.baseline/absolute/relative paths.
         """
         from marivo.analysis.core.frame_structure import validate_paths
 
-        named_baselines: Mapping[str, AnalysisFrame]
-        named_on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None
-        named_match: Mapping[str, CalendarCorrespondence] | None
+        declarations: tuple[tuple[str, ComparisonBaseline], ...]
         if isinstance(baselines, AnalysisFrame):
-            if on is not None and type(on) is not tuple:
-                reject(
-                    "a bare complete axis-pair tuple for a bare baseline Frame",
-                    type(on).__name__,
-                    "Pass a bare tuple of complete axis pairs, or omit on to request inference.",
-                    "frame.compare",
-                    canonical_id="analysis_frame.compare",
-                )
-            if match is not None and type(match) is not CalendarCorrespondence:
-                reject(
-                    "a bare calendar rule for a bare baseline Frame",
-                    type(match).__name__,
-                    "Pass compare(baseline, match=mv.ordinal()) or another closed time rule.",
-                    "frame.compare",
-                    canonical_id="analysis_frame.compare",
-                )
-            named_baselines = {"reference": baselines}
-            named_on = None if on is None else {"reference": on}
-            named_match = None if match is None else {"reference": match}
+            declarations = (("reference", declare_baseline(baselines, on=on, match=match)),)
         elif isinstance(baselines, Mapping) and baselines:
-            if on is not None and not isinstance(on, Mapping):
+            if on is not None or match is not None:
                 reject(
-                    "a per-alias on Mapping for named baseline Frames",
-                    type(on).__name__,
-                    f"Map complete axis-pair tuples under the actual aliases {tuple(baselines)!r}.",
+                    "correspondence rules inside each named baseline declaration",
+                    repr((on, match)),
+                    'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
                     "frame.compare",
                     canonical_id="analysis_frame.compare",
                 )
-            if match is not None and not isinstance(match, Mapping):
+            if any(type(value) is not ComparisonBaseline for value in baselines.values()):
                 reject(
-                    "a per-alias match Mapping for named baseline Frames",
-                    type(match).__name__,
-                    f"Map closed calendar rules under the actual aliases {tuple(baselines)!r}.",
+                    "a ComparisonBaseline declaration for every named baseline",
+                    repr(tuple(type(value).__name__ for value in baselines.values())),
+                    'Use compare({"alias": mv.baseline(frame, on=..., match=...)}).',
                     "frame.compare",
                     canonical_id="analysis_frame.compare",
                 )
-            named_baselines, named_on, named_match = baselines, on, match
+            declarations = tuple(baselines.items())
         else:
             reject(
-                "one baseline Frame or a nonempty named baseline Frame mapping",
+                "one baseline Frame or a nonempty named ComparisonBaseline mapping",
                 type(baselines).__name__,
-                "Pass compare(baseline), or give multiple baselines distinct explicit aliases.",
+                'Use compare(frame), or compare({"alias": mv.baseline(frame)}).',
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
             )
-        names = tuple(named_baselines)
+        names = tuple(name for name, _ in declarations)
         validate_paths(
             tuple((name,) for name in names),
             location="frame.compare.aliases",
@@ -1044,51 +1021,22 @@ class AnalysisFrame:
                 "frame.compare",
                 canonical_id="analysis_frame.compare",
             )
-        for mapping in (named_on, named_match):
-            if mapping is not None and (
-                not isinstance(mapping, Mapping) or set(mapping) - set(names)
-            ):
-                reject(
-                    "on/match mappings containing only supplied baseline aliases",
-                    repr(mapping),
-                    f"Use the actual baseline aliases {names!r}.",
-                    "frame.compare",
-                    canonical_id="analysis_frame.compare",
-                )
-        if named_on is not None and any(type(pairs) is not tuple for pairs in named_on.values()):
-            reject(
-                "a complete axis-pair tuple for every explicitly supplied on alias",
-                repr(named_on),
-                "Omit an alias to request inference, or supply its complete axis-pair tuple.",
-                "frame.compare",
-                canonical_id="analysis_frame.compare",
-            )
-        if named_match is not None and any(
-            type(rule) is not CalendarCorrespondence for rule in named_match.values()
-        ):
-            reject(
-                "a closed calendar rule for every explicitly supplied match alias",
-                repr(named_match),
-                "Omit an alias for direct inference or equality, or supply ordinal/offset.",
-                "frame.compare",
-                canonical_id="analysis_frame.compare",
-            )
         bindings = tuple(
             NamedFrameComparison(
                 name,
                 self._axis_pairs(
-                    baseline,
-                    on=None if named_on is None else named_on.get(name),
-                    match=None if named_match is None else named_match.get(name),
+                    declaration.frame,
+                    on=declaration.on,
+                    match=declaration.match,
                     location="frame.compare",
                     canonical_id="analysis_frame.compare",
                 ),
-                None if named_match is None else named_match.get(name),
+                declaration.match,
             )
-            for name, baseline in named_baselines.items()
+            for name, declaration in declarations
         )
         operation = CompareFrameValues(bindings)
-        inputs = (self, *named_baselines.values())
+        inputs = (self, *(declaration.frame for _, declaration in declarations))
         schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
 

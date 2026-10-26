@@ -57,11 +57,14 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query['value'].share(along=query.axes, zero_denominator='zero')  # invalid: share policy
     query.top('1', by=query['value'])  # invalid: rank count type
     query.top(1, by=field)  # invalid: source score at result
-    query.compare({'reference': artifact})  # invalid: terminal compare endpoint
+    query.compare({'reference': mv.baseline(artifact)})  # invalid: terminal compare endpoint
     query.compare(query, on={'reference': ()})  # invalid: named on for bare baseline
     query.compare(query, match={'reference': mv.ordinal()})  # invalid: named match for bare baseline
-    query.compare({'reference': query}, on=())  # invalid: bare on for named baseline
-    query.compare({'reference': query}, match=mv.ordinal())  # invalid: bare match for named baseline
+    query.compare({'reference': mv.baseline(query)}, on=())  # invalid: bare on for named baseline
+    query.compare({'reference': mv.baseline(query)}, match=mv.ordinal())  # invalid: bare match for named baseline
+    query.compare({'reference': query})  # invalid: retired Frame mapping
+    query.compare(mv.baseline(query))  # invalid: bare declaration
+    mv.baseline(query).frame = query  # invalid: immutable declaration
     query.compare((query,))  # invalid: unnamed multiple baselines
     query.compare([query])  # invalid: unnamed baseline list
     mv.previous_year()  # invalid: retired rule constructor
@@ -147,7 +150,7 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(query.over(query['revenue'].sum(), by=query.axes), mv.Column)
     assert_type(query.over(mv.row_count()), mv.Column)
     assert_type(query['revenue'].share(along=query.axes), mv.Column)
-    assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}), mv.AnalysisFrame)
+    assert_type(query.compare({'reference': mv.baseline(other, match=mv.ordinal())}), mv.AnalysisFrame)
     assert_type(query.compare(other), mv.AnalysisFrame)
     assert_type(query.compare(other, on=((query.axes[0], other.axes[0]),)), mv.AnalysisFrame)
     assert_type(query.compare(other, match=mv.ordinal()), mv.AnalysisFrame)
@@ -169,7 +172,7 @@ def positive(session: mv.Session, members: mv.Population, field: Deferred, other
     assert_type(query.select({"centered": query["value"] - 10}), mv.AnalysisFrame)
     assert_type(query.top(3, by=query["value"]), mv.AnalysisFrame)
     assert_type(query.reduce({"mean": query["value"].mean(), "sum": query["value"].sum(), "rows": mv.row_count()}), mv.AnalysisFrame)
-    assert_type(query.compare({'reference': other}), mv.AnalysisFrame)
+    assert_type(query.compare({'reference': mv.baseline(other)}), mv.AnalysisFrame)
     assert_type(query.align(other), mv.AnalysisFrame)
     assert_type(query.compute(), mv.AnalysisFrame)
     assert_type(query.persist().artifact, mv.Artifact)

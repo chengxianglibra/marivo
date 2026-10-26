@@ -317,7 +317,7 @@ def test_public_compare_retains_presence_and_projection_on_cold_read(
         rows=((("A",), {"sales": -20}), (("B",), {"sales": 0}), (("D",), {"sales": 10})),
     )
     comparison = current.compare(
-        {"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)}
+        {"base": mv.baseline(baseline, on=((current.axes[0], baseline.axes[0]),))}
     )
     artifact = comparison.persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
@@ -1093,10 +1093,7 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     assert filtered.compute().to_pandas()["sales"].tolist() == [150]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
-    comparison = left.compare(
-        {"base": right},
-        on={"base": ((left.axes[0], right.axes[0]),)},
-    )
+    comparison = left.compare({"base": mv.baseline(right, on=((left.axes[0], right.axes[0]),))})
     artifact = comparison.persist()
     frame = artifact.to_pandas()
     assert frame["base.absolute.sales"].tolist() == [50, 25]

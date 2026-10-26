@@ -13,7 +13,7 @@ def ordinal() -> CalendarCorrespondence:
 
     Args: None.
     Returns: An axis-free calendar correspondence.
-    Example: ``current.compare({'reference': baseline}, match={'reference': mv.ordinal()})``.
+    Example: ``current.compare({'reference': mv.baseline(baseline, match=mv.ordinal())})``.
     Constraints: Calendars must be compatible and complete; interval directories
     must each declare one record with the same boundary timezone.
     """

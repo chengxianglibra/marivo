@@ -75,7 +75,7 @@ def test_public_composition_refuses_before_source_or_run(
                     if operation == "align":
                         left.align(right)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
                     else:
-                        left.compare({"base": right})  # type: ignore[dict-item]  # Exercise the runtime Artifact boundary.
+                        left.compare({"base": mv.baseline(right)})  # type: ignore[dict-item]  # Exercise the runtime Artifact boundary.
                 error = caught.value
                 assert error.expected and error.received and error.repair is not None
                 assert error.repair.action
@@ -90,7 +90,11 @@ def test_public_composition_refuses_before_source_or_run(
             if isinstance(right, mv.AnalysisFrame):
                 with pytest.raises(AnalysisError):
                     right.compare(
-                        {"base": left}, on={"base": tuple(zip(right.axes, left.axes, strict=True))}
+                        {
+                            "base": mv.baseline(
+                                left, on=tuple(zip(right.axes, left.axes, strict=True))
+                            )
+                        }
                     )
             assert calls == []
             assert [run_ids(item) for item in sessions] == before
@@ -145,9 +149,13 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
             ),
         )
         previous = current.compare(
-            {"base": baseline},
-            match={"base": mv.ordinal()},
-            on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
+            {
+                "base": mv.baseline(
+                    baseline,
+                    match=mv.ordinal(),
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                )
+            }
         ).persist()
         frame = previous.to_pandas()
         assert len(frame) == 6

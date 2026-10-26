@@ -43,17 +43,12 @@ month_to_date.show()
 {/* example: period-comparison-query */}
 
 ```python
-current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(
-    mv.grain("day")
-)
-prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(
-    mv.grain("day")
-)
+current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
 current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
 prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
 comparison = current_daily.compare(
-    {"reference": prior_daily},
-    match={"reference": mv.ordinal()},
+    {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
 ).compute()
 comparison.show()
 ```
@@ -67,7 +62,7 @@ previous_progress = session.observe(
     {"revenue": revenue},
     by=(months.shift(mv.offset(periods=-1)),),
 )
-progress = current_progress.compare({"mom": previous_progress}).compute()
+progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
 progress.show()
 ```
 

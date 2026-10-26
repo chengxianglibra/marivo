@@ -212,9 +212,13 @@ def _produce(
     if scenario == "a02":
         current, baseline = current.compute(), baseline.compute()
         comparison = current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         change = comparison.select({"value": comparison["reference.absolute.value"]}).compute()
         chosen = change.where(change["value"] < 0).compute()
@@ -252,14 +256,22 @@ def _produce(
         shared["reused_observation"] = numeric_reads
         current, baseline = current.compute(), baseline.compute()
         comparison = current.compare(
-            {"reference": baseline},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         reverse = baseline.compare(
-            {"reference": current},
-            on={"reference": tuple(zip(baseline.axes, current.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    current,
+                    on=tuple(zip(baseline.axes, current.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         absolute = comparison.reduce(
             {"value": comparison["reference.absolute.value"].sum()},
@@ -270,14 +282,21 @@ def _produce(
             by=(next(axis for axis in reverse.axes if axis.role == "identity"),),
         )
         negative = absolute.compare(
-            {"reference": reversed_absolute},
-            on={"reference": ((absolute.axes[0], reversed_absolute.axes[0]),)},
+            {
+                "reference": mv.baseline(
+                    reversed_absolute, on=((absolute.axes[0], reversed_absolute.axes[0]),)
+                )
+            }
         )
         filtered = baseline.where(baseline["value"] > 80)
         union = current.compare(
-            {"reference": filtered},
-            on={"reference": tuple(zip(current.axes, filtered.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    filtered,
+                    on=tuple(zip(current.axes, filtered.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         counts_by_month = [
             session.observe(
@@ -291,22 +310,26 @@ def _produce(
         ]
         first, second = (
             counts_by_month[0].compare(
-                {"reference": counts_by_month[1]},
-                on={
-                    "reference": tuple(
-                        zip(counts_by_month[0].axes, counts_by_month[1].axes, strict=True)
+                {
+                    "reference": mv.baseline(
+                        counts_by_month[1],
+                        on=tuple(
+                            zip(counts_by_month[0].axes, counts_by_month[1].axes, strict=True)
+                        ),
+                        match=mv.ordinal(),
                     )
-                },
-                match={"reference": mv.ordinal()},
+                }
             ),
             counts_by_month[1].compare(
-                {"reference": counts_by_month[2]},
-                on={
-                    "reference": tuple(
-                        zip(counts_by_month[1].axes, counts_by_month[2].axes, strict=True)
+                {
+                    "reference": mv.baseline(
+                        counts_by_month[2],
+                        on=tuple(
+                            zip(counts_by_month[1].axes, counts_by_month[2].axes, strict=True)
+                        ),
+                        match=mv.ordinal(),
                     )
-                },
-                match={"reference": mv.ordinal()},
+                }
             ),
         )
         first_delta = first.reduce(
@@ -318,8 +341,11 @@ def _produce(
             by=(next(axis for axis in second.axes if axis.role == "identity"),),
         )
         nested = first_delta.compare(
-            {"reference": second_delta},
-            on={"reference": ((first_delta.axes[0], second_delta.axes[0]),)},
+            {
+                "reference": mv.baseline(
+                    second_delta, on=((first_delta.axes[0], second_delta.axes[0]),)
+                )
+            }
         )
         quantities = session.observe(
             {"energy": metric, "count": count},
@@ -335,9 +361,13 @@ def _produce(
             session.observe({"value": count}, by=mv.product(grid, targets)) for grid in grids
         ]
         period = endpoints[0].compare(
-            {"reference": endpoints[1]},
-            on={"reference": tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    endpoints[1],
+                    on=tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
@@ -396,7 +426,7 @@ def _produce(
             session.observe({"value": metric}, by=(session.time_scope(start=start, end=end),))
             for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
         ]
-        difference = totals[0].compare({"reference": totals[1]}, match={"reference": mv.ordinal()})
+        difference = totals[0].compare({"reference": mv.baseline(totals[1], match=mv.ordinal())})
         frames = {
             "counts": counts,
             "region": session.read(targets, {"value": region}),

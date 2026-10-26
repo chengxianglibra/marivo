@@ -93,9 +93,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     _, current = period(case.session, 8, lengths[0])
     _, baseline = period(case.session, 7, lengths[1])
     on = tuple(zip(current.axes, baseline.axes, strict=True))
-    comparison = current.compare(
-        {"reference": baseline}, match={"reference": mv.ordinal()}, on={"reference": on}
-    )
+    comparison = current.compare({"reference": mv.baseline(baseline, match=mv.ordinal(), on=on)})
     if lengths[1] > lengths[0]:
         with pytest.raises(AnalysisError, match="actual baseline time row"):
             comparison.compute()
@@ -139,9 +137,13 @@ def test_period_outer_retains_unequal_calendars(
     _, baseline = period(case.session, 7, 2)
     result = (
         current.compare(
-            {"reference": baseline},
-            match={"reference": mv.ordinal()},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    match=mv.ordinal(),
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                )
+            }
         )
         .compute()
         .to_pandas()
@@ -160,9 +162,13 @@ def test_selected_periods_keep_original_positions_and_nullable_values(
     _, baseline = period(case.session, 7, 3)
     selected = current.where(current["value"] > 0)
     paired = selected.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(selected.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     frame = paired.compute().to_pandas()
     assert len(frame) == 12
@@ -189,9 +195,13 @@ def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
     empty = observed[observed["sales.customer.region"].isin(("south", "west"))]
     assert len(empty) == 6 and empty["value"].eq(0).all()
     comparison = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     frame = comparison.compute().to_pandas()
     assert len(frame) == 9 and frame[["current.present", "reference.present"]].all().all()
@@ -212,9 +222,13 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
         {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(baseline_axis,)
     )
     comparison = current_totals.compare(
-        {"reference": baseline_totals},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current_totals.axes, baseline_totals.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline_totals,
+                match=mv.ordinal(),
+                on=tuple(zip(current_totals.axes, baseline_totals.axes, strict=True)),
+            )
+        }
     )
     frame = comparison.compute().to_pandas()
     assert frame["value"].tolist() == [1, 0, 0]
@@ -245,9 +259,13 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     current, baseline = observe(8, 1), observe(7, 9)
     frame = (
         current.compare(
-            {"reference": baseline},
-            match={"reference": mv.ordinal()},
-            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            {
+                "reference": mv.baseline(
+                    baseline,
+                    match=mv.ordinal(),
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                )
+            }
         )
         .compute()
         .to_pandas()
@@ -267,9 +285,13 @@ def test_period_saved_output_checks_endpoint_projections_and_presence(
     _, current = period(case.session, 8, 3)
     _, baseline = period(case.session, 7, 2)
     saved = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     ).persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)
@@ -303,9 +325,13 @@ def test_period_source_values_match_independent_count_oracle(
     _, current = period(case.session, 8, lengths[0])
     _, baseline = period(case.session, 7, lengths[1])
     comparison = current.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     if lengths[1] > lengths[0]:
         with pytest.raises(AnalysisError, match="actual baseline time row"):

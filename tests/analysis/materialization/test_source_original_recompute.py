@@ -445,7 +445,7 @@ def test_compact_original_prefix_keeps_compare_completion_local(
     coarse = session.observe({"metric": amount.mean()})
     baseline = session.values(by=(), columns={"metric": None}, rows=(((), {"metric": 1}),))
     trace = capture_source(monkeypatch)
-    result = coarse.compare({"reference": baseline}).compute().to_pandas()
+    result = coarse.compare({"reference": mv.baseline(baseline)}).compute().to_pandas()
     assert result["reference.absolute.metric"].tolist() == [29994 / 10000 - 1]
     assert trace.returned_rows == [1]
 

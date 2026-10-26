@@ -164,9 +164,9 @@ def memory(
 def test_sole_calendar_automatic_equality_and_explicit_map_agree(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (20, 10))
     right = memory(local, ("2026-08-01", "2026-08-02"), (0, 1), (2, 4))
-    automatic = left.compare({"reference": right}).compute()
+    automatic = left.compare({"reference": mv.baseline(right)}).compute()
     explicit = left.compare(
-        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
+        {"reference": mv.baseline(right, on=((left.axes[0], right.axes[0]),))}
     ).compute()
     pd.testing.assert_frame_equal(
         _memory_backing(automatic).data.copy_rows(), _memory_backing(explicit).data.copy_rows()
@@ -187,7 +187,7 @@ def test_frozen_leap_directory_only_entry_does_not_fail_actual_exact(
     left = memory(local, ("2024-02-28", "2024-02-29", "2024-03-01"), (2, 0), (30, 10))
     right = memory(local, ("2023-02-28", "2023-03-01"), (0, 1), (2, 3))
     result = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("years", -1))}
     ).compute()
     assert isinstance(result._schema.axes[0], CalendarDataAxis)
     rows = _memory_backing(result).data.copy_rows()
@@ -244,11 +244,11 @@ def test_actual_leap_row_outer_retains_order_and_missing_side(
     left = memory(local, ("2024-02-28", "2024-02-29", "2024-03-01"), (2, 1, 0), (30, 20, 10))
     right = memory(local, ("2023-02-28", "2023-03-01"), (0, 1), (2, 3))
     combined = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("years", -1))}
     )
     assert combined.top(0, by=combined["amount"]).compute().to_pandas().empty
     output = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("years", -1))}
     ).compute()
     rows = _memory_backing(output).data.copy_rows()
     assert rows[_complete_schema(output).key_fields[0]].tolist() == [2, 1, 0]
@@ -266,7 +266,7 @@ def test_sparse_ordinal_and_unobserved_31st_bucket_use_original_directory(
     left = memory(local, july, (2,), (20,))
     right = memory(local, june, (2,), (5,))
     output = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     assert _memory_backing(output).data.copy_rows()[
         _complete_schema(output).key_fields[0]
@@ -282,7 +282,7 @@ def test_sparse_ordinal_and_unobserved_31st_bucket_use_original_directory(
     assert mapping.rows["baseline.0"].iloc[-1] is pd.NA
     tail = memory(local, july, (30, 2), (30, 20))
     outer = tail.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     assert _memory_backing(outer).data.copy_rows()[
         _complete_schema(outer).key_fields[0]
@@ -313,7 +313,7 @@ def test_filter_cannot_remove_partial_month_admission(
         if kind == "years"
         else CalendarCorrespondence("periods", -1)
     )
-    combined = filtered.compare({"reference": complete}, match={"reference": rule})
+    combined = filtered.compare({"reference": mv.baseline(complete, match=rule)})
     with pytest.raises(AnalysisError, match="complete"):
         combined.top(0, by=combined["amount"]).compute()
 
@@ -322,12 +322,10 @@ def test_calendar_region_joint_domain_and_mapping_are_separate(local: LocalFrame
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (8, None), regions=("B", "A"))
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (3, 4), regions=("B", "A"))
     with pytest.raises(AnalysisError, match="complete explicit"):
-        left.compare({"reference": right}, match={"reference": CalendarCorrespondence("ordinal")})
+        left.compare({"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))})
     pairs = tuple(zip(left.axes, right.axes, strict=True))
     output = left.compare(
-        {"reference": right},
-        on={"reference": pairs},
-        match={"reference": CalendarCorrespondence("ordinal")},
+        {"reference": mv.baseline(right, on=pairs, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     rows = _memory_backing(output).data.copy_rows()
     assert list(zip(rows[_complete_schema(output).key_fields[0]], rows["region"], strict=True)) == [
@@ -371,9 +369,9 @@ def test_ordinary_equality_never_guesses_calendar_rule(local: LocalFrameServices
     july = memory(local, ("2026-07-01",), (0,), (8,))
     august = memory(local, ("2026-08-01",), (0,), (4,))
     with pytest.raises(AnalysisError, match="actual baseline time row"):
-        august.compare({"reference": july}).compute()
+        august.compare({"reference": mv.baseline(july)}).compute()
     matched = august.compare(
-        {"reference": july}, match={"reference": CalendarCorrespondence("periods", -31)}
+        {"reference": mv.baseline(july, match=CalendarCorrespondence("periods", -31))}
     ).compute()
     assert _memory_backing(matched).data.copy_rows()[
         matched._schema.values[2].slot_id
@@ -401,7 +399,7 @@ def test_calendar_metadata_show_and_completed_match_need_no_source_or_timezone(
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
     monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
     pending = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("years", -1))}
     )
     with monkeypatch.context() as context:
         context.setattr(CompletedFrameData, "copy_rows", forbidden)
@@ -485,8 +483,10 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
     pending = source.compare(
-        {"reference": fixed, "shared": source},
-        match={"reference": CalendarCorrespondence("ordinal")},
+        {
+            "reference": mv.baseline(fixed, match=CalendarCorrespondence("ordinal")),
+            "shared": mv.baseline(source),
+        }
     )
     result = pending.compute()
     assert isinstance(pending._schema, PendingDataSchema)
@@ -582,12 +582,14 @@ def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
     left = named(memory(local, ("2026-08-01",), (0,), (8,)), "month")
     right = named(memory(local, ("2026-07-01",), (0,), (2,)), "month")
     automatic = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     explicit = left.compare(
-        {"reference": right},
-        on={"reference": ((left.axes[0], right.axes[0]),)},
-        match={"reference": CalendarCorrespondence("ordinal")},
+        {
+            "reference": mv.baseline(
+                right, on=((left.axes[0], right.axes[0]),), match=CalendarCorrespondence("ordinal")
+            )
+        }
     ).compute()
     pd.testing.assert_frame_equal(
         _memory_backing(automatic).data.copy_rows(), _memory_backing(explicit).data.copy_rows()
@@ -596,15 +598,11 @@ def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
         automatic._schema.values[2].slot_id
     ].tolist() == [6]
     with pytest.raises(AnalysisError, match="supported builtin"):
-        left.compare(
-            {"reference": right}, match={"reference": CalendarCorrespondence("periods", -1)}
-        )
+        left.compare({"reference": mv.baseline(right, match=CalendarCorrespondence("periods", -1))})
     different = named(memory(local, ("2026-07-01",), (0,), (2,)), "quarter")
     different = different.select({"other_name": different["amount"]}).compute()
     with pytest.raises(AnalysisError, match="compatible frozen"):
-        left.compare(
-            {"reference": different}, match={"reference": CalendarCorrespondence("ordinal")}
-        )
+        left.compare({"reference": mv.baseline(different, match=CalendarCorrespondence("ordinal"))})
 
 
 def test_select_filter_and_top_keep_complete_pair_interpretation(local: LocalFrameServices) -> None:
@@ -662,7 +660,7 @@ def test_paired_mapping_preserves_valid_minimum_temporal_endpoint_keys(
     left = temporal(memory(local, ("2026-08-01",), (0,), (8,)))
     right = temporal(memory(local, ("2026-07-01",), (0,), (2,)))
     output = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     pair = output._schema.comparisons[0].binding
     assert isinstance(pair, CalendarComparisonBinding)
@@ -705,7 +703,7 @@ def test_empty_actual_domains_keep_nominal_map_without_synthetic_rows(
     left = memory(local, ("2026-08-01",), (), ())
     right = memory(local, ("2026-07-01",), (), ())
     result = left.compare(
-        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
     ).compute()
     assert _memory_backing(result).data.row_count == 0
     assert tuple(len(a.rows) for a in _memory_backing(result).data.copy_attachments()) == (1, 1, 1)
@@ -782,7 +780,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         (fixed_left, fixed_right),
     ):
         with pytest.raises(AnalysisError, match=expected):
-            a.compare({"reference": b}, match={"reference": CalendarCorrespondence("years", -1)})
+            a.compare({"reference": mv.baseline(b, match=CalendarCorrespondence("years", -1))})
     assert frozen == 2
 
 
@@ -833,7 +831,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         pending._schema.complete(_complete_schema(result))
         assert pending._schema.axes == result._schema.axes
     with pytest.raises(AnalysisError, match="without paired"):
-        grouped.compare({"reference": grouped})
+        grouped.compare({"reference": mv.baseline(grouped)})
 
 
 @pytest.mark.parametrize("fault", ["level", "digest"])
@@ -935,7 +933,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     for baseline in (right, frozen):
         with pytest.raises(AnalysisError, match="compatible frozen"):
             left.compare(
-                {"reference": baseline}, match={"reference": CalendarCorrespondence("ordinal")}
+                {"reference": mv.baseline(baseline, match=CalendarCorrespondence("ordinal"))}
             )
 
 
@@ -985,34 +983,41 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
         raise AssertionError("fixed named comparison consulted live time authority")
 
     monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
-    result = current.compare({"yoy": yoy, "mom": mom}).compute()
+    result = current.compare({"yoy": mv.baseline(yoy), "mom": mv.baseline(mom)}).compute()
     assert isinstance(result._schema.axes[0], CalendarDataAxis)
     assert result._schema.axes == current._schema.axes
     rows = result.to_pandas()
     assert rows["yoy.absolute.amount"].tolist() == [8, 15]
     assert rows["mom.relative.amount"].tolist() == [1.0, 1.0]
     assert len(_memory_backing(result).data.copy_attachments()) == 5
+    mixed = current.compare(
+        {
+            "yoy": mv.baseline(yoy),
+            "mom": mv.baseline(mom, match=mv.offset(periods=-1)),
+        }
+    ).compute()
+    pd.testing.assert_frame_equal(rows, mixed.to_pandas())
     baseline_tokens = set()
     for fact in result._schema.comparisons:
         assert isinstance(fact.binding, CalendarComparisonBinding)
         baseline_tokens.add(fact.binding.baseline.token)
     assert len(baseline_tokens) == 2
-    equivalent = current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-12)}).compute()
+    equivalent = current.compare({"yoy": mv.baseline(yoy, match=mv.offset(periods=-12))}).compute()
     assert equivalent.to_pandas()["yoy.absolute.amount"].tolist() == [8, 15]
     bare = current.compare(yoy).compute()
     bare_rows = bare.to_pandas()
     assert bare_rows["reference.absolute.amount"].tolist() == [8, 15]
     assert bare_rows["reference.relative.amount"].tolist() == [2.0, 3.0]
     pd.testing.assert_frame_equal(
-        bare_rows, current.compare({"reference": yoy}).compute().to_pandas()
+        bare_rows, current.compare({"reference": mv.baseline(yoy)}).compute().to_pandas()
     )
     with pytest.raises(AnalysisError, match="target intentions"):
-        current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-1)}).select(
+        current.compare({"yoy": mv.baseline(yoy, match=mv.offset(periods=-1))}).select(
             {"ignored": 1}
         ).compute()
     wrong = memory(local, ("2026-01-01",), (0,), (12,), unit="month", ends=("2026-02-01",))
     with pytest.raises(AnalysisError, match="immediate current origin domain"):
-        wrong_compare = wrong.compare({"yoy": yoy})
+        wrong_compare = wrong.compare({"yoy": mv.baseline(yoy)})
         wrong_compare.top(0, by=wrong_compare["amount"]).compute()
 
 
@@ -1024,11 +1029,11 @@ def test_empty_direct_baseline_does_not_hide_conflicting_offset_intent(
     calendar = exact_scope("2020-12-28", "2021-01-04", "UTC").by(mv.grain("week"))
     current = _captured_calendar_frame(local, calendar, (7,))
     absent = _captured_calendar_frame(local, calendar.shift(mv.offset(years=-1)), ())
-    output = current.compare({"yoy": absent}).compute()
+    output = current.compare({"yoy": mv.baseline(absent)}).compute()
     assert output.to_pandas()["yoy.present"].tolist() == [False]
     assert output.to_pandas()["yoy.baseline.amount"].isna().all()
     with pytest.raises(AnalysisError, match="target intentions"):
-        current.compare({"yoy": absent}, match={"yoy": mv.offset(periods=-52)}).compute()
+        current.compare({"yoy": mv.baseline(absent, match=mv.offset(periods=-52))}).compute()
 
 
 def test_named_compare_rejects_actual_baseline_time_outside_current_domain(
@@ -1038,7 +1043,7 @@ def test_named_compare_rejects_actual_baseline_time_outside_current_domain(
     baseline = memory(local, ("2026-07-01", "2026-07-02", "2026-07-03"), (0, 2), (2, 3))
     for how in ("exact", "outer"):
         with pytest.raises(AnalysisError, match="actual baseline time row"):
-            current.compare({"reference": baseline}, match={"reference": mv.ordinal()}).compute()
+            current.compare({"reference": mv.baseline(baseline, match=mv.ordinal())}).compute()
 
 
 def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
@@ -1055,13 +1060,15 @@ def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
         exact_scope("2026-01-01", "2026-02-01", "UTC").by(mv.grain("month")),
         (4,),
     )
-    actual = current.compare({"prior": baseline}, match={"prior": mv.offset(periods=-2)}).compute()
-    control = current.compare({"prior": manual}, match={"prior": mv.offset(periods=-2)}).compute()
+    actual = current.compare(
+        {"prior": mv.baseline(baseline, match=mv.offset(periods=-2))}
+    ).compute()
+    control = current.compare({"prior": mv.baseline(manual, match=mv.offset(periods=-2))}).compute()
     pd.testing.assert_frame_equal(actual.to_pandas(), control.to_pandas())
     assert actual.to_pandas()["prior.absolute.amount"].tolist() == [8]
     for how in ("exact", "outer"):
         with pytest.raises(AnalysisError, match="explicit match from the current"):
-            current.compare({"prior": baseline}).compute()
+            current.compare({"prior": mv.baseline(baseline)}).compute()
     data = _memory_backing(baseline).data
     endpoint = data.schema.axes[0]
     assert isinstance(endpoint, CalendarDataAxis)
@@ -1082,7 +1089,7 @@ def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
         ),
     )
     with pytest.raises(AnalysisError, match="direct map consistent with its frozen target"):
-        current.compare({"prior": invalid}, match={"prior": mv.offset(periods=-2)}).compute()
+        current.compare({"prior": mv.baseline(invalid, match=mv.offset(periods=-2))}).compute()
 
 
 def test_calendar_comparison_continuations_use_full_completed_domain(
@@ -1092,17 +1099,17 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
 
     current = memory(local, ("2026-01-01",), (0,), (8,))
     baseline = memory(local, ("2025-01-01",), (0,), (2,))
-    first = current.compare({"reference": baseline}, match={"reference": mv.offset(years=-1)})
+    first = current.compare({"reference": mv.baseline(baseline, match=mv.offset(years=-1))})
     selected = first.select({"delta": first["reference.absolute.amount"]})
     extra = memory(local, ("2026-01-01", "2026-01-02"), (0, 1), (3, 4))
 
     def same_chain(frame: AnalysisFrame) -> AnalysisFrame:
-        return frame.compare({"again": frame})
+        return frame.compare({"again": mv.baseline(frame)})
 
     def displaced_chain(frame: AnalysisFrame) -> AnalysisFrame:
         paired = frame.align(extra)
         renamed = paired.select({"saved": paired["left.delta"]})
-        return renamed.compare({"again": renamed})
+        return renamed.compare({"again": mv.baseline(renamed)})
 
     shared = selected.align(selected).compute()
     assert tuple(fact.namespace for fact in shared._schema.comparisons) == (("left",), ("right",))
@@ -1185,7 +1192,7 @@ def test_pending_source_comparison_continuations_match_completed_authority(
         {"amount": session.catalog.metrics.get("sales.revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
     )
-    compared = source.compare({"reference": source})
+    compared = source.compare({"reference": mv.baseline(source)})
     selected = compared.select({"delta": compared["reference.absolute.amount"]})
     assert isinstance(selected._schema, PendingDataSchema)
     extra = memory(session._runtime.local, ("2026-08-01", "2026-08-02"), (0, 1), (3, 4))
@@ -1194,7 +1201,7 @@ def test_pending_source_comparison_continuations_match_completed_authority(
         if displaced:
             aligned = frame.align(extra)
             frame = aligned.select({"delta": aligned["left.delta"]})
-        return frame.compare({"again": frame})
+        return frame.compare({"again": mv.baseline(frame)})
 
     pending_same = chain(selected, displaced=False).compute()
     pending_displaced = chain(selected, displaced=True).compute()
@@ -1278,9 +1285,13 @@ def test_retained_comparison_absence_rejects_true_exact_endpoint_presence(
     current = memory(local, ("2026-01-01", "2026-01-02"), (0, 1), (8, 9), regions=("A", "A"))
     baseline = memory(local, ("2025-01-01",), (0,), (2,), regions=("B",))
     report = current.compare(
-        {"reference": baseline},
-        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
-        match={"reference": mv.offset(years=-1)},
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.offset(years=-1),
+            )
+        }
     ).compute()
     # A mapped period need not have an actual baseline row for the current joint category.
     assert report.to_pandas()["reference.present"].tolist() == [False, False, True]

@@ -31,12 +31,14 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
         by=(session.time_scope(start="2026-09-01", end="2026-10-01"), region),
     )
     compared = september.compare(
-        {"july": july, "august": august},
-        on={
-            "july": tuple(zip(september.axes, july.axes, strict=True)),
-            "august": tuple(zip(september.axes, august.axes, strict=True)),
-        },
-        match={"july": mv.ordinal(), "august": mv.ordinal()},
+        {
+            "july": mv.baseline(
+                july, on=tuple(zip(september.axes, july.axes, strict=True)), match=mv.ordinal()
+            ),
+            "august": mv.baseline(
+                august, on=tuple(zip(september.axes, august.axes, strict=True)), match=mv.ordinal()
+            ),
+        }
     ).compute()
     selected = compared.where(
         compared.coord(compared.axis("sales.customer.region")) == "east"

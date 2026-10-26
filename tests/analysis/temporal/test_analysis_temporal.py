@@ -838,9 +838,11 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     assert left.to_pandas()[left.axes[1].name].tolist() == ["c", "a"]
     assert right.to_pandas()[right.axes[1].name].tolist() == ["b", "c"]
     outer = left.compare(
-        {"reference": right},
-        on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
-        match={"reference": mv.ordinal()},
+        {
+            "reference": mv.baseline(
+                right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+            )
+        }
     ).compute()
     top = outer.top(2, by=outer["value"]).compute()
     assert terminal_runs(session) == ()
@@ -1026,9 +1028,10 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     left_saved, right_saved = left_memory.persist(), right_memory.persist()
     for first, second in ((left, right), (left_memory, right_memory), (left_saved, right_saved)):
         combined = first.compare(
-            {"inferred": second, "explicit": second},
-            on={"explicit": ((first.axes[0], second.axes[0]),)},
-            match={"inferred": rule, "explicit": rule},
+            {
+                "inferred": mv.baseline(second, match=rule),
+                "explicit": mv.baseline(second, on=((first.axes[0], second.axes[0]),), match=rule),
+            }
         ).compute()
         actual = combined.to_pandas()
         for field in ("baseline.value", "absolute.value", "relative.value"):
@@ -1052,7 +1055,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         assert actual.attrs["axes"][0]["role"] == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
     with pytest.raises(AnalysisError, match="ordinal"):
-        scalar.compare({"reference": scalar}, match={"reference": rule})
+        scalar.compare({"reference": mv.baseline(scalar, match=rule)})
     partial = session.observe(
         {"value": metric},
         by=(session.time_scope(start="2026-08-15", end="2026-09-01").by(mv.grain("month")),),
@@ -1060,7 +1063,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):
         with pytest.raises(AnalysisError, match=r"complete|prefix"):
-            empty_partial.compare({"reference": right_memory}, match={"reference": rule}).compute()
+            empty_partial.compare({"reference": mv.baseline(right_memory, match=rule)}).compute()
     state = checked(
         {
             "session": session.id,
@@ -1099,7 +1102,7 @@ with ExitStack() as guards:
     left=session.persisted_frame(state['left']); right=session.persisted_frame(state['right'])
     assert [snapshot(left),snapshot(right)]==state['snapshots']
     rule=mv.offset(years=-1) if state['rule']=='years' else mv.offset(periods=-1) if state['rule']=='periods' else mv.ordinal()
-    output=left.compare({'reference': right},match={'reference': rule}).compute()
+    output=left.compare({'reference': mv.baseline(right, match=rule)}).compute()
     rows=output.to_pandas()
     assert rows['value'].tolist()==[1000]
     assert rows['reference.baseline.value'].tolist()==[state['right_value']]

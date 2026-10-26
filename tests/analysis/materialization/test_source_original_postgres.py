@@ -407,9 +407,11 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             {"q": metric}, by=(baseline, tenant, category), where=mv.in_population(keys)
         )
         compared = left.compare(
-            {"reference": right},
-            on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+                )
+            }
         )
         pending = compared.select(
             {
@@ -484,9 +486,13 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             where=mv.in_population(keys) & ~amount.isnull(),
         )
         parent_comparison = current_parent.compare(
-            {"reference": baseline_parent},
-            on={"reference": tuple(zip(current_parent.axes, baseline_parent.axes, strict=True))},
-            match={"reference": mv.ordinal()},
+            {
+                "reference": mv.baseline(
+                    baseline_parent,
+                    on=tuple(zip(current_parent.axes, baseline_parent.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
+            }
         )
         target = parent_comparison.select(
             {"change": parent_comparison["reference.absolute.q"]}

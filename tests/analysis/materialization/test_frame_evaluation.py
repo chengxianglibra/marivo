@@ -189,7 +189,9 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
     elif entry == "compare":
         current = session.observe({"q": numerator.sum()}, by=(channel,))
         base = session.observe({"q": 2 * numerator.sum()}, by=(channel,))
-        pending = current.compare({"base": base}, on={"base": ((current.axes[0], base.axes[0]),)})
+        pending = current.compare(
+            {"base": mv.baseline(base, on=((current.axes[0], base.axes[0]),))}
+        )
     else:
         observed = session.observe(
             {
@@ -199,7 +201,7 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
         )
         current = observed.select({"q": observed["current_q"]})
         base = observed.select({"q": observed["base_q"]})
-        compared = current.compare({"base": base}, on={"base": ()})
+        compared = current.compare({"base": mv.baseline(base, on=())})
         target = compared.select({"q": compared["base.absolute.q"]})
         pending = target.attribute(by=(channel,))
     before = _inventory(session)
@@ -301,7 +303,7 @@ def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
     denominator = session.catalog.fields.get("sales.facts.denominator")
     current = session.observe({"q": numerator.sum()})
     base = session.observe({"q": numerator.sum() / denominator.sum()})
-    pending = current.compare({"base": base}, on={"base": ()})
+    pending = current.compare({"base": mv.baseline(base, on=())})
     if missing_field:
         with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
             connection.execute("ALTER TABLE facts DROP COLUMN denominator")

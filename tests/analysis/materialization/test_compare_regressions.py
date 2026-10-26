@@ -56,7 +56,7 @@ def test_decimal_compare_ignores_caller_precision_and_masks_zero(
         before = repr(context)
         frame = (
             left.compare(
-                {"base": right}, on={"base": tuple(zip(left.axes, right.axes, strict=True))}
+                {"base": mv.baseline(right, on=tuple(zip(left.axes, right.axes, strict=True)))}
             )
             .compute()
             .to_pandas()
@@ -129,7 +129,7 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
         baseline = current.select({"v": current["v"] / 2})
 
     comparison = current.compare(
-        {"base": baseline}, on={"base": tuple(zip(current.axes, baseline.axes, strict=True))}
+        {"base": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
     )
     for name, expected in (("v", 38), ("base.baseline.v", 19), ("base.absolute.v", 19)):
         selected = comparison.where(comparison[name] > timedelta(0))
@@ -145,7 +145,7 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
 def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Session) -> None:
     query = comparison_session.values(by=(), columns={"v": None}, rows=(((), {"v": 2}),))
     comparison = query.compare(
-        {"base": query}, on={"base": tuple(zip(query.axes, query.axes, strict=True))}
+        {"base": mv.baseline(query, on=tuple(zip(query.axes, query.axes, strict=True)))}
     )
     with pytest.raises(AnalysisError, match="matching value kinds"):
         comparison.where(comparison["base.absolute.v"] > timedelta(0))
@@ -160,7 +160,7 @@ def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
     elapsed = comparison_session.catalog.fields.get("sales.observations.elapsed")
     query = comparison_session.observe({"v": elapsed.sum()})
     comparison = query.compare(
-        {"base": query}, on={"base": tuple(zip(query.axes, query.axes, strict=True))}
+        {"base": mv.baseline(query, on=tuple(zip(query.axes, query.axes, strict=True)))}
     )
     invalid = comparison.where(comparison["base.absolute.v"] > timedelta(microseconds=1))
     with pytest.raises(AnalysisError, match=r"matching.*Duration"):

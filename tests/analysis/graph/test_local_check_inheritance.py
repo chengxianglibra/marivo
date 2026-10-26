@@ -29,9 +29,13 @@ def test_outer_period_comparison_finishes_before_inherited_reduction(
     _, baseline = period(case.session, 7, 3)
     endpoint = current.where(current["value"] > 0) if incomplete else current
     paired = endpoint.compare(
-        {"reference": baseline},
-        match={"reference": mv.ordinal()},
-        on={"reference": tuple(zip(endpoint.axes, baseline.axes, strict=True))},
+        {
+            "reference": mv.baseline(
+                baseline,
+                match=mv.ordinal(),
+                on=tuple(zip(endpoint.axes, baseline.axes, strict=True)),
+            )
+        }
     )
     changed = paired.select({"value": paired["reference.absolute.value"]})
     selected = changed
