@@ -213,7 +213,7 @@ def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
         }
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("encoded-open-end", timezone="UTC")
+    session = mv.session.get_or_create("encoded-open-end", timezone="UTC")
     members = session.members(
         session.catalog.entities.get("sales.history"), at=session.instant("2026-08-03")
     )

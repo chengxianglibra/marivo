@@ -179,7 +179,7 @@ def mean_session(
                 + "@ms.metric()\ndef average():\n    return amount.mean(time=point).per(point).mean()\n",
             }
         )
-        yield mv.session.create("sampled-mean", timezone="UTC"), case
+        yield mv.session.get_or_create("sampled-mean", timezone="UTC"), case
 
 
 @pytest.mark.parametrize(

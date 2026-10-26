@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import AnalysisError
+from marivo.analysis.errors import TimezoneInvalidError
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def _chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_create_persists_system_timezone(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    session = session_attach.create("system")
+    session = session_attach.get_or_create("system")
     assert session.timezone == "Asia/Shanghai"
     meta = asdict(session._record())
     assert meta["report_timezone_name"] == "Asia/Shanghai"
@@ -36,9 +36,9 @@ def test_create_persists_system_timezone(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_explicit_timezone_and_fixed_offset_are_normalized(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    session = session_attach.create("explicit", timezone="UTC")
+    session = session_attach.get_or_create("explicit", timezone="UTC")
     assert session.timezone == "UTC"
-    offset = session_attach.create("offset", timezone="+05:45")
+    offset = session_attach.get_or_create("offset", timezone="+05:45")
     assert offset.timezone == "UTC+05:45"
     assert asdict(offset._record())["report_timezone_resolution"] == "fixed_offset"
     monkeypatch.setenv("TZ", "Pacific/Honolulu")
@@ -46,9 +46,14 @@ def test_explicit_timezone_and_fixed_offset_are_normalized(monkeypatch: pytest.M
 
 
 def test_invalid_explicit_timezone_never_falls_back() -> None:
-    with pytest.raises(AnalysisError):
-        session_attach.create("bad", timezone="Mars/Olympus")
+    with pytest.raises(TimezoneInvalidError):
+        session_attach.get_or_create("bad", timezone="Mars/Olympus")
     assert session_attach.recent().items == ()
+    original = session_attach.get_or_create("existing", timezone="UTC")
+    before = original._record()
+    with pytest.raises(TimezoneInvalidError):
+        session_attach.get_or_create("existing", timezone="Mars/Olympus")
+    assert original._record() == before
 
 
 def test_system_timezone_invalid_tz_falls_back_to_local_offset(
@@ -78,7 +83,7 @@ def test_fixed_offset_recovery_never_rechecks_system_timezone(
         "resolve_system_timezone",
         lambda: ResolvedTimezone("UTC+05:30", fixed, "fixed_offset"),
     )
-    session = session_attach.create("fixed")
+    session = session_attach.get_or_create("fixed")
     monkeypatch.setattr(
         timezone_owner,
         "resolve_system_timezone",

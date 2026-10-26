@@ -93,7 +93,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
     calendar_window_project: SemanticCatalog, end: str, expected: int | None
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.create("scalar-calendar", timezone="UTC")
+    session = mv.session.get_or_create("scalar-calendar", timezone="UTC")
     calendar = session.catalog.period_calendars.get("sales.fiscal")
     anonymous = session.catalog.metrics.get("sales.gmv").window(
         mv.to_date(grain=calendar.grain("fiscal_month"))
@@ -116,7 +116,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
 ) -> None:
     catalog = calendar_window_project
     publish_fiscal_calendar_artifact(catalog)
-    session = mv.session.create("frozen-calendar", timezone="UTC")
+    session = mv.session.get_or_create("frozen-calendar", timezone="UTC")
     metric = session.catalog.metrics.get("sales.fiscal_total")
     query = session.observe(
         {"total": metric},
@@ -163,7 +163,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
-    session_a = mv.session.create("calendar-a", timezone="UTC")
+    session_a = mv.session.get_or_create("calendar-a", timezone="UTC")
     calendar_a = session_a.catalog.period_calendars.get(as_ref(calendar_ref).path)
     grain_a = calendar_a.grain("fiscal_month")
     scope_a = session_a.time_scope(start="2026-01-20", end="2026-02-01")
@@ -184,7 +184,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             "UPDATE calendar SET fiscal_month = CASE WHEN calendar_date < DATE '2026-01-15' THEN 'M1' ELSE 'M2' END"
         )
     catalog.preview(calendar_ref, scope=acquisition)
-    session_b = mv.session.create("calendar-b", timezone="UTC")
+    session_b = mv.session.get_or_create("calendar-b", timezone="UTC")
     grain_b = session_b.catalog.period_calendars.get(as_ref(calendar_ref).path).grain(
         "fiscal_month"
     )
@@ -239,7 +239,7 @@ def test_unusable_calendar_rejects_before_business_reads(
     status: str,
 ) -> None:
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", lambda *a, **kw: (status, None))
-    session = mv.session.create("uncertified-calendar", timezone="UTC")
+    session = mv.session.get_or_create("uncertified-calendar", timezone="UTC")
     metric = session.catalog.metrics.get("sales.fiscal_total")
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -258,7 +258,7 @@ def test_calendar_window_validates_consumed_authority(
     calendar_window_project: SemanticCatalog, case: str
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.create("invalid-calendar", timezone="UTC")
+    session = mv.session.get_or_create("invalid-calendar", timezone="UTC")
     calendar = session.catalog.period_calendars.get("sales.fiscal")
     grain = ms.calendar_grain(
         calendar=calendar.ref, level="unknown" if case == "level" else "fiscal_month"

@@ -11,7 +11,7 @@ import marivo.analysis as mv
 from marivo.semantic.expressions import Entity, Relationship
 
 if TYPE_CHECKING:
-    session = mv.session.create("typing-public", timezone="UTC")
+    session = mv.session.get_or_create("typing-public", timezone="UTC")
 
     def inspect_method_facts(frame: mv.AnalysisFrame) -> None:
         assert_type(frame.method_facts, tuple[mv.FrameMethodFacts, ...])

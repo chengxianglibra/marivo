@@ -70,7 +70,7 @@ counted = ms.measure_column(name='counted', entity=facts, column='counted', unit
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("oracles", timezone="UTC")
+    return mv.session.get_or_create("oracles", timezone="UTC")
 
 
 def _columns(frame: AnalysisFrame) -> dict[str, DataColumn]:

@@ -320,7 +320,7 @@ def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> N
 def test_resume_is_guarded_and_existing_handle_owner_is_stable(
     retained_coordinates_case: DslCase,
 ) -> None:
-    sessions = [mv.session.create(name) for name in ("first", "second")]
+    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
     first, second = (session._runtime for session in sessions)
     logical = observation(sessions[0], "sales.revenue")
     before_second = second.store.session(second.session_ref)
@@ -396,7 +396,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(model.read_text().replace("md.table('order')", "md.table('blocked_orders')"))
     ms.load(workspace_dir=case.root)
-    sessions = [mv.session.create(name) for name in ("first", "second")]
+    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
     runtimes = [session._runtime for session in sessions]
     logicals = [observation(session, "sales.revenue") for session in sessions]
     with ThreadPoolExecutor(max_workers=2) as pool:

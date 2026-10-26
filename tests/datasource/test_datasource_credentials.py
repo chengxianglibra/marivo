@@ -306,7 +306,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
     )
     resolver = HostResolver()
     with md.credential_scope(resolver=resolver):
-        session = mv.session.create("credential-materialization-failure")
+        session = mv.session.get_or_create("credential-materialization-failure")
     original_table = Backend.table
 
     def fail_table(self: Backend, name: str, **kwargs: object) -> object:
@@ -487,7 +487,7 @@ def test_public_semantic_analysis_and_resume(
     resolver = HostResolver()
     with md.credential_scope(resolver=resolver):
         catalog = ms.load(workspace_dir=project)
-        session = mv.session.create("credentials-e2e")
+        session = mv.session.get_or_create("credentials-e2e")
         inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
         inspection.sample(scope=md.unpruned(max_rows=10, timeout_seconds=10), columns=("amount",))
     try:

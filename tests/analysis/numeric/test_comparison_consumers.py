@@ -35,7 +35,7 @@ def test_complete_keys_source_and_fixed(
     data = reference_data("duckdb")
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("comparison-consumer", timezone="UTC")
+        session = mv.session.get_or_create("comparison-consumer", timezone="UTC")
         query = comparison_queries(session)[operation]
         source = query.persist()
         assert_comparison(source, operation)

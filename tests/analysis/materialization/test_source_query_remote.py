@@ -60,7 +60,7 @@ def test_remote_terminal_string_relations(
         backend, profile, tmp_path, monkeypatch, _data(binary=backend == "mysql")
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-query", timezone="UTC")
+        session = mv.session.get_or_create("remote-query", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {
@@ -109,7 +109,7 @@ def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
         backend, profile, tmp_path, monkeypatch, _data(binary=backend == "mysql")
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-keys", timezone="UTC")
+        session = mv.session.get_or_create("remote-keys", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         producer = session.observe({"n": amount.count()}, by=(category,))
@@ -136,7 +136,7 @@ def test_remote_fixed_strings_keep_reader_bytes(
         backend, profile, tmp_path, monkeypatch, _data(fixed=True, binary=backend == "mysql")
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-char", timezone="UTC")
+        session = mv.session.get_or_create("remote-char", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {
@@ -175,7 +175,7 @@ def test_mysql_native_collated_groups_keep_the_existing_source_membership(
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, _data()) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("mysql-native-group", timezone="UTC")
+        session = mv.session.get_or_create("mysql-native-group", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         source = session.observe({"n": amount.count()}, by=(category,))

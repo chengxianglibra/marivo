@@ -134,7 +134,7 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-hybrid", timezone="UTC")
+        session = mv.session.get_or_create("native-hybrid", timezone="UTC")
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=session.members(session.catalog.entities.get("sales.facts")),

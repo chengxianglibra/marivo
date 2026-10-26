@@ -73,7 +73,7 @@ def _session(
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )
-        yield (mv.session.create("remote-samples", timezone="UTC"), case)
+        yield (mv.session.get_or_create("remote-samples", timezone="UTC"), case)
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

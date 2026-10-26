@@ -61,7 +61,7 @@ def core_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("round1-core", timezone="UTC")
+    return mv.session.get_or_create("round1-core", timezone="UTC")
 
 
 @pytest.mark.parametrize("small_first", (None, True, False))

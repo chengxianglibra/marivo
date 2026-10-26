@@ -257,7 +257,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
         members, {"value": case.session.catalog.fields.get("sales.customer.region")}
     )
     fixed = values.compute()
-    other_session = mv.session.create("foreign-r63", timezone="UTC")
+    other_session = mv.session.get_or_create("foreign-r63", timezone="UTC")
     other = other_session.read(
         other_session.members(other_session.catalog.entities.get("sales.customer")),
         {"value": other_session.catalog.fields.get("sales.customer.region")},

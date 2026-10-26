@@ -65,7 +65,7 @@ if args.session_id is not None and args.timezone is not None:
     parser.error("--timezone cannot be supplied with --session-id; the saved timezone is retained")
 
 if args.session_id is None:
-    session = mv.session.create(
+    session = mv.session.get_or_create(
         f"entry-{uuid4().hex[:8]}",
         timezone="UTC" if args.timezone is None else args.timezone,
         domains=None,

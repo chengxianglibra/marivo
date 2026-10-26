@@ -62,7 +62,7 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         }
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("encoded-version", timezone="UTC")
+    session = mv.session.get_or_create("encoded-version", timezone="UTC")
     profiles = session.catalog.entities.get("sales.profiles")
     links_entity = session.catalog.entities.get("sales.links")
     relation = session.catalog.relationships.get("sales.profile")

@@ -88,7 +88,7 @@ bare = ms.measure_column(name='bare', entity=facts, column='amount', unit=None, 
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("contribution", timezone="UTC")
+    return mv.session.get_or_create("contribution", timezone="UTC")
 
 
 def test_additive_exact_values_and_independent_role_reads(

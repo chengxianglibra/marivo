@@ -83,7 +83,7 @@ order_product = ms.relationship(name='order_product', from_entity=orders, to_ent
         model.read_text().replace("# Named expressions", extra + "\n# Named expressions", 1)
     )
     ms.load(workspace_dir=case.root)
-    return mv.session.create("relationship-bindings", timezone="UTC")
+    return mv.session.get_or_create("relationship-bindings", timezone="UTC")
 
 
 def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -153,7 +153,7 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     model.write_text(
         model.read_text().replace("# Named expressions", extra + "# Named expressions", 1)
     )
-    other = mv.session.create("new-role", timezone="UTC")
+    other = mv.session.get_or_create("new-role", timezone="UTC")
     with pytest.raises(AnalysisError):
         other.observe(
             {"value": other.catalog.metrics.get(REVENUE.path)},
@@ -240,7 +240,7 @@ def test_classification_scope_and_complete_components(
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         # Intentional runtime negative: a Query cannot be used as an observation axis.
         session.observe({"value": revenue}, by=(_window(session), read))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
-    other = mv.session.create("another-session", timezone="UTC")
+    other = mv.session.get_or_create("another-session", timezone="UTC")
     with pytest.raises(AnalysisError):
         session.frame(other.members(other.catalog.entities.get(LINE.path)))
     ratio = session.catalog.metrics.get(LINE_REVENUE.path) / session.catalog.metrics.get(
@@ -431,7 +431,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
     )
     fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending')\n"
     model.write_text(contents.replace("# Named expressions", fields + "# Named expressions", 1))
-    session = mv.session.create("timed-coverage", timezone="UTC")
+    session = mv.session.get_or_create("timed-coverage", timezone="UTC")
     metric = session.catalog.metrics.get(LINE_REVENUE.path)
     field = session.catalog.fields.get(CATEGORY.path)
     observed = []

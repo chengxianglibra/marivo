@@ -71,7 +71,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-attribute-exact", timezone="UTC")
+        session = mv.session.get_or_create("native-attribute-exact", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         big = session.catalog.fields.get("sales.facts.big")
         tenant = session.catalog.fields.get("sales.facts.tenant")
@@ -184,7 +184,7 @@ def test_native_attribute_mean_and_ratio_use_complete_parent_denominators(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-attribute-denominators", timezone="UTC")
+        session = mv.session.get_or_create("native-attribute-denominators", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         weight = session.catalog.fields.get("sales.facts.weight")
         category = session.catalog.fields.get("sales.facts.category")
@@ -239,7 +239,7 @@ def test_native_attribute_distinguishes_known_empty_from_all_null(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-attribute-empty", timezone="UTC")
+        session = mv.session.get_or_create("native-attribute-empty", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         weight = session.catalog.fields.get("sales.facts.weight")
         category = session.catalog.fields.get("sales.facts.category")
@@ -278,7 +278,7 @@ def test_mysql_attribute_rejects_nondeterministic_collation_before_business_read
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("mysql-attribute-collation", timezone="UTC")
+        session = mv.session.get_or_create("mysql-attribute-collation", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         parent = session.observe({"q": amount.sum()}).compute()

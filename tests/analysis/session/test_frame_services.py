@@ -34,7 +34,7 @@ from tests.shared_fixtures import terminal_run, terminal_runs
 @pytest.fixture
 def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("local-services", timezone="UTC")
+    return mv.session.get_or_create("local-services", timezone="UTC")
 
 
 def _forbidden(*args: object, **kwargs: object) -> None:
@@ -148,7 +148,7 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
 def test_local_reads_reject_foreign_session_and_store(session: Session, tmp_path: Path) -> None:
     artifact = _publish(session)
     backing = session._runtime.local.open_frame(artifact.id)
-    other_session = mv.session.create("foreign", timezone="UTC")
+    other_session = mv.session.get_or_create("foreign", timezone="UTC")
     local = other_session._runtime.local
     with pytest.raises(ArtifactNotFoundError):
         local.artifact(artifact.id)
@@ -174,7 +174,7 @@ def test_invalid_preview_precedes_metadata_or_payload_reads(
     artifact = _publish(session)
     local = session._runtime.local
     backing = local.open_frame(artifact.id)
-    foreign = mv.session.create("foreign-preview")._runtime.local
+    foreign = mv.session.get_or_create("foreign-preview")._runtime.local
     monkeypatch.setattr(SessionStore, "_read", _forbidden)
     monkeypatch.setattr(OutputRead, "_open", _forbidden)
     with pytest.raises(CoreRuleError, match="nonnegative integer prefix"):

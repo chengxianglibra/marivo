@@ -140,7 +140,7 @@ def prepared_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("preparation", timezone="Asia/Shanghai")
+    return mv.session.get_or_create("preparation", timezone="Asia/Shanghai")
 
 
 def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
@@ -291,7 +291,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("duration", timezone="UTC")
+    session = mv.session.get_or_create("duration", timezone="UTC")
     elapsed = session.catalog.fields.get("sales.facts.elapsed")
     assert isinstance(elapsed, Deferred)
     metrics = {
@@ -358,7 +358,7 @@ def test_local_duration_sample_mean_retains_coverage_and_period_requirements(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("duration-samples", timezone="UTC")
+    session = mv.session.get_or_create("duration-samples", timezone="UTC")
     elapsed = session.catalog.fields.get("sales.facts.elapsed")
     point = session.catalog.fields.get("sales.facts.point")
     child = elapsed.mean(time=point)
@@ -406,7 +406,7 @@ def test_independent_roots_across_datasources(
     files["sales/models.py"] = model
     semantic_project_factory(files, load=False)
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("cross-source", timezone="UTC")
+    session = mv.session.get_or_create("cross-source", timezone="UTC")
     one = session.catalog.fields.get("sales.one.amount")
     two = session.catalog.fields.get("sales.two.amount")
     assert isinstance(one, Deferred) and isinstance(two, Deferred)

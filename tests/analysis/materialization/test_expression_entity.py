@@ -62,7 +62,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     project(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    session = mv.session.create("expression-entity")
+    session = mv.session.get_or_create("expression-entity")
     logical = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
         by=(session.catalog.fields.get("sales.regional.region"),),
@@ -79,7 +79,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     assert isinstance(logical._backing.root, SourceFrameBinding)
     fingerprint = logical._backing.root.graph.fingerprint
     project(tmp_path, "raw.amount > 15")
-    other = mv.session.create("changed-expression")
+    other = mv.session.get_or_create("changed-expression")
     changed = other.observe(
         {"value": other.catalog.metrics.get("sales.revenue")},
         by=(other.catalog.fields.get("sales.regional.region"),),
@@ -117,7 +117,7 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     path.write_text(path.read_text().replace("primary_key=['region']", "primary_key=['amount']"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    session = mv.session.create("invalid-output-key")
+    session = mv.session.get_or_create("invalid-output-key")
     with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
         session.frame(session.members(session.catalog.entities.get("sales.regional"))).compute()
     cause = caught.value

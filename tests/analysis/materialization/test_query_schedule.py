@@ -146,7 +146,7 @@ def warehouse_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("schedule", timezone="UTC")
+    return mv.session.get_or_create("schedule", timezone="UTC")
 
 
 def _query(
@@ -461,7 +461,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("metadata", timezone="UTC")
+    session = mv.session.get_or_create("metadata", timezone="UTC")
     graph = _query(session, "total")
     if kind == "duration":
         with open_query_sources(

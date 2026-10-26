@@ -67,7 +67,7 @@ snapshot_amount=ms.measure_column(name='amount',entity=snapshots,column='amount'
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("original-source", timezone="UTC")
+    return mv.session.get_or_create("original-source", timezone="UTC")
 
 
 def test_raw_mean_and_weighted_pairs_finish_after_regrouping(

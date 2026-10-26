@@ -58,7 +58,7 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
         connection.execute(
             "INSERT INTO orders VALUES (1,'2026-07-01',15.75,2.0,2.00), (2,'2026-07-01',4.25,3.0,3.00)"
         )
-    return mv.session.create("decimal", timezone="UTC")
+    return mv.session.get_or_create("decimal", timezone="UTC")
 
 
 def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:

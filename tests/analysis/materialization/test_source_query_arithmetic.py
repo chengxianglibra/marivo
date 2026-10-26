@@ -48,7 +48,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
         _case_data(backend, "ordinary" if operation == "na_zero" else "strict"),
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("source-query-arithmetic", timezone="UTC")
+        session = mv.session.get_or_create("source-query-arithmetic", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         big = session.catalog.fields.get("sales.facts.big")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -116,7 +116,7 @@ def test_local_query_overflow_fails_before_empty_top(
         backend, profile, tmp_path, monkeypatch, _case_data(backend, "overflow")
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("source-query-checks", timezone="UTC")
+        session = mv.session.get_or_create("source-query-checks", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")), {"big": big}
@@ -146,7 +146,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
     )
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         _project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("unary-query", timezone="UTC")
+        session = mv.session.get_or_create("unary-query", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
@@ -208,7 +208,7 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
     data = replace(data, values=data.values.replace("2.5", "CAST('Infinity' AS DOUBLE)", 1))
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         _project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("finite-select", timezone="UTC")
+        session = mv.session.get_or_create("finite-select", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},

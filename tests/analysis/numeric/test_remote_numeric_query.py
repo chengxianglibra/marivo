@@ -123,7 +123,7 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("sparse_remote", timezone="UTC")
+        session = mv.session.get_or_create("sparse_remote", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         calendar = (
@@ -177,7 +177,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
         assert table.happened.type().timezone == "UTC"
         native = case.session._backend.execute(table.order_by("id"))
         assert isinstance(native, pd.DataFrame)
-        session = mv.session.create("mysql_utc_read", timezone="America/New_York")
+        session = mv.session.get_or_create("mysql_utc_read", timezone="America/New_York")
         members = session.members(session.catalog.entities.get("sales.facts"))
         artifact = session.read(
             members, {"happened": session.catalog.fields.get("sales.facts.happened")}
@@ -246,7 +246,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert isinstance(native, pd.DataFrame)
         assert native.total.tolist() == [31]
         assert native["count"].tolist() == [3]
-        session = mv.session.create("clickhouse_dst", timezone="UTC")
+        session = mv.session.get_or_create("clickhouse_dst", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         happened = session.catalog.fields.get("sales.facts.happened")
         scope = session.time_scope(
@@ -279,7 +279,7 @@ def test_public_native_numeric_query(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote_numeric", timezone="UTC")
+        session = mv.session.get_or_create("remote_numeric", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe(
             {
@@ -328,7 +328,7 @@ def test_public_native_numeric_methods(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote_methods", timezone="UTC")
+        session = mv.session.get_or_create("remote_methods", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         weight = session.catalog.fields.get("sales.facts.weight")
         query = session.observe(
@@ -413,7 +413,7 @@ def test_public_native_quantile_algorithms(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native_quantiles", timezone="UTC")
+        session = mv.session.get_or_create("native_quantiles", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         statements: list[str] = []
@@ -551,7 +551,7 @@ def test_native_quantile_edge_groups(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("quantile_edges", timezone="UTC")
+        session = mv.session.get_or_create("quantile_edges", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         big = session.catalog.fields.get("sales.facts.big")
         category = session.catalog.fields.get("sales.facts.category")
@@ -591,7 +591,7 @@ def test_native_time_dependencies_and_drill(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote_dependencies", timezone="UTC")
+        session = mv.session.get_or_create("remote_dependencies", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -648,7 +648,7 @@ def test_mixed_predicate_keeps_null_rows_and_complete_identity_membership(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote_mixed_predicate", timezone="UTC")
+        session = mv.session.get_or_create("remote_mixed_predicate", timezone="UTC")
         entity = session.catalog.entities.get("sales.facts")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -736,7 +736,7 @@ def test_same_source_read_filter_population_consumer(
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("same_source_population", timezone="UTC")
+        session = mv.session.get_or_create("same_source_population", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         members = session.members(session.catalog.entities.get("sales.facts"))
@@ -838,7 +838,7 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
         assert isinstance(denied, (list, tuple))
         assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("source_char_selection", timezone="UTC")
+        session = mv.session.get_or_create("source_char_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         members = session.members(session.catalog.entities.get("sales.facts"))
@@ -894,7 +894,7 @@ def test_empty_source_selection_retains_original_identity_check(
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("source_check_selection", timezone="UTC")
+        session = mv.session.get_or_create("source_check_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         members = session.members(session.catalog.entities.get("sales.facts"))
@@ -937,7 +937,7 @@ def test_remote_saved_values_cold_read_without_sources(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote_cold", timezone="UTC")
+        session = mv.session.get_or_create("remote_cold", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         saved = session.observe(
             {"total": session.catalog.metrics.get("sales.total")}, by=(category,)

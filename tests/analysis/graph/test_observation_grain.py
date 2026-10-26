@@ -450,7 +450,7 @@ def test_complete_member_entity_keeps_compound_key(
         )
     )
     ms.load(workspace_dir=case.root)
-    session = mv.session.create("compound-grain", timezone="UTC")
+    session = mv.session.get_or_create("compound-grain", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.customer"))
     observed = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=members)
     result = observed.persist()

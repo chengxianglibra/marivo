@@ -76,8 +76,8 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
             False,  # Each real Session owns loading the semantic project.
         )
         sessions = [
-            mv.session.create("r94-owner-left", timezone="UTC"),
-            mv.session.create("r94-owner-right", timezone="UTC"),
+            mv.session.get_or_create("r94-owner-left", timezone="UTC"),
+            mv.session.get_or_create("r94-owner-right", timezone="UTC"),
         ]
         point = datetime(2026, 8, 1, tzinfo=timezone.utc)
         families = (

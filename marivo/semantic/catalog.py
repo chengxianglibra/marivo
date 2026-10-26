@@ -901,7 +901,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             ``session.observe``.
 
         Example:
-            >>> session = mv.session.create(
+            >>> session = mv.session.get_or_create(
             ...     "analysis", question="Compare one certified fiscal week"
             ... )
             >>> calendar = session.catalog.period_calendars.get("sales.fiscal")

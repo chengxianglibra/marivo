@@ -270,7 +270,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
     fixed = current.persist()
-    other_session = mv.session.create("foreign", timezone="UTC")
+    other_session = mv.session.get_or_create("foreign", timezone="UTC")
     foreign = other_session.observe({"value": other_session.catalog.metrics.get("sales.revenue")})
     before = terminal_runs(case.session)
 
@@ -350,7 +350,7 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     case = replace(
         case,
         catalog=ms.load(workspace_dir=case.root),
-        session=mv.session.create("parquet", timezone="UTC"),
+        session=mv.session.get_or_create("parquet", timezone="UTC"),
     )
     saved = _correlation_input(case).persist()
     values = saved.to_pandas()["value"]

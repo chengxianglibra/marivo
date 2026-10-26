@@ -142,7 +142,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                 "sales/models.py": models,
             }
         )
-        session = mv.session.create("r94-multiroot", timezone="UTC")
+        session = mv.session.get_or_create("r94-multiroot", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.subjects"))
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)

@@ -62,7 +62,7 @@ def test_public_source_reexecution_and_terminal_read(
     data = reference_data(backend)
     with source_case(backend, "table", tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("source-execution", timezone="UTC")
+        session = mv.session.get_or_create("source-execution", timezone="UTC")
         query = _values(session)
         shared = query.select({"value": query["value"] / query["value"]})
         captures = []
@@ -129,7 +129,7 @@ def test_independent_equal_queries_execute_distinct_source_stages(
     data = reference_data("duckdb")
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("independent-work", timezone="UTC")
+        session = mv.session.get_or_create("independent-work", timezone="UTC")
         first, second = _values(session), _values(session)
         assert (
             first is not second

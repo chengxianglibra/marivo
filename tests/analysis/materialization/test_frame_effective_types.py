@@ -51,7 +51,7 @@ def session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("frame-effective-types", timezone="UTC")
+    return mv.session.get_or_create("frame-effective-types", timezone="UTC")
 
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:

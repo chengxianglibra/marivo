@@ -46,7 +46,7 @@ if not TYPE_CHECKING:
             raise AttributeError('Use marivo.help("analysis") for the public analysis contract.')
         if name == "catalog":
             raise AttributeError(
-                "The analysis catalog is session-bound; acquire session = mv.session.create(name), then use catalog = session.catalog."
+                "The analysis catalog is session-bound; acquire session = mv.session.get_or_create(name), then use catalog = session.catalog."
             )
         if name.startswith("__") and name not in ("__all__", "__marivo_telemetry_capabilities__"):
             raise AttributeError(name)

@@ -28,7 +28,7 @@ def test_missing_datasource_is_named_when_sources_are_requested(
 ) -> None:
     monkeypatch.chdir(authoring_evidence_project)
     (authoring_evidence_project / "models" / "datasources" / "warehouse.py").unlink()
-    session = mv.session.create("missing-source")
+    session = mv.session.get_or_create("missing-source")
     assert terminal_runs(session) == ()
     with pytest.raises(SemanticLoadFailed) as caught:
         session.observe({"revenue": session.catalog.metrics.get("sales.revenue")})
@@ -63,7 +63,7 @@ def test_observe_uses_registered_global_datasource(
         .replace("Asia/Shanghai", "UTC")
         .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
-    session = mv.session.create("registered", timezone="UTC")
+    session = mv.session.get_or_create("registered", timezone="UTC")
     output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).compute()
     assert output.to_pandas()[("value", "revenue")].tolist() == [expected]
     assert terminal_runs(session) == ()

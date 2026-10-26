@@ -318,7 +318,7 @@ def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) ->
 import json
 import marivo.analysis as mv
 import marivo.semantic as ms
-session = mv.session.create('temporal-grid-recovery', timezone='UTC')
+session = mv.session.get_or_create('temporal-grid-recovery', timezone='UTC')
 calendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))
 metric = session.catalog.metrics.get('sales.revenue').window(mv.all_history())
 result = session.observe({'value':metric}, by=(calendar,)).persist()
@@ -670,7 +670,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     path = case.root / "models/semantic/sales/models.py"
     path.write_text(path.read_text().replace("parse=ms.timestamp()", "parse=None"))
     ms.load(workspace_dir=case.root)
-    session = mv.session.create("date-window", timezone="Asia/Tokyo")
+    session = mv.session.get_or_create("date-window", timezone="Asia/Tokyo")
     grid = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="America/New_York").by(
         mv.grain("day")
     )

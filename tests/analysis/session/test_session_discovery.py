@@ -64,18 +64,18 @@ def test_session_creation_and_history_preserve_foreign_entries(
     existing_session: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    original = mv.session.create("first", timezone="UTC") if existing_session else None
+    original = mv.session.get_or_create("first", timezone="UTC") if existing_session else None
     foreign = [_foreign_entry(tmp_path, entry) for entry in ("v5", "v8", "v11", "README")]
     if original is None:
         before = _project_state(tmp_path)
         with pytest.raises(IntegrityError):
-            mv.session.create("first", timezone="UTC")
+            mv.session.get_or_create("first", timezone="UTC")
         assert _project_state(tmp_path) == before
         return
     first = mv.session.resume(original.id)
     assert first.id == original.id
     assert mv.session.resume(first.id).id == first.id
-    second = mv.session.create("second", timezone="UTC")
+    second = mv.session.get_or_create("second", timezone="UTC")
 
     page = mv.session.recent(limit=1)
     assert [item.id for item in page.items] == [second.id]

@@ -72,7 +72,7 @@ Session + resolved definitions / explicit literal domains
 mv.* owns source-free descriptions and composition; session.* introduces Catalog,
 Store, execution ownership or frozen defaults; receiver methods derive existing
 context. Public result types are acquired values, rather than user constructors.
-Lifecycle discovery is mv.session.create/resume/recent/inspect. Source captures,
+Lifecycle discovery is mv.session.get_or_create/resume/recent/inspect. Source captures,
 repr and metadata show do not evaluate. A completed Frame show explicitly reads
 current data; compute/persist are the evaluation boundaries.
 

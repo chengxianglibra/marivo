@@ -80,8 +80,8 @@ def provider() -> DisclosureProvider:
             "Session",
             Session,
             summary="One Session binds logical construction and committed Runtime reads.",
-            acquisition="Create or recover through mv.session.create or mv.session.resume. Direct construction and extension are unsupported.",
-            producers=("session.create", "session.resume"),
+            acquisition="Create or recover a name through mv.session.get_or_create, or recover an exact ID through mv.session.resume. Direct construction and extension are unsupported.",
+            producers=("session.get_or_create", "session.resume"),
             constraints=(
                 "Source construction loads authored semantics on demand; retained reads do not require current sources.",
                 "session.domains is the persisted tuple[str, ...] or None. None selects all authoring domain directories. Explicit names select only those directories, without dependency expansion; include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
@@ -98,10 +98,10 @@ def provider() -> DisclosureProvider:
     operations: tuple[tuple[object, str, str, str, str], ...] = (
         (
             session_namespace,
-            "create",
+            "get_or_create",
             "Session",
-            "import marivo.analysis as mv\nresult = mv.session.create('help-example')",
-            "Atomically create a uniquely named Session with frozen timezone and domains; duplicate names reject with the existing ID.",
+            "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-repeatable', timezone='UTC')",
+            "Create or recover an exact Session name; retain saved metadata, reject explicit configuration conflicts and never set a current Session.",
         ),
         (
             session_namespace,
@@ -209,7 +209,7 @@ def provider() -> DisclosureProvider:
         "frame": "Pass an AnalysisFrame from this exact Store/Session, not an Artifact, ID or raw table.",
         "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs. Only ordinary complete field/identity axes; () selects zero axes. Names/types never infer targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
-        "timezone": "On create, None resolves and freezes the system timezone; instant/time_scope use the frozen Session timezone unless explicitly overridden.",
+        "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
         "where": "Pass a Deferred combining field and Population membership conditions. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
@@ -219,10 +219,6 @@ def provider() -> DisclosureProvider:
         "columns": "Map each literal value name to its one declared unit, or None.",
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
-        "name": "Choose a new project-local name without surrounding whitespace.",
-        "domains": "None selects all authoring domain directories. An exact name or nonempty sequence selects only those directories, without dependency expansion. Include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
-        "question": "Optional description frozen at creation.",
-        "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
@@ -262,7 +258,15 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     P(
                         n,
-                        "Empty () is one zero-axis cell. Pass ordered fields, Grouping, TimeScope and membership rules, a Population P, or (P, rule, ...). Membership expands in place; non-first fields can locate interleaved axes. P fixes complete joint keys; cover necessary output keys before sampling; extra keys retain empty-input values. Internal per(P) permits subsets. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries coordinates without selected keys or allocations."
+                        "Use an exact project-local name; an existing name is recovered."
+                        if name == "get_or_create" and n == "name"
+                        else "None stores no description on creation and retains the saved description on recovery. Non-None values must match the saved question."
+                        if name == "get_or_create" and n == "question"
+                        else "None resolves and freezes the system timezone on creation and retains the saved timezone on recovery. Non-None values must match the normalized saved name."
+                        if name == "get_or_create" and n == "timezone"
+                        else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
+                        if name == "get_or_create" and n == "domains"
+                        else "Empty () is one zero-axis cell. Pass ordered fields, Grouping, TimeScope and membership rules, a Population P, or (P, rule, ...). Membership expands in place; non-first fields can locate interleaved axes. P fixes complete joint keys; cover necessary output keys before sampling; extra keys retain empty-input values. Internal per(P) permits subsets. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries coordinates without selected keys or allocations."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
@@ -279,6 +283,7 @@ def provider() -> DisclosureProvider:
                 constraints=(_doc_section(value, "Constraints"),)
                 if name
                 in (
+                    "get_or_create",
                     "members",
                     "observe",
                     "frame",
@@ -289,16 +294,18 @@ def provider() -> DisclosureProvider:
                 )
                 else (effect,),
                 effects=effect,
-                telemetry=name in ("create", "resume"),
+                telemetry=name in ("get_or_create", "resume"),
                 failures=(
-                    "AnalysisError: read its fields and repair."
+                    "SessionStateError: explicit configuration conflicts identify the saved and requested values; error.repair.candidates contains the existing Session ID. Recovery also respects the resume writer guard."
+                    if name == "get_or_create"
+                    else "AnalysisError: read its fields and repair."
                     if name == "members"
                     else "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
                 ),
                 example=ExampleInput(
                     code,
                     ()
-                    if name in ("create", "recent")
+                    if name in ("get_or_create", "recent")
                     else ("saved_session_id",)
                     if name == "resume"
                     else ("saved_session_id",)

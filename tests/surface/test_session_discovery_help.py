@@ -18,6 +18,21 @@ from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
 from tests.support.refs import as_ref
 
 
+def test_repeatable_session_help_is_reachable_and_discloses_conflicts() -> None:
+    routes = rendered_help("analysis.sessions")
+    assert "analysis.session.get_or_create" in routes
+    page = rendered_help("analysis.session.get_or_create")
+    assert page == rendered_help(mv.session.get_or_create)
+    assert "Kind: callable" in page
+    assert "None stores no description on creation" in page
+    assert "None resolves and freezes the system timezone on creation" in page
+    assert "None selects all authoring domain directories on creation" in page
+    assert "Non-None values must match" in page
+    assert "never set a current Session" in page
+    assert "SessionStateError" in page
+    assert "error.repair.candidates" in page
+
+
 @pytest.mark.parametrize(
     ("target", "absence"),
     [
@@ -75,7 +90,7 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
     show_help("analysis.session.time_scope")
     assert "start=" in capsys.readouterr().out
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("calendar-help", timezone="UTC")
+    session = mv.session.get_or_create("calendar-help", timezone="UTC")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     assert len(scope.by(mv.grain("day")).grid.cells) == 31
     from marivo._temporal import _validate_time_scope_data

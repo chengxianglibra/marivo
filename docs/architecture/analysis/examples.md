@@ -22,7 +22,7 @@ scope; no general source-completeness claim follows from this fixture.
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-session = mv.session.create("architecture-examples", timezone="UTC")
+session = mv.session.get_or_create("architecture-examples", timezone="UTC")
 catalog = session.catalog
 orders = catalog.entities.get("sales.orders")
 region = catalog.fields.get("sales.orders.region")

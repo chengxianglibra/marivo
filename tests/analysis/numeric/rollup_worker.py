@@ -114,7 +114,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
                 "cost DECIMAL(12,2), quantity BIGINT)"
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
-        session = mv.session.create("equation", timezone="UTC")
+        session = mv.session.get_or_create("equation", timezone="UTC")
         metrics = session.catalog.metrics
         gmv = metrics.get("sales.gmv")
         qty_total = metrics.get("sales.qty_total")

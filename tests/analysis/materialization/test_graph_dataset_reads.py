@@ -109,7 +109,7 @@ def test_projection_reads_each_receipt_once_per_call(
                 artifact.to_pandas()
         finally:
             path.write_bytes(original_bytes)
-    foreign = mv.session.create("foreign-reader", timezone="UTC")
+    foreign = mv.session.get_or_create("foreign-reader", timezone="UTC")
     opened.clear()
     with pytest.raises(AnalysisError):
         foreign.persisted_frame(artifact.artifact.id)

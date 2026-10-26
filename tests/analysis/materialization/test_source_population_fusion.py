@@ -469,7 +469,7 @@ def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("exact-native-count", timezone="UTC")
+        session = mv.session.get_or_create("exact-native-count", timezone="UTC")
         entity = session.catalog.entities.get("sales.facts")
         category = session.catalog.fields.get("sales.facts.category")
         members = session.members(entity)
@@ -574,7 +574,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 "sales/objects.py": model,
             }
         )
-        session = mv.session.create("remote-population-fusion", timezone="UTC")
+        session = mv.session.get_or_create("remote-population-fusion", timezone="UTC")
         source = session.members(session.catalog.entities.get("sales.orders"))
         path = (
             session.catalog.relationships.get("sales.order_links"),

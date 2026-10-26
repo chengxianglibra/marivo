@@ -164,7 +164,7 @@ def _selected_original_case(
                 finally:
                     cursor.close()
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("selected-original", timezone="UTC")
+        session = mv.session.get_or_create("selected-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
@@ -320,7 +320,7 @@ def test_empty_selection_retains_widened_parent_sum(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("selected-overflow", timezone="UTC")
+        session = mv.session.get_or_create("selected-overflow", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         fine = session.observe({"value": amount.sum()}, by=(category,))
@@ -349,7 +349,7 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("selected-parent-mean", timezone="UTC")
+        session = mv.session.get_or_create("selected-parent-mean", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         fine = session.observe({"value": amount.mean()}, by=(category,))
@@ -398,7 +398,7 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
         }
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("selected-file", timezone="UTC")
+    session = mv.session.get_or_create("selected-file", timezone="UTC")
     amount = session.catalog.fields.get("sales.facts.amount")
     tenant = session.catalog.fields.get("sales.facts.tenant")
     category = session.catalog.fields.get("sales.facts.category")

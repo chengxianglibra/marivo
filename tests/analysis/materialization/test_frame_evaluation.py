@@ -82,7 +82,7 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("frame-evaluation", timezone="UTC")
+    return mv.session.get_or_create("frame-evaluation", timezone="UTC")
 
 
 def _fact_scopes(facts: tuple[OutputEvidence, ...]) -> list[object]:

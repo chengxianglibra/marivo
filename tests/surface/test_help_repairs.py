@@ -95,7 +95,7 @@ def test_actual_failure_type_advertises_a_queryable_static_page(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create(name="help-error-roundtrip")
+    session = mv.session.get_or_create(name="help-error-roundtrip")
     with pytest.raises(ArtifactNotFoundError) as captured:
         session.persisted_frame("missing")
     text, _, _ = render_help_text(type(captured.value))
@@ -111,7 +111,7 @@ def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("attribute-fact-repair")
+    session = mv.session.get_or_create("attribute-fact-repair")
     pending = session.values(by=(), columns={"q": None}, rows=(((), {"q": 1}),))
     with pytest.raises(AnalysisError) as captured:
         _ = pending.method_facts

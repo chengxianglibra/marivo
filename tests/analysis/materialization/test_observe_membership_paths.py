@@ -87,7 +87,7 @@ seller = ms.relationship(name='seller', from_entity=orders, to_entity=people, ke
 """,
             }
         )
-        session = mv.session.create("membership-paths", timezone="UTC")
+        session = mv.session.get_or_create("membership-paths", timezone="UTC")
         region = session.catalog.fields.get("sales.people.region")
         amount = session.catalog.fields.get("sales.orders.amount")
         buyer = session.catalog.relationships.get("sales.buyer")

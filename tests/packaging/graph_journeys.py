@@ -83,7 +83,7 @@ def _create(project: Path, scenario: DslScenario, source: str) -> mv.Session:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content.replace("unit='CNY'", "unit='kWh'"))
     catalog = ms.load(workspace_dir=project)
-    session = mv.session.create("installed", timezone="UTC")
+    session = mv.session.get_or_create("installed", timezone="UTC")
     if source == "parquet":
         export_dsl_parquet_models(
             DslCase(scenario, NAMES, project, database, catalog, session), project

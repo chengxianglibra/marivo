@@ -80,7 +80,7 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
             monkeypatch,
         )
         monkeypatch.chdir(tmp_path)
-        session = mv.session.create("missing-selected-zone", timezone="UTC")
+        session = mv.session.get_or_create("missing-selected-zone", timezone="UTC")
         original_statement = mysql.execute_provider_statement
         probes: list[str] = []
 
@@ -235,7 +235,7 @@ def test_clickhouse_hour_sampling_keeps_neutral_wall_carrier_in_non_utc_session(
                     user=user,
                 )
                 monkeypatch.chdir(tmp_path)
-                session = mv.session.create("neutral-hour-samples", timezone="UTC")
+                session = mv.session.get_or_create("neutral-hour-samples", timezone="UTC")
                 amount = session.catalog.fields.get("sales.events.amount")
                 hour = session.catalog.fields.get("sales.events.hour")
                 scope = session.time_scope(start="2026-05-01T04:00Z", end="2026-05-01T06:00Z")

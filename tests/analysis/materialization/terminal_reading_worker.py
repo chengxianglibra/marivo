@@ -34,7 +34,7 @@ def period_produce(root: Path, name: str) -> None:
             "(4,'A',180,'2027-01-01 00:00:00+00'),"
             "(5,'A',30,'2027-02-01 00:00:00+00')"
         )
-    session = mv.session.create(name, timezone="UTC")
+    session = mv.session.get_or_create(name, timezone="UTC")
     amount = session.catalog.fields.get("sales.orders.amount")
     stamp = session.catalog.fields.get("sales.orders.stamp")
     periods = session.time_scope(start="2027-01-01", end="2027-03-01").by(mv.grain("month"))
@@ -132,7 +132,7 @@ def main() -> None:
         period_read(name, sys.argv[4:])
         return
     if mode == "produce":
-        session = mv.session.create(name, timezone="UTC")
+        session = mv.session.get_or_create(name, timezone="UTC")
         amount = session.catalog.fields.get("sales.orders.amount")
         region = session.catalog.fields.get("sales.orders.region")
         artifact = session.observe(

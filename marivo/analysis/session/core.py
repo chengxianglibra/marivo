@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class Session:
     """One named Session for explicit source inputs and immutable analysis data.
 
-    Acquire with ``mv.session.create(name)`` or ``mv.session.resume(session_id)``.
+    Acquire with ``mv.session.get_or_create(name)`` or ``mv.session.resume(session_id)``.
     Source construction resolves authored semantics without reading business rows.
     Persisted Frame recovery reads exact commit metadata without loading semantics.
     """
@@ -35,7 +35,7 @@ class Session:
     __slots__ = ("_catalog_value", "_runtime", "_sources_value")
 
     def __new__(cls) -> Session:
-        raise TypeError("Use mv.session.create(name) or mv.session.resume(session_id).")
+        raise TypeError("Use mv.session.get_or_create(name) or mv.session.resume(session_id).")
 
     @classmethod
     def _from_runtime(cls, runtime: DatasetRuntime) -> Session:

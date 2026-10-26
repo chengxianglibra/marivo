@@ -68,7 +68,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-read-top", timezone="UTC")
+        session = mv.session.get_or_create("native-read-top", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         score = session.catalog.fields.get("sales.facts.big")
         pending = session.read(members, {"score": score})
@@ -154,7 +154,7 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("filtered-native-read-top", timezone="UTC")
+        session = mv.session.get_or_create("filtered-native-read-top", timezone="UTC")
         entity = session.catalog.entities.get("sales.facts")
         weight = session.catalog.fields.get("sales.facts.weight")
         score = session.catalog.fields.get("sales.facts.big")
@@ -200,7 +200,7 @@ def test_native_read_top_preserves_full_input_key_errors(
         backend, profile, tmp_path, monkeypatch, replace(source, values=source.values + "," + extra)
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-read-top-integrity", timezone="UTC")
+        session = mv.session.get_or_create("native-read-top-integrity", timezone="UTC")
         members = session.members(
             session.catalog.entities.get("sales.facts"),
             where=session.catalog.fields.get("sales.facts.weight") >= 0,
@@ -242,7 +242,7 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-read-top-nonfinite", timezone="UTC")
+        session = mv.session.get_or_create("native-read-top-nonfinite", timezone="UTC")
         members = session.members(
             session.catalog.entities.get("sales.facts"),
             where=session.catalog.fields.get("sales.facts.weight") >= 0,
@@ -288,7 +288,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-read-top-byte-identity", timezone="UTC")
+        session = mv.session.get_or_create("native-read-top-byte-identity", timezone="UTC")
         members = session.members(
             session.catalog.entities.get("sales.facts"),
             where=session.catalog.fields.get("sales.facts.weight") >= 0,

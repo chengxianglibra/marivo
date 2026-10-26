@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("terminal", timezone="UTC")
+    return mv.session.get_or_create("terminal", timezone="UTC")
 
 
 def constant(session: Session, value: int = 7) -> AnalysisFrame:
@@ -497,7 +497,7 @@ def revenue():
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("source", timezone="UTC")
+    return mv.session.get_or_create("source", timezone="UTC")
 
 
 def test_real_source_repeat_execution_and_nullable_local_combination(
@@ -1227,7 +1227,7 @@ def test_open_missing_and_foreign_ids(session: Session) -> None:
     from marivo.analysis.errors import ArtifactNotFoundError
 
     artifact = constant(session).persist()
-    other = mv.session.create("another", timezone="UTC")
+    other = mv.session.get_or_create("another", timezone="UTC")
     with pytest.raises(ArtifactNotFoundError):
         other.persisted_frame(artifact.artifact.id)
     with pytest.raises(ArtifactNotFoundError):
@@ -1439,7 +1439,7 @@ def test_manifest_rejects_foreign_duplicate_internal_producer(session: Session) 
     saved = constant(session).persist()
     store = session._runtime.store
     value = committed(saved)
-    foreign = mv.session.create("foreign-producer", timezone="UTC")
+    foreign = mv.session.get_or_create("foreign-producer", timezone="UTC")
     terminal_store.admit(store, foreign.id, "duplicate_producer", value.result_id)
     # Corrupt the Store outside its foreign-key-enforcing writer to test read validation.
     with sqlite3.connect(store.db_path) as conn:

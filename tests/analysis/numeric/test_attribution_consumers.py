@@ -78,7 +78,7 @@ def test_source_and_retained(
                 + anchor,
             )
         )
-        session = mv.session.create("r93-attribution", timezone="UTC")
+        session = mv.session.get_or_create("r93-attribution", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         fields = {
             name: session.catalog.fields.get("sales.facts." + path)

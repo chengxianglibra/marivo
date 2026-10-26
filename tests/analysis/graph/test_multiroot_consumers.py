@@ -276,7 +276,7 @@ def test_independent_roots_and_temporal_fold(
         semantic_project_factory(
             {name.removeprefix("semantic/"): content for name, content in files.items()}
         )
-        session = mv.session.create("r93-multiroot", timezone="UTC")
+        session = mv.session.get_or_create("r93-multiroot", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.subjects"))
         metrics = session.catalog.metrics
         left_total, right_total = metrics.get("sales.left_total"), metrics.get("sales.right_total")

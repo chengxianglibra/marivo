@@ -33,7 +33,7 @@ def test_public_composition_refuses_before_source_or_run(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("r94-refusal", timezone="UTC")
+        session = mv.session.get_or_create("r94-refusal", timezone="UTC")
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
         live = session.read(
@@ -42,7 +42,7 @@ def test_public_composition_refuses_before_source_or_run(
         )
         previous = live.persist()
         saved = snapshot(previous)
-        foreign = mv.session.create("r94-foreign", timezone="UTC")
+        foreign = mv.session.get_or_create("r94-foreign", timezone="UTC")
         other = foreign.read(
             foreign.members(foreign.catalog.entities.get(as_ref(entity).path)),
             {"value": foreign.catalog.fields.get(as_ref(measure).path)},
@@ -127,7 +127,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("required-output", timezone="UTC")
+        session = mv.session.get_or_create("required-output", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         metric = session.catalog.metrics.get("sales.total")
         current = session.observe(
@@ -228,7 +228,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
                 "sales/models.py": models,
             }
         )
-        session = mv.session.create("r94-cross-datasource", timezone="UTC")
+        session = mv.session.get_or_create("r94-cross-datasource", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.subjects"))
         previous = session.read(
             members, {"value": session.catalog.fields.get("sales.subjects.subjects_amount")}

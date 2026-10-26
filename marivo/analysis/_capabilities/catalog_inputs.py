@@ -163,7 +163,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
                 descriptor,
                 example=prefix + preparation + example,
                 acquisition="Use the existing question-scoped Session; catalog = session.catalog. Temporal reads require certified authored inputs.",
-                related=("session.create",),
+                related=("session.get_or_create",),
             )
         )
     return tuple(result)

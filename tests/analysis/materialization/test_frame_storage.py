@@ -1051,8 +1051,8 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     attempts = (
-        lambda: mv.session.create("original", timezone="UTC"),
-        lambda: mv.session.create("renamed", timezone="UTC"),
+        lambda: mv.session.get_or_create("original", timezone="UTC"),
+        lambda: mv.session.get_or_create("renamed", timezone="UTC"),
         lambda: mv.session.resume("original"),
         lambda: mv.session.resume("session_original"),
         lambda: mv.session.inspect("original"),
@@ -2290,7 +2290,7 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("method-facts", timezone="UTC")
+    return mv.session.get_or_create("method-facts", timezone="UTC")
 
 
 def attribute_request(

@@ -61,7 +61,7 @@ def _session(
     files["sales/facts.py"] = model
     factory(files)
     monkeypatch.chdir(root)
-    return mv.session.create("cross-owner-calendar", timezone="UTC")
+    return mv.session.get_or_create("cross-owner-calendar", timezone="UTC")
 
 
 @pytest.mark.parametrize("same_owner", (False, True))
@@ -227,7 +227,7 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             model += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({name!r}),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n{name}_day=ms.time_dimension_column(name='day',entity={name},column='day',is_default=True)\n"
         files["sales/facts.py"] = model
         semantic_project_factory(files)
-        session = mv.session.create("remote-cross-owner", timezone="UTC")
+        session = mv.session.get_or_create("remote-cross-owner", timezone="UTC")
         one = session.catalog.fields.get("sales.one.amount")
         two = session.catalog.fields.get("sales.two.amount")
         one_day = session.catalog.fields.get("sales.one.day")

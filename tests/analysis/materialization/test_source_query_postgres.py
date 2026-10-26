@@ -34,7 +34,7 @@ def postgres_query_session(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        yield mv.session.create("postgres-source-query", timezone="UTC")
+        yield mv.session.get_or_create("postgres-source-query", timezone="UTC")
 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:

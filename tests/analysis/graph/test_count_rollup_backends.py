@@ -124,7 +124,7 @@ def test_native_count_rollup_and_group_state(
                 + "category=ms.dimension_column(name='category',entity=events,column='category')\nhappened=ms.time_dimension_column(name='happened',entity=events,column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\nevents_value=events\nclock=happened\n@ms.metric()\ndef event_count():\n    return events_value.count(time=clock)\n",
             }
         )
-        session = mv.session.create("native-count", timezone="UTC")
+        session = mv.session.get_or_create("native-count", timezone="UTC")
         metric = session.catalog.metrics.get("counts.event_count")
         category = session.catalog.fields.get("counts.events.category")
         members = session.members(session.catalog.entities.get("counts.events"))

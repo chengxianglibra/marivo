@@ -66,7 +66,7 @@ def revenue():
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("windows", timezone="UTC")
+    return mv.session.get_or_create("windows", timezone="UTC")
 
 
 def _weekly_facts(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
+    SessionAlreadyExistsError,
     SessionNotFoundError,
     SessionStateError,
 )
@@ -21,14 +22,14 @@ from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.project import resolve_project_root
 
-__all__ = ["create", "inspect", "recent", "resume"]
+__all__ = ["get_or_create", "inspect", "recent", "resume"]
 
 
 def _invalid(expected: str, received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected=expected,
         received=received,
-        repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.create(name).",
+        repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
         location="session.identity",
     )
 
@@ -59,35 +60,34 @@ def _validate_project_manifest(root: Path) -> None:
             repair=AnalysisRepair(
                 kind="retry",
                 action="Repair marivo.toml, then create or resume the named Session.",
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.create"),
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="session.get_or_create"
+                ),
             ),
         ) from exc
 
 
-def create(
+def get_or_create(
     name: str,
     *,
     question: str | None = None,
     timezone: str | None = None,
     domains: str | Sequence[str] | None = None,
 ) -> Session:
-    """Create a new named Session in the current project's Store.
+    """Create a named Session or recover the same exact project-local name.
 
     Args:
-        name: Unique exact Session name without surrounding whitespace.
-        question: Optional creation-time investigation question.
-        timezone: Optional IANA or explicit UTC-offset report timezone, frozen at creation.
-        domains: None selects all authoring domain directories. An exact name or nonempty
-            sequence selects only those directories, without dependency expansion. Include
-            every required domain before creation. Scope is frozen; create a new Session
-            with domains=None or the complete required sequence to widen it.
+        name: Nonempty exact Session name without surrounding whitespace.
+        question: Creation-time description; a non-None value must match on recovery.
+        timezone: Creation-time IANA or explicit UTC-offset timezone; a non-None
+            value must match the saved normalized name on recovery.
+        domains: Creation-time domain name or nonempty sequence; a non-None value
+            must match the saved sorted, deduplicated scope on recovery.
 
-    Returns: The new Session, with authored semantics loaded only on demand.
-    Example: ``session = mv.session.create('revenue-review')``.
-    Constraints: Earlier Stores remain untouched and cannot be resumed or bypassed with another name. Use a fresh project for a new-format Store; no Session is migrated.
+    Returns: The new or recovered Session with its frozen context.
+    Example: ``session = mv.session.get_or_create('revenue-review', timezone='UTC')``.
+    Constraints: None means unspecified: use creation defaults for a new name and retain saved values for an existing name. No current Session is set; saved question, timezone and domains are never rewritten. A recovery with no pending work leaves updated_at unchanged. Explicit conflicts raise SessionStateError before recovery. Recovery uses the same writer guard as resume and never replays sources. Earlier Store generations cannot be migrated or bypassed.
     """
-    from marivo.analysis.materialization.admission import DatasetRuntime
-
     if not isinstance(name, str) or not name.strip() or name != name.strip():
         raise _invalid(
             "a nonempty exact Session name without surrounding whitespace", "empty or invalid name"
@@ -104,30 +104,68 @@ def create(
             or not names
             or any(not isinstance(name, str) or not name or name != name.strip() for name in names)
         ):
-            from marivo.analysis.errors import SessionStateError
-
             raise SessionStateError(
                 message="domains must be a nonempty exact domain name or sequence of names.",
                 expected="one exact domain name or a nonempty sequence",
                 received=repr(domains),
-                location="mv.session.create(domains=...)",
+                location="mv.session.get_or_create(domains=...)",
                 hint="Pass exact domain names without surrounding whitespace.",
             )
         selected_domains = tuple(sorted(set(names)))
-    runtime = DatasetRuntime.create(
-        root,
-        name,
-        question=question,
-        timezone=timezone,
-        domains=selected_domains,
+    store = _existing_store(root)
+    record = None if store is None else store.session_by_name(name)
+    if record is None:
+        try:
+            from marivo.analysis.materialization.admission import DatasetRuntime
+
+            runtime = DatasetRuntime.create(
+                root, name, question=question, timezone=timezone, domains=selected_domains
+            )
+            return Session._from_runtime(runtime)
+        except SessionAlreadyExistsError:
+            # Another creator won the unique-name transaction; recover that identity.
+            record = SessionStore.open_existing(root).session_by_name(name)
+            if record is None:
+                raise
+    selected_timezone = timezone
+    if timezone is not None:
+        from marivo.analysis.timezone import zoneinfo_from_name
+        from marivo.datasource.timezone import parse_timezone
+
+        try:
+            selected_timezone, _ = parse_timezone(timezone)
+        except (ValueError, KeyError):
+            zoneinfo_from_name(timezone)
+            raise
+    configuration: tuple[tuple[str, object, object], ...] = (
+        ("question", question, record.question),
+        ("timezone", selected_timezone, record.report_timezone_name),
+        ("domains", selected_domains, record.domains),
     )
-    return Session._from_runtime(runtime)
+    for field, requested, saved in configuration:
+        if requested is not None and requested != saved:
+            raise SessionStateError(
+                message="Explicit Session configuration conflicts with the saved context.",
+                expected=f"saved {field}: {saved!r}",
+                received=f"requested {field}: {requested!r}",
+                location=f"mv.session.get_or_create({field}=...)",
+                context={"session_id": record.session_ref, "field": field},
+                repair=AnalysisRepair(
+                    kind="retry",
+                    action="Omit the conflicting configuration to retain saved values, pass the saved value, or create a new Session with a unique name.",
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="session.get_or_create"
+                    ),
+                    candidates=(record.session_ref,),
+                ),
+            )
+    return resume(record.session_ref)
 
 
 def resume(session_id: str) -> Session:
     """Recover one existing Session by its exact immutable ID.
 
-    Args: session_id: Existing Session ID returned by create or recent.
+    Args: session_id: Existing Session ID returned by get_or_create or recent.
     Returns: The recovered Session with its saved context.
     Example: ``session = mv.session.resume(session_id)``.
     Constraints: Never creates identity or loads current semantics and sources.
@@ -203,10 +241,10 @@ def inspect(session_id: str) -> SessionSummary:
 def _install_telemetry() -> None:
     from marivo.telemetry import tracked_capability
 
-    global create, resume
-    create = tracked_capability(
-        surface="analysis", capability_id="session.create", capability_kind="callable"
-    )(create)
+    global get_or_create, resume
+    get_or_create = tracked_capability(
+        surface="analysis", capability_id="session.get_or_create", capability_kind="callable"
+    )(get_or_create)
     resume = tracked_capability(
         surface="analysis", capability_id="session.resume", capability_kind="callable"
     )(resume)

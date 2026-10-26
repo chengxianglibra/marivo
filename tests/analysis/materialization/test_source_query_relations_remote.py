@@ -85,7 +85,7 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-relations", timezone="UTC")
+        session = mv.session.get_or_create("remote-relations", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
         amount = session.catalog.fields.get("sales.facts.amount")
@@ -152,7 +152,7 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-shared-groups", timezone="UTC")
+        session = mv.session.get_or_create("remote-shared-groups", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         amount = session.catalog.fields.get("sales.facts.amount")
         producer = session.observe({"n": amount.count()}, by=(category,))
@@ -226,7 +226,7 @@ def test_remote_multiple_shared_parameters_are_replaced_atomically(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-parameter-block", timezone="UTC")
+        session = mv.session.get_or_create("remote-parameter-block", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         amount = session.catalog.fields.get("sales.facts.amount")
         producer = session.observe({"n": amount.count()}, by=(category,))

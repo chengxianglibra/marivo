@@ -175,7 +175,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "versioned.json"
     if phase == "produce":
         author(root)
-        session = mv.session.create("versioned", timezone="UTC")
+        session = mv.session.get_or_create("versioned", timezone="UTC")
         august = session.instant("2026-08-01")
         september = session.instant("2026-09-01")
         queries: dict[str, mv.AnalysisFrame] = {}

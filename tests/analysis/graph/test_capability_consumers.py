@@ -114,7 +114,7 @@ def test_declared_string_time_uses_owned_execution_functions(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.create("r93-string-time", timezone=str(zone))
+        session = mv.session.get_or_create("r93-string-time", timezone=str(zone))
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=mv.product(
@@ -215,7 +215,7 @@ def test_source_coordinates_statistics_and_original_state(
     )
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         remote = author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("r93-c05", timezone="UTC")
+        session = mv.session.get_or_create("r93-c05", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         bucket = session.catalog.fields.get("sales.facts.bucket")
         revision = session.catalog.fields.get("sales.facts.revision")
@@ -391,7 +391,7 @@ def test_original_mean_preserves_component_weights(
         remote = author_source_project(
             backend, case, monkeypatch, semantic_project_factory, identity_type
         )
-        session = mv.session.create("r93-c05-mean", timezone="UTC")
+        session = mv.session.get_or_create("r93-c05-mean", timezone="UTC")
         bucket = session.catalog.fields.get("sales.facts.bucket")
         amount = session.catalog.fields.get("sales.facts.amount")
         time = session.catalog.fields.get("sales.facts.happened")
@@ -498,7 +498,7 @@ def test_cumulative_keeps_anchor_and_overlap(
             time_parse="string",
             cumulative_anchor=anchor,
         )
-        session = mv.session.create("r93-cumulative", timezone="UTC")
+        session = mv.session.get_or_create("r93-cumulative", timezone="UTC")
         grid = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.running")},
@@ -586,7 +586,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.create("r93-dst-grid", timezone="Asia/Tokyo")
+        session = mv.session.get_or_create("r93-dst-grid", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
@@ -749,7 +749,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         entry = catalog.period_calendars.get("sales.fiscal")
         assert entry.details().snapshot_status == "current"
         grain = entry.grain("period")
-        session = mv.session.create("r93-certified-calendar", timezone="UTC")
+        session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
         scope = session.time_scope(
             start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
             end=datetime(2026, 8, 5, 16, tzinfo=timezone.utc),
@@ -835,7 +835,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="date"
         )
-        session = mv.session.create("r93-civil-date", timezone="UTC")
+        session = mv.session.get_or_create("r93-civil-date", timezone="UTC")
         zone = ZoneInfo("America/New_York")
         grid = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
@@ -937,7 +937,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.create("r93-native-time", timezone="Asia/Tokyo")
+        session = mv.session.get_or_create("r93-native-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
@@ -1017,7 +1017,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.create("r93-aware-time", timezone="Asia/Tokyo")
+        session = mv.session.get_or_create("r93-aware-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime(2026, 11, 1, tzinfo=zone),
@@ -1093,7 +1093,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
         )
-        session = mv.session.create("r93-native-wall-scope", timezone="Asia/Tokyo")
+        session = mv.session.get_or_create("r93-native-wall-scope", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),

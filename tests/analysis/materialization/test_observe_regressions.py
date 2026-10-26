@@ -165,7 +165,7 @@ def test_common_population_condition_rejects_foreign_query_dependency(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    other = mv.session.create("foreign-observation", timezone="UTC")
+    other = mv.session.get_or_create("foreign-observation", timezone="UTC")
     selected = other.members(other.catalog.entities.get("sales.customer"))
     with pytest.raises(AnalysisError, match="another Store or Session") as error:
         session.observe(

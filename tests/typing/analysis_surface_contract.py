@@ -7,7 +7,11 @@ from typing_extensions import assert_type
 import marivo.analysis as mv
 
 if TYPE_CHECKING:
-    session = mv.session.create("recovery-typing")
+    assert_type(
+        mv.session.get_or_create("repeatable", question="Why?", timezone="UTC", domains=["sales"]),
+        mv.Session,
+    )
+    session = mv.session.get_or_create("recovery-typing")
     members = session.members(session.catalog.entities.get("sales.orders"))
     assert_type(members, mv.Population)
     assert_type(session.frame(members), mv.AnalysisFrame)

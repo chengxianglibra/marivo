@@ -103,7 +103,7 @@ def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
         _seed(con)
     finally:
         con.disconnect()
-    return mv.session.create("cum_decimal", timezone="UTC")
+    return mv.session.get_or_create("cum_decimal", timezone="UTC")
 
 
 def _schema(frame: mv.AnalysisFrame) -> DataSchema:

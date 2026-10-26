@@ -426,7 +426,7 @@ class SessionStore:
                     message="A Session with this exact name already exists.",
                     expected="a unique project-local Session name",
                     received=name,
-                    location="mv.session.create(name)",
+                    location="mv.session.get_or_create(name)",
                     context={"session_id": existing.session_ref, "name": name},
                     repair=AnalysisRepair(
                         kind="retry",

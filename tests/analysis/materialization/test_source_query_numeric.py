@@ -94,7 +94,7 @@ def test_native_numeric_field_filters_and_top_preserve_nulls(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("numeric-query", timezone="UTC")
+        session = mv.session.get_or_create("numeric-query", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
@@ -126,7 +126,7 @@ def test_source_numeric_aggregate_frame_selection_and_explicit_bridge(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("numeric-aggregate-query", timezone="UTC")
+        session = mv.session.get_or_create("numeric-aggregate-query", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         weight = session.catalog.fields.get("sales.facts.weight")
         category = session.catalog.fields.get("sales.facts.category")
@@ -163,7 +163,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data("precision")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("numeric-native-precision", timezone="UTC")
+        session = mv.session.get_or_create("numeric-native-precision", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         # This is now an explicit source row predicate, independently checked
         # before its admitted native pandas handoff, not a Frame fusion claim.
@@ -202,7 +202,7 @@ def test_native_numeric_parent_failures_survive_top_zero(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data(boundary)) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("numeric-native-errors", timezone="UTC")
+        session = mv.session.get_or_create("numeric-native-errors", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         amount = session.catalog.fields.get("sales.facts.amount")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -257,7 +257,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("decimal-native-query", timezone="UTC")
+        session = mv.session.get_or_create("decimal-native-query", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
@@ -287,7 +287,7 @@ def test_numeric_attribute_output_key_failure_survives_empty_top(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("numeric-attribute-error", timezone="UTC")
+        session = mv.session.get_or_create("numeric-attribute-error", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
@@ -319,7 +319,7 @@ def test_nonnullable_float_source_keeps_valid_nan_through_filter_and_top(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("nonnull-float-native-query", timezone="UTC")
+        session = mv.session.get_or_create("nonnull-float-native-query", timezone="UTC")
         source = session.read(
             session.members(session.catalog.entities.get("sales.facts")),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
@@ -347,7 +347,7 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data("overflow")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("native-overflow", timezone="UTC")
+        session = mv.session.get_or_create("native-overflow", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         category = session.catalog.fields.get("sales.facts.category")
         source = session.observe({"value": (big + 1).sum() + 1}, by=(category,))
@@ -411,7 +411,7 @@ def test_decimal_overflow_matches_native_result_or_failure(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("decimal-native-overflow", timezone="UTC")
+        session = mv.session.get_or_create("decimal-native-overflow", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         native = case.session.bind(case.source, source_identity="decimal-overflow-oracle").relation
         operand = (

@@ -63,7 +63,7 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     )
     monkeypatch.chdir(tmp_path)
     # The declared DuckDB source defaults to UTC for naive source timestamps.
-    session = mv.session.create("report-days", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("report-days", timezone="Asia/Shanghai")
     grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     logical = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=(grid,))
     assert terminal_runs(session) == ()

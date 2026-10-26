@@ -67,7 +67,7 @@ weight = ms.measure_column(name='weight', entity=facts, column='weight', unit='1
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("temporal", timezone="UTC")
+    return mv.session.get_or_create("temporal", timezone="UTC")
 
 
 def _change(current: mv.AnalysisFrame, baseline: mv.AnalysisFrame) -> mv.AnalysisFrame:

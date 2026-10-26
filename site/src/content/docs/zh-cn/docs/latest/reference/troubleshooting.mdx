@@ -64,7 +64,7 @@ CLI 使用相同目标：`.venv/bin/python -m marivo help analysis`。已知返�
 
 编写定义时从 `authoring` 选择 datasource、semantic 或 ontology。datasource 区分连接、来源、检查和语义交接；semantic 区分模型定义、表达式角色、时间、目录查询和校验。精确 API 保留其自身目标，共同前缀不一定是主题页。
 
-执行导入使用 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv`。通过 `mv.session.create` 创建会话，没有顶层 `marivo.session` 别名。
+执行导入使用 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv`。通过 `mv.session.get_or_create` 创建会话，没有顶层 `marivo.session` 别名。
 
 ### 有效求助
 

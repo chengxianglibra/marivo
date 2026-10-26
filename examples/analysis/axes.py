@@ -10,7 +10,7 @@ start = date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else date.today()
 split = start + timedelta(days=1)
 end = split + timedelta(days=1)
 
-session = mv.session.create(f"axes-{uuid4().hex[:8]}", timezone="UTC", domains=None)
+session = mv.session.get_or_create(f"axes-{uuid4().hex[:8]}", timezone="UTC", domains=None)
 catalog = session.catalog
 metric = catalog.metrics.get("sample.measurement")
 group = catalog.fields.get("sample.readings.group")

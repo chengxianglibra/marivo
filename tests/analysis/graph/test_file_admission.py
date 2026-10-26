@@ -48,7 +48,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
                 stream.write(
                     "@ms.metric()\ndef average():\n    return amount_value.mean(time=happened_value)\n"
                 )
-        session = mv.session.create("r94-file-admission", timezone="UTC")
+        session = mv.session.get_or_create("r94-file-admission", timezone="UTC")
         calls: list[str] = []
 
         def forbidden(*args: object, **kwargs: object) -> None:
@@ -115,7 +115,7 @@ def test_json_request_sources_are_refused_before_source_open(
         )
         assert original in model.read_text()
         model.write_text(model.read_text().replace(original, replacement))
-        session = mv.session.create("r94-json-request-refusal", timezone="UTC")
+        session = mv.session.get_or_create("r94-json-request-refusal", timezone="UTC")
         calls: list[str] = []
 
         def forbidden(*args: object, **kwargs: object) -> None:

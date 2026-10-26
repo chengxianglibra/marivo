@@ -114,7 +114,7 @@ def test_native_distributions_independent_fixed_and_cold(
 
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
-        session = mv.session.create("r94-distribution", timezone="UTC")
+        session = mv.session.get_or_create("r94-distribution", timezone="UTC")
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("approx_distinct", "distinct", "identity", "quantile", "approx_quantile"):
             field = session.catalog.fields.get(

@@ -41,7 +41,7 @@ weight=ms.measure_column(name='weight',entity=orders,column='weight',additivity=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("original", timezone="UTC")
+    return mv.session.get_or_create("original", timezone="UTC")
 
 
 @pytest.mark.parametrize(

@@ -78,7 +78,7 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
     from marivo.analysis._capabilities.dataset_registry import prepare
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("period-help", timezone="UTC")
+    session = mv.session.get_or_create("period-help", timezone="UTC")
     axis = session.time_scope(start="2026-01-01", end="2026-02-01").by(mv.grain("month"))
     frame = session.values(by=(), columns={"value": "CNY"}, rows=(((), {"value": 12}),))
     baseline = session.values(by=(), columns={"value": "CNY"}, rows=(((), {"value": 8}),))
@@ -136,7 +136,7 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     from marivo._help.render import render_help_text
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("duration-help", timezone="UTC")
+    session = mv.session.get_or_create("duration-help", timezone="UTC")
     current = session.values(
         by=(), columns={"elapsed": "s"}, rows=(((), {"elapsed": timedelta(microseconds=38)}),)
     )

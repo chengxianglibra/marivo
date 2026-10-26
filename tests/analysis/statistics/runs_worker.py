@@ -147,7 +147,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             from tests.analysis.statistics.deviation_time_worker import publish_calendar
 
             publish_calendar(catalog, "UTC")
-        session = mv.session.create("runs-export", timezone="UTC")
+        session = mv.session.get_or_create("runs-export", timezone="UTC")
         scope = session.time_scope(
             start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"
         )

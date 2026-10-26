@@ -67,7 +67,7 @@ def predicate_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("predicates", timezone="UTC")
+    return mv.session.get_or_create("predicates", timezone="UTC")
 
 
 def _preferred(session: mv.Session) -> mv.Population:

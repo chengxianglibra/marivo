@@ -44,7 +44,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
             "ends=ms.time_dimension_column(name='ends',entity=versions,column='ends',parse=ms.strptime('%Y-%m-%d %H:%M',timezone='UTC'))\n",
         }
     )
-    session = mv.session.create("wall-version", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("wall-version", timezone="Asia/Shanghai")
     entity = session.catalog.entities.get("sales.versions")
     boundary = datetime.fromisoformat("2026-03-08T07:00:00+00:00")
     expected = ["after", "gap", "null", "sentinel"]

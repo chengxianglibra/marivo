@@ -100,7 +100,7 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("definition-closure", timezone="UTC")
+    session = mv.session.get_or_create("definition-closure", timezone="UTC")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("definition binding opened a source")

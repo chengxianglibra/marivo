@@ -359,7 +359,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
 
     @tracked_capability(
         surface="analysis",
-        capability_id="session.create",
+        capability_id="session.get_or_create",
         capability_kind="lifecycle",
     )
     def resume(*, name: str, question: str, project_root: Path, fail: bool = False) -> str:
@@ -383,7 +383,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     )
 
     path = _event_path(telemetry_project)
-    assert len(_capability_records(path, "session.create")) == 2
+    assert len(_capability_records(path, "session.get_or_create")) == 2
     assert _capability_records(path, "load") == []
     assert _capability_records(path, "measure_column") == []
     assert _capability_records(path, "trino") == []
@@ -455,7 +455,7 @@ def test_session_creation_attributes_reads_only_current_generation(
         if p.is_file() and not p.name.endswith(("-wal", "-shm"))
     }
     attrs = _session_creation_attributes(
-        tmp_path, "session.create", {"name": "existing", "question": "requested question"}
+        tmp_path, "session.get_or_create", {"name": "existing", "question": "requested question"}
     )
     assert attrs["marivo.session.created"] is (generation != "current")
     assert attrs["marivo.session.requested_question"] == "requested question"
@@ -464,7 +464,7 @@ def test_session_creation_attributes_reads_only_current_generation(
     else:
         assert "marivo.session.question" not in attrs
         assert not MaterializationLayout(tmp_path).store_db.exists()
-    fresh = _session_creation_attributes(tmp_path, "session.create", {"name": "fresh"})
+    fresh = _session_creation_attributes(tmp_path, "session.get_or_create", {"name": "fresh"})
     assert fresh == {"marivo.session.created": True}
     assert _session_creation_attributes(tmp_path, "session.resume", {"name": "existing"}) == {}
     assert {
@@ -565,13 +565,13 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
 def test_session_creation_description_and_explicit_resume_semantics(
     telemetry_project: Path,
 ) -> None:
-    first = mv.session.create(name="demo", question="Original question")
-    with pytest.raises(mv.errors.SessionAlreadyExistsError):
-        mv.session.create(name="demo", question="Replacement question")
+    first = mv.session.get_or_create(name="demo", question="Original question")
+    with pytest.raises(mv.errors.SessionStateError):
+        mv.session.get_or_create(name="demo", question="Replacement question")
     resumed = mv.session.resume(first.id)
     assert resumed.id == first.id and resumed.question == "Original question"
     path = _event_path(telemetry_project)
-    calls = [_attrs(record) for record in _capability_records(path, "session.create")]
+    calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
     assert len(calls) == 4
     assert calls[0]["marivo.session.created"] is True
     assert calls[1]["marivo.session.question"] == "Original question"
@@ -584,6 +584,23 @@ def test_session_creation_description_and_explicit_resume_semantics(
     )
     assert all(item["marivo.input.session_id.type"] == "str" for item in resume_calls)
     assert resume_calls[-1]["marivo.session.id"] == first.id
+
+
+def test_named_session_recovery_does_not_report_question_rewrite(
+    telemetry_project: Path,
+) -> None:
+    original = mv.session.get_or_create("repeatable", question="Original question", timezone="UTC")
+    before = original._record()
+    recovered = mv.session.get_or_create("repeatable", question="Original question")
+    assert recovered._record() == before
+    calls = [
+        _attrs(record)
+        for record in _capability_records(_event_path(telemetry_project), "session.get_or_create")
+    ]
+    assert len(calls) == 4
+    assert calls[1]["marivo.session.question_applied"] is True
+    assert calls[-1]["marivo.session.created"] is False
+    assert calls[-1]["marivo.session.question_applied"] is False
 
 
 def test_failed_session_resume_does_not_disclose_identity(
@@ -634,21 +651,21 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
 def test_failed_session_question_update_reports_not_applied(
     telemetry_project: Path,
 ) -> None:
-    mv.session.create(
+    mv.session.get_or_create(
         name="demo",
         question="Original question",
         timezone="UTC",
     )
 
-    with pytest.raises(mv.errors.SessionAlreadyExistsError):
-        mv.session.create(
+    with pytest.raises(mv.errors.SessionStateError):
+        mv.session.get_or_create(
             name="demo",
             question="Replacement question",
             timezone="Asia/Shanghai",
         )
 
     path = _event_path(telemetry_project)
-    calls = [_attrs(record) for record in _capability_records(path, "session.create")]
+    calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
     assert len(calls) == 4
     assert "marivo.session.question_applied" not in calls[-2]
     assert calls[-1]["marivo.operation.status"] == "error"

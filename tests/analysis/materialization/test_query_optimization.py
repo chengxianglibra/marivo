@@ -98,7 +98,7 @@ other_amount = ms.measure_column(name='amount', entity=other, column='amount', a
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("optimization", timezone="UTC")
+    return mv.session.get_or_create("optimization", timezone="UTC")
 
 
 def _source_graph(frame: AnalysisFrame) -> BoundGraph:

@@ -61,7 +61,7 @@ def traffic_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
             "(3, 'null', '2026-10-01', NULL, NULL, NULL)"
         )
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    return mv.session.create("rescale", timezone="UTC")
+    return mv.session.get_or_create("rescale", timezone="UTC")
 
 
 def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(

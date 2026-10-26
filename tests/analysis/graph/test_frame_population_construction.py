@@ -108,7 +108,7 @@ customer = ms.relationship(name='customer', from_entity=facts, to_entity=custome
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("frame-population-construction", timezone="UTC")
+    return mv.session.get_or_create("frame-population-construction", timezone="UTC")
 
 
 def _metadata(result_id: str = "fixed-selection") -> FrameResultMetadata:
@@ -509,7 +509,7 @@ def test_independent_stored_handles_share_exact_descriptor_without_reading(
 
 
 def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Session) -> None:
-    other = mv.session.create("other-frame-owner", timezone="UTC")
+    other = mv.session.get_or_create("other-frame-owner", timezone="UTC")
     foreign = _fields(other)
     with pytest.raises(CoreRuleError, match="receiving Store and Session"):
         population_from(session._runtime.local, session.catalog._state, foreign, on=())

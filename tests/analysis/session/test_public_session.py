@@ -18,7 +18,7 @@ def test_new_public_session_starts_with_empty_v16_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("fresh-generation", timezone="UTC")
+    session = mv.session.get_or_create("fresh-generation", timezone="UTC")
     assert terminal_runs(session) == ()
     assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
     with pytest.raises(ArtifactNotFoundError):
@@ -53,7 +53,7 @@ def test_public_session_rejects_existing_store_without_modifying_it(
     before = path.read_bytes()
     files = tuple(path.parent.iterdir())
     acquisitions: tuple[Callable[[], mv.Session], ...] = (
-        lambda: mv.session.create("new"),
+        lambda: mv.session.get_or_create("new"),
         lambda: mv.session.resume("old"),
     )
     for acquire in acquisitions:
@@ -91,7 +91,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     catalog = SemanticCatalog(semantic_project_factory(files))
     publish_fiscal_calendar_artifact(catalog)
     monkeypatch.chdir(catalog.workspace_dir)
-    session = mv.session.create("calendar", timezone="UTC")
+    session = mv.session.get_or_create("calendar", timezone="UTC")
     calendar = session.catalog.period_calendars.get("sales.fiscal")
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")

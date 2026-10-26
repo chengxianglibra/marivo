@@ -60,7 +60,7 @@ def test_native_weighted_and_mean(
         )
     model = tmp_path / "models/semantic/sales/facts.py"
     model.write_text(model.read_text().replace("md.table('facts',", "md.parquet('facts.parquet',"))
-    session = mv.session.create("native", timezone="UTC")
+    session = mv.session.get_or_create("native", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.facts"))
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     observed = session.observe(
@@ -221,7 +221,7 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
         model.write_text(
             model.read_text().replace("md.table('facts',", f"md.table({case.source.table!r},")
         )
-        session = mv.session.create("native_remote", timezone="UTC")
+        session = mv.session.get_or_create("native_remote", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         scope = session.time_scope(start="2026-07-01", end="2026-07-02")
         saved = (
@@ -282,7 +282,7 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         con.execute(
             "INSERT INTO facts VALUES (1,'2026-07-01',1.25,0.5,'a'),(2,'2026-07-01',2.75,1.5,'a')"
         )
-    session = mv.session.create("native", timezone="UTC")
+    session = mv.session.get_or_create("native", timezone="UTC")
     coordinate = session.catalog.fields.get("sales.facts.category")
     metric = session.catalog.metrics.get("sales.total") - session.catalog.metrics.get(
         "sales.weights"
@@ -361,7 +361,7 @@ def test_mixed_component_attribution_source_and_fixed(
             [weight, weight],
         )
     _component_model(tmp_path)
-    session = mv.session.create("mixed_attribution", timezone="UTC")
+    session = mv.session.get_or_create("mixed_attribution", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.people"))
     axis = session.catalog.fields.get("sales.facts.category")
     metrics = {
@@ -424,7 +424,7 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
                 table.schema.get_field_index(name), name, table[name].cast(pa.duration("ns"))
             )
         pq.write_table(table, path)
-    session = mv.session.create("linear_intermediate", timezone="UTC")
+    session = mv.session.get_or_create("linear_intermediate", timezone="UTC")
     metrics = session.catalog.metrics
     total, weights, cancel = (
         metrics.get("sales." + name) for name in ("total", "weights", "cancel_total")
@@ -468,7 +468,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
             "INSERT INTO facts VALUES (1,1,'2026-07-01',1.01,1,0,'a'),(2,1,'2026-08-01',2.02,1,0,'a')"
         )
     _component_model(tmp_path)
-    session = mv.session.create("decimal_attribution", timezone="UTC")
+    session = mv.session.get_or_create("decimal_attribution", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.people"))
     axis = session.catalog.fields.get("sales.facts.category")
     metric = session.catalog.metrics.get("sales.mean")
@@ -518,7 +518,7 @@ def test_linear_uses_widened_sums_and_keeps_duration_overflow(
                 table.schema.get_field_index(name), name, table[name].cast(pa.duration("ns"))
             )
         pq.write_table(table, path)
-    session = mv.session.create("linear_overflow", timezone="UTC")
+    session = mv.session.get_or_create("linear_overflow", timezone="UTC")
     metric = session.catalog.metrics.get("sales.total") + session.catalog.metrics.get(
         "sales.weights"
     )
@@ -557,7 +557,7 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
             "INSERT INTO facts VALUES (1,1,'2026-07-01',1e-14,1e-14,0,'a'),(2,1,'2026-08-01',2e-14,2e-14,0,'a')"
         )
     _component_model(tmp_path)
-    session = mv.session.create("linear_comparison", timezone="UTC")
+    session = mv.session.get_or_create("linear_comparison", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.people"))
     metric = session.catalog.metrics.get("sales.total") + session.catalog.metrics.get(
         "sales.weights"

@@ -35,7 +35,7 @@ def test_native_comparison_independent_fixed_and_cold(
     data = reference_data("duckdb")
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("comparison-recovery", timezone="UTC")
+        session = mv.session.get_or_create("comparison-recovery", timezone="UTC")
         originals: dict[str, Json] = {}
         for name, query in comparison_queries(session).items():
             result = query.persist()

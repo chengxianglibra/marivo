@@ -67,7 +67,7 @@ def shared_session(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        yield mv.session.create("shared-boundaries", timezone="UTC")
+        yield mv.session.get_or_create("shared-boundaries", timezone="UTC")
 
 
 def _plans(monkeypatch: pytest.MonkeyPatch) -> list[QueryPlan]:
@@ -206,7 +206,7 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
         }
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("shared-fixed-selection", timezone="UTC")
+    session = mv.session.get_or_create("shared-fixed-selection", timezone="UTC")
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.sum()}, by=(category,))

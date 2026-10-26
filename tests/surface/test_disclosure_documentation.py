@@ -376,7 +376,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         extended,
         "check_metrics.py",
         "import marivo.analysis as mv\n"
-        'session = mv.session.create("extended-model")\n'
+        'session = mv.session.get_or_create("extended-model")\n'
         "metrics = session.catalog.metrics\n"
         'result = session.observe({name: metrics.get("sales." + name) for name in '
         '("revenue", "average_order_value", "gross_margin_rate")}).compute().to_pandas()\n'

@@ -11,7 +11,7 @@ import marivo.analysis as mv
 
 def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     monkeypatch.chdir(tmp_path)
-    return mv.session.create(name="surface_probe")
+    return mv.session.get_or_create(name="surface_probe")
 
 
 def test_dir_advertises_intents_and_hides_plumbing(

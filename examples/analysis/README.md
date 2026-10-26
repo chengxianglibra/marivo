@@ -64,7 +64,7 @@ The minimal ungrouped source sequence is:
 from uuid import uuid4
 import marivo.analysis as mv
 
-session = mv.session.create(
+session = mv.session.get_or_create(
     f"analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
 )
 catalog = session.catalog

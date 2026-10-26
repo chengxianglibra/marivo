@@ -79,7 +79,7 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("frame-bridge", timezone="UTC")
+    return mv.session.get_or_create("frame-bridge", timezone="UTC")
 
 
 def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
@@ -699,7 +699,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
             },
             load=False,
         )
-        remote = mv.session.create("remote-frame-bridge", timezone="UTC")
+        remote = mv.session.get_or_create("remote-frame-bridge", timezone="UTC")
         trace = capture_source(monkeypatch)
         selected = _memory(remote)
         joint_frame = _observe(remote, _population(remote, selected)).compute()

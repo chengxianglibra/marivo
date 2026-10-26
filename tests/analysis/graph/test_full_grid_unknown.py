@@ -106,7 +106,7 @@ def test_public_full_grid_unknown(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    session = mv.session.create("business-coverage", timezone="UTC")
+    session = mv.session.get_or_create("business-coverage", timezone="UTC")
     artifact = _query(session).persist()
     raw = artifact.to_pandas()
     assert len(raw) == 9 and not raw[("value", "value")].isna().any()
@@ -209,7 +209,7 @@ def test_public_duration_business_coverage(
         table.set_column(index, "profile_0", table["profile_0"].cast(pa.duration("us"))), path
     )
     ms.load(workspace_dir=coverage_project)
-    session = mv.session.create("duration-business-coverage", timezone="UTC")
+    session = mv.session.get_or_create("duration-business-coverage", timezone="UTC")
     query = _query(session)
     original = query.persist()
     ratio = query.select({"value": query["value"] / query["value"]}).persist()
@@ -234,7 +234,7 @@ def test_business_coverage_source_selection_keeps_original_support(
     coverage_project: Path,
 ) -> None:
     ms.load(workspace_dir=coverage_project)
-    session = mv.session.create("business-coverage-selection", timezone="UTC")
+    session = mv.session.get_or_create("business-coverage-selection", timezone="UTC")
     original = _query(session).persist()
     raw = original.to_pandas()
     masked = _mask(raw)

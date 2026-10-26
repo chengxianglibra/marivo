@@ -76,7 +76,7 @@ link_tags = ms.relationship(name='link_tags', from_entity=links, to_entity=tags,
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("attribute", timezone="UTC")
+    return mv.session.get_or_create("attribute", timezone="UTC")
 
 
 def _compare(current: AnalysisFrame, baseline: AnalysisFrame) -> AnalysisFrame:
@@ -412,7 +412,7 @@ def test_explicit_compare_validates_names_units_and_session_ownership(session: S
     ):
         with pytest.raises(AnalysisError):
             _compare(current, baseline)
-    foreign_session = mv.session.create("foreign", timezone="UTC")
+    foreign_session = mv.session.get_or_create("foreign", timezone="UTC")
     foreign = foreign_session.values(by=(), columns={"q": "USD"}, rows=(((), {"q": 1}),))
     with pytest.raises(AnalysisError):
         current.compare({"foreign": foreign})

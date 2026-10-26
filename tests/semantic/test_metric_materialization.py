@@ -117,7 +117,7 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     catalog, connection = materialized_project
     connection.disconnect()
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(catalog.workspace_dir))
-    session = mv.session.create("current-metric", timezone="UTC")
+    session = mv.session.get_or_create("current-metric", timezone="UTC")
     current = session.catalog
     named = current.metrics.get("sales.revenue")
     anonymous = current.fields.get("sales.orders.amount").sum()

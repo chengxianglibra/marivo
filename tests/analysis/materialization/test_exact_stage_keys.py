@@ -222,7 +222,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("exact-stage-keys", timezone="UTC")
+    session = mv.session.get_or_create("exact-stage-keys", timezone="UTC")
     dtype = TimestampDataType("ns", "UTC")
     schema = DataSchema(
         (DataAxis("time", (DataColumn("key", "key", dtype, True),), name="time"),),

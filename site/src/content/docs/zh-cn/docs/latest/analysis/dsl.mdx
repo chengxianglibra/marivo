@@ -28,6 +28,20 @@ Population 是完整坐标元组的有限集合，不仅是“人群”。`sessi
 
 [Population 介绍](/zh-cn/docs/latest/analysis/population/)包含身份元组、投影、分类、乘积、集合操作、关系映射与计数，逐项列出默认值并提供可运行示例。确定分母成员范围时应先读这一页。
 
+## 可重复运行的 Session 获取
+
+脚本会重复运行时，使用稳定的项目内名称：
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sales")
+```
+
+首次调用创建 Session，后续调用恢复同名 Session。不设置 current Session，也不改写已保存的 question、timezone 和 domains。省略或传入 `None` 时，新名称采用创建默认值，已有名称保留保存值。创建默认值为无问题描述、创建时的系统时区以及全部语义域目录。
+
+非 `None` 的 `question`、`timezone`、`domains` 必须与保存值一致。比较前会规范化时区偏移，并对域名称排序去重。冲突会在恢复之前抛出 `SessionStateError`；读取 `error.expected`、`error.received` 和 `error.repair.candidates`（已有 Session ID）即可程序化处理。可省略冲突配置、传入一致的值，或选择新名称。恢复使用与 `mv.session.resume(session_id)` 相同的 writer guard，存在活动 writer 时仍会拒绝。没有待恢复工作时，重复获取保持 `updated_at` 不变。Help：`analysis.session.get_or_create`。
+
 ## 完整示例与后续输入
 
 保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。导入该文件会重新读取来源并创建新会话。
@@ -38,7 +52,7 @@ Population 是完整坐标元组的有限集合，不仅是“人群”。`sessi
 from uuid import uuid4
 import marivo.analysis as mv
 
-session = mv.session.create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
+session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")

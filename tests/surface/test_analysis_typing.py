@@ -27,7 +27,7 @@ mv.mean  # invalid: retired row factory
 mv.time_grid  # invalid: retired graph time grid
 mv.time_scope  # invalid: retired module-level time constructor
 mv.instant  # invalid: Session-only instant constructor
-session = mv.session.create('static', timezone='UTC')
+session = mv.session.get_or_create('static', timezone='UTC')
 population = session.members(session.catalog.entities.get('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
@@ -109,7 +109,7 @@ from ibis.common.deferred import Deferred
 from marivo.semantic.expressions import Entity
 from typing_extensions import assert_type
 
-session = mv.session.create('static', timezone='UTC')
+session = mv.session.get_or_create('static', timezone='UTC')
 population = session.members(session.catalog.entities.get('sales.customer'))
 assert_type(population, mv.Population)
 resolved_entity = session.catalog.entities.get('sales.customer')

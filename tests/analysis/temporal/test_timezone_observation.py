@@ -129,7 +129,7 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, form="parquet")
-    session = mv.session.create("mean-chain", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("mean-chain", timezone="Asia/Shanghai")
     values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     assert _values(values) == {"A": 20, "B": 60}
     chosen = values.where(values["value"] < 50)
@@ -172,7 +172,7 @@ def test_source_kind_and_authority_remain_independent_of_report(
         representation=representation,
         read_zone=read_zone,
     )
-    session = mv.session.create("source-meaning", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("source-meaning", timezone="Asia/Shanghai")
     values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     assert _values(values) == {"A": expected, "B": 60}
 
@@ -227,7 +227,7 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         representation="aware",
         read_zone=None,
     )
-    session = mv.session.create("dst", timezone="America/New_York")
+    session = mv.session.get_or_create("dst", timezone="America/New_York")
     scope = session.time_scope(start=start, end=end)
     assert (scope.end - scope.start).total_seconds() == hours * 3600
     assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
@@ -265,7 +265,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
         table["happened"].cast(pa.timestamp("ns")),
     )
     pq.write_table(table, path)
-    session = mv.session.create("unsupported-conversion", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("unsupported-conversion", timezone="Asia/Shanghai")
     before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -288,7 +288,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     from marivo.datasource.adapters import QualifiedSource
 
     _project(tmp_path, monkeypatch, semantic_project_factory)
-    session = mv.session.create("no-fallback", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("no-fallback", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -312,7 +312,7 @@ def test_explicit_instant_bounds_do_not_erase_report_identity(
     _project(tmp_path, monkeypatch, semantic_project_factory)
     boundaries = []
     for zone in ("UTC", "Asia/Shanghai"):
-        session = mv.session.create(zone, timezone=zone)
+        session = mv.session.get_or_create(zone, timezone=zone)
         scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=timezone.utc),
             end=datetime(2026, 8, 2, tzinfo=timezone.utc),
@@ -332,7 +332,7 @@ def test_failed_reader_timezone_probe_does_not_fall_back(
     from marivo.datasource import timezone as datasource_timezone
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
-    session = mv.session.create("engine-change", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("engine-change", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     original = datasource_timezone.probe_engine_timezone
 
@@ -377,7 +377,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
         read_zone="UTC",
         rows=rows,
     )
-    session = mv.session.create("recover-time", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("recover-time", timezone="Asia/Shanghai")
     logical = _observe(
         session, session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     )
@@ -443,7 +443,7 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     expected_total: int,
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=read_zone)
-    session = mv.session.create("within-members", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("within-members", timezone="Asia/Shanghai")
     scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     time = session.catalog.fields.get("sales.orders.happened")
     metric = session.catalog.metrics.get("sales.total")

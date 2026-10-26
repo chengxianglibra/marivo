@@ -556,7 +556,7 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("numeric", timezone="UTC")
+    return mv.session.get_or_create("numeric", timezone="UTC")
 
 
 def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_observation(

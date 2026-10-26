@@ -64,7 +64,7 @@ Known targets can be queried directly. Source construction captures explicit que
 
 For authoring, start at `authoring`, then choose datasource, semantic or ontology. Datasource topics separate connections, sources, inspection and the semantic handoff. Semantic topics separate model definitions, expression roles, time, catalog lookup and validation. Exact APIs keep their own targets even when a shared prefix is not a topic.
 
-Execution imports are `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Create sessions through `mv.session.create`; there is no top-level `marivo.session` alias.
+Execution imports are `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Create sessions through `mv.session.get_or_create`; there is no top-level `marivo.session` alias.
 
 ### Ask for help effectively
 

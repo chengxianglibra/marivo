@@ -186,7 +186,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(target.surface + ("." + target.canonical_id if target.canonical_id else ""))
 
     prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
-    forecast_session = mv.session.create("context-budget-forecast", timezone="UTC")
+    forecast_session = mv.session.get_or_create("context-budget-forecast", timezone="UTC")
     daily = forecast_session.observe(
         {"value": forecast_session.catalog.metrics.get("sales.total_0")},
         by=(forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),

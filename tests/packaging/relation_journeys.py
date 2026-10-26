@@ -106,7 +106,7 @@ def folded_energy():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     catalog = ms.load(workspace_dir=project)
-    session = mv.session.create("installed-relations", timezone="UTC")
+    session = mv.session.get_or_create("installed-relations", timezone="UTC")
     case = DslCase("j2", NAMES, project, database, catalog, session)
     if source == "parquet":
         export_dsl_parquet_models(case, project)

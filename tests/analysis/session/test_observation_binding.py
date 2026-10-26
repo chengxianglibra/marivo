@@ -152,7 +152,7 @@ def bound_catalog(
             load=False,
         )
         monkeypatch.chdir(tmp_path)
-        return mv.session.create("binding", timezone="Asia/Shanghai")
+        return mv.session.get_or_create("binding", timezone="Asia/Shanghai")
 
     return build
 
@@ -343,7 +343,7 @@ def test_exact_boundaries_calendar_and_host_independence(
     from marivo._temporal import _time_scope_from_contract_data, _validate_time_scope_data
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("clock", timezone="America/New_York")
+    session = mv.session.get_or_create("clock", timezone="America/New_York")
     scope = session.time_scope(start="2026-03-07T12:00:00", end="2026-03-10T12:00:00")
     assert isinstance(scope.start, InstantAnchor) and isinstance(scope.end, InstantAnchor)
     assert scope.start == datetime(2026, 3, 7, 17, tzinfo=timezone.utc)
@@ -434,7 +434,7 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
     from marivo.refs import ref
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("fiscal", timezone="UTC")
+    session = mv.session.get_or_create("fiscal", timezone="UTC")
     rows = tuple(
         {"date": date(2026, 1, day), "week": "W1" if day < 3 else "W2"} for day in range(1, 5)
     )
@@ -503,7 +503,7 @@ def filtered():
         raise AssertionError("binding opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    session = mv.session.create("inline-via", timezone="UTC")
+    session = mv.session.get_or_create("inline-via", timezone="UTC")
     catalog = session.catalog
     metric = catalog.metrics.get("sales.filtered")
     query = session.observe({"filtered": metric})

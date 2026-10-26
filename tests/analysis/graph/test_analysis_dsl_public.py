@@ -49,7 +49,7 @@ def test_public_j1_scope_uses_persisted_report_timezone(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    session = mv.session.create("j1-report-zone", timezone="Asia/Shanghai")
+    session = mv.session.get_or_create("j1-report-zone", timezone="Asia/Shanghai")
     local = _observe(case, "2026-08-01", "2026-09-01", session=session, scalar=True).persist()
     assert local.to_pandas()[("value", "value")].tolist() == [677]
     absolute = _observe(

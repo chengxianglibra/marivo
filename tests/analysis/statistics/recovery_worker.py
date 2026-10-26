@@ -140,7 +140,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             create(root, "parquet")
         profile_path = root / "deviation-profile.json"
         profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
-        session = mv.session.create("pandas-" + mode, timezone=profile.get("zone", "UTC"))
+        session = mv.session.get_or_create("pandas-" + mode, timezone=profile.get("zone", "UTC"))
         members = session.members(session.catalog.entities.get("sales.order"))
         field = session.catalog.fields.get(
             f"sales.order.profile_{profile['profiles'][0]}" if profile else "sales.order.amount"

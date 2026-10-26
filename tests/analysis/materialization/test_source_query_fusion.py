@@ -107,7 +107,7 @@ baseline = ms.measure_column(name='baseline', entity=orders, column='baseline', 
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("source-query", timezone="UTC")
+    return mv.session.get_or_create("source-query", timezone="UTC")
 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:

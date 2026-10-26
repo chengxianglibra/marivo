@@ -64,7 +64,7 @@ refund_amount = ms.measure_column(name='amount', entity=refunds, column='amount'
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("related-drill", timezone="UTC")
+    return mv.session.get_or_create("related-drill", timezone="UTC")
 
 
 @pytest.mark.parametrize("operation", ("direct", "where", "top", "select", "rollup"))

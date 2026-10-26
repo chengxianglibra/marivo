@@ -391,7 +391,7 @@ def produce(project: Path) -> dict[str, object]:
     """Evaluate admitted native numerics without publication, then save complete data once."""
     ms.load()
     rows, totals = _raw(project)
-    session = mv.session.create("installed", timezone="UTC")
+    session = mv.session.get_or_create("installed", timezone="UTC")
     before_runs = len(terminal_runs(session))
     before = publication_counts(session)
     assert before_runs == 0 and _artifact_count(session) == 0

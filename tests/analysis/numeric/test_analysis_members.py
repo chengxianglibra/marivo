@@ -88,7 +88,7 @@ def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
     )
     source = "".join(definitions)
     (case.root / "models" / "semantic" / domain / "models.py").write_text(source)
-    return mv.session.create("r52-members", timezone="UTC")
+    return mv.session.get_or_create("r52-members", timezone="UTC")
 
 
 def _domain(session: Session) -> str:
@@ -310,7 +310,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     selected = logical.where(logical["value"] < boundary).persist()
     restored = session.persisted_frame(selected.artifact.id)
     assert restored.to_pandas().iloc[:, 0].tolist() == [(1, "A")]
-    other = mv.session.create("other-r52", timezone="UTC")
+    other = mv.session.get_or_create("other-r52", timezone="UTC")
     foreign = _read(
         other,
         other.members(other.catalog.entities.get(f"{prefix}.plain")),
@@ -401,7 +401,7 @@ ssi = ms.dimension_column(name="sid", entity=subjects, column="sid")
 to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity=subjects, keys=[ms.join_on(it,st), ms.join_on(isi,ssi)])
 """)
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("subject-image", timezone="UTC")
+    session = mv.session.get_or_create("subject-image", timezone="UTC")
     domain = session.members(session.catalog.entities.get("test.instances"))
     image = domain.image(via=(session.catalog.relationships.get("test.to_subject"),))
     result = session.frame(image).persist()

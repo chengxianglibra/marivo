@@ -74,7 +74,7 @@ def test_remote_original_recompute_uses_qualified_integer_results(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-original", timezone="UTC")
+        session = mv.session.get_or_create("remote-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -112,7 +112,7 @@ def test_remote_original_drill_and_share_preserve_complete_keys(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-original-related", timezone="UTC")
+        session = mv.session.get_or_create("remote-original-related", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
@@ -167,7 +167,7 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-original-cancellation", timezone="UTC")
+        session = mv.session.get_or_create("remote-original-cancellation", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -223,7 +223,7 @@ def test_remote_nullable_integer_distinct_recomputes_before_native_transport(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-original-nullable", timezone="UTC")
+        session = mv.session.get_or_create("remote-original-nullable", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.count_distinct()})
@@ -288,7 +288,7 @@ def test_remote_nullable_native_values_keep_fractional_parts(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-native-fractions", timezone="UTC")
+        session = mv.session.get_or_create("remote-native-fractions", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -318,7 +318,7 @@ def test_trino_basic_integer_recompute_does_not_require_iceberg_snapshot(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("trino-connector-original", timezone="UTC")
+        session = mv.session.get_or_create("trino-connector-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.sum()})
@@ -349,7 +349,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("remote-original-wide-weighted", timezone="UTC")
+        session = mv.session.get_or_create("remote-original-wide-weighted", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")

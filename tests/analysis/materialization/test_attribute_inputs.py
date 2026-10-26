@@ -85,7 +85,7 @@ def session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("inputs", timezone="UTC")
+    return mv.session.get_or_create("inputs", timezone="UTC")
 
 
 def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(

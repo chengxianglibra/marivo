@@ -205,7 +205,7 @@ assert 'marivo.analysis.session' not in sys.modules
 from marivo.analysis.materialization import terminal_storage
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
-assert callable(mv.session.create)
+assert callable(mv.session.get_or_create)
 from marivo.analysis.session.core import Session
 assert mv.Session is Session
 assert callable(Session.members)

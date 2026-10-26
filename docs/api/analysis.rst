@@ -47,7 +47,14 @@ Public classes describe returned values; they do not authorize direct constructi
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
 ``session.*`` when introducing Catalog, Store, execution ownership or the frozen
 default timezone, and receiver methods/properties for existing context.
-``mv.session.create/resume/recent/inspect`` establish or discover lifecycle context.
+``mv.session.get_or_create/resume/recent/inspect`` establish or discover lifecycle context.
+``get_or_create(name, *, question=None, timezone=None, domains=None)`` creates or
+recovers an exact name. None uses defaults on creation and retains saved values
+on recovery. Non-None configuration must match the saved description, normalized
+timezone name and sorted, deduplicated domain scope; conflicts raise
+``SessionStateError`` before recovery. Read ``error.repair.candidates`` for the
+existing Session ID. Acquisition sets no current Session and never rewrites
+saved configuration. Recovery without pending work preserves ``updated_at``.
 
 Current data operations
 -----------------------
@@ -321,7 +328,7 @@ Session lifecycle
    :nosignatures:
    :caption: Session lifecycle
 
-   create
+   get_or_create
    resume
    recent
    inspect

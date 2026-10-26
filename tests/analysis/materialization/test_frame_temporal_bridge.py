@@ -67,7 +67,7 @@ amount=ms.measure_column(name='amount',entity=facts,column='amount',unit='USD',a
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("temporal-bridge", timezone="UTC")
+    return mv.session.get_or_create("temporal-bridge", timezone="UTC")
 
 
 def _series(ticks: list[int | None], physical: pa.DataType) -> pd.Series:

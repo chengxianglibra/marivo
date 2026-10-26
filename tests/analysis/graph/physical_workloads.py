@@ -497,5 +497,5 @@ def workload(
     rows = _rows(facts, scenario)
     with _tables(backend, profile, root, monkeypatch, rows) as (case, subjects, other):
         _author(root, backend, case, subjects, other, monkeypatch)
-        session = mv.session.create("integer-sum-regression", timezone="UTC")
+        session = mv.session.get_or_create("integer-sum-regression", timezone="UTC")
         yield Workload(session, rows, case.environment)

@@ -153,7 +153,7 @@ def test_two_fused_children_keep_disjoint_live_and_historical_namespaces(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("history", timezone="UTC")
+    session = mv.session.get_or_create("history", timezone="UTC")
     captured = _captured_graph(
         session.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 7}),))
     )
@@ -432,7 +432,7 @@ def test_literal_graph_is_prefixed_and_uses_same_schedule_without_source_prepare
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("literal-compiler", timezone="UTC")
+    session = mv.session.get_or_create("literal-compiler", timezone="UTC")
     query = session.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 9}),))
     child = plan_query(_captured_graph(query), ())
     final = child.stages[-1]
@@ -463,7 +463,7 @@ def test_source_adapter_complete_boundary_preserves_unused_native_infinity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid: float
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("source-complete", timezone="UTC")
+    session = mv.session.get_or_create("source-complete", timezone="UTC")
     query = session.values(
         by=(), columns={"a": None, "b": None}, rows=(((), {"a": 1.0, "b": 0.0}),)
     )
@@ -492,7 +492,7 @@ def test_source_prefix_covers_native_fused_parameter_and_numeric_payload_referen
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("prefix", timezone="UTC")
+    session = mv.session.get_or_create("prefix", timezone="UTC")
     query = session.values(by=(), columns={"amount": None}, rows=(((), {"amount": 7}),))
     schema = _schema()
     formula = FormulaProgram((), (), (FormulaInput((), "removed-read", schema.values[0], False),))

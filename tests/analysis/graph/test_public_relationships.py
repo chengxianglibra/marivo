@@ -48,7 +48,7 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
             "(2, 1, 'paid', TIMESTAMP '2026-01-03'), "
             "(3, 2, 'created', TIMESTAMP '2026-01-02')"
         )
-    session = mv.session.create("relationship", timezone="UTC")
+    session = mv.session.get_or_create("relationship", timezone="UTC")
     route = session.catalog.relationships.get("sales.event_order")
     region = session.catalog.fields.get("sales.orders.region").via((route,))
     metric = (
@@ -68,7 +68,7 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
 
 
 def test_membership_ref_and_members_entity_have_typed_repairs(relationship_project: Path) -> None:
-    session = mv.session.create("relationship-inputs", timezone="UTC")
+    session = mv.session.get_or_create("relationship-inputs", timezone="UTC")
     region = session.catalog.fields.get("sales.orders.region")
     relationship_ref = ms.ref.relationship("sales.event_order")
     membership = mv.membership(region, via=((relationship_ref,),), unmatched="exclude")

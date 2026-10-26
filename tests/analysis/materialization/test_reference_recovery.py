@@ -36,7 +36,7 @@ def test_native_reference_independent_fixed_and_cold(
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     with source_case(backend, profile, tmp_path, monkeypatch, reference_data(backend)) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("r94-reference", timezone="UTC")
+        session = mv.session.get_or_create("r94-reference", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
 
         bucket = session.catalog.fields.get("sales.facts.bucket")

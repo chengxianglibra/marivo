@@ -68,7 +68,7 @@ def _session(
         load=False,
     )
     monkeypatch.chdir(root)
-    return mv.session.create("population", timezone="UTC")
+    return mv.session.get_or_create("population", timezone="UTC")
 
 
 @pytest.mark.parametrize("consumer_window", (False, True))

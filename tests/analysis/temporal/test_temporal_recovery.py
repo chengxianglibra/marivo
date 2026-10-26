@@ -99,7 +99,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         assert anchor in body
         models.write_text(body.replace(anchor, subject_models + anchor))
         ms.load(workspace_dir=tmp_path)
-        session = mv.session.create("temporal-int64-recovery", timezone="UTC")
+        session = mv.session.get_or_create("temporal-int64-recovery", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.subjects"))
         total = session.catalog.metrics.get("sales.total")
         time = session.catalog.fields.get("sales.facts.happened")

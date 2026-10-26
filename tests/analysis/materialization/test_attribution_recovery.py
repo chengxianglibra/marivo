@@ -67,7 +67,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)
-        session = mv.session.create("r94-attribution", timezone="UTC")
+        session = mv.session.get_or_create("r94-attribution", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         bucket = session.catalog.fields.get("sales.facts.bucket")
         happened = session.catalog.fields.get("sales.facts.happened")

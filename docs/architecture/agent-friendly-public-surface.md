@@ -101,7 +101,7 @@ Only the returned completed object fixes values and keys.
 ```python
 import marivo.analysis as mv
 
-session = mv.session.create("revenue-review", timezone="UTC")
+session = mv.session.get_or_create("revenue-review", timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 period = session.time_scope(start="2026-06-01", end="2026-06-08")
 saved = session.observe({"revenue": revenue}, by=(period,)).persist()

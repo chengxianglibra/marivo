@@ -19,7 +19,7 @@ from tests.shared_fixtures import (
 def prepare(case: DslCase, form: str) -> mv.Session:
     prepare_profiles(case, "KC", form, "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
-    return mv.session.create("statistics-journey", timezone="UTC")
+    return mv.session.get_or_create("statistics-journey", timezone="UTC")
 
 
 def create(root: Path, form: str) -> mv.Session:
@@ -36,5 +36,5 @@ def create(root: Path, form: str) -> mv.Session:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     catalog = ms.load(workspace_dir=root)
-    session = mv.session.create("bootstrap-statistics", timezone="UTC")
+    session = mv.session.get_or_create("bootstrap-statistics", timezone="UTC")
     return prepare(DslCase("j2", DSL_NAMES, root, database, catalog, session), form)

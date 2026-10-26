@@ -28,6 +28,20 @@ A Population is a finite set of complete coordinate tuples, not just a group of 
 
 The [Population guide](/docs/latest/analysis/population/) covers identity tuples, projection, classification, products, set operations, relationship mapping and counts, with parameter defaults and a runnable example. Read it when deciding who or what belongs in the denominator.
 
+## Repeatable Session acquisition
+
+Use a stable project-local name when a script will run repeatedly:
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sales")
+```
+
+The first call creates the Session; later calls recover the same name. No current Session is set, and saved question, timezone and domains are never rewritten. Omitted or `None` configuration uses creation defaults for a new name and retains saved values for an existing name. Defaults are no question, the creation-time system timezone and all authoring domain directories.
+
+Non-None `question`, `timezone` and `domains` must match the saved values. Timezone offsets are normalized, and domain names are sorted and deduplicated before comparison. A conflict raises `SessionStateError` before recovery; inspect `error.expected`, `error.received` and `error.repair.candidates` (the existing Session ID). Omit the conflicting configuration, pass matching values or choose a new name. Recovery uses the same writer guard as `mv.session.resume(session_id)` and can reject an active writer. With no pending recovery work, repeated acquisition preserves `updated_at`. Help: `analysis.session.get_or_create`.
+
 ## Complete example and shared inputs
 
 Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. Importing this file rereads sources and creates a new Session.
@@ -38,7 +52,7 @@ Save the following as `analysis.py`. It defines session, revenue, region, july, 
 from uuid import uuid4
 import marivo.analysis as mv
 
-session = mv.session.create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
+session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")

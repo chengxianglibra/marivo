@@ -143,7 +143,7 @@ def guarded_total():
                 "sales/model.py": code,
             }
         )
-        yield mv.session.create("original-multiple-roots", timezone="UTC")
+        yield mv.session.get_or_create("original-multiple-roots", timezone="UTC")
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

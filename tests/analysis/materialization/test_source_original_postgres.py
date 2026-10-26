@@ -39,7 +39,7 @@ def postgres_original_session(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        yield mv.session.create("postgres-original", timezone="UTC"), case
+        yield mv.session.get_or_create("postgres-original", timezone="UTC"), case
 
 
 @pytest.mark.parametrize(
@@ -141,7 +141,7 @@ def test_postgres_nullable_integer_distinct_recomputes_before_transport(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("postgres-nullable-original", timezone="UTC")
+        session = mv.session.get_or_create("postgres-nullable-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.count_distinct()})
@@ -218,7 +218,7 @@ def test_postgres_original_parent_sum_widens_before_publication(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("postgres-overflow-original", timezone="UTC")
+        session = mv.session.get_or_create("postgres-overflow-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.sum()}, by=(category,))
@@ -246,7 +246,7 @@ def test_postgres_decimal_distinct_recomputes_before_transport(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("postgres-decimal-original", timezone="UTC")
+        session = mv.session.get_or_create("postgres-decimal-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.count_distinct()})
@@ -287,7 +287,7 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
             monkeypatch.chdir(tmp_path)
             with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
                 _project("postgres", case, monkeypatch, semantic_project_factory)
-                session = mv.session.create("postgres-collated-original", timezone="UTC")
+                session = mv.session.get_or_create("postgres-collated-original", timezone="UTC")
                 amount = session.catalog.fields.get("sales.facts.amount")
                 category = session.catalog.fields.get("sales.facts.category")
                 tenant = session.catalog.fields.get("sales.facts.tenant")
@@ -336,7 +336,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        session = mv.session.create("postgres-attribute-default", timezone="UTC")
+        session = mv.session.get_or_create("postgres-attribute-default", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         tenant = session.catalog.fields.get("sales.facts.tenant")
         category = session.catalog.fields.get("sales.facts.category")

@@ -34,12 +34,23 @@ read changed data; use the returned fixed root when exact prior values matter.
 
 ## Explicit lifecycle and frozen context
 
-Use `mv.session.create(name, *, question=None, timezone=None, domains=None)` to
-create a new project-unique name. Empty names, surrounding whitespace and duplicate
-names fail; the duplicate error reports the existing exact Session ID. Creation
-freezes the normalized domains and timezone. `timezone=None` resolves the system
-zone once at creation, retaining its resolution facts; an explicit invalid zone
-fails. `session.timezone` returns the saved normalized name.
+Use `mv.session.get_or_create(name, *, question=None, timezone=None, domains=None)` to
+create a new project-unique name or recover the exact existing name. Empty names
+and surrounding whitespace fail. Creation freezes question, normalized domains
+and timezone. `timezone=None` resolves the system zone once at creation, retaining
+its resolution facts; `domains=None` selects all authoring domain directories.
+An explicit invalid zone fails. `session.timezone` returns the saved normalized name.
+
+On recovery, omitted or `None` configuration retains saved values without
+rechecking the system timezone. Non-None question, timezone and domains must
+match the saved description, normalized timezone name and sorted, deduplicated
+domain scope. Conflicts raise `SessionStateError` before recovery, with expected
+and received values and the existing ID in `error.repair.candidates`; callers
+can omit the configuration, pass matching values or use a new Session name.
+Acquisition never rewrites the saved configuration or sets a current Session.
+Concurrent creators share the unique-name transaction; a losing creator follows
+the same configuration checks and recovery path. An active writer still rejects
+recovery. `get_or_create` is the sole name-based acquisition entry point.
 
 `mv.session.resume(session_id)` opens only that exact existing identity and performs
 necessary recovery under the writer guard. `recent()` is bounded read-only

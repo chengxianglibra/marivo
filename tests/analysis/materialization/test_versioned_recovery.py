@@ -100,7 +100,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 "sales/models.py": models,
             }
         )
-        session = mv.session.create("r94-versions", timezone="UTC")
+        session = mv.session.get_or_create("r94-versions", timezone="UTC")
         august = session.instant(datetime(2026, 8, 1, tzinfo=timezone.utc))
         september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
         outputs: dict[str, mv.AnalysisFrame] = {}

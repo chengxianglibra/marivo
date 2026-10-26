@@ -58,7 +58,7 @@ other_channel = ms.dimension_column(name='channel', entity=other_orders, column=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.create("results", timezone="UTC")
+    return mv.session.get_or_create("results", timezone="UTC")
 
 
 @pytest.mark.parametrize("mapping", (None, {}))
@@ -255,7 +255,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("versions", timezone="UTC")
+    session = mv.session.get_or_create("versions", timezone="UTC")
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
@@ -725,7 +725,7 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("source-keys", timezone="UTC")
+    session = mv.session.get_or_create("source-keys", timezone="UTC")
     members = session.members(session.catalog.entities.get("sales.accounts"))
     region = session.catalog.fields.get("sales.accounts.region")
     amount = session.catalog.fields.get("sales.accounts.amount")
@@ -1071,7 +1071,7 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("two-sources", timezone="UTC")
+    session = mv.session.get_or_create("two-sources", timezone="UTC")
     left_members = session.members(session.catalog.entities.get("sales.crm"))
     right_members = session.members(session.catalog.entities.get("sales.billing"))
     left_amount = session.catalog.fields.get("sales.crm.amount")
@@ -1138,7 +1138,7 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.create("calendar-share", timezone="UTC")
+    session = mv.session.get_or_create("calendar-share", timezone="UTC")
     amount = session.catalog.fields.get("sales.orders.amount")
     day = session.catalog.fields.get("sales.orders.day")
     region = session.catalog.fields.get("sales.orders.region")

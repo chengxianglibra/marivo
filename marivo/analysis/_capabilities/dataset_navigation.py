@@ -286,13 +286,16 @@ _PAGES = (
         "Create or recover the exact working context.",
         (),
         guidance=(
-            "Create a new Session, discover retained IDs, inspect metadata or resume an exact existing ID. Resume does not replay source observations.",
+            "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Recovery does not replay source observations.",
             "Reopen exact committed data with persisted_frame(id); its Artifact is audit. Continue fixed-data operations through frame, or explicitly ask source for new facts.",
             "Older Store generations require a compatible environment or prior export; recovery does not migrate them. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
         ),
         related=("frame", "source"),
         route_summaries=(
-            ("session.create", "Create a uniquely named Session with frozen scope and timezone."),
+            (
+                "session.get_or_create",
+                "Create or recover a repeatable name; reject explicit configuration conflicts.",
+            ),
             ("session.recent", "Discover retained Session IDs."),
             ("session.inspect", "Inspect an existing Session's metadata."),
             ("session.resume", "Recover one exact existing Session ID."),
