@@ -203,7 +203,7 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
     (
         "analysis.results.evidence",
         "analysis.sessions",
-        "analysis.frame",
+        "analysis.operators",
     ),
 )
 def test_analysis_task_navigation_targets_resolve(target: str) -> None:
@@ -216,13 +216,13 @@ def test_analysis_task_members_resolve_independently() -> None:
     for owner in (
         "results.evidence",
         "sessions",
-        "frame",
+        "operators",
     ):
         from marivo.analysis._capabilities.dataset_model import NavigationInput
 
         topic = ANALYSIS_REGISTRY.by_canonical_id(owner)
         assert isinstance(topic, NavigationInput)
-        assert len(topic.members) <= 16
+        assert len(topic.members) <= 18
         for target in topic.members:
             route = route_help_target(f"analysis.{target}")
             assert isinstance(route, NativeHelpRoute)

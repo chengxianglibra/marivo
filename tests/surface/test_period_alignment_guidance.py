@@ -170,7 +170,7 @@ def test_baseline_help_routes_fields_and_example_without_execution(
     text = render_help_text("analysis.baseline")[0]
     assert text == render_help_text(mv.baseline)[0]
     assert "ComparisonBaseline" in text and "without data reads" in text
-    assert "analysis.baseline" in render_help_text("analysis.frame.compare")[0]
+    assert "analysis.baseline" in render_help_text("analysis.inputs.comparison")[0]
     descriptor = prepare().by_canonical_id("baseline")
     assert isinstance(descriptor, CallableInput)
     namespace: dict[str, object] = {"mv": mv, "frame": frame}

@@ -370,7 +370,13 @@ def provider() -> DisclosureProvider:
             TimeScope,
             "time_scope",
             "by",
-            (P("grain", "Pass mv.grain(unit) or a certified calendar.grain(level)."),),
+            (
+                P(
+                    "grain",
+                    "Pass mv.grain(unit) or a certified calendar.grain(level).",
+                    ("grain.define", "catalog.period_calendars.grain"),
+                ),
+            ),
             "CalendarAxis",
             "Construct nominal and actual buckets from the frozen scope.",
             "result = scope.by(grain)",
@@ -494,13 +500,14 @@ def provider() -> DisclosureProvider:
                 P(
                     "name",
                     "Exact current axis display name; use frame.axes when names are ambiguous.",
+                    ("analysis_frame.axes",),
                 ),
             ),
             "FrameAxis",
             "Select one complete axis from this Frame's current directory.",
             "result = frame.axis(name)",
             ("frame", "name"),
-            "frame.expressions",
+            "inputs.frame",
             (
                 "Missing or duplicate names report actual candidates; names do not match axes between inputs.",
             ),

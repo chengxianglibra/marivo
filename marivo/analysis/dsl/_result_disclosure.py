@@ -29,11 +29,20 @@ def provider() -> DisclosureProvider:
             baseline,
             summary="Capture one named baseline Frame and its correspondence rules.",
             parameters=(
-                P("frame", "Baseline Frame; compare binds same-Session ownership."),
-                P("on", "Complete (current axis, baseline axis) tuples, or None for inference."),
+                P(
+                    "frame",
+                    "Baseline Frame; compare binds same-Session ownership.",
+                    ("session.observe", "session.persisted_frame"),
+                ),
+                P(
+                    "on",
+                    "Complete (current axis, baseline axis) tuples, or None for inference.",
+                    ("analysis_frame.axis", "analysis_frame.axes"),
+                ),
                 P(
                     "match",
                     "Closed calendar rule, or None for frozen direct relation/equality inference.",
+                    ("inputs.comparison",),
                 ),
             ),
             output="ComparisonBaseline",
@@ -45,7 +54,7 @@ def provider() -> DisclosureProvider:
             example=ExampleInput(
                 "result = mv.baseline(frame)", ("frame",), "result", "ComparisonBaseline"
             ),
-            discovery_group="frame.compare",
+            discovery_group="inputs.comparison",
         ),
         value_type(
             "comparison_baseline",
@@ -85,7 +94,7 @@ def provider() -> DisclosureProvider:
             "Count all current coordinates independently of value NA masks.",
             "result = row_count()",
             ("row_count",),
-            "frame.statistics",
+            "operators",
         ),
         (
             "offset",
@@ -104,7 +113,7 @@ def provider() -> DisclosureProvider:
             "Construct an axis-free civil-year or grain-period offset.",
             "result = offset(years=-1)",
             ("offset",),
-            "inputs.time",
+            "inputs.comparison",
         ),
     ):
         descriptors.append(
@@ -181,6 +190,7 @@ def provider() -> DisclosureProvider:
                 P(
                     "by",
                     "Nonempty semantic classification tuple or one complete Population preserving joint keys and allocation.",
+                    ("inputs.catalog", "inputs.population"),
                 ),
             ),
             output="AnalysisFrame",
@@ -200,7 +210,7 @@ def provider() -> DisclosureProvider:
                 "result",
                 "AnalysisFrame",
             ),
-            discovery_group="source",
+            discovery_group="operators",
             related=(
                 "analysis_frame.compute",
                 "analysis_frame.method_facts",
@@ -219,6 +229,7 @@ def provider() -> DisclosureProvider:
                 P(
                     "axis",
                     "A field or identity FrameAxis from this exact input; time and paired axes reject.",
+                    ("analysis_frame.axis", "analysis_frame.axes"),
                 ),
                 P(
                     "key",
@@ -237,10 +248,24 @@ def provider() -> DisclosureProvider:
             example=ExampleInput(
                 "result = frame.fix(frame.axes[0], 'east')", ("frame",), "result", "AnalysisFrame"
             ),
-            discovery_group="frame.rows",
+            discovery_group="operators",
             related=("analysis_frame.where", "analysis_frame.compare", "analysis_frame.reduce"),
         )
     )
+    parameter_targets: dict[str, tuple[str, ...]] = {
+        "name": ("analysis_frame.output_names",),
+        "axis": ("analysis_frame.axis", "analysis_frame.axes"),
+        "along": ("analysis_frame.axis", "analysis_frame.axes"),
+        "by": ("analysis_frame.axis", "analysis_frame.axes"),
+        "on": ("analysis_frame.axis", "analysis_frame.axes"),
+        "x": ("analysis_frame.__getitem__",),
+        "y": ("analysis_frame.__getitem__",),
+        "predicate": ("Column",),
+        "other": ("session.observe", "session.persisted_frame"),
+        "baselines": ("baseline", "session.observe", "session.persisted_frame"),
+        "match": ("inputs.comparison",),
+        "statistic": ("value_statistic",),
+    }
     for owner, name, parameters, output, summary, code, requires, group in (
         (
             AnalysisFrame,
@@ -250,7 +275,7 @@ def provider() -> DisclosureProvider:
             "Locate a named value on this exact AnalysisFrame input.",
             "result = frame['value']",
             ("frame",),
-            "frame.expressions",
+            "inputs.frame",
         ),
         (
             AnalysisFrame,
@@ -265,7 +290,7 @@ def provider() -> DisclosureProvider:
             "Locate an existing scalar coordinate without reading a new attribute; complete composite keys remain coordinates and Population predicates.",
             "result = frame.coord(axis)",
             ("frame", "axis"),
-            "frame.expressions",
+            "inputs.frame",
         ),
         (
             AnalysisFrame,
@@ -280,7 +305,7 @@ def provider() -> DisclosureProvider:
             "Project values while preserving rows, order, complete coordinates and presence.",
             "result = frame.select({'value': frame['value']})",
             ("frame",),
-            "frame.expressions",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -295,7 +320,7 @@ def provider() -> DisclosureProvider:
             "Filter current coordinates, preserving checks and row order.",
             "result = frame.where(frame['value'] > 0)",
             ("frame",),
-            "frame.rows",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -309,7 +334,7 @@ def provider() -> DisclosureProvider:
             "Rank the whole current input, with NA last in either direction and canonical complete-key order for ties.",
             "result = frame.top(10, by=frame['value'])",
             ("frame",),
-            "frame.rows",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -326,7 +351,7 @@ def provider() -> DisclosureProvider:
             "selected = frame.where(frame['value'] > 0)\n"
             "result = selected.reduce(selected['value'].sum()).compute()",
             ("frame",),
-            "frame.statistics",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -348,7 +373,7 @@ def provider() -> DisclosureProvider:
             "selected = frame.select({'value': frame['value'], 'total': result}).compute()\n"
             "selected.show()",
             ("frame",),
-            "frame.statistics",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -363,7 +388,7 @@ def provider() -> DisclosureProvider:
             "Correlate one numeric pair on current rows, returning coefficient and n_pairs together from one input evaluation.",
             "result = frame.correlate(frame['value'], frame['other'], method='pearson').compute()",
             ("frame",),
-            "frame.statistics",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -383,7 +408,7 @@ def provider() -> DisclosureProvider:
             "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
             "result = frame.align(other)",
             ("frame", "other"),
-            "frame.compare",
+            "operators",
         ),
         (
             AnalysisFrame,
@@ -406,7 +431,7 @@ def provider() -> DisclosureProvider:
             "Keep current axes/values; add <alias>.baseline.<name>, <alias>.absolute.<name>, <alias>.relative.<name>. Relative = difference / absolute baseline; zero gives NA.",
             "result = frame.compare(previous)",
             ("frame", "previous"),
-            "frame.compare",
+            "operators",
         ),
         (
             Column,
@@ -431,7 +456,7 @@ def provider() -> DisclosureProvider:
             "Normalize current values by their partition sum; return signed ratios with the same rows and input.",
             "result = frame['value'].share(along=frame.axes)",
             ("frame",),
-            "frame.statistics",
+            "operators",
         ),
         (
             Column,
@@ -441,7 +466,7 @@ def provider() -> DisclosureProvider:
             "Test value NA independently of coordinate presence.",
             "result = column.is_null()",
             ("column",),
-            "frame.expressions",
+            "inputs.frame",
         ),
         (
             Column,
@@ -451,7 +476,7 @@ def provider() -> DisclosureProvider:
             "Request ignore-NA current-row sum: int64 returns Decimal(38,0), Decimal returns Decimal(38,input_scale); count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.sum()",
             ("column",),
-            "frame.statistics",
+            "inputs.frame",
         ),
         (
             Column,
@@ -467,7 +492,7 @@ def provider() -> DisclosureProvider:
             "Capture one coefficient statistic; finish with AnalysisFrame.reduce or AnalysisFrame.over. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
             "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
             ("frame",),
-            "frame.statistics",
+            "inputs.frame",
         ),
         (
             Column,
@@ -482,7 +507,7 @@ def provider() -> DisclosureProvider:
             "Capture an independent valid-pair count without ranking or computing a coefficient. AnalysisFrame.correlate already includes n_pairs.",
             "result = frame.reduce({'n_pairs': frame['value'].pair_count(frame['other']), 'n_values': frame['value'].pair_count(frame['value'])}).compute()",
             ("frame",),
-            "frame.statistics",
+            "inputs.frame",
         ),
         (
             Column,
@@ -492,9 +517,24 @@ def provider() -> DisclosureProvider:
             "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce or AnalysisFrame.over.",
             "result = column.mean()",
             ("column",),
-            "frame.statistics",
+            "inputs.frame",
         ),
     ):
+        parameters = tuple(
+            P(
+                parameter.name,
+                parameter.acquisition,
+                ("value_statistic", "column.sum", "column.mean", "row_count")
+                if name == "reduce" and parameter.name == "values"
+                else ("analysis_frame.__getitem__", "Column")
+                if name == "select" and parameter.name == "values"
+                else ("analysis_frame.__getitem__",)
+                if (name == "top" and parameter.name == "by")
+                or (owner is Column and parameter.name == "other")
+                else parameter_targets.get(parameter.name, ()),
+            )
+            for parameter in parameters
+        )
         value = getattr(owner, name)
         descriptors.append(
             operation(
@@ -535,11 +575,7 @@ def provider() -> DisclosureProvider:
                     else "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
-                related=("value_statistic",)
-                if output == "_Statistic"
-                else ("baseline", "ordinal")
-                if name == "compare"
-                else (),
+                related=("value_statistic",) if output == "_Statistic" else (),
                 discovery_group=group,
             )
         )

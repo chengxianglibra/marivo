@@ -23,39 +23,39 @@ def test_metric_intent_reaches_observation_without_restarting_discovery() -> Non
     def targets(page: str) -> tuple[str, ...]:
         return tuple(re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", page))
 
-    path = ("analysis", "analysis.source", "analysis.session.observe")
+    path = ("analysis", "analysis.operators", "analysis.session.observe")
     for current, following in pairwise(path):
         assert following in targets(rendered_help(current))
-    assert "analysis.session.observe" in targets(rendered_help("analysis.source"))
+    assert "analysis.session.observe" in targets(rendered_help("analysis.operators"))
     descriptor = REGISTRY.by_canonical_id("session.observe")
     assert isinstance(descriptor, CallableInput)
-    assert descriptor.discovery_group == "source"
+    assert descriptor.discovery_group == "operators"
     # Discovery cross-links do not create additional capability owners.
     owners = [
         d.canonical_id
         for d in REGISTRY.descriptors
         if isinstance(d, NavigationInput) and "session.observe" in d.members
     ]
-    assert owners == ["source"]
+    assert owners == ["operators"]
     assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
 
 
 def test_attribute_intent_and_complete_fact_navigation_have_exact_owners() -> None:
     path = (
         "analysis",
-        "analysis.source",
+        "analysis.operators",
         "analysis.analysis_frame.attribute",
     )
     for current, following in pairwise(path):
         assert following in rendered_help(current)
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
-    assert isinstance(descriptor, CallableInput) and descriptor.discovery_group == "source"
+    assert isinstance(descriptor, CallableInput) and descriptor.discovery_group == "operators"
     owners = [
         value.canonical_id
         for value in REGISTRY.descriptors
         if isinstance(value, NavigationInput) and "analysis_frame.attribute" in value.members
     ]
-    assert owners == ["source"]
+    assert owners == ["operators"]
     assert "analysis.analysis_frame.method_facts" in rendered_help("analysis.analysis_frame")
     assert "analysis.frame_method_facts" in rendered_help("analysis.analysis_frame.method_facts")
     assert "analysis.frame_method_parent" in rendered_help("analysis.frame_method_facts")
@@ -287,7 +287,7 @@ def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
     assert "Target: analysis.session.population_from\nKind: callable" in page
     assert "on:" in page and "FrameAxis" in page and "Entity" in page
     assert "Required immutable tuple" in page
-    assert "construction reads no rows" in page
+    assert "construction reads no rows" in page.lower()
     assert "new semantic bindings after joint key projection" in page
     assert "not original Entity/Field equality" in page
     assert "Compatible Customer keys may bind Product" in page

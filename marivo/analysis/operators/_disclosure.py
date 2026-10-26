@@ -31,7 +31,7 @@ def provider() -> DisclosureProvider:
                 example=ExampleInput(
                     "result = ordinal()", ("ordinal",), "result", "CalendarCorrespondence"
                 ),
-                discovery_group="inputs.time",
+                discovery_group="inputs.comparison",
             ),
             value_type(
                 "CalendarCorrespondence",

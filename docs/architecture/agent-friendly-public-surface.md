@@ -34,12 +34,19 @@ receiver. No executable compatibility alias supplies a second canonical entry.
 ## Task navigation and exact reference
 
 Task topics answer the current information gap; they are not a required call
-sequence. The analysis root offers inputs, source, frame, execution, results and
-sessions. Inputs selects governed meaning, member domains and time; source
-forms an explicit observation or asks for new source facts; frame composes data
-and calculations over represented rows. Execution fixes or saves values;
-results inspects data and audit; sessions establishes or recovers exact context.
-Known APIs and objects can enter their exact reference directly.
+sequence. The analysis root offers inputs, operators, sessions, execution and
+results, with a direct get_or_create startup link. Inputs selects Catalog
+objects, question-scoped expressions, member domains, time, exact Frame handles
+or comparison inputs. Operators gives a compact intent/input/output map and
+links directly to exact operations. Sessions owns context and recovery;
+execution fixes or saves values; results inspects data and audit. Known APIs
+and objects can enter their exact reference directly.
+
+Each exact callable parameter discloses its role, accepted input and omit
+meaning, with acquisition links next to that parameter. Links go directly to
+known producers or to a bounded choice page when alternatives matter. Native
+parameter targets own these edges; the renderer does not infer constructors
+from Python annotations. Type Help retains complete producer/consumer discovery.
 
 Exact callable pages use one short example with declared inputs. Examples may
 compose operations to show exact-input handles, lazy derivation from fixed data,

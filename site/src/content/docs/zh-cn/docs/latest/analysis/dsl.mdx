@@ -5,9 +5,11 @@ description: 按 observe、compare、attribute、correlate、align、reduce 了�
 
 分析 DSL 使用 `Session` 取得语义定义，通过 `observe`、`read` 和 Frame 方法计算结果。先完成快速开始的数据和模型，再按顺序运行本页。后续片段接在 `analysis.py` 后，或在同一 Python 进程中执行。
 
-继续已有任务时，`marivo.help("analysis")` 按下一步缺少的信息选择入口。`analysis.source` 构造显式观察或请求新来源事实；`analysis.frame` 构造数据或对当前行计算。source 构造保持延迟，Frame 求值仍可能执行 pending 输入已捕获的依赖。已完成的数值不会重建来源声明；同进程 Frame 可以为 attribute 保留声明，独立重新打开的 Frame 则没有该声明。
+继续已有任务时，`marivo.help("analysis")` 按当前缺少的信息导航。通过 `analysis.session.get_or_create` 获取上下文；使用 `analysis.inputs.catalog` 发现定义，使用 `analysis.operators` 按意图、输入和产出选择操作。精确操作页在每个参数旁链接获取或构造方法。`analysis.inputs.frame` 解释同输入的 Column、轴和统计量；`analysis.inputs.comparison` 准备基线及对应规则。
 
-已有闭合 Metric 能回答问题时直接复用。业务含义与聚合权限已确定、只缺本次算式、条件、内部样本或窗口时，从 `analysis.inputs` 或 `analysis.source` 进入 `semantic.expressions`。本次局部计算不要求发布同名 Metric；确实缺少可复用含义时才编写定义。来源条件和成员条件使用语义表达式角色；结果筛选使用属于确切 Frame 的布尔 Column。
+已有闭合 Metric 能回答问题时直接复用。业务含义与聚合权限已确定，只缺本次算式、条件、内部样本或窗口时，从 `analysis.inputs` 或 Metric 参数进入 `semantic.expressions`。本次计算可选择不发布同名 Metric；缺少可复用含义时再编写定义。来源条件使用语义表达式角色；结果筛选使用属于确切 Frame 的布尔 Column。
+
+来源构造保持延迟，pending Frame 求值可能执行已捕获的依赖。固定数据不会重建来源声明；同进程 Frame 可以为 attribute 保留声明，独立重开则无法恢复。继续使用 compute/persist 返回的 Frame；通过 `analysis.execution` 和 `analysis.results` 了解求值及读取，通过 `analysis.sessions` 恢复上下文。
 
 下文按以下顺序介绍算子。它们的 `by` 参数含义不同：observe/attribute 使用语义域，correlate/reduce 使用当前输入 Frame 的轴。
 

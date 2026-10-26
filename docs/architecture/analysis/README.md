@@ -29,13 +29,22 @@ captured state and structured repair disclosure.
 | Need | Task target |
 | --- | --- |
 | Governed inputs, question-scoped composition, member domain or time | `analysis.inputs` |
-| Metric observation, member count or new source facts | `analysis.source` |
-| Frame construction or calculations over represented data | `analysis.frame` |
+| Observation, Frame construction, calculations, comparison or statistics | `analysis.operators` |
 | Complete memory values or a persisted result | `analysis.execution` |
 | Data inspection, export or saved audit | `analysis.results` |
 | New or recovered Session and exact saved Frame | `analysis.sessions` |
 
-Known targets can be read directly. Source captures explicit governed questions
+The root also links directly to `analysis.session.get_or_create` when context is
+missing. Session supplies ownership and frozen defaults; acquire its Catalog
+before searching project definitions. The sessions topic owns exact recovery.
+
+Inputs routes to Catalog discovery, shared semantic expressions, Population,
+time, existing Frame handles and comparison inputs. `analysis.inputs.frame`
+explains exact-input Columns, axes and statistics; `analysis.inputs.comparison`
+prepares baselines and endpoint rules. Operators lists analytical intent, input
+and output without expanding signatures. Exact operation parameters link to
+owning acquisition or construction targets, including cross-surface semantic
+roles. Known targets can be read directly. Source captures explicit governed questions
 without business reads; a literal member count need not depend on a source.
 Frame operations retain the dependencies of pending inputs, so their evaluation
 may still read sources. Completed and reopened Frame operations use fixed data.
@@ -50,7 +59,7 @@ Choose the counted domain before selecting a statistic:
 
 `semantic.expressions` owns question-scoped Metric arithmetic, conditions,
 internal samples and windows over established closed inputs. It is directly
-reachable from inputs and source. Use authoring to establish missing reusable
+reachable from inputs and Metric parameter acquisition. Use authoring to establish missing reusable
 business meaning or aggregation authority. Question-scoped composition does not
 require publication. Current row statistics do not reconstruct an original
 Metric aggregation.

@@ -149,6 +149,20 @@ def provider() -> DisclosureProvider:
         "targets": "Pass the path target Entity's single identity-axis Population from the same Session.",
         "at": "Pass an exact InstantAnchor when required attribute/version reads need it; omit otherwise.",
     }
+    parameter_targets: dict[str, tuple[str, ...]] = {
+        "target": ("inputs.catalog",),
+        "entity": ("inputs.catalog",),
+        "via": ("inputs.catalog",),
+        "by": ("inputs.catalog", "identity"),
+        "factors": ("inputs.population", "session.time_scope"),
+        "population": ("inputs.population",),
+        "other": ("inputs.population",),
+        "targets": ("session.members",),
+        "predicate": ("in_population",),
+        "at": ("session.instant",),
+        "start": ("session.instant",),
+        "grain": ("grain.define", "catalog.period_calendars.grain"),
+    }
     for function, output, summary, code, requires, group in constructors:
         name = function.__name__
         descriptors.append(
@@ -163,6 +177,7 @@ def provider() -> DisclosureProvider:
                         grouping_inputs[function.__name__]
                         if name == "by"
                         else parameter_facts[name],
+                        parameter_targets.get(name, ()),
                     )
                     for name in signature(function).parameters
                 ),
@@ -297,7 +312,9 @@ def provider() -> DisclosureProvider:
                 summary=summary,
                 parameters=tuple(
                     ParameterInput(
-                        name, grouping_inputs[target] if name == "by" else parameter_facts[name]
+                        name,
+                        grouping_inputs[target] if name == "by" else parameter_facts[name],
+                        ("population.axes",) if name == "by" else parameter_targets.get(name, ()),
                     )
                     for name in signature(function).parameters
                     if name != "self"
@@ -312,7 +329,11 @@ def provider() -> DisclosureProvider:
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
                 example=ExampleInput(code, method_requires, "result", output),
                 discovery_group=(
-                    None if name == "show" else "source" if name == "count" else "inputs.population"
+                    None
+                    if name == "show"
+                    else "operators"
+                    if name == "count"
+                    else "inputs.population"
                 ),
             )
         )

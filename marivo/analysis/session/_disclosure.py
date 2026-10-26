@@ -171,7 +171,7 @@ def provider() -> DisclosureProvider:
             "population_from",
             "Population",
             "result = session.population_from(frame, on=((frame.axes[0], target),))",
-            "Bind selected complete ordinary Frame keys to explicit caller semantic targets for a new source Population; construction reads no rows.",
+            "Bind complete ordinary Frame keys to explicit semantic targets for a new source question.",
         ),
         (
             Session,
@@ -206,8 +206,8 @@ def provider() -> DisclosureProvider:
         ),
     )
     acquisition = {
-        "frame": "Pass an AnalysisFrame from this exact Store/Session, not an Artifact, ID or raw table.",
-        "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs. Only ordinary complete field/identity axes; () selects zero axes. Names/types never infer targets.",
+        "frame": "Same-Session AnalysisFrame; Artifact, IDs and raw tables reject.",
+        "on": "Required immutable tuple of (FrameAxis, closed Field/Entity) pairs; () selects zero axes. Complete ordinary axes only; names/types never infer targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
@@ -223,8 +223,20 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
-        "metrics": "Closed Metric or nonempty tuple/Mapping. Only consumed root DeclaredMetricRef supplies local names, including named formulas; other expressions need Mapping. Names: nonempty; no dots, backslashes, controls or left_present/right_present. Names/order survive compute/persist/reopen.",
+        "metrics": "Closed Metric or nonempty tuple/Mapping. Only root DeclaredMetricRef supplies local names; expressions need Mapping. Names exclude dots, backslashes, controls and left_present/right_present. Names/order remain fixed.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
+    }
+    parameter_targets: dict[str, tuple[str, ...]] = {
+        "metrics": ("inputs.catalog", "semantic.expressions"),
+        "entity": ("inputs.catalog",),
+        "fields": ("inputs.catalog", "semantic.field"),
+        "population": ("inputs.population",),
+        "frame": ("AnalysisFrame",),
+        "where": ("semantic.predicate",),
+        "at": ("session.instant",),
+        "on": ("FrameAxis", "inputs.catalog"),
+        "session_id": ("session.recent",),
+        "artifact_id": ("analysis_frame.persist",),
     }
     for receiver, name, output, code, effect in operations:
         value = getattr(receiver, name)
@@ -238,10 +250,8 @@ def provider() -> DisclosureProvider:
                 discovery_group=(
                     "inputs.population"
                     if name in ("members", "population_from")
-                    else "source"
-                    if name in ("observe", "read")
-                    else "frame"
-                    if name in ("frame", "values")
+                    else "operators"
+                    if name in ("observe", "read", "frame", "values")
                     else "inputs.time"
                     if name in ("instant", "time_scope")
                     else None
@@ -250,7 +260,7 @@ def provider() -> DisclosureProvider:
                 ),
                 related=("session.resume",)
                 if name == "persisted_frame"
-                else ("analysis_frame.compute", "analysis_frame.persist", "TimeScope.by")
+                else ("session.get_or_create", "analysis_frame.compute", "analysis_frame.persist")
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
                 if name in ("instant", "time_scope")
@@ -273,6 +283,16 @@ def provider() -> DisclosureProvider:
                         else "Deferred field/Population contribution condition. Population.count domains stay fixed; count-only conditions reject."
                         if name == "observe" and n == "where"
                         else acquisition[n],
+                        (
+                            "inputs.catalog",
+                            "inputs.population",
+                            "session.time_scope",
+                            "time_scope.by",
+                        )
+                        if name == "observe" and n == "by"
+                        else ("inputs.catalog", "identity")
+                        if name == "values" and n == "by"
+                        else parameter_targets.get(n, ()),
                     )
                     for n in signature(value).parameters
                     if n != "self"
@@ -300,7 +320,7 @@ def provider() -> DisclosureProvider:
                     if name == "members"
                     else "AnalysisError: follow its typed repair; no name cleaning/numbering."
                     if name == "observe"
-                    else "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
+                    else "AnalysisError: follow the structured identity, bound or recovery repair.",
                 ),
                 example=ExampleInput(
                     code,
@@ -452,7 +472,9 @@ def provider() -> DisclosureProvider:
             related=(
                 "semantic.semantic_catalog.search",
                 "semantic.semantic_catalog.get",
+                "semantic.catalog_page",
                 "semantic.readiness",
+                "session.get_or_create",
                 "authoring",
             ),
             discovery_group="inputs",
@@ -463,6 +485,8 @@ def provider() -> DisclosureProvider:
                 ),
                 ("semantic.semantic_catalog.search", "Discover business candidates."),
                 ("semantic.semantic_catalog.get", "Retrieve and explain an existing definition."),
+                ("semantic.catalog_page", "Read candidates, match facts and continuation cursors."),
+                ("session.get_or_create", "Acquire context before using session.catalog."),
                 (
                     "authoring",
                     "Missing business meaning or aggregation permission: author it explicitly.",

@@ -128,7 +128,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         )
         lines.extend("Signature: " + descriptor.public_entrypoint + s for s in signatures)
         lines.append("Returns: " + descriptor.output)
-        lines.extend("Input " + p.name + ": " + p.acquisition for p in descriptor.parameters)
+        for parameter in descriptor.parameters:
+            lines.append("Input " + parameter.name + ": " + parameter.acquisition)
+            lines.extend(
+                "  Acquire " + parameter.name + ": marivo.help('" + _help_target(t) + "')"
+                for t in parameter.targets
+            )
         disclosed = {descriptor.summary}
         for label, facts in (
             ("Constraint", descriptor.constraints),
@@ -163,7 +168,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         if descriptor.example.outcome not in (descriptor.output, "The receiver-bound result."):
             lines.append("Expected: " + descriptor.example.outcome)
         routes = registry.callable_routes(descriptor)
-        lines.extend("See: marivo.help('" + _help_target(t) + "')" for t in routes)
+        parameter_routes = {t for p in descriptor.parameters for t in p.targets}
+        lines.extend(
+            "See: marivo.help('" + _help_target(t) + "')"
+            for t in routes
+            if t not in parameter_routes
+        )
         examples = 1
     else:
         render_class = "public_type"

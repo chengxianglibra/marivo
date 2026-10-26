@@ -103,9 +103,8 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
     trace = traces["source_overall"] = Trace(case.root)
     trace.help("analysis")
-    trace.help("analysis.source")
-    trace.help(session.members)
-    trace.read("members metadata", members.show)
+    trace.help("analysis.operators")
+    # An overall observation needs no member selection or member metadata.
     trace.help(session.observe)
     trace.read("observation metadata", values.show)
     overall = session.observe({"value": metric}, by=(august,))
@@ -115,8 +114,8 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     assert total.to_pandas()["value"].tolist() == [4]
 
     trace = traces["current_mean"] = Trace(case.root)
-    trace.help("analysis.frame.statistics")
     trace.help(values.reduce)
+    # reduce links directly to mean when the requested statistic is already known.
     trace.help(mv.Column.mean)
     trace.help(mv.AnalysisFrame.compute)
     mean = values.reduce({"value": values["value"].mean()}).compute()
@@ -250,7 +249,7 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     trace = Trace(case.root)
     for target in (
         "analysis",
-        "analysis.source",
+        "analysis.operators",
         "analysis.analysis_frame.attribute",
     ):
         trace.help(target)

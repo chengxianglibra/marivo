@@ -154,7 +154,8 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         "exactly equal saved progress",
     ):
         assert fact in comparison
-    assert "marivo.help('analysis.ordinal')" in comparison
+    assert "marivo.help('analysis.inputs.comparison')" in comparison
+    assert "marivo.help('analysis.ordinal')" in render_help_text("analysis.inputs.comparison")[0]
     ordinal = render_help_text("analysis.ordinal")[0]
     assert "one declared record per side" in ordinal and "equal boundary timezones" in ordinal
     main(["help", "analysis.analysis_frame.compare"])
@@ -673,4 +674,4 @@ def test_fix_help_matches_callable_and_runs_public_example(
     namespace = {"frame": frame}
     exec(descriptor.example.code, namespace)
     assert namespace["result"].compute().to_pandas()["value"].tolist() == [120]
-    assert "analysis.analysis_frame.fix" in render_help_text("analysis.frame.rows")[0]
+    assert "analysis.analysis_frame.fix" in render_help_text("analysis.operators")[0]

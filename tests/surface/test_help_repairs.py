@@ -367,7 +367,7 @@ def test_cli_can_open_the_error_type_page(capsys: pytest.CaptureFixture[str]) ->
 
 
 def test_cli_routes_can_be_copied_without_python_help(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["help", "analysis.frame.compare"])
+    main(["help", "analysis.operators"])
     page = capsys.readouterr().out
     targets = re.findall(r"marivo help ([a-z_][a-z0-9_.]*)", page)
     assert "analysis.analysis_frame.compare" in targets

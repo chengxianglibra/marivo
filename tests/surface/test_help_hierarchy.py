@@ -17,6 +17,7 @@ from marivo.analysis._capabilities.dataset_model import CallableInput, Navigatio
 from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.datasource.adapters import SourceSession
+from tests.shared_fixtures import DslCaseFactory
 
 
 def _links(target: str) -> tuple[str, ...]:
@@ -30,11 +31,11 @@ def test_global_roots_offer_only_the_owning_task_choices() -> None:
     assert _links("authoring") == ("datasource", "semantic", "ontology")
     assert _links("analysis") == (
         "analysis.inputs",
-        "analysis.source",
-        "analysis.frame",
+        "analysis.operators",
+        "analysis.sessions",
         "analysis.execution",
         "analysis.results",
-        "analysis.sessions",
+        "analysis.session.get_or_create",
     )
 
 
@@ -69,6 +70,12 @@ def test_retired_task_topics_fail_without_aliases() -> None:
         "analysis.runtime.values",
         "analysis.session.namespace",
         "analysis.windows",
+        "analysis.source",
+        "analysis.frame",
+        "analysis.frame.expressions",
+        "analysis.frame.rows",
+        "analysis.frame.statistics",
+        "analysis.frame.compare",
     ):
         with pytest.raises(MarivoHelpTargetError):
             route_help_target(target)
@@ -76,13 +83,13 @@ def test_retired_task_topics_fail_without_aliases() -> None:
 
 def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -> None:
     for path in (
-        ("analysis", "analysis.source", "analysis.population.count"),
+        ("analysis", "analysis.operators", "analysis.population.count"),
         ("analysis", "analysis.inputs", "semantic.expressions", "semantic.metric"),
         ("authoring", "semantic", "semantic.expressions", "semantic.rescale"),
-        ("analysis", "analysis.source", "semantic.predicate"),
-        ("analysis", "analysis.source", "analysis.analysis_frame.attribute"),
-        ("analysis", "analysis.frame", "analysis.session.values"),
-        ("analysis", "analysis.frame", "analysis.session.frame"),
+        ("analysis", "analysis.operators", "analysis.session.observe", "semantic.predicate"),
+        ("analysis", "analysis.operators", "analysis.analysis_frame.attribute"),
+        ("analysis", "analysis.operators", "analysis.session.values"),
+        ("analysis", "analysis.operators", "analysis.session.frame"),
         (
             "analysis",
             "analysis.inputs",
@@ -97,14 +104,13 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -
         ),
         (
             "analysis",
-            "analysis.frame",
-            "analysis.frame.statistics",
+            "analysis.operators",
             "analysis.analysis_frame.correlate",
         ),
         (
             "analysis",
-            "analysis.frame",
-            "analysis.frame.expressions",
+            "analysis.inputs",
+            "analysis.inputs.frame",
             "analysis.analysis_frame.coord",
         ),
         ("analysis", "analysis.sessions", "analysis.session.persisted_frame"),
@@ -137,31 +143,25 @@ def test_required_secondary_routes_keep_their_real_native_owners() -> None:
         ),
         ("analysis.inputs.population", ("analysis.population.count", "semantic.predicate")),
         (
-            "analysis.source",
-            (
-                "semantic.expressions",
-                "semantic.predicate",
-                "semantic.entity.count",
-                "analysis.row_count",
-                "analysis.session.population_from",
-                "analysis.inputs",
-                "analysis.execution",
-                "authoring",
-            ),
+            "analysis.operators",
+            ("semantic.entity.count", "analysis.row_count", "analysis.session.observe"),
         ),
-        ("analysis.frame.compare", ("analysis.inputs.time",)),
         (
-            "analysis.frame.statistics",
-            ("analysis.population.count", "semantic.entity.count", "analysis.source"),
+            "analysis.inputs.comparison",
+            ("analysis.baseline", "analysis.offset", "analysis.ordinal"),
+        ),
+        (
+            "analysis.inputs.frame",
+            ("analysis.column", "analysis.frame_axis", "analysis.value_statistic"),
         ),
         ("analysis.results.evidence", ("analysis.analysis_frame.persist",)),
-        ("analysis.sessions", ("analysis.frame", "analysis.source")),
+        ("analysis.sessions", ("analysis.operators",)),
     ):
         links = _links(page)
         for target in required:
             assert links.count(target) == 1
             route_help_target(target)
-        if page in ("analysis.inputs", "analysis.source"):
+        if page == "analysis.inputs":
             assert "analysis.expressions" not in links
             assert "semantic.metric.define" not in links
             assert (
@@ -170,8 +170,8 @@ def test_required_secondary_routes_keep_their_real_native_owners() -> None:
             )
 
 
-@pytest.mark.parametrize("page", ("analysis.source", "analysis.frame.statistics"))
-def test_count_choices_disclose_distinct_domains_and_completion(page: str) -> None:
+def test_count_choices_disclose_distinct_domains_and_completion() -> None:
+    page = "analysis.operators"
     links = _links(page)
     for target in ("analysis.population.count", "semantic.entity.count", "analysis.row_count"):
         assert target in links
@@ -189,8 +189,8 @@ def test_count_choices_disclose_distinct_domains_and_completion(page: str) -> No
     row_count = REGISTRY.by_canonical_id("row_count")
     assert isinstance(population_count, CallableInput)
     assert isinstance(row_count, CallableInput)
-    assert population_count.discovery_group == "source"
-    assert row_count.discovery_group == "frame.statistics"
+    assert population_count.discovery_group == "operators"
+    assert row_count.discovery_group == "operators"
 
 
 def test_analysis_pages_are_static_deterministic_and_keep_primary_ownership(
@@ -228,13 +228,86 @@ def test_analysis_pages_are_static_deterministic_and_keep_primary_ownership(
 
 
 def test_column_operator_reference_remains_discoverable_without_flattening_task_page() -> None:
-    assert "analysis.column" in _links("analysis.frame.expressions")
+    assert "analysis.column" in _links("analysis.inputs.frame")
     page = render_help_text("analysis.column")[0]
     operators = ("__add__", "__rsub__", "__truediv__", "__and__", "__or__", "__invert__")
     for name in operators:
         target = "analysis.column." + name
         assert target in page
-        assert target not in _links("analysis.frame.expressions")
+        assert target not in _links("analysis.inputs.frame")
         assert render_help_text(target)[0] == render_help_text(getattr(mv.Column, name))[0]
-    assert "independent" in render_help_text("analysis.source")[0].lower()
+    assert "independent" in render_help_text("analysis.operators")[0].lower()
     assert "source attribute dependencies" in render_help_text("analysis.inputs.population")[0]
+
+
+@pytest.mark.parametrize(
+    ("target", "parameter", "producers"),
+    (
+        ("session.observe", "metrics", ("analysis.inputs.catalog", "semantic.expressions")),
+        (
+            "session.observe",
+            "by",
+            ("analysis.inputs.catalog", "analysis.session.time_scope", "analysis.time_scope.by"),
+        ),
+        ("session.observe", "where", ("semantic.predicate",)),
+        ("time_scope.by", "grain", ("analysis.grain.define",)),
+        ("analysis_frame.reduce", "values", ("analysis.value_statistic", "analysis.column.sum")),
+        ("analysis_frame.reduce", "by", ("analysis.analysis_frame.axis",)),
+        (
+            "analysis_frame.compare",
+            "baselines",
+            ("analysis.baseline", "analysis.session.persisted_frame"),
+        ),
+        ("analysis_frame.compare", "on", ("analysis.analysis_frame.axes",)),
+        ("analysis_frame.compare", "match", ("analysis.inputs.comparison",)),
+        ("baseline", "match", ("analysis.inputs.comparison",)),
+        ("analysis_frame.where", "predicate", ("analysis.column",)),
+    ),
+)
+def test_parameter_acquisition_is_adjacent_and_independently_resolvable(
+    target: str, parameter: str, producers: tuple[str, ...]
+) -> None:
+    page = render_help_text("analysis." + target)[0]
+    section = page.split("Input " + parameter + ": ", 1)[1]
+    acquisition = section.split("\nInput ", 1)[0].split("\nConstraint:", 1)[0]
+    for producer in producers:
+        link = "marivo.help('" + producer + "')"
+        assert "Acquire " + parameter + ": " + link in acquisition
+        assert "See: " + link not in page
+        route_help_target(producer)
+
+
+def test_discovery_and_parameter_links_support_a_fresh_question(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    analysis_dsl_case_factory("j2")
+    for current, following in (
+        ("analysis", "analysis.session.get_or_create"),
+        ("analysis.inputs", "analysis.inputs.catalog"),
+        ("analysis.inputs.catalog", "semantic.semantic_catalog.search"),
+        ("analysis.inputs.catalog", "semantic.semantic_catalog.get"),
+        ("analysis.operators", "analysis.session.observe"),
+        ("analysis.session.observe", "analysis.session.time_scope"),
+        ("analysis.session.observe", "analysis.analysis_frame.compute"),
+        ("analysis.analysis_frame.reduce", "analysis.column.sum"),
+        ("analysis.analysis_frame.compare", "analysis.baseline"),
+    ):
+        assert following in _links(current)
+
+    # No preselected Session, closed Metric or time input is handed to this question.
+    session = mv.session.get_or_create("help-fresh-question", timezone="UTC")
+    candidates = session.catalog.search("revenue", kind="metric", limit=5)
+    candidate = next(item for item in candidates.items if item.path == "sales.revenue")
+    entry = session.catalog.get(candidate.id)
+    assert entry.kind == "metric"
+    august = session.time_scope(start="2026-08-01", end="2026-09-01")
+    fixed = session.observe({"value": entry.value}, by=(august,)).compute()
+    assert fixed.to_pandas()["value"].tolist() == [180]
+
+    summary = fixed.reduce({"total": fixed["value"].sum()}).compute()
+    assert summary.to_pandas()["total"].tolist() == [180]
+    previous = fixed.select({"value": fixed["value"] / 2})
+    comparison = fixed.compare({"reference": mv.baseline(previous)}).compute()
+    data = comparison.to_pandas()
+    assert data["reference.absolute.value"].tolist() == [90]
+    assert data["reference.relative.value"].tolist() == [1]

@@ -58,8 +58,9 @@ CLI 使用相同目标：`.venv/bin/python -m marivo help analysis`。已知返�
 | 需要的信息 | Help 目标 |
 | --- | --- |
 | 已有语义输入、成员域或时间 | `analysis.inputs` |
-| 指标观察、成员计数或新来源事实 | `analysis.source` |
-| 构造 Frame 或对当前数据计算 | `analysis.frame` |
+| 选择指标观察、Frame 构造、计算或统计 | `analysis.operators` |
+| 获取 Column、完整轴或统计量 | `analysis.inputs.frame` |
+| 准备基线或端点对应关系 | `analysis.inputs.comparison` |
 | 完整内存数值或保存结果 | `analysis.execution` |
 | 查看数据、导出或读取保存审计 | `analysis.results` |
 | 创建或恢复确切会话与保存 Frame 身份 | `analysis.sessions` |

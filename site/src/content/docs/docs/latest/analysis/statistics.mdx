@@ -5,7 +5,7 @@ description: Calculate row summaries, shares, and paired correlation.
 
 Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. The two August regional rows are 200 and 600. Their sum is 800, mean 400, and row count 2. These statistics describe represented regions, not average order value.
 
-Choose what to count before using a row statistic. `marivo.help("analysis.frame.statistics")` and `analysis.source` expose these distinct contracts:
+Choose what to count before using a row statistic. `marivo.help("analysis.operators")` distinguishes these contracts; `analysis.inputs.frame` explains current-input statistic construction:
 
 | Counted domain | Exact Help target | Result |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Choose what to count before using a row statistic. `marivo.help("analysis.frame.
 | Source Entity contributions under the chosen time and conditions | `semantic.entity.count` | Metric for `session.observe` |
 | Rows currently represented by the Frame | `analysis.row_count` | Statistic for `reduce` or `over` |
 
-If current rows cannot answer an original Metric question, construct a new explicit observation through `analysis.source`. Summarizing grouped ratios does not recover the ratio of their original totals.
+If current rows cannot answer an original Metric question, construct a new explicit observation through `analysis.operators`. Summarizing grouped ratios does not recover the ratio of their original totals.
 
 ## Summarize and normalize rows
 
