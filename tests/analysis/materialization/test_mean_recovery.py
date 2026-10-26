@@ -72,9 +72,9 @@ def test_native_original_mean_independent_fixed_and_cold(
             {"value": session.catalog.metrics.get("sales.average")}
         ).persist()
         current = grouped.reduce({"value": grouped["value"].mean()}).persist()
-        assert source.to_pandas()[("value", "value")].tolist() == [1.0, 100.0]
-        assert original.to_pandas()[("value", "value")].tolist() == [34.0]
-        assert current.to_pandas()[("value", "value")].tolist() == [50.5]
+        assert source.to_pandas()["value"].tolist() == [1.0, 100.0]
+        assert original.to_pandas()["value"].tolist() == [34.0]
+        assert current.to_pandas()["value"].tolist() == [50.5]
         outputs: dict[str, Json] = {
             name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in (("groups", source), ("original", original), ("current", current))

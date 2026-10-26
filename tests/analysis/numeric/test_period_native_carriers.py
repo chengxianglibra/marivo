@@ -12,7 +12,7 @@ from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.analysis.numeric.test_period_alignment import paired_tables
+from tests.analysis.numeric.test_period_alignment import paired_tables, temporal_keys
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -75,20 +75,20 @@ def test_period_alignment_native_carriers(
         ).compute()
         frame = result.to_pandas()
         assert len(frame) == 6
-        assert set(frame.iloc[:, 1]) == {("a", 1, 1), ("b", 2, 1)}
+        assert set(frame[frame.attrs["axes"][1]["name"]]) == {("a", 1, 1), ("b", 2, 1)}
         assert isinstance(result._schema, DataSchema)
         assert result._schema.axes[0].columns[0].dtype == ScalarDataType("int64")
-        assert frame[("presence", "left_present")].sum() == 4
-        assert frame[("presence", "right_present")].sum() == 6
-        assert frame[("value", "change")].dropna().tolist() == (
+        assert frame["left_present"].sum() == 4
+        assert frame["right_present"].sum() == 6
+        assert frame["change"].dropna().tolist() == (
             [2, -4, 0, 0] if kind == "ordinal" else [2, 0, -2, 0]
         )
-        missing = frame[~frame[("presence", "left_present")]]
+        missing = frame[~frame["left_present"]]
         assert len(missing) == 2
-        assert missing[("value", "change")].isna().all()
+        assert missing["change"].isna().all()
         mapping, _, _ = paired_tables(frame)
         assert mapping["left.0"].isna().sum() == 1
         absent_pairs = set(mapping.loc[mapping["left.0"].isna()].iloc[:, 0])
-        assert set(missing.iloc[:, 0]) == absent_pairs
+        assert set(temporal_keys(result).loc[~frame["left_present"]]) == absent_pairs
         source_trace.record(result)
         assert source_trace.native_sql

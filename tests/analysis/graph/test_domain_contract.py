@@ -19,15 +19,15 @@ def test_reduced_count_compares_as_an_independent_quantity(
     selected = values.where(values.coord(values.axes[1]) != "D")
     current = values.reduce({"rows": mv.row_count()})
     baseline = selected.reduce({"rows": mv.row_count()})
-    assert current.persist().to_pandas()[("value", "rows")].tolist() == [4]
-    assert baseline.persist().to_pandas()[("value", "rows")].tolist() == [3]
+    assert current.persist().to_pandas()["rows"].tolist() == [4]
+    assert baseline.persist().to_pandas()["rows"].tolist() == [3]
     result = current.compare(
         {"reference": baseline},
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).persist()
     frame = result.to_pandas()
-    assert frame[("value", "reference.absolute.rows")].tolist() == [1]
-    assert frame[("value", "reference.relative.rows")].tolist() == pytest.approx([1 / 3])
+    assert frame["reference.absolute.rows"].tolist() == [1]
+    assert frame["reference.relative.rows"].tolist() == pytest.approx([1 / 3])
     schema = result.artifact._manifest.data.schema
     assert all(column.unit is None for column in schema.values)
     same = (
@@ -38,5 +38,5 @@ def test_reduced_count_compares_as_an_independent_quantity(
         .persist()
         .to_pandas()
     )
-    assert same[("value", "reference.absolute.rows")].tolist() == [0]
-    assert same[("value", "reference.relative.rows")].tolist() == [0.0]
+    assert same["reference.absolute.rows"].tolist() == [0]
+    assert same["reference.relative.rows"].tolist() == [0.0]

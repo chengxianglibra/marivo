@@ -37,14 +37,14 @@ ids = json.loads(Path("saved-result.json").read_text())
 session = mv.session.resume(ids["session"])
 reopened = session.persisted_frame(ids["result"])
 rows = reopened.to_pandas()
-assert rows[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
 reopened.artifact.show()
 rows.to_csv("comparison.csv", index=False)
 ```
 
 The two changes remain -100. Supported Frame operations can continue on these saved rows. A new original-source question requires explicit source inputs; saved data does not reconstruct its original metric definitions.
 
-The export is an isolated pandas copy with `(kind, name)` columns. CSV is a convenience for sharing values, not a lossless Marivo reimport format: typed attributes and frozen time interpretation need the original Frame. Inspect units and keys before joining exports.
+The export is an isolated pandas copy with readable coordinates and ordinary string columns. CSV is a convenience for sharing values, not a lossless Marivo reimport format: typed attributes and frozen time interpretation need the original Frame. Inspect units and keys before joining exports.
 
 A new computation from the original source expression can observe changed data; [troubleshooting](/docs/latest/reference/troubleshooting/) covers missing files and incompatible old state.
 

@@ -116,7 +116,7 @@ def _read(
 
 
 def _values(result: mv.AnalysisFrame) -> list[object]:
-    return result.to_pandas()[("value", "value")].tolist()
+    return result.to_pandas()["value"].tolist()
 
 
 def _identity_population(
@@ -140,7 +140,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
         observed = session.observe({"value": metric}, by=axes)
         fixed = observed.compute()
         rows = fixed.to_pandas()
-        assert rows.set_index(list(rows.columns[:2]))[("value", "value")].to_dict() == expected
+        assert rows.set_index(list(rows.columns[:2]))["value"].to_dict() == expected
         selected = _identity_population(
             session, fixed, session.catalog.entities.get(f"{prefix}.plain")
         )
@@ -164,7 +164,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     rows = session.observe({"value": metric}, by=mv.product(members, grid)).compute().to_pandas()
     assert len(rows) == 6
-    assert rows[("value", "value")].to_dict() == {0: 10, 1: 0, 2: 0, 3: 0, 4: 20, 5: 0}
+    assert rows["value"].to_dict() == {0: 10, 1: 0, 2: 0, 3: 0, 4: 20, 5: 0}
 
 
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
@@ -176,7 +176,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     field = session.catalog.fields.get(f"{prefix}.snapshot.category")
     category = field.via((route,)).at(session.instant("2026-08-01"))
     observed = session.observe({"value": metric}, by=(category,)).compute().to_pandas()
-    assert observed.set_index(observed.columns[0])[("value", "value")].to_dict() == {
+    assert observed.set_index(observed.columns[0])["value"].to_dict() == {
         "west": 10,
         "east": 20,
     }
@@ -193,7 +193,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
         .compute()
         .to_pandas()
     )
-    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"east": 10}
+    assert frame.set_index(frame.columns[0])["value"].to_dict() == {"east": 10}
 
 
 def test_mixed_predicate_uses_nullable_missing_scalar_matches(
@@ -216,7 +216,7 @@ def test_mixed_predicate_uses_nullable_missing_scalar_matches(
         (later == "east") | mv.in_population(selected),
     ):
         rows = session.observe({"value": metric}, where=condition).compute().to_pandas()
-        assert rows[("value", "value")].tolist() == [10]
+        assert rows["value"].tolist() == [10]
 
 
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
@@ -259,7 +259,7 @@ def test_computed_boolean_dimension(
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     frame = session.persisted_frame(saved.artifact.id).to_pandas()
-    selected_frame = frame.loc[frame[("value", "value")]].reset_index(drop=True)
+    selected_frame = frame.loc[frame["value"]].reset_index(drop=True)
     assert selected_frame.equals(session.persisted_frame(selected.artifact.id).to_pandas())
     assert selected_frame.iloc[:, 0].tolist() == [(1, "B")]
     assert session._runtime.store.resources(session.id) == ()
@@ -289,8 +289,8 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
         .compute()
         .to_pandas()
     )
-    assert missing[("value", "value")].iloc[0] == 30
-    assert missing[("value", "value")].isna().tolist() == [False, True]
+    assert missing["value"].iloc[0] == 30
+    assert missing["value"].isna().tolist() == [False, True]
     assert terminal_runs(session) == ()
 
 
@@ -324,7 +324,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
         patch.setattr(SourceSession, "bind", forbidden)
         with pytest.raises(AnalysisError):
             logical.where(foreign["value"] < boundary)
-        assert instant.to_pandas().loc[lambda frame: frame[("value", "value")] < boundary].iloc[
+        assert instant.to_pandas().loc[lambda frame: frame["value"] < boundary].iloc[
             :, 0
         ].tolist() == [(1, "A")]
 
@@ -353,7 +353,7 @@ duckdb.connect = forbidden
 SourceSession.bind = forbidden
 session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
-selected = frame.loc[frame[('value','value')] < datetime(2026,8,2,tzinfo=timezone.utc)]
+selected = frame.loc[frame['value'] < datetime(2026,8,2,tzinfo=timezone.utc)]
 assert selected.iloc[:,0].tolist() == [(1,'A')]
 """
     completed = subprocess.run(
@@ -512,7 +512,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
             .to_pandas()
             for point in points
         ]
-        actual = [frame[("value", "value")].iloc[i] for i in range(2) for frame in frames]
+        actual = [frame["value"].iloc[i] for i in range(2) for frame in frames]
         assert actual == expected
     outputs = []
     for point in ("2026-08-31T23:59:59.999999+00:00", "2026-09-30T23:59:59.999999+00:00"):
@@ -524,19 +524,19 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         frame = result.to_pandas()
         assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
         outputs.append(frame)
-    assert [frame[("value", "category")].iloc[i] for i in range(2) for frame in outputs] == [
+    assert [frame["category"].iloc[i] for i in range(2) for frame in outputs] == [
         "west",
         "east",
         "east",
         "east",
     ]
-    assert [frame[("value", "enabled")].iloc[i] for i in range(2) for frame in outputs] == [
+    assert [frame["enabled"].iloc[i] for i in range(2) for frame in outputs] == [
         True,
         False,
         False,
         False,
     ]
-    assert [frame[("value", "moment")].iloc[i] for i in range(2) for frame in outputs] == [
+    assert [frame["moment"].iloc[i] for i in range(2) for frame in outputs] == [
         datetime(2026, 8, 1, 1, 2, 3, tzinfo=timezone.utc),
         datetime(2026, 9, 1, 1, 2, 3, tzinfo=timezone.utc),
         datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
@@ -569,7 +569,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
         .to_pandas()
     )
     assert len(frame) == 4
-    assert frame[("value", "value")].tolist() == [0, 0, 0, 10]
+    assert frame["value"].tolist() == [0, 0, 0, 10]
     assert set(frame.iloc[:, 0]) == {"west", "east"}
 
 
@@ -591,11 +591,7 @@ def test_composite_subject_predicates(members_session: Session) -> None:
     result = values.where(predicate).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [(1, "A")]
     frame = values.compute().to_pandas()
-    mask = (
-        frame[("value", "enabled")]
-        & (frame[("value", "moment")] <= frame[("value", "moment")])
-        & (frame[("value", "amount")] > 0)
-    )
+    mask = frame["enabled"] & (frame["moment"] <= frame["moment"]) & (frame["amount"] > 0)
     assert frame.loc[mask].iloc[:, 0].tolist() == [(1, "A")]
 
 
@@ -617,7 +613,7 @@ def test_identity_grouping_binds_an_explicit_versioned_path(members_session: Ses
     assert explicit_binding is not None and inferred_binding is not None
     assert explicit_binding.contributions == inferred_binding.contributions
     rows = explicit_frame.compute().to_pandas()
-    assert rows.set_index(rows.columns[0])[("value", "value")].to_dict() == {
+    assert rows.set_index(rows.columns[0])["value"].to_dict() == {
         (1, "A"): 10,
         (1, "B"): 20,
     }

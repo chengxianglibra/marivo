@@ -115,30 +115,24 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
         baseline_presence = "right_present" if operation == "align" else "base.present"
         current_value = "left.v" if operation == "align" else "v"
         baseline_value = "right.v" if operation == "align" else "base.baseline.v"
-        assert rows["presence", current_presence].tolist() == [
-            key in left_keys for key in keys(rows)
-        ]
-        assert rows["presence", baseline_presence].tolist() == [
-            key in right_keys for key in keys(rows)
-        ]
+        assert rows[current_presence].tolist() == [key in left_keys for key in keys(rows)]
+        assert rows[baseline_presence].tolist() == [key in right_keys for key in keys(rows)]
         for index, key in enumerate(keys(rows)):
             if key == "A":
-                assert pd.isna(rows["value", current_value].iloc[index])
-                assert rows["value", baseline_value].iloc[index] == 0
+                assert pd.isna(rows[current_value].iloc[index])
+                assert rows[baseline_value].iloc[index] == 0
             elif key is None:
-                assert rows["value", current_value].iloc[index] == 2
-                assert rows["value", baseline_value].iloc[index] == 3
+                assert rows[current_value].iloc[index] == 2
+                assert rows[baseline_value].iloc[index] == 3
                 if operation == "compare":
-                    assert rows["value", "base.absolute.v"].iloc[index] == -1
+                    assert rows["base.absolute.v"].iloc[index] == -1
         aligned = left.align(right, on=on)
         empty = aligned.top(0, by=aligned["left.v"]).compute()
         assert empty.to_pandas().empty
         assert empty.output_names == ("left.v", "right.v")
         assert empty.presence_names == ("left_present", "right_present")
         assert trace.native_sql == [] and trace.uploaded_key_rows == []
-        assert session.observe({"n": amount.count()}).compute().to_pandas()[
-            "value", "n"
-        ].tolist() == [5]
+        assert session.observe({"n": amount.count()}).compute().to_pandas()["n"].tolist() == [5]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -172,12 +166,12 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
         assert len(rows) == 3
         for index, key in enumerate(rows.iloc[:, 0]):
             if pd.isna(key):
-                assert rows["value", "null_key"].iloc[index] == 5
+                assert rows["null_key"].iloc[index] == 5
             elif key == "A":
-                assert rows["value", "a"].iloc[index] == 0
+                assert rows["a"].iloc[index] == 0
             else:
                 assert key == "C"
-                value = rows["value", "c"].iloc[index]
+                value = rows["c"].iloc[index]
                 assert pd.isna(value)
         # Each consumer retains its source scope. Absent groups have sum zero;
         # present all-NULL groups retain their unknown value.
@@ -193,7 +187,7 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
         # the semantic NULL positions and exact values independent of carrier.
         for index, key in enumerate(actual_keys):
             for column, expected in zip(("a", "c", "null_key"), expected_values[key], strict=True):
-                value = rows["value", column].iloc[index]
+                value = rows[column].iloc[index]
                 if expected is None:
                     assert pd.isna(value)
                 else:
@@ -238,5 +232,5 @@ def test_remote_multiple_shared_parameters_are_replaced_atomically(
             {"n": amount.count().where(mv.in_population(left) & ~mv.in_population(right))}
         )
         rows = query.compute().to_pandas()
-        assert rows["value", "n"].tolist() == [2]
+        assert rows["n"].tolist() == [2]
         assert terminal_runs(session) == ()

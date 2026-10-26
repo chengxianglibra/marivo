@@ -254,7 +254,7 @@ _PAGES = (
         "Inspect Frame facts or export complete fixed values.",
         (),
         guidance=(
-            "Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; to_pandas exports complete fixed data with kind/name columns and token-based axis metadata, without evaluation. Other objects expose show/render through their type Help.",
+            "Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; to_pandas exports complete fixed data with readable coordinates, string columns and isolated axis metadata, without evaluation. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(

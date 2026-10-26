@@ -111,7 +111,7 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     rendered = capsys.readouterr().out
     assert "revenue" in rendered and "aov" in rendered and "pending" in rendered
     assert terminal_runs(session) == ()
-    assert query.compute().to_pandas()[("value", "revenue")].tolist() == [10]
+    assert query.compute().to_pandas()["revenue"].tolist() == [10]
     assert terminal_runs(session) == ()
     artifacts = [query.persist() for _ in range(2)]
     assert len({artifact.artifact.id for artifact in artifacts}) == 2

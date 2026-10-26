@@ -51,7 +51,7 @@ def test_pending_attribute_component_units_allow_direct_composition(
         denominator = frame["component.value.denominator.q"]
         difference = numerator / denominator - frame["detail.value.q"]
         rows = frame.select({"difference": difference}).compute().to_pandas()
-        assert rows[("value", "difference")].tolist() == pytest.approx([0, 0])
+        assert rows["difference"].tolist() == pytest.approx([0, 0])
     assert [(c.name, c.unit) for c in pending._schema.values] == [
         (c.name, c.unit) for c in fixed._schema.values
     ]
@@ -92,11 +92,11 @@ def test_attribute_constant_division_retains_original_operation(
     compared = current.compare({"base": baseline})
     report = compared.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == pytest.approx([80 / divisor, 40 / divisor])
-    assert rows[("value", "contribution.base.absolute.q")].tolist() == pytest.approx(
+    assert rows["contribution.q"].tolist() == pytest.approx([80 / divisor, 40 / divisor])
+    assert rows["contribution.base.absolute.q"].tolist() == pytest.approx(
         [30 / divisor, -10 / divisor]
     )
-    assert rows[("value", "contribution.base.relative.q")].tolist() == pytest.approx(
+    assert rows["contribution.base.relative.q"].tolist() == pytest.approx(
         [0.3 if divisor > 0 else -0.3, -0.1 if divisor > 0 else 0.1]
     )
     assert report["total.q"]._unit == ("GiB/s" if rescale else "USD")
@@ -135,18 +135,18 @@ def test_attribute_division_rounds_operands_before_large_integer_cancellation(
         ("rescaled", 3002399751580330.5),
         ("residual", -0.5),
     ):
-        assert rows[("value", f"contribution.{name}")].tolist() == [expected, 0.0]
-        assert rows[("value", f"detail.value.{name}")].tolist() == [expected, 0.0]
+        assert rows[f"contribution.{name}"].tolist() == [expected, 0.0]
+        assert rows[f"detail.value.{name}"].tolist() == [expected, 0.0]
         for role in ("total", "observed_total"):
-            assert rows[("value", f"{role}.{name}")].tolist() == [expected, expected]
+            assert rows[f"{role}.{name}"].tolist() == [expected, expected]
     assert report["contribution.scaled"]._unit == "USD"
     assert report["contribution.rescaled"]._unit == "GiB/s"
     baseline = session.observe(metrics, where=phase == "base")
     compared = current.compare({"base": baseline})
     changes = compared.select({"q": compared["base.absolute.residual"]})
     rows = changes.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == [-0.5, 0.0]
-    assert rows[("value", "total.q")].tolist() == [-0.5, -0.5]
+    assert rows["contribution.q"].tolist() == [-0.5, 0.0]
+    assert rows["total.q"].tolist() == [-0.5, -0.5]
 
 
 @pytest.mark.parametrize("wrapper", ["multiply", "add", "subtract", "negate"])
@@ -207,10 +207,8 @@ def test_nested_additive_scaling_retains_ordered_level_and_paired_facts(
                 assert inner.kind == "division" and inner.left.column.unit == "USD"
     rows = report.to_pandas()
     factor = 2 if wrapper in ("multiply", "add") else 0 if wrapper == "subtract" else -1
-    assert rows[("value", "total.q")].tolist() == [40.0 * factor] * 2
-    assert rows[("value", "contribution.change")].tolist() == pytest.approx(
-        [10 * factor, -10 / 3 * factor]
-    )
+    assert rows["total.q"].tolist() == [40.0 * factor] * 2
+    assert rows["contribution.change"].tolist() == pytest.approx([10 * factor, -10 / 3 * factor])
 
 
 @pytest.mark.parametrize("nested", [False, True])
@@ -239,13 +237,13 @@ def test_decimal_attribute_division_retains_operation_and_cold_facts(
     observed = session.observe({"q": metric}, where=phase == "current").compute()
     report = observed.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == (
+    assert rows["contribution.q"].tolist() == (
         [6.666666666666667, 13.333333333333334]
         if nested
         else [3.3333333333333335, 6.666666666666667]
     )
-    assert rows[("value", "total.q")].tolist() == [20.0 if nested else 10.0] * 2
-    assert rows[("value", "observed_total.q")].tolist() == [20.0 if nested else 10.0] * 2
+    assert rows["total.q"].tolist() == [20.0 if nested else 10.0] * 2
+    assert rows["observed_total.q"].tolist() == [20.0 if nested else 10.0] * 2
     fact = report.method_facts[0].parents[0].metrics[0].method
     if nested:
         assert fact.kind == "level_linear" and fact.terms[0].coefficient == 2
@@ -298,8 +296,8 @@ def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
     metric = 2 * ms.rescale(amount.sum() / amount.sum(), divisor=3, unit="GiB/s")
     report = session.observe({"q": metric}).attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == pytest.approx([13 / 33, 3 / 11])
-    assert rows[("value", "total.q")].tolist() == pytest.approx([2 / 3] * 2)
+    assert rows["contribution.q"].tolist() == pytest.approx([13 / 33, 3 / 11])
+    assert rows["total.q"].tolist() == pytest.approx([2 / 3] * 2)
     assert report["total.q"]._unit == "GiB/s"
     method = report.method_facts[0].parents[0].metrics[0].method
     assert method.kind == "level_linear"
@@ -311,7 +309,7 @@ def test_rescaled_ratio_keeps_nested_linear_methods(session: Session) -> None:
     compared = current.compare({"base": baseline})
     target = compared.select({"change": compared["base.absolute.q"]})
     changes = target.attribute(by=(channel,)).compute().to_pandas()
-    assert changes[("value", "contribution.change")].tolist() == pytest.approx([1 / 9, -1 / 9])
+    assert changes["contribution.change"].tolist() == pytest.approx([1 / 9, -1 / 9])
 
 
 def _contribution(
@@ -417,9 +415,9 @@ def test_additive_exact_values_and_independent_role_reads(
     monkeypatch.setattr(frame_attribute_contribution, "attribute_contribution_data", preserve_order)
     result = pending.compute().to_pandas()
     assert len(reads) == 6
-    assert result[("value", "contribution.q")].tolist() == [60, -20]
-    assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
-    assert result[("value", "detail.absolute.q")].tolist() == [60, -20]
+    assert result["contribution.q"].tolist() == [60, -20]
+    assert result["contribution_share.q"].tolist() == [1.5, -0.5]
+    assert result["detail.absolute.q"].tolist() == [60, -20]
 
 
 def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: Path) -> None:
@@ -440,10 +438,10 @@ def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: P
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "detail.current.q")].iloc[0] == 10
-    assert pd.isna(rows[("value", "detail.current.q")].iloc[1])
-    assert rows[("value", "contribution.q")].tolist() == [5, 0]
-    assert rows[("value", "component.current.denominator.q")].tolist() == [1, 0]
+    assert rows["detail.current.q"].iloc[0] == 10
+    assert pd.isna(rows["detail.current.q"].iloc[1])
+    assert rows["contribution.q"].tolist() == [5, 0]
+    assert rows["component.current.denominator.q"].tolist() == [1, 0]
 
 
 def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path: Path) -> None:
@@ -461,10 +459,10 @@ def test_known_empty_fine_side_preserves_original_na(session: Session, tmp_path:
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == [160, -100]
-    assert rows[("value", "detail.absolute.q")].isna().all()
-    assert rows[("presence", "detail.current.present.q")].tolist() == [True, False]
-    assert rows[("presence", "detail.baseline.present.q")].tolist() == [False, True]
+    assert rows["contribution.q"].tolist() == [160, -100]
+    assert rows["detail.absolute.q"].isna().all()
+    assert rows["detail.current.present.q"].tolist() == [True, False]
+    assert rows["detail.baseline.present.q"].tolist() == [False, True]
 
 
 def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path) -> None:
@@ -484,8 +482,8 @@ def test_zero_change_keeps_signed_contributions(session: Session, tmp_path: Path
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == [100, -100]
-    assert rows[("value", "contribution_share.q")].isna().all()
+    assert rows["contribution.q"].tolist() == [100, -100]
+    assert rows["contribution_share.q"].isna().all()
 
 
 def test_original_formula_error_keeps_owner_context_and_atomicity(
@@ -639,8 +637,8 @@ def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: P
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == [Decimal("60.0"), Decimal("-20.0")]
-    assert all(type(value) is Decimal for value in rows[("value", "contribution.q")])
+    assert rows["contribution.q"].tolist() == [Decimal("60.0"), Decimal("-20.0")]
+    assert all(type(value) is Decimal for value in rows["contribution.q"])
 
 
 def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path: Path) -> None:
@@ -669,9 +667,9 @@ def test_duration_preserves_exact_ticks_and_half_even(session: Session, tmp_path
         ("sum", [3, -1], [1.5, -0.5]),
         ("mean", [2, -1], [2.0, -1.0]),
     ):
-        ticks = pa.array(rows[("value", f"contribution.{name}")]).cast(pa.int64()).to_pylist()
+        ticks = pa.array(rows[f"contribution.{name}"]).cast(pa.int64()).to_pylist()
         assert ticks == expected_ticks
-        assert rows[("value", f"contribution_share.{name}")].tolist() == expected_shares
+        assert rows[f"contribution_share.{name}"].tolist() == expected_shares
 
 
 def test_parent_difference_overflow_has_exact_context_even_under_top0(
@@ -799,8 +797,8 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     # Both phases have identical values; one endpoint retains the exact/empty-parent boundary.
     endpoint = session.observe({"q": amount.sum()}, by=parents, where=phase == "current")
     rows = _contribution(endpoint, endpoint, by=(channel,)).compute().to_pandas()
-    assert rows[("value", "detail.current.q")].tolist() == [9007199254740993, 0]
-    assert rows[("value", "contribution.q")].tolist() == [0, 0]
+    assert rows["detail.current.q"].tolist() == [9007199254740993, 0]
+    assert rows["contribution.q"].tolist() == [0, 0]
 
 
 @pytest.mark.release
@@ -820,8 +818,8 @@ def test_linear_ratio_children_and_original_scalar_order(session: Session) -> No
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == [-30, 10]
-    assert rows[("value", "contribution_share.q")].tolist() == [1.5, -0.5]
+    assert rows["contribution.q"].tolist() == [-30, 10]
+    assert rows["contribution_share.q"].tolist() == [1.5, -0.5]
 
 
 def test_null_original_parent_is_unknown_not_additive_zero(
@@ -871,15 +869,15 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.mean")].tolist() == pytest.approx([10 / 3, 0])
-    assert rows[("value", "detail.absolute.mean")].tolist() == [10, 0]
-    assert rows[("value", "component.current.denominator.mean")].tolist() == [1, 2]
-    assert rows[("value", "contribution.ratio")].tolist() == pytest.approx([2, 0])
-    assert rows[("value", "detail.absolute.ratio")].tolist() == [10, 0]
-    assert rows[("value", "component.current.numerator.ratio")].tolist() == [10, 200]
-    assert rows[("value", "component.current.denominator.ratio")].tolist() == [1, 4]
-    assert rows[("value", "contribution.linear")].tolist() == [-10, 0]
-    assert rows[("value", "contribution_share.linear")].tolist() == [1, 0]
+    assert rows["contribution.mean"].tolist() == pytest.approx([10 / 3, 0])
+    assert rows["detail.absolute.mean"].tolist() == [10, 0]
+    assert rows["component.current.denominator.mean"].tolist() == [1, 2]
+    assert rows["contribution.ratio"].tolist() == pytest.approx([2, 0])
+    assert rows["detail.absolute.ratio"].tolist() == [10, 0]
+    assert rows["component.current.numerator.ratio"].tolist() == [10, 200]
+    assert rows["component.current.denominator.ratio"].tolist() == [1, 4]
+    assert rows["contribution.linear"].tolist() == [-10, 0]
+    assert rows["contribution_share.linear"].tolist() == [1, 0]
 
 
 @pytest.mark.parametrize("kind", ("additive", "ratio_component", "linear"))
@@ -1071,8 +1069,8 @@ def test_new_attribute_uses_only_its_own_live_components(
     rows = final.compute().to_pandas()
     keys = list(rows.iloc[:, :2].itertuples(index=False, name=None))
     assert keys == ([("E", "A"), ("E", "B")] if shape == "scalar" else [("E", "A")])
-    assert rows[("value", "contribution.q")].tolist() == ([20, -5] if shape == "scalar" else [20])
-    assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
+    assert rows["contribution.q"].tolist() == ([20, -5] if shape == "scalar" else [20])
+    assert rows["contribution_share.q"].tolist() == pytest.approx(
         [20 / 15, -5 / 15] if shape == "scalar" else [1.0]
     )
     assert len(attribute_sources) == (4 if shape == "fixed" else 8)
@@ -1088,8 +1086,8 @@ def test_new_attribute_uses_only_its_own_live_components(
     )
     assert len({production.stage_id for production in captured}) == len(captured)
     if shape == "pending":
-        assert rows[("value", "contribution.n")].tolist() == [0]
-        assert rows[("value", "contribution_share.n")].isna().all()
+        assert rows["contribution.n"].tolist() == [0]
+        assert rows["contribution_share.n"].isna().all()
     payload = next(
         p.payload
         for p in captured
@@ -1102,9 +1100,9 @@ def test_new_attribute_uses_only_its_own_live_components(
         (35, 20, 15) if shape == "scalar" else (30, 10, 20)
     )
     if shape != "scalar":
-        assert rows[("value", "detail.current.q")].tolist() == [30]
-        assert rows[("value", "detail.baseline.q")].tolist() == [10]
-        assert rows[("value", "detail.absolute.q")].tolist() == [20]
+        assert rows["detail.current.q"].tolist() == [30]
+        assert rows["detail.baseline.q"].tolist() == [10]
+        assert rows["detail.absolute.q"].tolist() == [20]
 
 
 @pytest.mark.parametrize("mean", [True, False])
@@ -1175,18 +1173,14 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert len(reads) == 6
     data = fixed.to_pandas()
     default = ordinary_attribute.to_pandas()
-    left = current.to_pandas()[("value", "q")].tolist()
-    right = base.to_pandas()[("value", "q")].tolist()
+    left = current.to_pandas()["q"].tolist()
+    right = base.to_pandas()["q"].tolist()
     assert left == ([160.0, 80.0] if mean else [Decimal("160.3"), Decimal("80.3")])
     assert right == (
         [100.0, 100.0] if mean else [Decimal("100.000000000"), Decimal("100.000000000")]
     )
     for role, values in (("detail.current", left), ("detail.baseline", right)):
-        assert (
-            data[("value", role + ".q")].tolist()
-            == default[("value", role + ".q")].tolist()
-            == values
-        )
+        assert data[role + ".q"].tolist() == default[role + ".q"].tolist() == values
         column = next(column for column in _schema(fixed).values if column.name == role + ".q")
         assert column.dtype == expected_dtype and column.unit == "USD"
         assert (
@@ -1197,12 +1191,12 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
             ).dtype
             == expected_dtype
         )
-    assert data[("presence", "detail.current.present.q")].tolist() == [True, True]
-    assert data[("presence", "detail.baseline.present.q")].tolist() == [True, True]
-    assert data[("value", "contribution.q")].tolist() == (
+    assert data["detail.current.present.q"].tolist() == [True, True]
+    assert data["detail.baseline.present.q"].tolist() == [True, True]
+    assert data["contribution.q"].tolist() == (
         [30.0, -10.0] if mean else [Decimal("60"), Decimal("-20")]
     )
-    assert data[("value", "contribution_share.q")].tolist() == pytest.approx(
+    assert data["contribution_share.q"].tolist() == pytest.approx(
         [1.5, -0.5] if mean else [float(Fraction(60, 41)), float(Fraction(-20, 41))]
     )
     facts = fixed.method_facts
@@ -1259,7 +1253,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
             text=True,
         )
         assert cold.returncode == 0, cold.stdout + cold.stderr
-    assert pa.array(data[("value", "detail.current.q")]).type == (
+    assert pa.array(data["detail.current.q"]).type == (
         pa.float64() if mean else pa.decimal128(38, 1)
     )
 
@@ -1275,7 +1269,7 @@ def test_captured_frame_attribute_absolute(session: Session) -> None:
     comparison = current.compare({"base": baseline})
     selected = comparison.select({"change": comparison["base.absolute.q"]}).compute()
     result = attribute(selected, by=(channel,)).compute().to_pandas()
-    assert result[("value", "contribution.change")].tolist() == [60, -20]
+    assert result["contribution.change"].tolist() == [60, -20]
 
 
 def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1296,9 +1290,9 @@ def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.Mo
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = attribute(selected, by=(channel,)).compute().to_pandas()
     assert len(reads) == 2
-    assert result[("value", "contribution.q")].tolist() == [160, 80]
-    assert result[("value", "total.q")].tolist() == [240, 240]
-    assert result[("value", "observed_total.q")].tolist() == [240, 240]
+    assert result["contribution.q"].tolist() == [160, 80]
+    assert result["total.q"].tolist() == [240, 240]
+    assert result["observed_total.q"].tolist() == [240, 240]
 
 
 def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: Session) -> None:
@@ -1319,10 +1313,10 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
     with duckdb.connect(str(database)) as connection:
         connection.execute("UPDATE facts SET amount=160 WHERE id=3")
     result = attribute(selected, by=(channel,)).compute().to_pandas()
-    assert result[("value", "contribution.change")].tolist() == [60, -20]
-    assert result[("value", "total.change")].tolist() == [40, 40]
-    assert result[("value", "observed_total.change")].tolist() == [20, 20]
-    assert result[("value", "contribution_share.change")].tolist() == [1.5, -0.5]
+    assert result["contribution.change"].tolist() == [60, -20]
+    assert result["total.change"].tolist() == [40, 40]
+    assert result["observed_total.change"].tolist() == [20, 20]
+    assert result["contribution_share.change"].tolist() == [1.5, -0.5]
 
 
 def test_captured_rule_families(session: Session) -> None:
@@ -1356,11 +1350,11 @@ def test_captured_rule_families(session: Session) -> None:
     selected = comparison.select(selected_outputs).compute()
     rows = attribute(selected, by=(channel,)).compute().to_pandas()
     for name in ("ratio", "mean", "weighted"):
-        assert rows[("value", f"contribution.level_{name}")].tolist() == [80, 40]
-        assert rows[("value", f"detail.value.level_{name}")].tolist() == [160, 80]
-        assert rows[("value", f"total.level_{name}")].tolist() == [120, 120]
-    assert rows[("value", "contribution.level_linear")].tolist() == [-160, -80]
-    assert rows[("value", "contribution.level_count")].tolist() == [1, 1]
+        assert rows[f"contribution.level_{name}"].tolist() == [80, 40]
+        assert rows[f"detail.value.level_{name}"].tolist() == [160, 80]
+        assert rows[f"total.level_{name}"].tolist() == [120, 120]
+    assert rows["contribution.level_linear"].tolist() == [-160, -80]
+    assert rows["contribution.level_count"].tolist() == [1, 1]
 
     expected_absolute = {
         "ratio": [30, -10],
@@ -1377,8 +1371,8 @@ def test_captured_rule_families(session: Session) -> None:
         "count": 2,
     }
     for name, expected in expected_absolute.items():
-        assert rows[("value", f"contribution.absolute_{name}")].tolist() == expected
-        assert rows[("value", f"contribution.relative_{name}")].tolist() == [
+        assert rows[f"contribution.absolute_{name}"].tolist() == expected
+        assert rows[f"contribution.relative_{name}"].tolist() == [
             value / relative_denominator[name] for value in expected
         ]
 
@@ -1435,11 +1429,11 @@ def test_captured_known_empty_sample_retains_original_na(session: Session, kind:
         assert caught.value.reason == "undefined_input"
         return
     rows = source.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == [160, 0]
-    assert pd.isna(rows[("value", "detail.value.q")].iloc[1])
-    assert rows[("presence", "detail.value.present.q")].tolist() == [True, True]
+    assert rows["contribution.q"].tolist() == [160, 0]
+    assert pd.isna(rows["detail.value.q"].iloc[1])
+    assert rows["detail.value.present.q"].tolist() == [True, True]
     if kind == "weighted":
-        assert rows[("value", "component.value.valid_count.q")].tolist() == [1, 0]
+        assert rows["component.value.valid_count.q"].tolist() == [1, 0]
 
 
 def test_unsupported_output_records_exact_node_after_compute_and_rename(session: Session) -> None:
@@ -1526,9 +1520,9 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         report = selected.attribute(by=(channel,)).compute()
         rows = report.to_pandas()
         assert roles == ["parent", "fine", "parent", "fine"]
-        assert rows[("value", "contribution.q")].tolist() == [0, 10]
-        assert rows[("value", "total.q")].tolist() == [10, 10]
-        assert rows[("value", "observed_total.q")].tolist() == [10, 10]
+        assert rows["contribution.q"].tolist() == [0, 10]
+        assert rows["total.q"].tolist() == [10, 10]
+        assert rows["observed_total.q"].tolist() == [10, 10]
         audit = _memory(report).metadata.audit
         read_facts = [dict(fact.values) for fact in audit.source_facts if fact.kind == "read"]
         assert {
@@ -1649,8 +1643,8 @@ def test_shared_frozen_key_dependency_can_be_reread_for_both_endpoints(session: 
     )
     target = compared.select({"q": compared["base.absolute.q"]}).compute()
     rows = target.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == [60, -20]
-    assert rows[("value", "total.q")].tolist() == [40, 40]
+    assert rows["contribution.q"].tolist() == [60, -20]
+    assert rows["total.q"].tolist() == [40, 40]
 
 
 def test_fixed_top_parent_and_observed_value_survive_new_source_ranking(
@@ -1677,9 +1671,9 @@ def test_fixed_top_parent_and_observed_value_survive_new_source_ranking(
         ("east", "A"),
         ("east", "B"),
     ]
-    assert rows[("value", "contribution.q")].tolist() == [60, 40]
-    assert rows[("value", "total.q")].tolist() == [100, 100]
-    assert rows[("value", "observed_total.q")].tolist() == [240, 240]
+    assert rows["contribution.q"].tolist() == [60, 40]
+    assert rows["total.q"].tolist() == [100, 100]
+    assert rows["observed_total.q"].tolist() == [240, 240]
 
 
 def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(

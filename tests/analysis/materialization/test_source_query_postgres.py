@@ -68,7 +68,7 @@ def test_postgres_terminal_field_relation(
     if operation == "where":
         assert [key[-1] for key in result.iloc[:, 0]] == [3]
     if operation == "string_top":
-        assert result[("value", "category")].tolist() == ["ä   ", "z   "]
+        assert result["category"].tolist() == ["ä   ", "z   "]
         assert [key[-1] for key in result.iloc[:, 0]] == [2, 1]
 
 
@@ -101,7 +101,7 @@ def test_postgres_aggregate_frame_bridge_uses_typed_key_transport(
     query = session.observe({"count": amount.count()}, where=mv.in_population(keys))
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result[("value", "count")].tolist() == [3 if selection == "where" else 1]
+    assert result["count"].tolist() == [3 if selection == "where" else 1]
     assert trace.uploaded_key_rows == [3 if selection == "where" else 1]
 
 
@@ -136,7 +136,7 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert [key[-1] for key in result.iloc[:, 0]] == ([3] if operation == "where" else [3, 2])
-    assert result["value", "amount"].tolist() == ([30] if operation == "where" else [30, 20])
+    assert result["amount"].tolist() == ([30] if operation == "where" else [30, 20])
     assert trace.uploaded_key_rows == []
 
 

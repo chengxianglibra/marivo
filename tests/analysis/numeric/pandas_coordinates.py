@@ -1,43 +1,33 @@
-"""Pandas oracle labels that preserve time and ordinary coordinate keys."""
+"""Small pandas oracle naming helpers over readable Frame exports."""
 
 import pandas as pd
 
 import marivo.analysis as mv
 
 
-def ordinary_columns(frame: pd.DataFrame) -> tuple[tuple[str, str], ...]:
+def ordinary_columns(frame: pd.DataFrame) -> tuple[str, ...]:
     """Select ordinary coordinates by their declared axis role, preserving order."""
     return tuple(
-        ("coordinate", axis["token"])
-        for axis in frame.attrs["axes"]
-        if axis["role"] in ("identity", "field", "data")
+        axis["name"] for axis in frame.attrs["axes"] if axis["role"] in ("identity", "field")
     )
 
 
 def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
-    """Retain every key, naming time keys separately from ordinary key_N labels."""
+    """Give shared numerical oracles short coordinate and presence names."""
     frame = result.to_pandas()
-    roles = {axis["token"]: axis["role"] for axis in frame.attrs["axes"]}
-    names: list[str] = []
-    ordinary = 0
-    temporal = 0
-    for label in frame.columns:
-        assert isinstance(label, tuple) and len(label) == 2
-        kind, name = label
-        assert isinstance(kind, str) and isinstance(name, str)
-        if kind == "coordinate":
-            if roles[name] in ("interval", "calendar", "paired"):
-                names.append(f"time_{temporal}")
-                temporal += 1
-            else:
-                names.append(f"key_{ordinary}")
-                ordinary += 1
-        elif kind == "value":
-            names.append(name)
-        elif kind == "presence":
-            names.append("presence." + name)
+    names: dict[str, str] = {}
+    ordinary = temporal = 0
+    for axis in result.axes:
+        if axis.role in ("identity", "field"):
+            names[axis.name] = f"key_{ordinary}"
+            ordinary += 1
         else:
-            raise AssertionError(f"Unexpected Frame export kind: {kind}")
-    assert len(set(names)) == len(names) == len(frame.columns)
-    frame.columns = names
-    return frame
+            column = axis.name if axis.role == "calendar" else axis.name + ".start"
+            if axis.role == "paired":
+                column = axis.name + ".left"
+                if column not in frame.columns:
+                    column += ".start"
+            names[column] = f"time_{temporal}"
+            temporal += 1
+    names.update((name, "presence." + name) for name in result.presence_names)
+    return frame.rename(columns=names)

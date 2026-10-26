@@ -227,8 +227,14 @@ Stored ``compute()`` and evaluated derivatives consume both current data and
 method facts. Damaged method payloads can therefore leave metadata and export
 usable while full consumers fail. Cards show only count, bounded origins and a
 getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
-Export preserves exact row order, raw-key MultiIndex, nullable types and isolated
-typed frozen-interpretation attrs. Exported attrs cannot reenter computation.
+Export returns one readable flat table with full value/presence names and axis
+names, preserving row order, nullable types and isolated frozen-interpretation
+attrs. Calendar labels include actual bounds and timezone; intervals expose
+start/end/timezone; paired time coordinates expose both endpoints. Composite
+identities remain tuples. ``axis_names={axis: "name"}`` names axes from the exact
+Frame and resolves column collisions; duplicate names are rejected before reads.
+Exported attrs cannot reenter computation. Bounded show previews use the same
+coordinate interpretation without a full export.
 
 Explicit source investigation and contribution
 ----------------------------------------------

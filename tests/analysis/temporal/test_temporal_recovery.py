@@ -116,19 +116,21 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         source_frame, spatial_frame, represented_frame, samples_frame = (
             saved.to_pandas() for saved in (source, spatial, represented, samples)
         )
-        assert source_frame.iloc[:, 1].tolist() == list(subject_keys)
+        assert source_frame[source_frame.attrs["axes"][1]["name"]].tolist() == list(subject_keys)
         assert isinstance(source._backing, StoredFrameBacking)
         assert source._backing.data.schema.axes[1].columns[0].dtype == ScalarDataType("int64")
-        assert source_frame[("value", "value")].tolist() == [18.0, 150.0]
+        assert source_frame["value"].tolist() == [18.0, 150.0]
         # Per subject: a has temporal totals [10+5,20+1], b has [100,200].
         # Original source observation completes space at each time: mean([115,221])=168.
-        assert spatial_frame[("value", "value")].tolist() == [168.0]
+        assert spatial_frame["value"].tolist() == [168.0]
         # A reduction over the two already completed values is mean([18,150])=84.
-        assert represented_frame[("value", "value")].tolist() == [84.0]
-        assert samples_frame.iloc[:, 0].tolist() == [0, 0, 1, 1]
-        assert samples_frame.iloc[:, 1].tolist() == list(subject_keys) * 2
-        assert samples_frame[("value", "sum")].tolist() == [15, 100, 21, 200]
-        assert samples_frame[("value", "rows")].tolist() == [2, 1, 2, 1]
+        assert represented_frame["value"].tolist() == [84.0]
+        assert samples_frame["calendar:day"].tolist() == ["2026-08-01"] * 2 + ["2026-08-02"] * 2
+        assert (
+            samples_frame[samples_frame.attrs["axes"][1]["name"]].tolist() == list(subject_keys) * 2
+        )
+        assert samples_frame["sum"].tolist() == [15, 100, 21, 200]
+        assert samples_frame["rows"].tolist() == [2, 1, 2, 1]
         calendar_metadata = samples_frame.attrs["axes"][0]["descriptor"]
         directory = samples_frame.attrs["frozen_coordinates"][0]["rows"]
         assert calendar_metadata["timezone"] == "UTC"
@@ -201,12 +203,12 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
         assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
     assert frames['subjects'].iloc[:,1].tolist()==state['subject_keys']
-    assert frames['subjects'][('value','value')].tolist()==[18.0,150.0]
-    assert frames['spatial'][('value','value')].tolist()==[168.0]
-    assert frames['represented'][('value','value')].tolist()==[84.0]
-    assert frames['samples'][('value','sum')].tolist()==[15,100,21,200]
+    assert frames['subjects']['value'].tolist()==[18.0,150.0]
+    assert frames['spatial']['value'].tolist()==[168.0]
+    assert frames['represented']['value'].tolist()==[84.0]
+    assert frames['samples']['sum'].tolist()==[15,100,21,200]
     # Pandas can consume the committed time samples without a new source evaluation.
-    assert frames['samples'][('value','sum')].groupby(frames['samples'].iloc[:,0]).sum().mean()==168
+    assert frames['samples']['sum'].groupby(frames['samples'].iloc[:,0]).sum().mean()==168
     assert run_ids(session)==before
     Path(sys.argv[2]).write_bytes(encode({'pid':os.getpid(),'phase':sys.argv[3],'source_forbidden':True,'runs':sorted(before)}))
 """

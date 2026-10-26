@@ -42,7 +42,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     frame = values.persist().to_pandas()
-    assert dict(zip(frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True)) == {
+    assert dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)) == {
         "A": 300,
         "B": 300,
         "C": 400,
@@ -52,7 +52,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         {"value": session.catalog.metrics.get("sales.line_revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
         where=mv.in_population(members),
-    ).persist().to_pandas()[("value", "value")].tolist() == [1000]
+    ).persist().to_pandas()["value"].tolist() == [1000]
     route = session.catalog.relationships.get("sales.order_buyer")
     region = session.catalog.fields.get("sales.customer.region")
     orders = session.members(session.catalog.entities.get("sales.order"))
@@ -75,11 +75,11 @@ def test_related_field_null_is_counted_and_missing_owner_remains_null(
     reads = _reads(monkeypatch)
     result = values.persist()
     frame = result.to_pandas()
-    assert frame[("value", "value")].notna().any()
-    assert frame[("value", "value")].isna().any()
-    assert values.reduce({"count": mv.row_count()}).persist().to_pandas()[
-        ("value", "count")
-    ].tolist() == [len(frame)]
+    assert frame["value"].notna().any()
+    assert frame["value"].isna().any()
+    assert values.reduce({"count": mv.row_count()}).persist().to_pandas()["count"].tolist() == [
+        len(frame)
+    ]
     assert reads
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
@@ -121,14 +121,14 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         assert terminal_runs(session) == before
         union = left.align(unequal, on=tuple(zip(left.axes, unequal.axes, strict=True))).compute()
         union_rows = union.to_pandas()
-        assert union_rows[("presence", "right_present")].all()
-        assert (~union_rows[("presence", "left_present")]).any()
+        assert union_rows["right_present"].all()
+        assert (~union_rows["left_present"]).any()
         ratios = paired.select({"value": paired["left.value"] / paired["right.value"]}).persist()
         expected = sum(isinstance(row["y"], int) and row["y"] > 20 for row in work.rows)
-        assert ratios.to_pandas()[("value", "value")].tolist() == [1.0] * expected
+        assert ratios.to_pandas()["value"].tolist() == [1.0] * expected
         # Same-input Columns retain their original rows and values.
         shared = values.select({"value": values["value"] / values["value"]}).persist()
-        assert shared.to_pandas()[("value", "value")].tolist() == [1.0] * 64
+        assert shared.to_pandas()["value"].tolist() == [1.0] * 64
         assert session.persisted_frame(ratios.artifact.id).to_pandas().equals(ratios.to_pandas())
 
 
@@ -143,9 +143,9 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         values = session.read(members, {"value": field.via((relation,))})
         trusted = values.persist()
         frame = trusted.to_pandas()
-        assert frame[("value", "value")].tolist() == [index % 15 for index in range(64)]
+        assert frame["value"].tolist() == [index % 15 for index in range(64)]
         selected = values.where(values["value"] == 1).persist()
-        assert selected.to_pandas()[("value", "value")].tolist() == [1] * 5
+        assert selected.to_pandas()["value"].tolist() == [1] * 5
         assert not hasattr(trusted, "_graph") and not hasattr(trusted, "_node")
         assert not hasattr(trusted, "rollup")
         assert session.persisted_frame(trusted.artifact.id).to_pandas().equals(frame)
@@ -186,7 +186,7 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
         saved = paired.select({"value": paired["left.value"] / paired["right.value"]}).persist()
         expected = len(saved.to_pandas())
         scalar = paired.reduce({"count": mv.row_count()}).persist()
-        assert scalar.to_pandas()[("value", "count")].tolist() == [expected]
+        assert scalar.to_pandas()["count"].tolist() == [expected]
         (tmp_path / "models").rename(tmp_path / "models.offline")
         env = dict(os.environ, PYTHONPATH=str(PROJECT_ROOT))
         worker = subprocess.run(
@@ -210,9 +210,9 @@ session = mv.session.resume(sys.argv[1])
 before = len(terminal_runs(session))
 saved = session.persisted_frame(sys.argv[2])
 frame = saved.to_pandas()
-assert frame[('value','value')].tolist() == [1.0] * int(sys.argv[4])
-assert frame[('value','value')].sum() == int(sys.argv[4])
-assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','count')].tolist() == [int(sys.argv[4])]
+assert frame['value'].tolist() == [1.0] * int(sys.argv[4])
+assert frame['value'].sum() == int(sys.argv[4])
+assert session.persisted_frame(sys.argv[3]).to_pandas()['count'].tolist() == [int(sys.argv[4])]
 assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'rows':len(frame)}))
 """,

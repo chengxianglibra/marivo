@@ -70,7 +70,7 @@ with patch.object(ms,'load',forbidden), patch.object(SourceSession,'__enter__',f
     before = len(terminal_runs(session))
     for artifact in sys.argv[3:]:
         frame = session.persisted_frame(artifact).to_pandas()
-        assert frame[('value','value')].sum() == int(sys.argv[2])
+        assert frame['value'].sum() == int(sys.argv[2])
     assert len(terminal_runs(session)) == before
 """
     outcome = subprocess.run(
@@ -142,7 +142,7 @@ def test_native_count_rollup_and_group_state(
 
         monkeypatch.setattr(SourceSession, "execute", captured)
         result = scalar.persist()
-        assert result.to_pandas()[("value", "value")].tolist() == [first_day_count]
+        assert result.to_pandas()["value"].tolist() == [first_day_count]
         aggregates = [
             frame
             for read, frame in reads
@@ -152,9 +152,7 @@ def test_native_count_rollup_and_group_state(
         offset = len(reads)
         saved_groups = grouped.persist()
         frame = saved_groups.to_pandas()
-        assert dict(
-            zip(frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True)
-        ) == {
+        assert dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)) == {
             "even": 4,
             "odd": 5,
         }
@@ -165,10 +163,10 @@ def test_native_count_rollup_and_group_state(
         ]
         assert [len(frame) for frame in aggregates] == [2]
         assert grouped.reduce({"value": grouped["value"].sum()}).persist().to_pandas()[
-            ("value", "value")
+            "value"
         ].tolist() == [first_day_count]
         assert individual.reduce({"value": individual["value"].sum()}).persist().to_pandas()[
-            ("value", "value")
+            "value"
         ].tolist() == [first_day_count]
         if key_type == "int64":
             data = saved_groups.artifact._manifest.data
@@ -210,17 +208,17 @@ def test_native_count_rollup_and_group_state(
             session.observe({"value": metric}, by=(window,), where=mv.in_population(empty)),
             session.observe({"value": metric}, by=(window,), where=mv.in_population(empty)),
         ):
-            assert query.persist().to_pandas()[("value", "value")].tolist() == [0]
+            assert query.persist().to_pandas()["value"].tolist() == [0]
         calendar = session.time_scope(start="2026-09-01", end="2026-09-03").by(mv.grain("day"))
         timed = session.observe({"value": metric}, by=(calendar,))
-        assert timed.persist().to_pandas()[("value", "value")].tolist() == [9, 1]
+        assert timed.persist().to_pandas()["value"].tolist() == [9, 1]
         assert timed.reduce({"value": timed["value"].sum()}).persist().to_pandas()[
-            ("value", "value")
+            "value"
         ].tolist() == [row_count]
         if key_type == "int64" and profile == "table":
             saved_members = individual.persist()
             assert len(saved_members.to_pandas()) == row_count
-            assert saved_members.to_pandas()[("value", "value")].tolist() == [1] * 9 + [0]
+            assert saved_members.to_pandas()["value"].tolist() == [1] * 9 + [0]
             _cold_outputs(
                 tmp_path,
                 session.id,

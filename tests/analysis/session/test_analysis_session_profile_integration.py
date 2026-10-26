@@ -65,7 +65,7 @@ def test_observe_uses_registered_global_datasource(
     )
     session = mv.session.get_or_create("registered", timezone="UTC")
     output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).compute()
-    assert output.to_pandas()[("value", "revenue")].tolist() == [expected]
+    assert output.to_pandas()["revenue"].tolist() == [expected]
     assert terminal_runs(session) == ()
     saved = output.persist()
     artifact_id = saved.artifact.id

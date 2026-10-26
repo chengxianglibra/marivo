@@ -114,7 +114,7 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
         # Raw membership and raw bucket assignment need no native conversion.
         assert session.observe(
             {"value": amount.sum(time=clock)}, by=(scope,)
-        ).compute().to_pandas()[("value", "value")].tolist() == [30]
+        ).compute().to_pandas()["value"].tolist() == [30]
         assert probes == []
         raw_sql = tuple(source_trace.native_sql)
 
@@ -242,7 +242,7 @@ def test_clickhouse_hour_sampling_keeps_neutral_wall_carrier_in_non_utc_session(
                 mean = (
                     session.observe({"mean": amount.sum(time=hour).per(hour).mean()}, by=(scope,))
                     .compute()
-                    .to_pandas()[("value", "mean")]
+                    .to_pandas()["mean"]
                     .tolist()
                 )
                 assert mean == [15.0]

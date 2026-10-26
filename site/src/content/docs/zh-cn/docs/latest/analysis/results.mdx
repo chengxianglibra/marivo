@@ -37,14 +37,14 @@ ids = json.loads(Path("saved-result.json").read_text())
 session = mv.session.resume(ids["session"])
 reopened = session.persisted_frame(ids["result"])
 rows = reopened.to_pandas()
-assert rows[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
 reopened.artifact.show()
 rows.to_csv("comparison.csv", index=False)
 ```
 
 两个变化仍为 -100。可以在保存行上继续执行受支持的 Frame 运算。新的原来源问题需要显式来源输入；保存数据不会重建原指标定义。
 
-导出是独立 pandas 副本，列使用 `(kind, name)` 结构。CSV 便于分享数值，但不是可无损导回 Marivo 的格式：类型属性和冻结时间解释需要原 Frame。连接多个导出前先检查单位与键。
+导出是独立 pandas 副本，使用可读坐标和普通字符串列。CSV 便于分享数值，但不是可无损导回 Marivo 的格式：类型属性和冻结时间解释需要原 Frame。连接多个导出前先检查单位与键。
 
 从原来源表达式重新计算可能读到变化；[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)处理缺文件与旧状态不兼容。
 

@@ -161,7 +161,7 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
         )
     assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
     frame = original.persist().to_pandas()
-    assert frame[("value", "value")].tolist() == [450, 150, 400, 0]
+    assert frame["value"].tolist() == [450, 150, 400, 0]
 
 
 def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -190,29 +190,35 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
             .persist()
             .to_pandas()
         )
-        assert frame.set_index(ordinary_columns(frame)[0])[("value", "value")].to_dict() == expected
+        assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == expected
     with pytest.raises(AnalysisError):
         session.read(orders, {"region": region})
     buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
-    current = (
-        session.observe({"value": revenue}, by=(_window(session), buyer_region, recipient_region))
-        .persist()
-        .to_pandas()
+    current_frame = session.observe(
+        {"value": revenue}, by=(_window(session), buyer_region, recipient_region)
+    ).persist()
+    baseline_frame = session.observe(
+        {"value": revenue},
+        by=(
+            session.time_scope(start="2026-07-01", end="2026-08-01"),
+            buyer_region,
+            recipient_region,
+        ),
+    ).persist()
+    current = current_frame.to_pandas(
+        axis_names={
+            current_frame.axes[1]: "buyer_region",
+            current_frame.axes[2]: "recipient_region",
+        }
     )
-    baseline = (
-        session.observe(
-            {"value": revenue},
-            by=(
-                session.time_scope(start="2026-07-01", end="2026-08-01"),
-                buyer_region,
-                recipient_region,
-            ),
-        )
-        .persist()
-        .to_pandas()
+    baseline = baseline_frame.to_pandas(
+        axis_names={
+            baseline_frame.axes[1]: "buyer_region",
+            baseline_frame.axes[2]: "recipient_region",
+        }
     )
-    current_values = current.set_index(list(ordinary_columns(current)))[("value", "value")]
-    baseline_values = baseline.set_index(list(ordinary_columns(baseline)))[("value", "value")]
+    current_values = current.set_index(["buyer_region", "recipient_region"])["value"]
+    baseline_values = baseline.set_index(["buyer_region", "recipient_region"])["value"]
     assert current_values.to_dict() == {
         ("east", "south"): 450,
         ("east", "east"): 150,
@@ -275,14 +281,14 @@ def test_classification_read_preserves_missing_owner_as_null(
         .to_pandas()
     )
     assert attributes.iloc[:, 0].tolist() == ["a1", "a2", "a3", "b1", "c1", "outside"]
-    assert attributes[("value", "category")].iloc[:5].tolist() == [
+    assert attributes["category"].iloc[:5].tolist() == [
         "book",
         "book",
         "game",
         "game",
         "book",
     ]
-    assert attributes[("value", "category")].isna().tolist() == [False] * 5 + [True]
+    assert attributes["category"].isna().tolist() == [False] * 5 + [True]
     assert len(terminal_runs(session)) == 1
     # The separate observation consumes only August contributions, so a bad July
     # relationship is outside this read scope.
@@ -294,7 +300,7 @@ def test_classification_read_preserves_missing_owner_as_null(
         .persist()
         .to_pandas()
     )
-    assert frame.set_index(ordinary_columns(frame)[0])[("value", "value")].to_dict() == {
+    assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == {
         "book": 700,
         "game": 300,
     }
@@ -331,13 +337,13 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     assert automatic_binding.contributions == explicit_binding.contributions
     fixed = automatic.persist()
     frame = fixed.to_pandas()
-    assert frame.set_index(ordinary_columns(frame)[0])[("value", "value")].to_dict() == {
+    assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == {
         "book": 700,
         "game": 300,
     }
     assert explicit.persist().to_pandas().equals(frame)
     total = automatic.reduce({"value": automatic["value"].sum()}).persist()
-    assert total.to_pandas()[("value", "value")].tolist() == [1000]
+    assert total.to_pandas()["value"].tolist() == [1000]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     script = """
 import sys
@@ -352,9 +358,9 @@ ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
-assert frame.set_index(ordinary_columns(frame)[0])[('value','value')].to_dict() == {'book':700,'game':300}
-assert frame[('value','value')].sum() == 1000
-assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
+assert frame.set_index(ordinary_columns(frame)[0])['value'].to_dict() == {'book':700,'game':300}
+assert frame['value'].sum() == 1000
+assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [1000]
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, session.id, fixed.artifact.id, total.artifact.id],
@@ -392,16 +398,16 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     exported = grouped.to_pandas()
     frame = exported.set_index(ordinary_columns(exported)[0])
     assert set(frame.index) == {"book", "game"}
-    assert frame[("value", "ratio")].to_dict() == pytest.approx({"book": 700 / 850, "game": 2.0})
-    assert frame[("value", "linear")].to_dict() == pytest.approx({"book": -150, "game": 150})
+    assert frame["ratio"].to_dict() == pytest.approx({"book": 700 / 850, "game": 2.0})
+    assert frame["linear"].to_dict() == pytest.approx({"book": -150, "game": 150})
 
     overall = (
         session.observe({"ratio": ratio, "linear": linear}, by=(_window(session),))
         .persist()
         .to_pandas()
     )
-    assert overall[("value", "ratio")].tolist() == pytest.approx([1.0])
-    assert overall[("value", "linear")].tolist() == [0]
+    assert overall["ratio"].tolist() == pytest.approx([1.0])
+    assert overall["linear"].tolist() == [0]
 
 
 def test_timed_classification_cannot_remove_consumed_contributions(
@@ -444,12 +450,12 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         complete = session.observe({"value": metric}, by=(scope, category))
         frame = complete.persist().to_pandas()
         assert frame[ordinary_columns(frame)[0]].tolist() == [key]
-        assert frame[("value", "value")].tolist() == [expected]
+        assert frame["value"].tolist() == [expected]
         observed.append(expected)
         book_domain = mv.coordinates(by=(category,), keys=(("book",),))
         selected = session.observe({"value": metric}, by=mv.product(scope, book_domain))
         if key == "book":
-            assert selected.persist().to_pandas()[("value", "value")].tolist() == [1000]
+            assert selected.persist().to_pandas()["value"].tolist() == [1000]
         else:
             with pytest.raises(MaterializationError, match="missing output coordinates"):
                 selected.persist()

@@ -69,7 +69,7 @@ def _measure(
                 * (1 if sys.platform == "darwin" else 1024)
             ),
             "output_rows": len(rows),
-            "values": rows["value", "metric"].tolist(),
+            "values": rows["metric"].tolist(),
             "closed_sources_and_reopened_frame": True,
         }
 

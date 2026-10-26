@@ -95,8 +95,13 @@ seller = ms.relationship(name='seller', from_entity=orders, to_entity=people, ke
         allocation = mv.membership(region, via=((buyer,),), unmatched="exclude")
         seller_region = region.via((seller,))
         grouped = session.observe({"v": amount.sum()}, by=(allocation, seller_region))
+        fixed = grouped.compute()
         actual = {
-            "coordinates": list(grouped.compute().to_pandas().itertuples(index=False, name=None))
+            "coordinates": list(
+                fixed.to_pandas(
+                    axis_names={fixed.axes[0]: "buyer_region", fixed.axes[1]: "seller_region"}
+                ).itertuples(index=False, name=None)
+            )
         }
         for name, field, key in (("seller", seller_region, "west"), ("buyer", region, "east")):
             condition = mv.in_population(mv.coordinates(by=(field,), keys=((key,),)))

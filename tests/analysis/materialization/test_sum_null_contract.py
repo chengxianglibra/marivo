@@ -39,10 +39,10 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
     fixed = query.compute()
     rows = fixed.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "B", "C", "D"]
-    assert rows["value", "total"].iloc[[0, 1, 3]].tolist() == [100, 0, 0]
-    assert pd.isna(rows["value", "total"].iloc[2])
-    assert rows["value", "valid"].tolist() == [1, 0, 0, 2]
-    assert rows["value", "orders"].tolist() == [2, 0, 1, 2]
+    assert rows["total"].iloc[[0, 1, 3]].tolist() == [100, 0, 0]
+    assert pd.isna(rows["total"].iloc[2])
+    assert rows["valid"].tolist() == [1, 0, 0, 2]
+    assert rows["orders"].tolist() == [2, 0, 1, 2]
     summary = (
         fixed.reduce(
             {
@@ -105,8 +105,8 @@ def test_native_formula_does_not_zero_fill_a_present_all_null_group(
     metric = amount.sum().where(customer == "A") + amount.sum().where(customer == "C")
     rows = session.observe({"total": metric}, by=(customer,)).compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "C"]
-    assert rows["value", "total"].iloc[0] == 100
-    assert pd.isna(rows["value", "total"].iloc[1])
+    assert rows["total"].iloc[0] == 100
+    assert pd.isna(rows["total"].iloc[1])
 
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf")])
@@ -126,20 +126,18 @@ def test_native_nonfinite_source_values_remain_distinct_from_null_during_selecti
     read = session.read(members, {"amount": amount})
     observed = session.observe({"amount": amount.sum()})
     raw = read.compute().to_pandas()
-    values = pa.array(raw["value", "amount"])
+    values = pa.array(raw["amount"])
     assert any(
         value.is_valid
         and (math.isnan(value.as_py()) if math.isnan(invalid) else value.as_py() == invalid)
         for value in values
     )
-    missing = read.where(read["amount"].is_null()).compute().to_pandas()["value", "amount"]
+    missing = read.where(read["amount"].is_null()).compute().to_pandas()["amount"]
     assert expected_nulls is not None and len(missing) == expected_nulls[0]
     assert pa.array(missing).null_count == len(missing)
     assert read.top(0, by=read["amount"]).compute().to_pandas().empty
-    assert read.select({"constant": 1}).compute().to_pandas()["value", "constant"].tolist() == [
-        1
-    ] * len(raw)
-    total = observed.compute().to_pandas()["value", "amount"]
+    assert read.select({"constant": 1}).compute().to_pandas()["constant"].tolist() == [1] * len(raw)
+    total = observed.compute().to_pandas()["amount"]
     assert pa.array(total).is_valid().to_pylist() == [True]
     assert math.isnan(total.iloc[0]) if math.isnan(invalid) else total.iloc[0] == invalid
     assert observed.top(0, by=observed["amount"]).compute().to_pandas().empty

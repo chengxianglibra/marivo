@@ -235,10 +235,8 @@ def test_complete_literal_input_remains_checked_before_projection(
     )
     assert actual[literal.stage_id] == ("key.0", "value.0", "value.1", "value.2")
     result = query.compute().to_pandas()
-    assert result.columns.equals(
-        pd.MultiIndex.from_tuples([("coordinate", "axis.0"), ("value", "kept")])
-    )
-    assert result[("value", "kept")].tolist() == [10, 20, 30]
+    assert result.columns.equals(pd.Index(["sales.orders.region", "kept"]))
+    assert result["kept"].tolist() == [10, 20, 30]
 
 
 def test_repeated_consumers_share_complete_input_without_mutation(
@@ -259,8 +257,8 @@ def test_repeated_consumers_share_complete_input_without_mutation(
     assert len(literals) == 1
     assert actual[literals[0].stage_id] == ("key.0", "value.0", "value.1", "value.2")
     rows = query.compute().to_pandas()
-    assert rows[("value", "left.left")].tolist() == [10, 20, 30]
-    assert rows[("value", "right.right")].tolist() == [100, 200, 300]
+    assert rows["left.left"].tolist() == [10, 20, 30]
+    assert rows["right.right"].tolist() == [100, 200, 300]
 
 
 def test_source_attributes_keep_complete_keys_and_inherited_checks(
@@ -293,7 +291,7 @@ def test_source_attributes_keep_complete_keys_and_inherited_checks(
         assert stage.preparation_checks == original.preparation_checks
         assert stage.preparation_checks == ()
 
-    assert query.compute().to_pandas()[("value", "kept")].tolist() == [10, 30]
+    assert query.compute().to_pandas()["kept"].tolist() == [10, 30]
 
 
 def test_current_frame_filters_preserve_real_source_domain(optimization_session: Session) -> None:
@@ -305,7 +303,7 @@ def test_current_frame_filters_preserve_real_source_domain(optimization_session:
     plan, events, _ = _same(optimization_session, second)
     filters = [stage for stage in plan.stages if isinstance(stage, FrameCompute)]
     assert len(filters) == 2 and all(stage.stage_id in events for stage in filters)
-    assert second.compute().to_pandas()[("value", "sales")].tolist() == [20]
+    assert second.compute().to_pandas()["sales"].tolist() == [20]
 
 
 def test_multiple_consumers_keep_independent_filter_domains(optimization_session: Session) -> None:
@@ -319,11 +317,9 @@ def test_multiple_consumers_keep_independent_filter_domains(optimization_session
     query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
     _same(optimization_session, query)
     result = query.compute().to_pandas()
-    assert result[("value", "left.left")].iloc[:2].tolist() == [10, 20]
-    assert result[("value", "right.right")].iloc[1:].tolist() == [20, 30]
-    assert pd.isna(result[("value", "left.left")].iloc[2]) and pd.isna(
-        result[("value", "right.right")].iloc[0]
-    )
+    assert result["left.left"].iloc[:2].tolist() == [10, 20]
+    assert result["right.right"].iloc[1:].tolist() == [20, 30]
+    assert pd.isna(result["left.left"].iloc[2]) and pd.isna(result["right.right"].iloc[0])
 
 
 def test_top_and_explicit_source_denominator_preserve_values(optimization_session: Session) -> None:
@@ -332,19 +328,16 @@ def test_top_and_explicit_source_denominator_preserve_values(optimization_sessio
     selected = top.where(top["a"] > 0)
     query = selected.select({"kept": selected["a"]})
     _same(optimization_session, query)
-    assert query.compute().to_pandas()[("value", "kept")].tolist() == [30, 20]
+    assert query.compute().to_pandas()["kept"].tolist() == [30, 20]
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
     region = optimization_session.catalog.fields.get("sales.orders.region")
     denominator = (
-        optimization_session.observe({"total": amount.sum()})
-        .compute()
-        .to_pandas()[("value", "total")]
-        .iloc[0]
+        optimization_session.observe({"total": amount.sum()}).compute().to_pandas()["total"].iloc[0]
     )
     observed = optimization_session.observe({"sales": amount.sum()}, by=(region,))
     shares = observed.select({"sales": observed["sales"], "share": observed["sales"] / denominator})
     selected = shares.where(shares["sales"] > 20)
-    assert selected.compute().to_pandas()[("value", "share")].tolist() == pytest.approx([2 / 3])
+    assert selected.compute().to_pandas()["share"].tolist() == pytest.approx([2 / 3])
 
 
 def test_nullable_integer_filters_preserve_true_only_mask(optimization_session: Session) -> None:
@@ -362,7 +355,7 @@ def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Sess
     first = source.where(source["a"] > 0)
     query = first.where(first["b"] / first["a"] > 1)
     _same(optimization_session, query)
-    assert query.compute().to_pandas()[("value", "a")].tolist() == [10, 20, 30]
+    assert query.compute().to_pandas()["a"].tolist() == [10, 20, 30]
 
 
 def test_completed_strict_projection_cannot_be_pruned(
@@ -452,8 +445,8 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     ]
     assert len(reads) == 3 and len({stage.occurrence for stage in reads}) == 3
     frame = query.compute().to_pandas()
-    assert frame[("value", "twice")].tolist() == [120]
-    assert frame[("value", "shifted")].tolist() == [70]
+    assert frame["twice"].tolist() == [120]
+    assert frame["shifted"].tolist() == [70]
 
 
 def test_actual_plan_memo_hits_and_binding_changes_invalidate(
@@ -579,10 +572,10 @@ def test_each_public_compute_owns_a_fresh_compilation_memo(
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     query = session.observe({"sales": amount.sum()})
-    assert query.compute().to_pandas()[("value", "sales")].tolist() == [60]
+    assert query.compute().to_pandas()["sales"].tolist() == [60]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET amount=amount*2")
-    assert query.compute().to_pandas()[("value", "sales")].tolist() == [120]
+    assert query.compute().to_pandas()["sales"].tolist() == [120]
     assert len(memos) == 2 and memos[0] is not memos[1]
 
 
@@ -597,8 +590,8 @@ def test_explicit_empty_source_sum_and_ratio_keep_one_nullable_cell(
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
     assert len(frame) == 1
-    assert frame[("value", "sum")].tolist() == [0]
-    assert frame[("value", "ratio")].isna().all()
+    assert frame["sum"].tolist() == [0]
+    assert frame["ratio"].isna().all()
 
 
 @pytest.mark.parametrize("field", ("amount", "exact"))
@@ -675,8 +668,8 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
     )
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
-    assert frame[("presence", "current.present")].tolist() == [True, True, False]
-    assert frame[("presence", "base.present")].tolist() == [True, False, True]
+    assert frame["current.present"].tolist() == [True, True, False]
+    assert frame["base.present"].tolist() == [True, False, True]
 
 
 def test_float_source_reductions_have_no_exact_fusion_grant(optimization_session: Session) -> None:
@@ -855,9 +848,7 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
     time = optimization_session.catalog.fields.get("sales.orders.ordered_at")
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))
-    assert observed.compute().to_pandas()[("value", "sum")].tolist() == [
-        60 if clock == "00:00:00" else 30
-    ]
+    assert observed.compute().to_pandas()["sum"].tolist() == [60 if clock == "00:00:00" else 30]
 
 
 def test_explicit_source_weights_preserve_standardized_and_fixed_results(
@@ -887,16 +878,13 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
     rows = cells.compute().to_pandas()
     sizes = session.observe({"inspected": inspected}, by=(detail,)).compute().to_pandas()
     denominator = (
-        session.observe({"inspected": inspected})
-        .compute()
-        .to_pandas()[("value", "inspected")]
-        .iloc[0]
+        session.observe({"inspected": inspected}).compute().to_pandas()["inspected"].iloc[0]
     )
     assert denominator == 2000
     weights = dict(
         zip(
             sizes.iloc[:, 0],
-            sizes[("value", "inspected")].astype("float64") / float(denominator),
+            sizes["inspected"].astype("float64") / float(denominator),
             strict=True,
         )
     )
@@ -909,12 +897,10 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
         .compute()
         .to_pandas()
     )
-    fixed_weights = dict(zip(fixed.iloc[:, 0], fixed[("value", "weight")], strict=True))
+    fixed_weights = dict(zip(fixed.iloc[:, 0], fixed["weight"], strict=True))
     standardized: dict[str, float] = {}
     fixed_totals: dict[str, float] = {}
-    for key, category, rate in zip(
-        rows.iloc[:, 0], rows.iloc[:, 1], rows[("value", "rate")], strict=True
-    ):
+    for key, category, rate in zip(rows.iloc[:, 0], rows.iloc[:, 1], rows["rate"], strict=True):
         standardized[key] = standardized.get(key, 0) + rate * weights[category]
         fixed_totals[key] = fixed_totals.get(key, 0) + rate * float(fixed_weights[category])
     assert list(standardized) == ["A", "B"]
@@ -956,13 +942,13 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
     for query, target in ((direct, expected),):
         _same(session, query)
         result = query.compute().to_pandas()
-        assert result[("value", "p95")].tolist() == [target]
-        assert str(result[("value", "p95")].dtype) == f"decimal128({precision}, 2)[pyarrow]"
+        assert result["p95"].tolist() == [target]
+        assert str(result["p95"].dtype) == f"decimal128({precision}, 2)[pyarrow]"
     days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     windowed = session.observe(
         {"p95": quantile.window(mv.trailing_periods(count=2))}, by=(days, region)
     )
-    assert windowed.compute().to_pandas()[("value", "p95")].tolist() == [expected, expected]
+    assert windowed.compute().to_pandas()["p95"].tolist() == [expected, expected]
 
 
 @pytest.mark.parametrize(("first", "expected"), (("1.00", "1.01"), ("1.01", "1.02")))
@@ -980,7 +966,7 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
         )
     exact = session.catalog.fields.get("sales.orders.exact")
     source = session.observe({"value": exact.median()})
-    assert source.compute().to_pandas()[("value", "value")].tolist() == [Decimal(expected)]
+    assert source.compute().to_pandas()["value"].tolist() == [Decimal(expected)]
     region = session.catalog.fields.get("sales.orders.region")
     values = session.values(
         by=(region,),
@@ -991,7 +977,7 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
         ),
     )
     mean = values.reduce({"mean": values["value"].mean()})
-    assert mean.compute().to_pandas()[("value", "mean")].tolist() == [Decimal(expected)]
+    assert mean.compute().to_pandas()["mean"].tolist() == [Decimal(expected)]
 
 
 def test_nanosecond_quantile_preserves_exact_half_even_finish(
@@ -1022,7 +1008,7 @@ def test_nanosecond_quantile_preserves_exact_half_even_finish(
     value = case.session.catalog.fields.get("sales.order.amount")
     time = case.session.catalog.fields.get("sales.order.ordered_at")
     query = case.session.observe({"p95": value.quantile(0.95, time=time)})
-    assert query.compute().to_pandas()[("value", "p95")].tolist() == [pd.Timedelta(26, unit="ns")]
+    assert query.compute().to_pandas()["p95"].tolist() == [pd.Timedelta(26, unit="ns")]
 
 
 def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
@@ -1041,7 +1027,7 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
         {f"q{index}": value.quantile(q, time=time) for index, q in enumerate(probabilities)}
     )
     frame = direct.compute().to_pandas()
-    assert [frame[("value", f"q{index}")].iloc[0] for index, _ in enumerate(probabilities)] == [
+    assert [frame[f"q{index}"].iloc[0] for index, _ in enumerate(probabilities)] == [
         Decimal("1.00"),
         Decimal("100.00"),
         Decimal("1.00"),
@@ -1052,7 +1038,7 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
         by=(session.time_scope(start="2026-01-01", end="2026-01-05"),),
     )
-    assert sampled.compute().to_pandas()[("value", "p95")].tolist() == [Decimal("85.15")]
+    assert sampled.compute().to_pandas()["p95"].tolist() == [Decimal("85.15")]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET exact=NULL WHERE id=4")
     strict = session.observe({"p95": value.quantile(0.95, time=time, nulls="error")})
@@ -1078,15 +1064,15 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
     mean = values.reduce({"mean": values["value"].mean()})
     _same(session, mean)
     frame = mean.compute().to_pandas()
-    assert frame[("value", "mean")].tolist() == [Decimal("33.33")]
-    assert str(frame[("value", "mean")].dtype) == "decimal128(5, 2)[pyarrow]"
+    assert frame["mean"].tolist() == [Decimal("33.33")]
+    assert str(frame["mean"].dtype) == "decimal128(5, 2)[pyarrow]"
     comparison = (
         mean.compare({"base": mean}, on={"base": tuple(zip(mean.axes, mean.axes, strict=True))})
         .compute()
         .to_pandas()
     )
-    assert comparison[("value", "base.absolute.mean")].tolist() == [Decimal("0.00")]
-    assert comparison[("value", "base.relative.mean")].tolist() == [0.0]
+    assert comparison["base.absolute.mean"].tolist() == [Decimal("0.00")]
+    assert comparison["base.relative.mean"].tolist() == [0.0]
 
 
 def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
@@ -1127,7 +1113,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     scalar_members = session.members(session.catalog.entities.get("sales.orders"))
     scalar = session.frame(scalar_members)
     assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
-        ("value", "identity")
+        "identity"
     ].tolist() == [1, 2, 3, 4]
 
 

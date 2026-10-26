@@ -84,13 +84,13 @@ def test_rescale_help_and_bilingual_site_examples_execute_their_actual_code(
         metrics[name] = value
     frame = case.session.observe(metrics).compute()
     rows = frame.to_pandas()
-    assert rows[("value", "help_bandwidth")].tolist() == pytest.approx(
+    assert rows["help_bandwidth"].tolist() == pytest.approx(
         [660 / (86400 * 1024**3)], rel=1e-12, abs=0
     )
-    assert rows[("value", "daily_bandwidth")].tolist() == pytest.approx(
+    assert rows["daily_bandwidth"].tolist() == pytest.approx(
         [660 / (86400 * 1024**3)], rel=1e-12, abs=0
     )
-    assert rows[("value", "p95_bandwidth")].tolist() == pytest.approx(
+    assert rows["p95_bandwidth"].tolist() == pytest.approx(
         [160 / (3600 * 1024**3)], rel=1e-12, abs=0
     )
     assert {column.unit for column in frame._schema.values} == {"GiB/s"}

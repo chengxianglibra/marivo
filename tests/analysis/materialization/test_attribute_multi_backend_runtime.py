@@ -102,11 +102,11 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
             ("integer", 1, 2**53 + 9),
         ):
             contributions = [expected[key][index] for key in keys]
-            values = rows[("value", f"contribution.{name}")]
+            values = rows[f"contribution.{name}"]
             assert values.tolist() == contributions
-            assert rows[("value", f"detail.value.{name}")].tolist() == contributions
-            assert rows[("value", f"total.{name}")].tolist() == [total] * 4
-            assert rows[("value", f"observed_total.{name}")].tolist() == [total] * 4
+            assert rows[f"detail.value.{name}"].tolist() == contributions
+            assert rows[f"total.{name}"].tolist() == [total] * 4
+            assert rows[f"observed_total.{name}"].tolist() == [total] * 4
             assert all(isinstance(value, (Integral, Decimal)) for value in values)
             assert not pa.types.is_floating(pa.array(values).type)
 
@@ -195,21 +195,19 @@ def test_native_attribute_mean_and_ratio_use_complete_parent_denominators(
         assert rows.iloc[:, 0].tolist() == ["A", "B"]
         # A has one valid value and B has three: the original mean is 25,
         # while averaging the two subgroup means would incorrectly return 50.
-        assert rows[("value", "detail.value.mean")].tolist() == [100.0, 0.0]
-        assert rows[("value", "component.value.denominator.mean")].tolist() == [1, 3]
-        assert rows[("value", "contribution.mean")].tolist() == [25.0, 0.0]
-        assert rows[("value", "total.mean")].tolist() == [25.0, 25.0]
+        assert rows["detail.value.mean"].tolist() == [100.0, 0.0]
+        assert rows["component.value.denominator.mean"].tolist() == [1, 3]
+        assert rows["contribution.mean"].tolist() == [25.0, 0.0]
+        assert rows["total.mean"].tolist() == [25.0, 25.0]
         # The NULL amount still contributes its weight to the explicit ratio.
-        assert rows[("value", "component.value.denominator.ratio")].tolist() == [110, 10]
-        assert rows[("value", "detail.value.ratio")].tolist() == pytest.approx(
+        assert rows["component.value.denominator.ratio"].tolist() == [110, 10]
+        assert rows["detail.value.ratio"].tolist() == pytest.approx(
             [float(Fraction(100, 110)), 0.0]
         )
-        assert rows[("value", "contribution.ratio")].tolist() == pytest.approx(
+        assert rows["contribution.ratio"].tolist() == pytest.approx(
             [float(Fraction(100, 120)), 0.0]
         )
-        assert rows[("value", "total.ratio")].tolist() == pytest.approx(
-            [float(Fraction(100, 120))] * 2
-        )
+        assert rows["total.ratio"].tolist() == pytest.approx([float(Fraction(100, 120))] * 2)
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -244,14 +242,14 @@ def test_native_attribute_distinguishes_known_empty_from_all_null(
         weight = session.catalog.fields.get("sales.facts.weight")
         category = session.catalog.fields.get("sales.facts.category")
         empty_parent = session.observe({"q": amount.sum()}, where=weight > 1).compute()
-        assert empty_parent.to_pandas()[("value", "q")].tolist() == [0]
+        assert empty_parent.to_pandas()["q"].tolist() == [0]
         empty = empty_parent.attribute(by=(category,)).compute()
         assert empty.to_pandas().empty
         assert "contribution.q" in empty.output_names
         assert empty.method_facts
 
         unknown_parent = session.observe({"q": amount.sum()}).compute()
-        assert unknown_parent.to_pandas()[("value", "q")].isna().all()
+        assert unknown_parent.to_pandas()["q"].isna().all()
         with pytest.raises(AttributeInputError) as caught:
             unknown_parent.attribute(by=(category,)).compute()
         assert caught.value.reason == "undefined_input"

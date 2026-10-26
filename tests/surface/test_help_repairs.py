@@ -138,7 +138,7 @@ def test_pending_export_repairs_with_the_returned_complete_frame(
     _assert_repair(captured.value, "analysis.analysis_frame.to_pandas")
     assert captured.value.received == "expression"
     assert "compute() or persist()" in captured.value.repair.action
-    assert pending.compute().to_pandas()[("value", "renamed")].tolist() == [1, 3]
+    assert pending.compute().to_pandas()["renamed"].tolist() == [1, 3]
     with pytest.raises(CoreRuleError):
         pending.to_pandas()
 
@@ -164,7 +164,7 @@ def test_stale_statistics_keep_the_actual_consumer_and_repair(
         if consumer == "reduce"
         else selected.select({"total": selected.over(current)})
     )
-    assert repaired.compute().to_pandas()[("value", "total")].tolist() == [3]
+    assert repaired.compute().to_pandas()["total"].tolist() == [3]
 
 
 @pytest.mark.parametrize("consumer", ("where", "top", "select"))
@@ -189,7 +189,7 @@ def test_stale_columns_keep_the_receiving_frame_operation(
     else:
         repaired = selected.select({"value": selected["value"]})
     expected = [1, 3] if consumer == "select" else [3]
-    assert repaired.compute().to_pandas()[("value", "value")].tolist() == expected
+    assert repaired.compute().to_pandas()["value"].tolist() == expected
 
 
 def test_share_foreign_axis_repairs_on_the_columns_own_frame(
@@ -203,7 +203,7 @@ def test_share_foreign_axis_repairs_on_the_columns_own_frame(
     assert captured.value.expected == "an axis from this exact Frame input"
     shares = selected["value"].share(along=selected.axes)
     result = selected.select({"share": shares}).compute().to_pandas()
-    assert result[("value", "share")].tolist() == [Decimal("0.25"), Decimal("0.75")]
+    assert result["share"].tolist() == [Decimal("0.25"), Decimal("0.75")]
 
 
 @pytest.mark.parametrize("consumer", ("align", "compare"))
@@ -226,7 +226,7 @@ def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
         else literal_frame.compare({"reference": other}, on={"reference": pairs})
     )
     rows = repaired.compute().to_pandas()
-    path = ("value", "left.value") if consumer == "align" else ("value", "value")
+    path = "left.value" if consumer == "align" else "value"
     assert rows[path].tolist() == [1, 3]
 
 
@@ -255,8 +255,8 @@ def test_correlate_shared_pair_validation_keeps_the_frame_owner(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "coefficient")].tolist() == pytest.approx([1])
-    assert result[("value", "n_pairs")].tolist() == [2]
+    assert result["coefficient"].tolist() == pytest.approx([1])
+    assert result["n_pairs"].tolist() == [2]
 
 
 def test_reverse_operator_failure_routes_to_its_existing_operator_page(
@@ -267,7 +267,7 @@ def test_reverse_operator_failure_routes_to_its_existing_operator_page(
     _assert_repair(captured.value, "analysis.column.__rsub__")
     assert captured.value.expected == "numeric Columns"
     repaired = literal_frame.select({"remaining": 10 - literal_frame["value"]})
-    assert repaired.compute().to_pandas()[("value", "remaining")].tolist() == [9, 7]
+    assert repaired.compute().to_pandas()["remaining"].tolist() == [9, 7]
 
 
 @pytest.mark.parametrize("consumer", ("sum", "share"))
@@ -291,7 +291,7 @@ def test_column_statistic_validation_keeps_the_public_consumer(
             {"result": literal_frame["value"].share(along=literal_frame.axes)}
         )
         expected = [Decimal("0.25"), Decimal("0.75")]
-    assert result.compute().to_pandas()[("value", "result")].tolist() == expected
+    assert result.compute().to_pandas()["result"].tolist() == expected
 
 
 def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
@@ -302,7 +302,7 @@ def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
     _assert_repair(captured.value, "analysis.analysis_frame.select")
     assert captured.value.received == "'invalid.name'"
     repaired = literal_frame.select({"renamed": literal_frame["value"]})
-    assert repaired.compute().to_pandas()[("value", "renamed")].tolist() == [1, 3]
+    assert repaired.compute().to_pandas()["renamed"].tolist() == [1, 3]
 
 
 @pytest.mark.parametrize(
@@ -338,7 +338,7 @@ def test_frame_consumers_preserve_the_specialized_storage_failure(
     assert captured.value is failure
     assert captured.value.storage_status == "unauthorized"
     _assert_repair(captured.value, "analysis.session.persisted_frame")
-    assert saved.to_pandas()[("value", "value")].tolist() == [1, 3]
+    assert saved.to_pandas()["value"].tolist() == [1, 3]
 
 
 def test_cli_cross_surface_repair_can_be_followed(capsys: pytest.CaptureFixture[str]) -> None:

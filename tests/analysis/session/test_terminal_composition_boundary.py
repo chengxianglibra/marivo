@@ -61,6 +61,6 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
     assert reopened.to_pandas().equals(saved.to_pandas())
 
     assert reopened.select({"double": reopened["value"] * 2}).compute().to_pandas()[
-        ("value", "double")
+        "double"
     ].tolist() == [14]
     assert terminal_runs(session) == runs

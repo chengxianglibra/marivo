@@ -27,7 +27,7 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
-    assert result["value", "value"].tolist() == [333]
+    assert result["value"].tolist() == [333]
 
 
 @pytest.mark.parametrize("selection", ["top", "where", "empty"])
@@ -54,7 +54,7 @@ def test_complex_parent_selection_consumes_compact_fibers_once(
     fixed = chosen.compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], channel),))
     result = session.observe({"value": metric}, where=mv.in_population(keys)).compute().to_pandas()
-    values = result["value", "value"]
+    values = result["value"]
     assert values.isna().all() if selection == "empty" else values.tolist() == [3.0]
 
 
@@ -84,7 +84,7 @@ def test_complex_drill_keeps_samples_and_selected_parent_fibers(
     else:
         query = session.observe({"value": metric}, by=(status, channel))
     result = query.compute().to_pandas()
-    assert sorted(result["value", "value"].tolist()) == ([1500.0] if selected else [500.0, 1500.0])
+    assert sorted(result["value"].tolist()) == ([1500.0] if selected else [500.0, 1500.0])
 
 
 def test_nested_complex_rollups_finish_every_intermediate_formula(
@@ -104,7 +104,7 @@ def test_nested_complex_rollups_finish_every_intermediate_formula(
     fine = session.observe({"value": amount.sum().per(customer).mean()}, by=(channel, status))
     trace = capture_source(monkeypatch)
     result = session.observe({"value": amount.sum().per(customer).mean()}).compute().to_pandas()
-    assert result["value", "value"].tolist() == [1000.0]
+    assert result["value"].tolist() == [1000.0]
 
 
 def test_dynamic_sample_producer_retains_its_own_period(
@@ -137,7 +137,7 @@ def test_dynamic_sample_producer_retains_its_own_period(
             {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"),)
         )
         .compute()
-        .to_pandas()["value", "value"]
+        .to_pandas()["value"]
     )
     assert result.tolist() == [0.0]
 
@@ -169,7 +169,7 @@ def test_complex_top_uses_the_exact_completed_parent_score(
     fine = session.observe({"value": amount.sum().per(customer).mean()}, by=(channel,))
     trace = capture_source(monkeypatch)
     result = fine.top(1, by=fine["value"]).compute().to_pandas()
-    assert result["value", "value"].tolist() == [(2**53 + 4) // 3]
+    assert result["value"].tolist() == [(2**53 + 4) // 3]
     assert result.iloc[:, 0].tolist() == ["Z"]
 
 
@@ -191,7 +191,7 @@ def test_complex_top_zero_preserves_the_fine_formula_failure(
     fine = session.observe({"value": metric}, by=(channel,))
     trace = capture_source(monkeypatch)
     assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
-    assert fine.compute().to_pandas()[("value", "value")].isna().any()
+    assert fine.compute().to_pandas()["value"].isna().any()
 
 
 def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
@@ -211,4 +211,4 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
-    assert result["value", "value"].tolist() == [1000.0]
+    assert result["value"].tolist() == [1000.0]

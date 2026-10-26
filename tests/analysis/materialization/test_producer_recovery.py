@@ -79,7 +79,7 @@ def producer_recovery(
         for value in captures:
             frame = value.to_pandas()
             indexed = frame.set_index(frame.columns[0])
-            assert indexed[("value", "value")].to_dict() == {
+            assert indexed["value"].to_dict() == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): None,
                 ("b", 9007199254740993, 1): 4,

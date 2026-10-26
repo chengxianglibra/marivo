@@ -317,7 +317,7 @@ def test_independent_roots_and_temporal_fold(
         result = values.persist()
         exported = result.to_pandas()
         frame = exported.set_index(ordinary_columns(exported)[0])
-        actual = frame[("value", "value")]
+        actual = frame["value"]
         assert frame.index.tolist() == (["a", "b", "c"] if ratio else ["a", "b"])
         expected: dict[str, int | float | Decimal] = {
             "linear_float": 4.5,
@@ -342,10 +342,10 @@ def test_independent_roots_and_temporal_fold(
                 ),
             ).persist()
             sample_rows = samples.to_pandas()
-            groups = sample_rows.groupby(sample_rows.columns[1])
-            assert groups.get_group("a")[("value", "value")].tolist() == [15, 21]
-            assert groups.get_group("a")[("value", "count")].tolist() == [2, 2]
-            assert groups.get_group("b")[("value", "value")].tolist() == [0, 0]
+            groups = sample_rows.groupby(sample_rows.attrs["axes"][1]["name"])
+            assert groups.get_group("a")["value"].tolist() == [15, 21]
+            assert groups.get_group("a")["count"].tolist() == [2, 2]
+            assert groups.get_group("b")["value"].tolist() == [0, 0]
             source_trace.record(samples)
         else:
             assert actual.loc["b"] == (0.0 if ratio else amounts[4])
@@ -361,18 +361,16 @@ def test_independent_roots_and_temporal_fold(
             ).persist()
             component_rows = components.to_pandas()
             component_rows = component_rows.set_index(ordinary_columns(component_rows)[0])
-            numerators = component_rows[("value", "left")]
-            denominators = component_rows[("value", "right")]
+            numerators = component_rows["left"]
+            denominators = component_rows["right"]
             assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])
             assert Fraction(denominators.loc["a"]) == Fraction(amounts[2]) + Fraction(amounts[3])
             assert denominators.loc["b"] == amounts[4]
             rolled = session.observe({"value": expression}, by=()).persist()
-            assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx(
+            assert rolled.to_pandas()["value"].tolist() == pytest.approx(
                 [float(ratio_total)], rel=1e-14
             )
-            assert rolled.to_pandas()[("value", "value")].iloc[0] != pytest.approx(
-                float(expected[mode]) / 2
-            )
+            assert rolled.to_pandas()["value"].iloc[0] != pytest.approx(float(expected[mode]) / 2)
             # The terminal component output is explicit data, sufficient for an
             # external calculation without restoring a hidden original graph.
             before_reads = len(source_trace.native_sql)
@@ -383,9 +381,9 @@ def test_independent_roots_and_temporal_fold(
 
                 isolated.setattr(SourceSession, "execute", forbidden)
                 saved = components.to_pandas()
-                assert float(
-                    saved[("value", "left")].sum() / saved[("value", "right")].sum()
-                ) == pytest.approx(float(ratio_total), rel=1e-14)
+                assert float(saved["left"].sum() / saved["right"].sum()) == pytest.approx(
+                    float(ratio_total), rel=1e-14
+                )
                 assert session.persisted_frame(result.artifact.id).to_pandas().equals(exported)
             assert len(source_trace.native_sql) == before_reads
             source_trace.record(components)

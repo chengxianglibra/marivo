@@ -30,7 +30,7 @@ def _assert_values(result: mv.AnalysisFrame) -> None:
     frame = result.to_pandas()
     assert {
         key: None if pd.isna(value) else value
-        for key, value in zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)
+        for key, value in zip(frame.iloc[:, 0], frame["value"], strict=True)
     } == {
         ("a", 9007199254740992, 1): 2,
         ("a", 9007199254740993, 2): None,
@@ -45,8 +45,8 @@ def _assert_values(result: mv.AnalysisFrame) -> None:
 
 def _assert_ratio(result: mv.AnalysisFrame) -> None:
     frame = result.to_pandas()
-    assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
-    assert frame[("value", "value")].isna().tolist() == [False, True, False]
+    assert frame["value"].dropna().tolist() == [1.0, 1.0]
+    assert frame["value"].isna().tolist() == [False, True, False]
 
 
 @pytest.mark.parametrize("backend", source_params(("duckdb",)))
@@ -97,7 +97,7 @@ def test_public_source_reexecution_and_terminal_read(
         _assert_values(reopened)
         _assert_ratio(session.persisted_frame(shared_result.artifact.id))
         exported = reopened.to_pandas()
-        values = exported[("value", "value")]
+        values = exported["value"]
         assert values[values > 0].tolist() == [2, 4]
         assert len(source_trace.native_sql) == before_native
         assert terminal_runs(session) == before_runs

@@ -191,9 +191,9 @@ def test_group_domain_masks_composite_keys_and_two_layer_equivalence(
     assert rows["country"].tolist() == [pd.NA, "CN", "US", "US"]
     assert rows["city"].tolist() == ["X"] * 3 + ["Y"]
     table = result.to_pandas()
-    assert table["value", "n_pairs"].tolist() == [0, 2, 2, 2]
-    assert table["value", "coefficient"].isna().tolist() == [True, True, False, False]
-    assert table["value", "coefficient"].iloc[2] == pytest.approx(1.0, abs=1e-12)
+    assert table["n_pairs"].tolist() == [0, 2, 2, 2]
+    assert table["coefficient"].isna().tolist() == [True, True, False, False]
+    assert table["coefficient"].iloc[2] == pytest.approx(1.0, abs=1e-12)
     pd.testing.assert_frame_equal(
         _composed(frame, method, grouped=True).compute().to_pandas(), table
     )
@@ -214,12 +214,12 @@ def test_group_domain_masks_composite_keys_and_two_layer_equivalence(
         .compute()
         .to_pandas()
     )
-    assert combined["value", "xx"].tolist() == [1, 2, 3, 2]
-    assert combined["value", "xz"].tolist() == [0, 0, 2, 0]
-    assert combined["value", "sum"].tolist() == [1, 14, 6, 5]
-    assert combined["value", "mean_x"].tolist() == [1.0, 7.0, 2.0, 2.5]
-    assert combined["value", "mean_y"].tolist() == pytest.approx([4.0, 15.0, 8 / 3, 5.0])
-    assert combined["value", "rows"].tolist() == [2, 2, 4, 2]
+    assert combined["xx"].tolist() == [1, 2, 3, 2]
+    assert combined["xz"].tolist() == [0, 0, 2, 0]
+    assert combined["sum"].tolist() == [1, 14, 6, 5]
+    assert combined["mean_x"].tolist() == [1.0, 7.0, 2.0, 2.5]
+    assert combined["mean_y"].tolist() == pytest.approx([4.0, 15.0, 8 / 3, 5.0])
+    assert combined["rows"].tolist() == [2, 2, 4, 2]
 
 
 def test_symmetry_keeps_ordered_capture_and_self_pair_count(local: LocalFrameServices) -> None:
@@ -240,10 +240,10 @@ def test_symmetry_keeps_ordered_capture_and_self_pair_count(local: LocalFrameSer
         .compute()
         .to_pandas()
     )
-    assert result[[("value", "xy"), ("value", "yx"), ("value", "self")]].iloc[
-        0
-    ].tolist() == pytest.approx([-1.0, -1.0, 1.0], abs=1e-12)
-    assert result["value", "n"].tolist() == [3]
+    assert result[["xy", "yx", "self"]].iloc[0].tolist() == pytest.approx(
+        [-1.0, -1.0, 1.0], abs=1e-12
+    )
+    assert result["n"].tolist() == [3]
 
 
 @pytest.mark.parametrize("method,expected", (("pearson", 3 / math.sqrt(21)), ("spearman", 0.5)))
@@ -254,21 +254,21 @@ def test_pair_before_rank_and_fixed_frame_continuation(
     frame = _pairs(local, (1, 2, 3, 4), (1, None, 3, 2))
     result = frame.correlate(frame["x"], frame["y"], method=method).compute()
     table = result.to_pandas()
-    assert table["value", "coefficient"].iloc[0] == pytest.approx(expected, abs=1e-12)
-    assert table["value", "n_pairs"].tolist() == [3]
+    assert table["coefficient"].iloc[0] == pytest.approx(expected, abs=1e-12)
+    assert table["n_pairs"].tolist() == [3]
     pd.testing.assert_frame_equal(_composed(frame, method).compute().to_pandas(), table)
     filtered = result.where(result["n_pairs"] >= 3)
     copied = filtered.select({"r": filtered["coefficient"]}).compute()
     assert copied.output_names == ("r",)
-    assert copied.to_pandas()["value", "r"].iloc[0] == pytest.approx(expected, abs=1e-12)
+    assert copied.to_pandas()["r"].iloc[0] == pytest.approx(expected, abs=1e-12)
 
 
 def test_spearman_average_ties_and_group_local_ranks(local: LocalFrameServices) -> None:
     """C04: ties are retained and a second group's values cannot disturb local ranks."""
     frame = _pairs(local, (10, 10, 30), (1, 2, 3))
     result = frame.correlate(frame["x"], frame["y"], method="spearman").compute().to_pandas()
-    assert result["value", "coefficient"].iloc[0] == pytest.approx(math.sqrt(3) / 2, abs=1e-12)
-    assert result["value", "n_pairs"].tolist() == [3]
+    assert result["coefficient"].iloc[0] == pytest.approx(math.sqrt(3) / 2, abs=1e-12)
+    assert result["n_pairs"].tolist() == [3]
     group = DataColumn("group", "group", ScalarDataType("string"), False)
     schema = replace(
         frame._schema, axes=(DataAxis("group", (group,), name="group"), *frame._schema.axes)
@@ -289,9 +289,7 @@ def test_spearman_average_ties_and_group_local_ranks(local: LocalFrameServices) 
     result = grouped.correlate(
         grouped["x"], grouped["y"], method="spearman", by=(grouped.axes[0],)
     ).compute()
-    assert result.to_pandas()["value", "coefficient"].tolist() == pytest.approx(
-        [1.0, 1.0], abs=1e-12
-    )
+    assert result.to_pandas()["coefficient"].tolist() == pytest.approx([1.0, 1.0], abs=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -318,8 +316,8 @@ def test_degenerate_and_empty_scalar(
         _assert_schema(result)
         table = result.to_pandas()
         assert len(table) == 1 and result.axes == ()
-        assert table["value", "n_pairs"].tolist() == [count]
-        value = table["value", "coefficient"].iloc[0]
+        assert table["n_pairs"].tolist() == [count]
+        value = table["coefficient"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected, abs=1e-12)
     if not x:
         grouped = frame.correlate(frame["x"], frame["y"], method="pearson", by=frame.axes).compute()
@@ -374,8 +372,8 @@ def test_numeric_precision_witnesses(
         result = frame.correlate(frame["x"], frame["y"], method=method).compute()
         _assert_schema(result)
         table = result.to_pandas()
-        assert table["value", "n_pairs"].tolist() == [3]
-        assert table["value", "coefficient"].iloc[0] == pytest.approx(oracle, abs=1e-12)
+        assert table["n_pairs"].tolist() == [3]
+        assert table["coefficient"].iloc[0] == pytest.approx(oracle, abs=1e-12)
 
 
 def test_float64_decimal_division_endpoints_match_explicit_select(
@@ -390,12 +388,12 @@ def test_float64_decimal_division_endpoints_match_explicit_select(
     )
     divided = frame["x"] / 2
     selected = frame.select({"x": divided, "y": frame["y"]}).compute()
-    assert selected.to_pandas()["value", "x"].tolist() == [0.5, 1.0, 1.5]
+    assert selected.to_pandas()["x"].tolist() == [0.5, 1.0, 1.5]
     expected = (
         selected.correlate(selected["x"], selected["y"], method="pearson").compute().to_pandas()
     )
-    assert expected["value", "coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
-    assert expected["value", "n_pairs"].tolist() == [3]
+    assert expected["coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
+    assert expected["n_pairs"].tolist() == [3]
     for left, right in ((divided, frame["y"]), (frame["y"], divided)):
         direct = frame.correlate(left, right, method="pearson").compute().to_pandas()
         combined = (
@@ -411,7 +409,7 @@ def test_float64_decimal_division_endpoints_match_explicit_select(
         counted = frame.reduce({"n_pairs": left.pair_count(right)}).compute().to_pandas()
         pd.testing.assert_frame_equal(direct, expected)
         pd.testing.assert_frame_equal(combined, expected)
-        pd.testing.assert_frame_equal(counted, expected[[("value", "n_pairs")]])
+        pd.testing.assert_frame_equal(counted, expected[["n_pairs"]])
 
 
 def test_known_duration_rejected_at_each_endpoint(local: LocalFrameServices) -> None:
@@ -475,7 +473,7 @@ def test_pair_count_does_not_compute_coefficients_or_ranks(
     monkeypatch.setattr(frame_correlation, "_ranks", forbidden)
     frame = _pairs(local, (1, 2, None), (1, None, 3))
     result = frame.reduce({"n": frame["x"].pair_count(frame["y"])}).compute().to_pandas()
-    assert result["value", "n"].tolist() == [1]
+    assert result["n"].tolist() == [1]
 
 
 @pytest.mark.parametrize(
@@ -536,8 +534,8 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
         .compute()
         .to_pandas()
     )
-    assert result["value", "coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
-    assert result["value", "n_pairs"].tolist() == [2]
+    assert result["coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
+    assert result["n_pairs"].tolist() == [2]
     both = aligned.where(aligned["left_present"] & aligned["right_present"])
     filtered = (
         both.correlate(both["left.x"], both["right.x"], method="pearson").compute().to_pandas()
@@ -552,8 +550,8 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
         .compute()
         .to_pandas()
     )
-    assert marked_result["value", "coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
-    assert marked_result["value", "n_pairs"].tolist() == [2]
+    assert marked_result["coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
+    assert marked_result["n_pairs"].tolist() == [2]
     empty = marked.where(marked["left_present"] & marked["right_present"])
     assert (
         empty.correlate(empty["left.x"], empty["right.x"], method="pearson", by=empty.axes)
@@ -610,8 +608,8 @@ def test_pending_correlate_shares_one_mutable_source_batch(
     _assert_schema(completed)
     assert reads == 1 and len(trace.native_sql) == 1
     assert trace.returned_rows == [3]
-    assert completed.to_pandas()["value", "coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
-    assert completed.to_pandas()["value", "n_pairs"].tolist() == [3]
+    assert completed.to_pandas()["coefficient"].iloc[0] == pytest.approx(1.0, abs=1e-12)
+    assert completed.to_pandas()["n_pairs"].tolist() == [3]
     assert terminal_runs(case.session) == ()
 
 
@@ -694,9 +692,7 @@ def test_unfinished_statistics_preserve_binding_and_reusable_row_count(
     request = mv.row_count()
     before = (request._input_id, request._definition, request.unit, request._frame)
     for frame, expected in ((first, 2), (second, 3)):
-        assert frame.reduce({"rows": request}).compute().to_pandas()[
-            ("value", "rows")
-        ].tolist() == [expected]
+        assert frame.reduce({"rows": request}).compute().to_pandas()["rows"].tolist() == [expected]
         assert (request._input_id, request._definition, request.unit, request._frame) == before
     for statistic in (
         first["x"].sum(),
@@ -720,5 +716,5 @@ def test_correlate_converts_each_endpoint_once(local: LocalFrameServices, method
     with patch.object(frame_values, "_pair_values", wraps=frame_values._pair_values) as convert:
         result = frame.correlate(frame["x"], frame["y"], method=method).compute().to_pandas()
     assert convert.call_count == 2
-    assert result[("value", "coefficient")].iloc[0] == pytest.approx(1)
-    assert result[("value", "n_pairs")].iloc[0] == 2
+    assert result["coefficient"].iloc[0] == pytest.approx(1)
+    assert result["n_pairs"].iloc[0] == 2

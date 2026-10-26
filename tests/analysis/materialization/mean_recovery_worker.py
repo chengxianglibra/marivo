@@ -38,13 +38,13 @@ def run(root: Path, phase: str, output: Path) -> None:
             assert snapshot(result) == saved["snapshot"]
             results[name] = result
         groups = results["groups"].to_pandas()
-        assert groups[("value", "value")].tolist() == [1.0, 100.0]
-        assert groups[("value", "sum")].tolist() == [2, 100]
-        assert groups[("value", "count")].tolist() == [2, 1]
-        assert groups[("value", "value")].mean() == 50.5
-        assert groups[("value", "sum")].sum() / groups[("value", "count")].sum() == 34.0
-        assert results["original"].to_pandas()[("value", "value")].tolist() == [34.0]
-        assert results["current"].to_pandas()[("value", "value")].tolist() == [50.5]
+        assert groups["value"].tolist() == [1.0, 100.0]
+        assert groups["sum"].tolist() == [2, 100]
+        assert groups["count"].tolist() == [2, 1]
+        assert groups["value"].mean() == 50.5
+        assert groups["sum"].sum() / groups["count"].sum() == 34.0
+        assert results["original"].to_pandas()["value"].tolist() == [34.0]
+        assert results["current"].to_pandas()["value"].tolist() == [50.5]
         assert len(terminal_runs(session)) == before
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
 

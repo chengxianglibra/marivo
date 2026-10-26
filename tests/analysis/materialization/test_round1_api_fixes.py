@@ -63,13 +63,17 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     frames = {name: value.to_pandas() for name, value in outputs.items()}
     field = frames["field_calendar"]
     assert field.iloc[:, 0].tolist() == ["A"] * 3 + ["B"] * 3
-    assert field.iloc[:, 1].tolist() == [0, 1, 2] * 2
+    assert field["calendar:day"].tolist() == ["2026-03-28", "2026-03-29", "2026-03-30"] * 2
     assert [axis["role"] for axis in field.attrs["axes"]] == ["field", "calendar"]
     tokyo = frames["tokyo_calendar"]
-    assert tokyo.iloc[:, 0].tolist() == [0, 1]
+    assert tokyo["calendar:day"].tolist() == ["2026-02-01", "2026-02-02"]
     assert [axis["descriptor"]["timezone"] for axis in tokyo.attrs["axes"]] == ["Asia/Tokyo"]
-    assert frames["source_calendar"].iloc[:, 0].tolist() == [0, 1, 2]
-    assert frames["source_calendar"][("value", "value")].tolist() == [0, 0, 0]
+    assert frames["source_calendar"]["calendar:day"].tolist() == [
+        "2026-03-28",
+        "2026-03-29",
+        "2026-03-30",
+    ]
+    assert frames["source_calendar"]["value"].tolist() == [0, 0, 0]
     saved: dict[str, object] = {}
     for name, value in outputs.items():
         manifest = value.artifact._manifest
@@ -231,15 +235,12 @@ def test_select_literals_reject_naive_before_run_and_preserve_dates_and_instants
     assert caught.value.received and caught.value.repair
     assert run_ids(session) == before
     frame = query.select({"day": date(2026, 1, 1), "stamp": aware}).persist().to_pandas()
-    assert frame[("value", "day")].tolist() == [date(2026, 1, 1)]
-    assert frame[("value", "stamp")].iloc[0] == pd.Timestamp("2026-01-01T00:00Z")
+    assert frame["day"].tolist() == [date(2026, 1, 1)]
+    assert frame["stamp"].iloc[0] == pd.Timestamp("2026-01-01T00:00Z")
     literal = session.values(by=(), columns={"stamp": None}, rows=(((), {"stamp": aware}),))
-    assert (
-        literal.persist().to_pandas()[("value", "stamp")].iloc[0]
-        == frame[("value", "stamp")].iloc[0]
-    )
+    assert literal.persist().to_pandas()["stamp"].iloc[0] == frame["stamp"].iloc[0]
     compared = literal.select({"same": literal["stamp"] == aware}).persist().to_pandas()
-    assert compared[("value", "same")].tolist() == [True]
+    assert compared["same"].tolist() == [True]
 
 
 def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
@@ -275,12 +276,12 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
     saved = scores.top(3, by=scores["score"]).persist()
     exported = saved.to_pandas()
     assert exported.iloc[:2, 0].tolist() == ["A", "<null>"] and pd.isna(exported.iloc[2, 0])
-    assert exported[("value", "score")].iloc[:2].tolist() == [2.0, 1.0]
-    assert pd.isna(exported[("value", "score")].iloc[2])
+    assert exported["score"].iloc[:2].tolist() == [2.0, 1.0]
+    assert pd.isna(exported["score"].iloc[2])
     prefix = saved._local.preview(saved._backing, 2)
     preview = export_frame(prefix.schema, prefix.rows, prefix.attachments)
     assert preview.iloc[:, 0].tolist() == ["A", "<null>"]
-    assert preview[("value", "score")].tolist() == [2.0, 1.0]
+    assert preview["score"].tolist() == [2.0, 1.0]
     assert scores.top(2, by=scores["score"]).persist().to_pandas().iloc[:, 0].tolist() == [
         "A",
         "<null>",
@@ -288,7 +289,7 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
     ascending = scores.top(3, by=scores["score"], descending=False).persist().to_pandas()
     assert ascending.iloc[:2, 0].tolist() == ["<null>", "A"] and pd.isna(ascending.iloc[2, 0])
     scalar = session.values(by=(), columns={"v": None}, rows=(((), {"v": 1}),))
-    assert scalar.top(1, by=scalar["v"]).persist().to_pandas()[("value", "v")].tolist() == [1]
+    assert scalar.top(1, by=scalar["v"]).persist().to_pandas()["v"].tolist() == [1]
 
 
 def test_global_top_keeps_complete_key_ties_after_score_projection(
@@ -314,7 +315,7 @@ def test_global_top_keeps_complete_key_ties_after_score_projection(
     for selected in (artifact, session.persisted_frame(artifact.artifact.id)):
         frame = selected.to_pandas()
         assert list(frame.iloc[:, :2].itertuples(index=False, name=None)) == expected
-        assert frame[("value", "selected")].tolist() == [1] * 2
+        assert frame["selected"].tolist() == [1] * 2
 
 
 def test_literal_population_failures_use_structured_public_errors_without_reads(

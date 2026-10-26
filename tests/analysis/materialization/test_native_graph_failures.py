@@ -159,4 +159,4 @@ def test_fresh_worker_contender_only_rejects_publication(
     assert report["before"] == report["after"]
     assert len(terminal_runs(case.session)) == 1
     assert store.resources(case.session.id) == ()
-    assert saved.to_pandas()[("value", "value")].tolist() == [1000]
+    assert saved.to_pandas()["value"].tolist() == [1000]

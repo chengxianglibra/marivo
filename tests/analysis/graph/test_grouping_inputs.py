@@ -57,8 +57,8 @@ def test_identity_grouping_and_domain_have_distinct_completion(
     inferred = session.observe(
         {"value": metric}, by=(period, grouping), where=mv.in_population(members)
     )
-    assert observed.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400]
-    assert complete.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400, 0]
+    assert observed.compute().to_pandas()["value"].tolist() == [450, 150, 400]
+    assert complete.compute().to_pandas()["value"].tolist() == [450, 150, 400, 0]
     pd.testing.assert_frame_equal(inferred.compute().to_pandas(), observed.compute().to_pandas())
 
 
@@ -74,7 +74,7 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
     direct = session.observe({"value": metric}, by=(calendar,))
     reused = session.observe({"value": metric}, by=(captured_calendar,))
     assert source_graph(direct).signature == source_graph(reused).signature
-    assert direct.compute().to_pandas()[("value", "value")].tolist() == [1000, 99]
+    assert direct.compute().to_pandas()["value"].tolist() == [1000, 99]
 
 
 def test_shared_consumers_keep_their_grouping_boundaries(
@@ -208,7 +208,7 @@ def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
         assert nested != consume_metric(revenue.per(channel).mean().per(rule).mean()).node
     assert terminal_runs(session) == before
     result = interleaved.compute().to_pandas()
-    assert result[("value", "value")].tolist() == [150, 450, 400]
+    assert result["value"].tolist() == [150, 450, 400]
 
 
 @pytest.mark.parametrize("invalid_by", (None, 1, True))
@@ -333,7 +333,7 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     assert observation.coordinates.memberships == (channels._binding, customers._binding)
     result = pending.compute().to_pandas()
     keys = ordinary_columns(result)
-    assert list(result[[*keys, ("value", "value")]].itertuples(index=False, name=None)) == [
+    assert list(result[[*keys, "value"]].itertuples(index=False, name=None)) == [
         ("mobile", "A", "paid", "east", 52),
         ("mobile", "B", "paid", "east", 150),
         ("web", "A", "paid", "east", 450),
@@ -361,7 +361,7 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
         .to_pandas()
     )
     # A has two channels (450,52), B one (150), C one (400): (251+150+400)/3.
-    assert values[("value", "by_customer")].tolist() == [267]
+    assert values["by_customer"].tolist() == [267]
     # Four joint buckets average 1052/4; channel means are 425 and 101.
-    assert values[("value", "joint")].tolist() == [263]
-    assert values[("value", "by_channel")].tolist() == [263]
+    assert values["joint"].tolist() == [263]
+    assert values["by_channel"].tolist() == [263]

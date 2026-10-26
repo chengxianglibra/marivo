@@ -21,15 +21,6 @@ from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
 
-def _flat(rows: pd.DataFrame) -> pd.DataFrame:
-    result = rows.copy()
-    if isinstance(result.columns, pd.MultiIndex):
-        result.columns = [
-            column[1] if column[0] == "value" else ".".join(column) for column in result.columns
-        ]
-    return result
-
-
 @pytest.fixture
 def session(
     semantic_project_factory: Callable[..., SemanticProject],
@@ -102,11 +93,11 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
     )
     pending.show(n=0)
     fixed = pending.compute()
-    rows = _flat(fixed.to_pandas())
+    rows = fixed.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "C", "N", "B"]
     rows = rows.sort_values(rows.columns[0], kind="stable").reset_index(drop=True)
-    assert rows["presence.current.present"].tolist() == [True, False, True, True]
-    assert rows["presence.reference.present"].tolist() == [True, True, False, True]
+    assert rows["current.present"].tolist() == [True, False, True, True]
+    assert rows["reference.present"].tolist() == [True, True, False, True]
     assert pa.array(rows["q"]).to_pylist() == [2, None, 100, None]
     assert pa.array(rows["reference.baseline.q"]).to_pylist() == [2, 2, None, None]
     assert pa.array(rows["reference.absolute.q"]).to_pylist() == [0, None, None, None]
@@ -159,7 +150,7 @@ def test_ordinary_parent_selection_keeps_fixed_keys_and_fresh_source_values(
         ).fetchall()
     assert oracle == [("A", 60), ("B", -20)]
     report = target.attribute(by=(channel,)).compute()
-    rows = _flat(report.to_pandas())
+    rows = report.to_pandas()
     assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == [
         ("east", "A"),
         ("east", "B"),
@@ -216,7 +207,7 @@ def test_unsupported_max_can_still_be_investigated_against_native_sql(
     parent = session.observe(metrics, where=identifier <= 3).compute()
     with pytest.raises(AnalysisError):
         parent.attribute(by=(channel,))
-    rows = _flat(
+    rows = (
         _compare(
             session.observe(metrics, by=(channel,), where=identifier <= 3),
             session.observe(metrics, by=(channel,), where=identifier > 3),
@@ -245,7 +236,7 @@ def test_explicit_fine_question_keeps_original_ratio_without_parent_formula(
     channel = session.catalog.fields.get("sales.facts.channel")
     metric = amount.sum() / denominator.sum()
     fine = session.observe({"q": metric}, by=(channel,), where=(channel == "A") | (channel == "C"))
-    rows = _flat(_compare(fine, fine).compute().to_pandas())
+    rows = _compare(fine, fine).compute().to_pandas()
     assert rows["q"].tolist() == [-2.0, 100.0]
     assert rows["reference.absolute.q"].tolist() == [0.0, 0.0]
 
@@ -336,14 +327,16 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
             },
         ),
     ):
-        domain = rows.loc[rows[("presence", f"{alias}.present")]]
+        domain = rows.loc[rows[f"{alias}.present"]]
         assert len(domain) == count
         value = "q" if alias == "current" else f"{alias}.baseline.q"
         assert (
             dict(
                 zip(
-                    domain.iloc[:, :2].itertuples(index=False, name=None),
-                    domain[("value", value)],
+                    domain[["calendar:day", "sales.facts.channel"]].itertuples(
+                        index=False, name=None
+                    ),
+                    domain[value],
                     strict=True,
                 )
             )
@@ -369,7 +362,7 @@ def test_compound_identity_parent_and_member_candidate_policy(
     members = session.observe({"q": amount}, by=keys, where=mv.in_population(keys)).compute()
     rows = members.to_pandas()
     assert rows.iloc[:, 0].tolist() == [("t", 1), ("t", 3), ("t", 999)]
-    assert rows[("value", "q")].tolist() == [100, 2, 0]
+    assert rows["q"].tolist() == [100, 2, 0]
 
 
 def test_original_checks_survive_projection_top_zero_and_empty_investigation(
@@ -442,7 +435,7 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
         unknown_parent.attribute(by=(channel,)).compute()
     parent = session.observe({"q": metric}, by=(calendar,), where=channel != "N").compute()
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "detail.value.q")].dropna().tolist() == [2, 100, 2, 2, 100]
+    assert rows["detail.value.q"].dropna().tolist() == [2, 100, 2, 2, 100]
 
 
 def test_completed_calendar_top_retains_full_original_directory(session: Session) -> None:
@@ -456,7 +449,7 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
     binding = parent._derivation.outputs[0].target.current.binding
     assert len(binding.calendars[0].directory.rows) == 2
     report = parent.attribute(by=(channel,)).compute()
-    assert report.to_pandas().iloc[:, 0].tolist() == [0, 0]
+    assert report.to_pandas()["calendar:day"].tolist() == ["2026-08-01", "2026-08-01"]
 
 
 def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_investigation(
@@ -473,7 +466,7 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
         .align(session.observe({"q": metric}, by=(july,)), match=mv.ordinal())
         .compute()
     )
-    assert not paired.to_pandas()[("presence", "right_present")].all()
+    assert not paired.to_pandas()["right_present"].all()
     difference = paired.select({"change": paired["left.q"] - paired["right.q"]})
     with pytest.raises(AnalysisError):
         difference.attribute(by=(channel,)).compute()
@@ -482,7 +475,7 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     fine = fine_left.align(
         fine_right, on=tuple(zip(fine_left.axes, fine_right.axes, strict=True)), match=mv.ordinal()
     ).compute()
-    assert not fine.to_pandas()[("presence", "right_present")].all()
+    assert not fine.to_pandas()["right_present"].all()
 
 
 def test_reduced_report_uses_explicit_source_bridge_without_slot_collisions(
@@ -516,7 +509,7 @@ def test_population_count_classified_identity_domain_is_explicit_source_authorit
     parent = session.observe({"q": members.count()}).compute()
     with pytest.raises(AnalysisError):
         parent.attribute(by=(channel,))
-    assert original.to_pandas()[("value", "q")].tolist() == [1, 1, 1]
+    assert original.to_pandas()["q"].tolist() == [1, 1, 1]
     selected = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),),))
     detail = session.observe(
         {"q": members.where(mv.in_population(selected)).count()}, by=(mv.identity(entity), channel)
@@ -547,13 +540,13 @@ def test_member_count_effective_root_rejects_unrelated_identity_targets(
     )
     investigated = _compare(fine_current, fine_baseline).compute().to_pandas()
     assert investigated.iloc[:, 0].tolist() == [1, 2]
-    assert investigated[("presence", "reference.present")].tolist() == [False, True]
-    assert investigated[("value", "plain")].tolist() == [1, 1]
-    assert investigated[("value", "scaled")].tolist() == [2, 2]
-    assert pa.array(investigated[("value", "reference.baseline.plain")]).to_pylist() == [None, 1]
-    assert pa.array(investigated[("value", "reference.baseline.scaled")]).to_pylist() == [None, 2]
+    assert investigated["reference.present"].tolist() == [False, True]
+    assert investigated["plain"].tolist() == [1, 1]
+    assert investigated["scaled"].tolist() == [2, 2]
+    assert pa.array(investigated["reference.baseline.plain"]).to_pylist() == [None, 1]
+    assert pa.array(investigated["reference.baseline.scaled"]).to_pylist() == [None, 2]
     for name in ("plain", "scaled"):
-        assert investigated[("value", "reference.absolute." + name)].dropna().tolist() == [0]
+        assert investigated["reference.absolute." + name].dropna().tolist() == [0]
 
 
 @pytest.mark.parametrize("complete_fine", (False, True))
@@ -574,7 +567,7 @@ def test_selected_parent_scopes_member_count_before_fine_candidates(
     ).compute()
     rows = detail.to_pandas()
     assert set(rows.iloc[:, 0]) == {"east"}
-    assert rows[("value", "q")].sum() == 2
+    assert rows["q"].sum() == 2
     if complete_fine:
         assert rows.iloc[:, 1].tolist() == ["A", "C", "outside"]
 
@@ -637,7 +630,7 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
         {"q": metric}, by=(region, channel), where=mv.in_population(keys) & (identifier <= 2)
     )
     report = _compare(current, baseline).compute()
-    rows = _flat(report.to_pandas())
+    rows = report.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["east", "east", "east"]
     assert set(rows.iloc[:, 1].dropna()) == {"A", "B"}
     assert rows["reference.absolute.q"].dropna().tolist() == [Decimal(60), Decimal(-20)]
@@ -665,7 +658,7 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
     assert len(fixed.method_facts) == 1 and compared.method_facts == fixed.method_facts
     rows = compared.to_pandas()
     for alias in ("one", "two"):
-        assert rows[("value", alias + ".absolute.detail.value.q")].dropna().eq(0).all()
+        assert rows[alias + ".absolute.detail.value.q"].dropna().eq(0).all()
     assert isinstance(compared._backing, MemoryFrameBacking)
     assert len(compared._backing.metadata.audit.evaluation.inputs) == 1
 
@@ -686,7 +679,7 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
         .to_pandas()
     )
     assert compound.iloc[:, 0].tolist() == [("t", 1)]
-    assert compound[("value", "q")].tolist() == [1]
+    assert compound["q"].tolist() == [1]
     regions = mv.coordinates(by=(region,), keys=(("east",),))
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     parents = mv.product(regions, calendar)
@@ -699,5 +692,5 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
         .to_pandas()
     )
     assert rows.iloc[:, 0].tolist() == ["east"] * 4
-    assert rows.iloc[:, 1].tolist() == [0, 0, 1, 1]
-    assert rows[("value", "q")].tolist() == [1, 1, 1, 1]
+    assert rows["calendar:day"].tolist() == ["2026-08-01", "2026-08-01", "2026-08-02", "2026-08-02"]
+    assert rows["q"].tolist() == [1, 1, 1, 1]

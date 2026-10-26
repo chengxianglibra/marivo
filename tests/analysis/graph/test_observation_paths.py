@@ -191,7 +191,7 @@ def test_long_path_sum_and_count(
             result = logical.persist()
             frame = result.to_pandas()
             coordinate = ordinary_columns(frame)[0]
-            assert dict(zip(frame[coordinate], frame[("value", "value")], strict=True)) == dict(
+            assert dict(zip(frame[coordinate], frame["value"], strict=True)) == dict(
                 zip(expected_keys, expected, strict=True)
             )
             outputs[metric] = result
@@ -209,7 +209,7 @@ def test_long_path_sum_and_count(
                 selected_frame = selected.to_pandas()
                 coordinate = ordinary_columns(selected_frame)[0]
                 assert dict(
-                    zip(selected_frame[coordinate], selected_frame[("value", "value")], strict=True)
+                    zip(selected_frame[coordinate], selected_frame["value"], strict=True)
                 ) == dict(zip(expected_keys, (2, 0, 0), strict=True))
                 outputs["sliced"] = selected
         assert trace.native_sql

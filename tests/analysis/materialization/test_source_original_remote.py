@@ -66,8 +66,8 @@ def test_mysql_original_integer_recompute(
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         if method == "sum":
-            assert frame["value", "value"].tolist() == [2**53 + 7]
-        assert frame["value", "value"].tolist() == [native]
+            assert frame["value"].tolist() == [2**53 + 7]
+        assert frame["value"].tolist() == [native]
         if method in ("mean", "weighted_mean"):
             assert native == float(2**53 + 7) / 4
 
@@ -89,12 +89,12 @@ def test_mysql_original_drill_and_share(
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [4]
         assert trace.uploaded_key_rows == []
-        assert sorted(frame["value", "value"].tolist()) == [1, 2, 3, 9007199254740993]
+        assert sorted(frame["value"].tolist()) == [1, 2, 3, 9007199254740993]
 
         actual = [
             (None if pd.isna(category_key) else category_key, tenant_key, value)
             for category_key, tenant_key, value in zip(
-                frame.iloc[:, 0], frame.iloc[:, 1], frame[("value", "value")], strict=True
+                frame.iloc[:, 0], frame[frame.attrs["axes"][1]["name"]], frame["value"], strict=True
             )
         ]
         assert sorted(actual, key=lambda row: row[1]) == [
@@ -135,7 +135,7 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
         frame = (
             session.observe({"value": amount.weighted_mean(weight=weight)}).compute().to_pandas()
         )
-        assert frame["value", "value"].tolist() == [2.25]
+        assert frame["value"].tolist() == [2.25]
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         assert not any(
@@ -184,7 +184,7 @@ def test_mysql_unqualified_original_retains_actual_host_input(
             query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
-        assert result["value", "value"].tolist() == [
+        assert result["value"].tolist() == [
             2 if boundary == "nullable" else 6 if boundary == "collation" else 2**53 + 2
         ]
         assert trace.returned_rows
@@ -232,7 +232,7 @@ def test_remote_original_recompute_does_not_require_input_anchor(
         query = session.observe({"value": amount.sum()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
-        assert result["value", "value"].tolist() == [3]
+        assert result["value"].tolist() == [3]
         assert trace.returned_rows == [1]
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names

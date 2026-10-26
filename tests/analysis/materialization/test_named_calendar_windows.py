@@ -107,7 +107,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
         .to_pandas()
     )
     for name in ("named", "anonymous"):
-        actual = data[("value", name)].iloc[0]
+        actual = data[name].iloc[0]
         assert pd.isna(actual) if expected is None else actual == expected
 
 
@@ -137,7 +137,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", forbidden)
     assert _source_graph(query).fingerprint == original
     data = query.compute().to_pandas()
-    assert data[("value", "total")].tolist() == [120, 0, 0, 7]
+    assert data["total"].tolist() == [120, 0, 0, 7]
 
 
 @pytest.mark.release
@@ -229,7 +229,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
         }
         data = query.compute().to_pandas()
         for name in ("named", "explicit"):
-            assert data[("value", name)].iloc[-1] == expected
+            assert data[name].iloc[-1] == expected
 
 
 @pytest.mark.parametrize("status", ["missing", "stale", "invalid"])

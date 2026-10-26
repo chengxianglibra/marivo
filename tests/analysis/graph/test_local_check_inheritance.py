@@ -54,10 +54,10 @@ def test_outer_period_comparison_finishes_before_inherited_reduction(
     frame = reduced.compute().to_pandas()
     assert len(consumed) == 1
     if prune in ("where", "top"):
-        assert frame[("value", "total")].tolist() == [0]
-        assert frame[("value", "rows")].tolist() == [0]
+        assert frame["total"].tolist() == [0]
+        assert frame["rows"].tolist() == [0]
     else:
-        assert frame[("value", "total")].tolist() == [1]
-        assert frame[("value", "rows")].tolist() == [12]
+        assert frame["total"].tolist() == [1]
+        assert frame["rows"].tolist() == [12]
     original = changed.compute().to_pandas()
-    assert original[("value", "value")].sum() == 1 and len(original) == 12
+    assert original["value"].sum() == 1 and len(original) == 12

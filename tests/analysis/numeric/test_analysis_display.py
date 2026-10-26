@@ -524,8 +524,8 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
         .compute()
         .to_pandas()
     )
-    assert paired[("presence", "left_present")].all()
-    assert (~paired[("presence", "right_present")]).any()
+    assert paired["left_present"].all()
+    assert (~paired["right_present"]).any()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
     from marivo.analysis.materialization.errors import MaterializationError
@@ -554,9 +554,7 @@ def test_empty_original_domain_and_numeric_view_continuations(
         else:
             assert ranking["value"].sum() == 7
             assert ranking.loc[ranking["value"] > 1, "value"].sum() == 5
-            assert _values(case, overall=True).compute().to_pandas()[
-                ("value", "value")
-            ].tolist() == [7]
+            assert _values(case, overall=True).compute().to_pandas()["value"].tolist() == [7]
             chosen = values.where(values["value"] > 1)
             chosen_values = chosen.compute()
             selected_members = case.session.population_from(
@@ -564,7 +562,7 @@ def test_empty_original_domain_and_numeric_view_continuations(
                 on=((chosen_values.axes[1], case.session.catalog.entities.get("sales.customer")),),
             )
             assert _values(case, overall=True, members=selected_members).compute().to_pandas()[
-                ("value", "value")
+                "value"
             ].tolist() == [5]
 
 
@@ -612,7 +610,7 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
         member: sorted(frame.loc[frame["member"] == member, "value"].tolist())
         for member in expected
     } == {member: sorted(values) for member, values in expected.items()}
-    assert frame.shape == (12, 5)
+    assert frame.shape == (12, 8)
 
 
 def test_public_undefined_ranks_and_strict_two_step_filter(

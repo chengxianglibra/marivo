@@ -111,16 +111,21 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     factor = 1 if calendar else 2
     repetitions = 2 if calendar else 1
     assert len(rows) == 2 * repetitions
-    assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == [
-        (key, channel) for key in compared.to_pandas().iloc[:, 0] for channel in ("A", "B")
-    ]
+    assert list(
+        rows[
+            [
+                rows.attrs["axes"][0]["name"] + (".start" if not calendar else ""),
+                "sales.facts.channel",
+            ]
+        ].itertuples(index=False, name=None)
+    ) == [(key, channel) for key in compared.to_pandas().iloc[:, 0] for channel in ("A", "B")]
     for alias in ("one", "two"):
         for role, expected in (
             ("baseline", [100 * factor, 100 * factor]),
             ("absolute", [60 * factor, -20 * factor]),
             ("relative", [0.3, -0.1]),
         ):
-            assert rows[("value", f"contribution.{alias}.{role}.q")].tolist() == pytest.approx(
+            assert rows[f"contribution.{alias}.{role}.q"].tolist() == pytest.approx(
                 expected * repetitions
             )
 
@@ -153,10 +158,10 @@ def test_plain_calendar_complete_parent_order_independent_reads(
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(reads) == 4
-    assert result[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
-    assert result[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
-    assert result[("presence", "detail.current.present.q")].all()
-    assert result[("presence", "detail.baseline.present.q")].all()
+    assert result["contribution.q"].tolist() == [60, -20, 60, -20]
+    assert result["contribution_share.q"].tolist() == [1.5, -0.5, 1.5, -0.5]
+    assert result["detail.current.present.q"].all()
+    assert result["detail.baseline.present.q"].all()
 
 
 @pytest.mark.release
@@ -192,10 +197,10 @@ def test_cross_period_paired_calendar_parent(
     monkeypatch.setattr(SourceSession, "execute", execute)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert len(calls) == 4
-    assert rows[("value", "detail.current.q")].tolist() == [160, 80, 160, 80]
-    assert rows[("value", "detail.baseline.q")].tolist() == [100, 100, 100, 100]
-    assert rows[("value", "contribution.q")].tolist() == [60, -20, 60, -20]
-    assert rows[("value", "contribution_share.q")].tolist() == [1.5, -0.5, 1.5, -0.5]
+    assert rows["detail.current.q"].tolist() == [160, 80, 160, 80]
+    assert rows["detail.baseline.q"].tolist() == [100, 100, 100, 100]
+    assert rows["contribution.q"].tolist() == [60, -20, 60, -20]
+    assert rows["contribution_share.q"].tolist() == [1.5, -0.5, 1.5, -0.5]
 
 
 @pytest.mark.release
@@ -287,10 +292,10 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     assert (
         list(
             zip(
-                rows[("value", "detail.current.q")],
-                rows[("value", "detail.baseline.q")],
-                rows[("value", "contribution.q")],
-                rows[("value", "contribution_share.q")],
+                rows["detail.current.q"],
+                rows["detail.baseline.q"],
+                rows["contribution.q"],
+                rows["contribution_share.q"],
                 strict=True,
             )
         )
@@ -471,11 +476,11 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
         session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
     )
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "contribution.q")].tolist() == [110, -50]
-    assert rows[("value", "contribution_share.q")].tolist() == pytest.approx([11 / 6, -5 / 6])
-    assert rows[("value", "detail.current.q")].iloc[0] == 160
-    assert pd.isna(rows[("value", "detail.current.q")].iloc[1])
-    assert rows[("presence", "detail.current.present.q")].all()
+    assert rows["contribution.q"].tolist() == [110, -50]
+    assert rows["contribution_share.q"].tolist() == pytest.approx([11 / 6, -5 / 6])
+    assert rows["detail.current.q"].iloc[0] == 160
+    assert pd.isna(rows["detail.current.q"].iloc[1])
+    assert rows["detail.current.present.q"].all()
 
 
 @pytest.mark.parametrize("corruption", ("mapping", "partial_directory"))
@@ -561,9 +566,9 @@ def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: 
         .compute()
         .to_pandas()
     )
-    assert ordinary[("value", "q")].tolist() == [260]
+    assert ordinary["q"].tolist() == [260]
     result = parent.attribute(by=(channel,)).compute().to_pandas()
-    assert result[("value", "total.q")].tolist() == [260]
+    assert result["total.q"].tolist() == [260]
 
 
 def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
@@ -576,8 +581,8 @@ def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
-    assert rows[("value", "total.q")].tolist() == [600, 600]
-    assert rows[("value", "contribution.q")].sum() == 600
+    assert rows["total.q"].tolist() == [600, 600]
+    assert rows["contribution.q"].sum() == 600
 
 
 def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: Session) -> None:
@@ -799,18 +804,18 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
         role_rows = rows.loc[rows.iloc[:, 0] == wide_role]
         role_parent = parent_rows.loc[parent_rows.iloc[:, 0] == wide_role]
         native_current, native_baseline, native_change = expected_parent_values[wide_role]
-        assert role_parent[("value", "q")].tolist() == [native_current]
-        assert role_parent[("value", "base.baseline.q")].tolist() == [native_baseline]
-        assert role_parent[("value", "base.absolute.q")].tolist() == [native_change]
+        assert role_parent["q"].tolist() == [native_current]
+        assert role_parent["base.baseline.q"].tolist() == [native_baseline]
+        assert role_parent["base.absolute.q"].tolist() == [native_change]
         assert role_rows.iloc[:, 1].tolist() == ["A", "B"]
         for name, values in expected_details[wide_role].items():
-            assert role_rows[("value", name)].tolist() == values
-        assert role_rows[("value", "contribution.q")].tolist() == contributions
-        assert role_rows[("value", "contribution_share.q")].tolist() == [
+            assert role_rows[name].tolist() == values
+        assert role_rows["contribution.q"].tolist() == contributions
+        assert role_rows["contribution_share.q"].tolist() == [
             value / native_change for value in contributions
         ]
-    assert rows[("presence", "detail.current.present.q")].all()
-    assert rows[("presence", "detail.baseline.present.q")].all()
+    assert rows["detail.current.present.q"].all()
+    assert rows["detail.baseline.present.q"].all()
     parent_inputs = [root for root in captured if root.layout.scope == "parent"]
     assert sorted(root.layout.leaves[0].use.endpoint for root in parent_inputs) == ["left", "right"]
     for root in parent_inputs:
@@ -836,19 +841,13 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
         assert all(
             isinstance(value, Decimal)
             for value in rows[
-                (
-                    "value",
-                    "component." + ("current" if side == "left" else "baseline") + ".numerator.q",
-                )
+                "component." + ("current" if side == "left" else "baseline") + ".numerator.q"
             ]
         )
         assert all(
             isinstance(value, Decimal)
             for value in rows[
-                (
-                    "value",
-                    "component." + ("current" if side == "left" else "baseline") + ".denominator.q",
-                )
+                "component." + ("current" if side == "left" else "baseline") + ".denominator.q"
             ]
         )
 
@@ -917,17 +916,17 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
         ).compute()
     rows = result.to_pandas()
     assert len(result.axes) == 2
-    assert rows[("value", "detail.current.q" if contribution else "q")].tolist() == [320, 160]
-    assert rows[("value", "detail.baseline.q" if contribution else "base.baseline.q")].tolist() == [
+    assert rows["detail.current.q" if contribution else "q"].tolist() == [320, 160]
+    assert rows["detail.baseline.q" if contribution else "base.baseline.q"].tolist() == [
         200,
         200,
     ]
-    assert rows[("value", "detail.absolute.q" if contribution else "base.absolute.q")].tolist() == [
+    assert rows["detail.absolute.q" if contribution else "base.absolute.q"].tolist() == [
         120,
         -40,
     ]
     if contribution:
-        assert rows[("value", "contribution.q")].tolist() == [120, -40]
+        assert rows["contribution.q"].tolist() == [120, -40]
 
 
 @pytest.mark.parametrize("paired", (False, True))
@@ -992,13 +991,9 @@ def test_captured_interval_parent_keeps_original_endpoint_scopes(
     report = selected.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
     assert len(report.axes) == 3
-    assert rows[("value", "contribution.q")].tolist() == (
-        [200, 200] if shape == "right_level" else [120, -40]
-    )
-    assert rows[("value", "total.q")].tolist() == (
-        [400, 400] if shape == "right_level" else [80, 80]
-    )
-    assert rows[("value", "observed_total.q")].tolist() == rows[("value", "total.q")].tolist()
+    assert rows["contribution.q"].tolist() == ([200, 200] if shape == "right_level" else [120, -40])
+    assert rows["total.q"].tolist() == ([400, 400] if shape == "right_level" else [80, 80])
+    assert rows["observed_total.q"].tolist() == rows["total.q"].tolist()
 
 
 def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
@@ -1032,8 +1027,8 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
     selected = selected.top(1, by=selected["q"]).compute()
     report = selected.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
-    assert int(rows[("value", "detail.current.q")].iloc[0]) == exact
-    assert int(rows[("value", "detail.baseline.q")].iloc[0]) == exact - 60
-    assert rows[("value", "contribution.q")].tolist() == [60, -20]
-    assert rows[("value", "total.q")].tolist() == [40, 40]
-    assert str(rows[("value", "detail.current.q")].dtype) == "decimal128(38, 0)[pyarrow]"
+    assert int(rows["detail.current.q"].iloc[0]) == exact
+    assert int(rows["detail.baseline.q"].iloc[0]) == exact - 60
+    assert rows["contribution.q"].tolist() == [60, -20]
+    assert rows["total.q"].tolist() == [40, 40]
+    assert str(rows["detail.current.q"].dtype) == "decimal128(38, 0)[pyarrow]"

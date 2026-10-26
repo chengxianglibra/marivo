@@ -53,7 +53,7 @@ def test_decimal_quantile_rollup_returns_fractional_native_value(
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
     expected = Decimal("2.00") if method == "median" else Decimal("1.63")
-    assert frame["value", "value"].tolist() == [expected]
+    assert frame["value"].tolist() == [expected]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
     assert not any(
@@ -82,7 +82,7 @@ def test_decimal_quantile_selected_parent_keeps_native_fractional_value(
         .compute()
         .to_pandas()
     )
-    assert frame["value", "value"].tolist() == [Decimal("1.63")]
+    assert frame["value"].tolist() == [Decimal("1.63")]
     assert trace.returned_rows
 
 
@@ -104,7 +104,7 @@ def test_decimal_quantile_all_null_and_empty_target_remain_null(
             trace = capture_source(scoped)
             frame = session.observe({"value": metric}).compute().to_pandas()
             assert len(frame) == 1
-            assert pd.isna(frame["value", "value"].iloc[0])
+            assert pd.isna(frame["value"].iloc[0])
             assert trace.returned_rows == [1]
 
 
@@ -136,7 +136,7 @@ def test_decimal_quantile_parent_formula_masks_zero(
     metric = quantile / (quantile - 1.25)
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}, by=(tenant,)).compute().to_pandas()
-    assert result[("value", "value")].isna().any()
+    assert result["value"].isna().any()
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
@@ -150,5 +150,5 @@ def test_decimal_sample_quantiles_finish_before_per_mean(
     metric = amount.quantile(0.25).per(category).mean()
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
-    assert frame["value", "value"].tolist() == [Decimal("1.63")]
+    assert frame["value"].tolist() == [Decimal("1.63")]
     assert not any("__original_upper" in name for names in trace.returned_columns for name in names)

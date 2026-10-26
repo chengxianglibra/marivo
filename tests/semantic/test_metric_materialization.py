@@ -123,8 +123,8 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     anonymous = current.fields.get("sales.orders.amount").sum()
     artifact = session.observe({"named": named, "anonymous": anonymous}).persist()
     expected = artifact.to_pandas()
-    assert expected[("value", "named")].tolist() == [100]
-    assert expected[("value", "anonymous")].tolist() == [100]
+    assert expected["named"].tolist() == [100]
+    assert expected["anonymous"].tolist() == [100]
 
     def no_source_reads(*args: object, **kwargs: object) -> None:
         raise AssertionError("Terminal reads must not materialize semantic sources")

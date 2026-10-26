@@ -213,8 +213,8 @@ preview success says nothing about unread payload integrity.
 Stored to_pandas validates complete current values/keys/presence and
 attachments: receipts, types, nullability, finite values, uniqueness, directory
 references, direct/comparison/paired maps and exact endpoint-presence implications. Missing/corrupt records never become legitimate
-unmatched endpoints. Full export is isolated and retains raw coordinate keys in
-`(kind, name)` MultiIndex columns, with kinds coordinate/value/presence. Typed
+unmatched endpoints. Full export is an isolated readable flat table with interpreted coordinates,
+full value names and independent presence columns. Typed
 attrs contain axis descriptions, units and isolated frozen coordinate tables;
 no reader, Frame, Store, semantic object or executable calendar is retained.
 Attrs cannot be reimported as computation authority.

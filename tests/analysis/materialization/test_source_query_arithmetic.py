@@ -86,13 +86,13 @@ def test_query_arithmetic_keeps_selected_completed_values(
         assert trace.returned_rows == ([3] if operation == "formula" else [6])
         assert trace.uploaded_key_rows == []
         if operation == "formula":
-            assert actual["value", "sparse"].tolist() == [110]
-            assert actual["value", "total"].tolist() == [110]
-            assert actual["value", "n"].tolist() == [2]
+            assert actual["sparse"].tolist() == [110]
+            assert actual["total"].tolist() == [110]
+            assert actual["n"].tolist() == [2]
         elif operation == "columns":
-            assert actual["value", "value"].tolist() == [19.5, 29.5]
+            assert actual["value"].tolist() == [19.5, 29.5]
         elif operation == "na_zero":
-            assert actual["value", "value"].isna().all()
+            assert actual["value"].isna().all()
         trace.save(
             f"query-arithmetic-{backend}-{operation}",
             case.environment,
@@ -155,7 +155,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         query = source.where(score > 100) if operation == "filter" else source.top(2, by=score)
         trace = capture_source(monkeypatch)
         actual = query.compute().to_pandas()
-        assert actual["coordinate", "axis.0"].tolist() == (
+        assert actual[actual.attrs["axes"][0]["name"]].tolist() == (
             [("t4", 4)] if operation == "filter" else [("t4", 4), ("t5", 5)]
         )
         assert terminal_runs(session) == ()
@@ -221,7 +221,7 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
                 query.compute()
         else:
             actual = query.compute().to_pandas()
-            assert actual.empty if top_zero else actual["value", "value"].iloc[0] == float("inf")
+            assert actual.empty if top_zero else actual["value"].iloc[0] == float("inf")
         assert terminal_runs(session) == ()
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram

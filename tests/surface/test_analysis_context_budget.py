@@ -112,7 +112,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(overall.compute)
     total = overall.compute()
     trace.read("total result", total.show)
-    assert total.to_pandas()[("value", "value")].tolist() == [4]
+    assert total.to_pandas()["value"].tolist() == [4]
 
     trace = traces["current_mean"] = Trace(case.root)
     trace.help("analysis.frame.statistics")
@@ -121,7 +121,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(mv.AnalysisFrame.compute)
     mean = values.reduce({"value": values["value"].mean()}).compute()
     trace.read("mean result", mean.show)
-    assert mean.to_pandas()[("value", "value")].tolist() == [1.0]
+    assert mean.to_pandas()["value"].tolist() == [1.0]
 
     trace = traces["comparison_ratio"] = Trace(case.root)
     trace.read("observation metadata", values.show)
@@ -166,9 +166,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(mv.AnalysisFrame.compute)
     exported = amounts.compute().to_pandas()
     with pytest.warns(Warning, match="An input array is constant"):
-        association = exported[("value", "count")].corr(
-            exported[("value", "revenue")], method="spearman"
-        )
+        association = exported["count"].corr(exported["revenue"], method="spearman")
     trace.read("pandas association", lambda: print(association))
     # All four August counts equal1; represented Spearman is undefined.
     assert pd.isna(association)
@@ -197,7 +195,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     from tests.analysis.statistics.pandas_workflows import forecast
 
     trace.help(mv.AnalysisFrame.compute)
-    future = forecast(daily.compute().to_pandas()[("value", "value")], model="drift")
+    future = forecast(daily.compute().to_pandas()["value"], model="drift")
     trace.read("pandas forecast", lambda: print(future.to_string(index=False)))
     assert future["prediction"].tolist() == [10.0, 13.0]
 
@@ -267,7 +265,7 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     trace.identities[facts[0].origin_result_id] = "<attribute-origin>"
     trace.help("analysis.frame_method_facts.show")
     trace.read("original explanation facts", lambda: facts[0].show(n=3))
-    assert fixed.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50, 0]
+    assert fixed.to_pandas()["contribution.revenue"].tolist() == [-20, -50, 0]
     assert facts[0].parents[0].metrics[0].method.change.value == -70
     measured = trace.metrics()
     recording = os.environ.get("MARIVO_ATTRIBUTE_HELP_BUDGET_RECORD")

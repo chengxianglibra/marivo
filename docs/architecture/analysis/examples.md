@@ -40,7 +40,7 @@ change = current.compare(
 ).persist()
 change.show(n=10)
 change.artifact.show()
-assert change.to_pandas()[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert change.to_pandas()["reference.absolute.revenue"].tolist() == [-100, -100]
 ```
 
 The TimeScope is an actual interval axis in by. Full on binds interval and region;
@@ -61,7 +61,7 @@ prior_for_chosen = session.observe(
     where=mv.in_population(parents),
 ).compute()
 prior_for_chosen.show()
-assert prior_for_chosen.to_pandas()[("value", "revenue")].tolist() == [700]
+assert prior_for_chosen.to_pandas()["revenue"].tolist() == [700]
 ```
 
 The selected west region stays fixed even if a later source read changes values.
@@ -82,7 +82,7 @@ fixed_members = session.population_from(keys, on=((keys.axes[0], orders),))
 attributes = session.read(fixed_members, {"region": region, "amount": amount}).compute()
 attributes.show(n=10)
 member_count = session.observe({"orders": fixed_members.count()}).compute()
-assert member_count.to_pandas()[("value", "orders")].tolist() == [6]
+assert member_count.to_pandas()["orders"].tolist() == [6]
 ```
 
 frame accepts general Population keys and can have no values. read requires a
@@ -100,9 +100,9 @@ row_summary = current.reduce({
 }).compute()
 row_summary.show()
 summary = row_summary.to_pandas()
-assert summary[("value", "mean_regional_revenue")].tolist() == [400]
-assert summary[("value", "sum_regional_revenue")].tolist() == [800]
-assert summary[("value", "regions")].tolist() == [2]
+assert summary["mean_regional_revenue"].tolist() == [400]
+assert summary["sum_regional_revenue"].tolist() == [800]
+assert summary["regions"].tolist() == [2]
 ```
 
 These are statistics of current cells. They do not recover original Metric
@@ -122,13 +122,13 @@ regional = current.reduce({"revenue": current["revenue"].sum()}, by=(current.axe
 joined = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
 variance = joined.select({"variance": joined["left.revenue"] - joined["right.budget"]}).compute()
 variance.show()
-assert variance.to_pandas()[("value", "variance")].tolist() == [-50, -50]
+assert variance.to_pandas()["variance"].tolist() == [-50, -50]
 
 paired_statistics = joined.correlate(
     joined["left.revenue"], joined["right.budget"], method="pearson",
 ).compute()
 paired_statistics.show()
-assert paired_statistics.to_pandas()[("value", "n_pairs")].tolist() == [2]
+assert paired_statistics.to_pandas()["n_pairs"].tolist() == [2]
 ```
 
 Reducing the existing interval axis yields region-only current data. Align binds
@@ -151,7 +151,7 @@ explained = target.attribute(by=(region,)).persist()
 explained.show()
 facts = explained.method_facts
 assert len(facts) == 1
-assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
 negative = explained.where(explained["contribution.revenue"] < 0).compute()
 assert negative.method_facts == facts
 ```
@@ -173,7 +173,7 @@ restored = resumed.persisted_frame(saved_artifact_id)
 restored.show(n=0)
 positive = restored.where(restored["revenue"] > 0).compute()
 positive.show()
-assert positive.to_pandas()[("value", "revenue")].tolist() == [200, 600]
+assert positive.to_pandas()["revenue"].tolist() == [200, 600]
 positive.persist().artifact.show()
 ```
 

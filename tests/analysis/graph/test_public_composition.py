@@ -66,7 +66,7 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     case = analysis_dsl_case_factory("tuple_union")
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status)).persist()
     frame = observed.to_pandas()
-    assert frame.set_index(list(ordinary_columns(frame)))[("value", "value")].to_dict() == {
+    assert frame.set_index(list(ordinary_columns(frame)))["value"].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
         ("A", "web", "paid"): 40.0,
     }
@@ -79,12 +79,12 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
         .persist()
         .to_pandas()
     )
-    assert rolled.set_index(ordinary_columns(rolled)[0])[("value", "value")].to_dict() == {
+    assert rolled.set_index(ordinary_columns(rolled)[0])["value"].to_dict() == {
         "web": 40.0,
         "mobile": 0.0,
     }
     mean = observed.reduce({"mean": observed["value"].mean()}).persist().to_pandas()
-    assert mean[("value", "mean")].tolist() == [20.0]
+    assert mean["mean"].tolist() == [20.0]
 
 
 @pytest.mark.parametrize("scenario", ["empty_group", "zero_denominator"])
@@ -92,7 +92,7 @@ def test_ratio_original_inputs_and_empty_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
     scenario: Literal["empty_group", "zero_denominator"],
 ) -> None:
-    values = _ratio(analysis_dsl_case_factory(scenario)).persist().to_pandas()[("value", "value")]
+    values = _ratio(analysis_dsl_case_factory(scenario)).persist().to_pandas()["value"]
     if scenario == "empty_group":
         assert values.iloc[0] == 0
         assert pd.isna(values.iloc[1])
@@ -122,9 +122,9 @@ def test_empty_numeric_selection_has_distinct_row_policies(
         .persist()
         .to_pandas()
     )
-    assert result[("value", "sum")].tolist() == [0]
-    assert result[("value", "count")].tolist() == [0]
-    assert result[("value", "mean")].isna().all()
+    assert result["sum"].tolist() == [0]
+    assert result["count"].tolist() == [0]
+    assert result["mean"].isna().all()
 
 
 @pytest.mark.parametrize("corruption", ["rows", "graph", "format_version"])
@@ -222,7 +222,7 @@ def test_public_exact_cold_output_after_source_and_models_are_deleted(
 
     case = analysis_dsl_case_factory("j4")
     saved = _correlation_input(case).persist()
-    values = saved.to_pandas()["value"]
+    values = saved.to_pandas()
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(-0.4)
     case.database_path.unlink()
     shutil.rmtree(case.root / "models")
@@ -243,7 +243,7 @@ DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 saved = session.persisted_frame(sys.argv[2])
-values = saved.to_pandas()['value']
+values = saved.to_pandas()
 coefficient = values['revenue'].corr(values['count'], method='spearman')
 assert abs(coefficient + .4) < 1e-12
 assert coefficient < .1
@@ -336,7 +336,7 @@ def test_large_integer_threshold_retains_exact_comparison(
     values = current.select({"large": 2**63})
     same = values.where(values["large"] == 2**63).persist().to_pandas()
     assert len(same) == 4
-    assert same[("value", "large")].tolist() == [2**63] * 4
+    assert same["large"].tolist() == [2**63] * 4
     assert values.where(values["large"] == 2**63 + 1).persist().to_pandas().empty
 
 
@@ -353,7 +353,7 @@ def test_public_parquet_spearman_has_separate_source_evidence(
         session=mv.session.get_or_create("parquet", timezone="UTC"),
     )
     saved = _correlation_input(case).persist()
-    values = saved.to_pandas()["value"]
+    values = saved.to_pandas()
     facts = analysis_dsl_rows("j4_ties")
     amounts = {
         key: sum(row[-1] for row in facts.orders if row[1] == key) for key, _ in facts.customers

@@ -76,7 +76,7 @@ def test_public_attribute_help_example_uses_real_source(
     pending = namespace["result"]
     assert isinstance(pending, mv.AnalysisFrame)
     level = pending.compute()
-    assert level.to_pandas()[("value", "contribution.revenue")].tolist() == [610, 50, 0]
+    assert level.to_pandas()["contribution.revenue"].tolist() == [610, 50, 0]
 
 
 def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data(
@@ -113,30 +113,29 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             with pytest.raises(AnalysisError, match="compute"):
                 derived.to_pandas()
             assert isinstance(result, mv.AnalysisFrame)
-            assert result.to_pandas()[("value", "scaled")].tolist() == [-2, 0, 6]
+            assert result.to_pandas()["scaled"].tolist() == [-2, 0, 6]
         elif method == "reduce":
             assert isinstance(result, mv.AnalysisFrame)
             assert result.axes == ()
             data = result.to_pandas()
             assert result.output_names == ("value_sum",)
-            assert data[("value", "value_sum")].tolist() == [3]
-            assert set(data.columns.get_level_values("kind")) == {"value"}
+            assert data["value_sum"].tolist() == [3]
+            assert data.columns.tolist() == ["value_sum"]
             assert data.attrs["axes"] == ()
         elif method == "over":
             assert isinstance(result, mv.Column)
             selected = namespace["selected"]
             assert isinstance(selected, mv.AnalysisFrame)
             data = selected.to_pandas()
-            assert data[("value", "value")].tolist() == [-1, 0, 3]
-            assert data[("value", "total")].tolist() == [2, 2, 2]
+            assert data["value"].tolist() == [-1, 0, 3]
+            assert data["total"].tolist() == [2, 2, 2]
         else:
             assert isinstance(result, pd.DataFrame)
-            assert result.columns.names == ["kind", "name"]
-            assert list(result["value"].columns) == list(frame.output_names)
+            assert result.columns.nlevels == 1
+            assert result.columns.tolist() == [frame.axes[0].name, *frame.output_names]
             values = namespace["values"]
             assert isinstance(values, pd.Series)
             assert values.tolist() == [-1, 0, 3]
-            assert namespace["axis_labels"] == result.attrs["axes"]
             axis = result.attrs["axes"][0]
             assert (axis["token"], axis["name"], axis["key_names"]) == (
                 frame.axes[0].token,
@@ -147,12 +146,12 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             assert result.attrs["units"] == (("value", None),)
             assert result.attrs["comparisons"] == ()
             assert result.attrs["frozen_coordinates"] == ()
-            assert result[("coordinate", frame.axes[0].token)].tolist() == [
+            assert result[frame.axes[0].name].tolist() == [
                 "east",
                 "north",
                 "west",
             ]
-            assert "presence" not in result.columns.get_level_values("kind")
+            assert not frame.presence_names
 
 
 def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
@@ -191,6 +190,7 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     statistics_markers = (
         "query-result-statistics",
         "frame-partition-share",
+        "pandas-descriptive-statistics",
         "pandas-paired-statistics",
     )
     examples_by_language: dict[str, dict[str, str]] = {}
@@ -232,17 +232,17 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         exec(compile(examples[marker], "<statistics-" + marker + ">", "exec"), namespace)
     east_total = namespace["east_total"]
     assert isinstance(east_total, mv.AnalysisFrame)
-    assert east_total.to_pandas()[("value", "revenue")].tolist() == [500]
+    assert east_total.to_pandas()["revenue"].tolist() == [500]
     normalized = namespace["normalized"]
     assert isinstance(normalized, mv.AnalysisFrame)
     normalized_rows = normalized.to_pandas()
-    assert normalized_rows[("value", "total")].tolist() == [800, 800]
-    assert normalized_rows[("value", "share")].tolist() == [0.25, 0.75]
-    assert normalized_rows[("value", "rows")].tolist() == [2, 2]
+    assert normalized_rows["total"].tolist() == [800, 800]
+    assert normalized_rows["share"].tolist() == [0.25, 0.75]
+    assert normalized_rows["rows"].tolist() == [2, 2]
     explained = namespace["explained"]
     assert isinstance(explained, mv.AnalysisFrame)
     rows = explained.to_pandas()
-    assert rows[("value", "contribution_share.revenue")].tolist() == [0.5, 0.5]
+    assert rows["contribution_share.revenue"].tolist() == [0.5, 0.5]
     method = explained.method_facts[0].parents[0].metrics[0].method
     assert isinstance(method, FrameAdditiveMethod)
     assert method.change.value == -200
@@ -346,8 +346,8 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         if page == "analysis/time-series.mdx":
             source += (
                 "\nassert len(daily.to_pandas()) == 31\n"
-                'assert rolling.to_pandas()[("value", "revenue")].iloc[4] == 100\n'
-                'assert month_to_date.to_pandas()[("value", "revenue")].iloc[14] == 200\n'
+                'assert rolling.to_pandas()["revenue"].iloc[4] == 100\n'
+                'assert month_to_date.to_pandas()["revenue"].iloc[14] == 200\n'
             )
         write(tmp_path, filename, source)
     write(
@@ -385,9 +385,9 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         "metrics = session.catalog.metrics\n"
         'result = session.observe({name: metrics.get("sales." + name) for name in '
         '("revenue", "average_order_value", "gross_margin_rate")}).compute().to_pandas()\n'
-        'assert result[("value", "revenue")].iloc[0] == 1800\n'
-        'assert result[("value", "average_order_value")].iloc[0] == 300\n'
-        'assert abs(result[("value", "gross_margin_rate")].iloc[0] - 0.4) < 1e-12\n',
+        'assert result["revenue"].iloc[0] == 1800\n'
+        'assert result["average_order_value"].iloc[0] == 300\n'
+        'assert abs(result["gross_margin_rate"].iloc[0] - 0.4) < 1e-12\n',
     )
     run_group(extended, ("seed.py", "add_cost.py", "check_metrics.py"))
     for filename, source in zip(

@@ -23,8 +23,8 @@ def test_ratio_exports_na_without_requiring_retained_coverage(
     history = _daily(case)
     ratio = history.select({"value": history["value"] / history["value"]}).compute()
     frame = ratio.to_pandas()
-    assert frame[("value", "value")].iloc[0] == 1
-    assert frame[("value", "value")].iloc[1:].isna().all()
+    assert frame["value"].iloc[0] == 1
+    assert frame["value"].iloc[1:].isna().all()
     result = segments(frame)
     assert result["count"].tolist() == [1]
     assert result["duration"].tolist() == [timedelta(days=1)]
@@ -35,7 +35,7 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     daily = _daily(case)
     fixed = daily.compute()
     frame = fixed.to_pandas()
-    assert frame[("value", "value")].tolist() == [60, 0, 0]
+    assert frame["value"].tolist() == [60, 0, 0]
     before = len(terminal_runs(case.session))
     result = segments(frame)
     assert result["count"].tolist() == [1]
@@ -111,11 +111,9 @@ def test_new_grid_after_subject_selection(
     artifact = fresh.persist()
     receiver = session.persisted_frame(artifact.artifact.id) if fixed else artifact
     frame = receiver.to_pandas()
-    assert frame[("value", "value")].tolist() == [60, 0, 0]
+    assert frame["value"].tolist() == [60, 0, 0]
     before = len(terminal_runs(session))
     assert segments(frame)["count"].tolist() == [1]
-    ranked = frame.assign(
-        rank=frame[("value", "value")].astype(object).rank(method="dense", ascending=False)
-    )
-    assert ranked[("value", "value")].loc[ranked["rank"] == 1].tolist() == [60]
+    ranked = frame.assign(rank=frame["value"].astype(object).rank(method="dense", ascending=False))
+    assert ranked["value"].loc[ranked["rank"] == 1].tolist() == [60]
     assert len(terminal_runs(session)) == before

@@ -69,12 +69,12 @@ def test_transformed_grain_and_cold_terminal_reads(
     )
     result = logical.persist()
     frame = result.to_pandas()
-    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
+    assert frame.set_index(frame.columns[0])["value"].to_dict() == {
         "east": 30,
         "west": 5,
     }
     total = logical.reduce({"value": logical["value"].sum()}).persist()
-    assert total.to_pandas()[("value", "value")].tolist() == [35]
+    assert total.to_pandas()["value"].tolist() == [35]
     assert isinstance(logical._backing, ExpressionFrameBacking)
     assert isinstance(logical._backing.root, SourceFrameBinding)
     fingerprint = logical._backing.root.graph.fingerprint
@@ -87,18 +87,18 @@ def test_transformed_grain_and_cold_terminal_reads(
     assert isinstance(changed._backing, ExpressionFrameBacking)
     assert isinstance(changed._backing.root, SourceFrameBinding)
     assert changed._backing.root.graph.fingerprint != fingerprint
-    assert changed.compute().to_pandas()[("value", "value")].tolist() == [20]
+    assert changed.compute().to_pandas()["value"].tolist() == [20]
     shutil.rmtree(tmp_path / "models")
     (tmp_path / "rows.parquet").unlink()
-    assert result.to_pandas()[("value", "value")].sum() == 35
+    assert result.to_pandas()["value"].sum() == 35
     code = """import sys
 import marivo.analysis as mv
 session = mv.session.resume(sys.argv[1])
 result = session.persisted_frame(sys.argv[2])
 frame = result.to_pandas()
-assert frame.set_index(frame.columns[0])[('value', 'value')].to_dict() == {'east':30, 'west':5}
-assert session.persisted_frame(sys.argv[3]).to_pandas()[('value', 'value')].tolist() == [35]
-assert frame[('value', 'value')].sum() == 35
+assert frame.set_index(frame.columns[0])['value'].to_dict() == {'east':30, 'west':5}
+assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [35]
+assert frame['value'].sum() == 35
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, session.id, result.artifact.id, total.artifact.id],

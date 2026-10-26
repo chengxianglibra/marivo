@@ -419,15 +419,15 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     table = saved.to_pandas()
     assert len(table.columns) == 3
     assert table.iloc[:, 0].tolist() == ["A", "B"]
-    assert pa.array(table["value", "coefficient"]).type == pa.float64()
-    assert pa.array(table["value", "n_pairs"]).type == pa.int64()
-    assert table["value", "coefficient"].isna().tolist() == [True, False]
-    assert abs(table["value", "coefficient"].iloc[1] - 1.0) < 1e-12
-    assert table["value", "n_pairs"].tolist() == [0, 2]
+    assert pa.array(table["coefficient"]).type == pa.float64()
+    assert pa.array(table["n_pairs"]).type == pa.int64()
+    assert table["coefficient"].isna().tolist() == [True, False]
+    assert abs(table["coefficient"].iloc[1] - 1.0) < 1e-12
+    assert table["n_pairs"].tolist() == [0, 2]
     before = len(terminal_runs(session))
     filtered = saved.where(saved["n_pairs"] >= 2)
     derived = filtered.select({"twice": filtered["coefficient"] * 2}).compute()
-    assert abs(derived.to_pandas()["value", "twice"].iloc[0] - 2.0) < 1e-12
+    assert abs(derived.to_pandas()["twice"].iloc[0] - 2.0) < 1e-12
     copied = derived.persist()
     pd.testing.assert_frame_equal(copied.to_pandas(), derived.to_pandas())
     assert len(terminal_runs(session)) == before + 1
@@ -495,7 +495,7 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     loaded.to_pandas()
     loaded.persist().to_pandas()
     derived = loaded.select({"twice": loaded["amount"] * 2}).compute()
-    assert derived.to_pandas()[("value", "twice")].tolist() == [pd.NA, 2, 4]
+    assert derived.to_pandas()["twice"].tolist() == [pd.NA, 2, 4]
     assert _complete_schema(derived).axes == _complete_schema(loaded).axes
     published = derived.persist()
     pd.testing.assert_frame_equal(published.to_pandas(), derived.to_pandas())
@@ -509,21 +509,21 @@ def test_exports_and_attrs_are_isolated(local: LocalFrameServices) -> None:
     saved = memory.persist()
     for frame in (memory, saved):
         exported = frame.to_pandas()
-        exported.iloc[0, 1] = 999
+        exported.loc[0, "amount"] = 999
         exported.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] = "changed"
         again = frame.to_pandas()
-        assert again.iloc[0, 1] != 999
+        assert again.loc[0, "amount"] != 999
         assert again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
         branch = frame.select({"twice": frame["amount"] * 2}).compute()
         sibling = frame.where(frame["amount"] > 0).compute()
         exported_branch = branch.to_pandas()
-        exported_branch.iloc[0, 1] = 999
+        exported_branch.loc[0, "twice"] = 999
         exported_branch.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] = "changed"
-        assert branch.to_pandas()[("value", "twice")].tolist() == [0, 2, 4]
-        assert sibling.to_pandas()[("value", "amount")].tolist() == [1, 2]
+        assert branch.to_pandas()["twice"].tolist() == [0, 2, 4]
+        assert sibling.to_pandas()["amount"].tolist() == [1, 2]
         for independent in (frame, branch, sibling):
             exported_again = independent.to_pandas()
-            assert exported_again.iloc[0, 1] != 999
+            assert exported_again.iloc[0, -1] != 999
             assert exported_again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
 
 
@@ -664,7 +664,7 @@ def _assert_valid_minimum_temporal_ticks_survive_export_and_restore(
             array = pa.array(exported.iloc[:, 0])
             assert array.null_count == 1
             assert array.cast(pa.int64()).to_pylist() == [-(2**63), None]
-        values = pa.array(exported[("value", "observed")])
+        values = pa.array(exported["observed"])
         assert values.null_count == 1
         assert values.cast(pa.int64()).to_pylist() == [-(2**63), None]
         frame.show(n=2)
@@ -1137,7 +1137,9 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
             metadata(),
         ),
     )
+    assert fixed.to_pandas()["day"].tolist() == ["P3", "P2", "P1"]
     saved = fixed.persist()
+    assert saved.to_pandas()["day"].tolist() == ["P3", "P2", "P1"]
     value = decode(encode(manifest(saved)), ArtifactManifest)
     saved_axis = value.data.schema.axes[0]
     assert isinstance(saved_axis, CalendarDataAxis) and saved_axis.frozen is not None
@@ -1151,6 +1153,22 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
     assert local.preview(_stored_backing(saved), 1).attachments[0].rows[
         "nominal_label"
     ].tolist() == ['"P3"']
+
+    mixed_directory = directory.copy()
+    mixed_directory["nominal_label"] = pd.Series(["1", "true", '"1"'], dtype="string[pyarrow]")
+    mixed = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                schema,
+                _memory_backing(original).data.copy_rows(),
+                (OutputAttachment(part.name, calendar_directory_schema(named), mixed_directory),),
+            ),
+            metadata(),
+        ),
+    ).to_pandas()["day"]
+    assert mixed.tolist() == ["1", True, 1]
+    assert [type(value) for value in mixed] == [str, bool, int]
 
 
 def test_storage_error_help_targets_resolve(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1317,11 +1335,11 @@ def test_reduce_retains_exact_extreme_and_null_complete_keys(
         assert values.type == physical
         assert values.cast(integer).to_pylist() == [None, minimum]
         exported = frame.to_pandas()
-        assert exported[("value", "rows")].tolist() == [1, 2]
-        assert exported[("value", "total")].tolist() == [pd.NA, 10]
+        assert exported["rows"].tolist() == [1, 2]
+        assert exported["total"].tolist() == [pd.NA, 10]
     stored_export = saved.to_pandas()
-    assert stored_export[("value", "rows")].tolist() == [1, 2]
-    assert stored_export[("value", "total")].tolist() == [pd.NA, 10]
+    assert stored_export["rows"].tolist() == [1, 2]
+    assert stored_export["total"].tolist() == [pd.NA, 10]
 
     if composite:
         import subprocess
@@ -1505,8 +1523,8 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
     assert calls["read_complete"] == 1
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == [2, 1, 0]
-    assert rows[("value", "adjusted")].tolist() == [pd.NA, 3, 5]
-    assert str(rows[("value", "adjusted")].dtype) == "int64[pyarrow]"
+    assert rows["adjusted"].tolist() == [pd.NA, 3, 5]
+    assert str(rows["adjusted"].dtype) == "int64[pyarrow]"
     assert _complete_schema(result) == DataSchema(
         _complete_schema(saved).axes,
         (DataColumn("value.0", "adjusted", ScalarDataType("int64"), True, "USD"),),
@@ -1624,7 +1642,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     result = derived.top(2, by=derived["twice"]).compute()
     if kind == "ordinary":
         assert read_calls == 1 and release_checked
-    assert result.to_pandas()[("value", "twice")].tolist() == [4, 2]
+    assert result.to_pandas()["twice"].tolist() == [4, 2]
     captured = _memory_backing(result).metadata.audit.evaluation.inputs
     assert captured == (
         StoredInput(
@@ -1637,14 +1655,14 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     )
     assert _memory_backing(result).metadata.result_id != _stored_backing(saved).metadata.result_id
     positive = saved.where(saved["amount"] > 0).compute()
-    assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
+    assert positive.to_pandas()["amount"].tolist() == [1, 2]
     read_calls = 0
     compared = (
         saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
         if kind == "ordinary"
         else saved.compare({"base": saved}, match={"base": CalendarCorrespondence("ordinal")})
     ).compute()
-    assert compared.to_pandas()[("value", "base.absolute.amount")].tolist() == (
+    assert compared.to_pandas()["base.absolute.amount"].tolist() == (
         [pd.NA, 0, 0] if kind == "ordinary" else [0, 0, 0]
     )
     if kind == "ordinary":
@@ -1665,9 +1683,9 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
         pd.testing.assert_frame_equal(shared.to_pandas(), compared.to_pandas())
         # Ancestor and sibling values remain independent of the completed branch.
         exported = result.to_pandas()
-        exported.iloc[0, 1] = 999
-        assert result.to_pandas()[("value", "twice")].tolist() == [4, 2]
-        assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
+        exported.loc[0, "amount"] = 999
+        assert result.to_pandas()["twice"].tolist() == [4, 2]
+        assert positive.to_pandas()["amount"].tolist() == [1, 2]
         pd.testing.assert_frame_equal(loaded.to_pandas(), memory.to_pandas())
     assert counts(local) == before
     import subprocess
@@ -1692,14 +1710,14 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     before = len(terminal_runs(session))
     derived = saved.where(saved["amount"] > 0)
     result = derived.top(2, by=derived["amount"]).compute()
-    assert result.to_pandas()[("value", "amount")].tolist() == [2, 1]
+    assert result.to_pandas()["amount"].tolist() == [2, 1]
     compared = (saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
                 if sys.argv[4] == "ordinary" else saved.compare({"base": saved}, match={"base": mv.ordinal()})).compute()
     assert len(compared.to_pandas()) == 3
     assert len(terminal_runs(session)) == before
     copied = result.persist()
     assert copied._backing.metadata == result._backing.metadata
-    assert copied.to_pandas()[("value", "amount")].tolist() == [2, 1]
+    assert copied.to_pandas()["amount"].tolist() == [2, 1]
     assert len(terminal_runs(session)) == before + 1
 """
     cold = subprocess.run(
@@ -2135,8 +2153,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         assert len(table.attrs["frozen_coordinates"][0]["rows"]) == expected
         frame.show(n=1)
     assert sparse.axes[0].role == "interval" and paired.axes[0].role == "paired"
-    assert paired.to_pandas()[("presence", "left_present")].tolist() == [True]
-    assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]
+    assert paired.to_pandas()["left_present"].tolist() == [True]
+    assert paired.to_pandas()["right_present"].tolist() == [True]
     assert len(sparse.align(original).compute().to_pandas()) == 1
     assert len(original.align(original, match=mv.ordinal()).compute().to_pandas()) == 1
     try:
@@ -2240,7 +2258,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
 
     monkeypatch.setattr(_timezones, "ZoneInfo", unavailable)
     rows = first.to_pandas()
-    assert rows[("value", "amount")].tolist() == [5]
+    assert rows["amount"].tolist() == [5]
     directory = rows.attrs["frozen_coordinates"][0]["rows"]
     assert directory["timezone"].tolist() == ["Asia/Shanghai"]
     assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
@@ -2251,8 +2269,8 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     paired = first.compare(
         {"base": second}, match={"base": CalendarCorrespondence("ordinal")}
     ).compute()
-    assert paired.to_pandas()[("value", "base.absolute.amount")].tolist() == [0]
-    assert paired.to_pandas()[("presence", "base.present")].tolist() == [True]
+    assert paired.to_pandas()["base.absolute.amount"].tolist() == [0]
+    assert paired.to_pandas()["base.present"].tolist() == [True]
 
 
 @pytest.fixture
@@ -2328,7 +2346,7 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
     before = counts(memory._local)
     for fixed in (memory, saved):
-        assert fixed.to_pandas()[("value", "contribution.q")].tolist() == [60, -20]
+        assert fixed.to_pandas()["contribution.q"].tolist() == [60, -20]
         total = fixed.reduce({"total": fixed["contribution.q"].sum()}).compute()
         positive = fixed.where(fixed["contribution.q"] > 0).compute()
         subtotal = positive.reduce({"total": positive["contribution.q"].sum()}).compute()
@@ -2338,10 +2356,10 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
                 "share": fixed["contribution.q"].share(along=fixed.axes),
             }
         ).compute()
-        assert total.to_pandas()[("value", "total")].tolist() == [40]
-        assert subtotal.to_pandas()[("value", "total")].tolist() == [60]
-        assert positive.to_pandas()[("value", "contribution_share.q")].tolist() == [1.5]
-        assert partitioned.to_pandas()[("value", "share")].tolist() == [1.5, -0.5]
+        assert total.to_pandas()["total"].tolist() == [40]
+        assert subtotal.to_pandas()["total"].tolist() == [60]
+        assert positive.to_pandas()["contribution_share.q"].tolist() == [1.5]
+        assert partitioned.to_pandas()["share"].tolist() == [1.5, -0.5]
         renamed = fixed.select({"doubled": fixed["contribution.q"] * 2})
         empty = renamed.top(0, by=renamed["doubled"]).compute()
         combined = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
@@ -2610,7 +2628,7 @@ def test_reduced_saved_method_payload_is_owned_after_detached_cold_reopen(
     reduced = original.reduce({"total": original["contribution.q"].sum()}).persist()
     assert reduced.axes == () and reduced.presence_names == ()
     assert reduced.method_facts == facts
-    assert reduced.to_pandas()[("value", "total")].tolist() == [40 * size]
+    assert reduced.to_pandas()["total"].tolist() == [40 * size]
     old, new = manifest(original), manifest(reduced)
     assert (
         old.method_facts[0].payload.rows.receipt.project_relative_path
@@ -2641,12 +2659,12 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     facts = saved.method_facts
     assert len(facts[0].parents) == int(sys.argv[5]) and len(facts[0].coordinates[0].rows) == int(sys.argv[5])
     assert saved.axes == () and saved.presence_names == ()
-    assert saved.to_pandas()[('value','total')].tolist() == [40 * int(sys.argv[5])]
+    assert saved.to_pandas()['total'].tolist() == [40 * int(sys.argv[5])]
     derived = saved.select({'twice': saved['total'] * 2}).compute()
     assert derived.method_facts == facts
     copied = derived.persist()
     assert copied.method_facts == facts
-    assert copied.to_pandas()[('value','twice')].tolist() == [80 * int(sys.argv[5])]
+    assert copied.to_pandas()['twice'].tolist() == [80 * int(sys.argv[5])]
 print('cold-method-facts-owned')
 """
     worktree = Path(__file__).resolve().parents[3]
@@ -2734,7 +2752,7 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     assert len(report.to_pandas()) == 2
     copied = report.select({'twice': report['contribution.q'] * 2}).compute().persist()
     assert copied.method_facts == report.method_facts
-    assert copied.to_pandas()[('value','twice')].sum() == 880
+    assert copied.to_pandas()['twice'].sum() == 880
 """
     process = subprocess.run(
         [
@@ -2751,3 +2769,79 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
         capture_output=True,
     )
     assert process.returncode == 0, process.stdout + process.stderr
+
+
+def test_readable_calendar_projection_uses_sparse_keys_and_current_order(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = calendar(local, 3)
+    fixed = root.top(2, by=root["amount"]).compute()
+    for frame in (fixed, fixed.persist()):
+        rows = frame.to_pandas(axis_names={frame.axes[0]: "date"})
+        assert rows.columns.tolist() == [
+            "date",
+            "date.actual_start",
+            "date.actual_end",
+            "date.timezone",
+            "amount",
+        ]
+        assert rows["date"].tolist() == ["2024-01-01", "2024-01-02"]
+        assert rows["amount"].tolist() == [2, 1]
+        assert rows["date.actual_start"].tolist() == [
+            datetime(2024, 1, day, tzinfo=timezone.utc) for day in (1, 2)
+        ]
+        assert rows["date.actual_end"].tolist() == [
+            datetime(2024, 1, day, tzinfo=timezone.utc) for day in (2, 3)
+        ]
+        assert str(rows["date.actual_start"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
+        assert rows["date.timezone"].tolist() == ["UTC", "UTC"]
+        frame.show(n=1)
+        preview = capsys.readouterr().out.split("preview:", 1)[1]
+        assert "2024-01-01" in preview and "900000" not in preview
+    empty = root.top(0, by=root["amount"]).compute().to_pandas()
+    assert empty.empty and empty.columns.tolist() == [
+        "day",
+        "day.actual_start",
+        "day.actual_end",
+        "day.timezone",
+        "amount",
+    ]
+
+
+def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_presence(
+    local: LocalFrameServices,
+) -> None:
+    root = calendar(local, 3)
+    paired = root.align(calendar(local, 2), match=CalendarCorrespondence("ordinal")).compute()
+    rows = paired.to_pandas()
+    assert rows["day.left"].tolist() == ["2024-01-03", "2024-01-02", "2024-01-01"]
+    assert rows["day.right"].tolist() == [pd.NA, "2024-01-02", "2024-01-01"]
+    assert rows["day.right.actual_start"].isna().tolist() == [True, False, False]
+    assert rows["left_present"].tolist() == [True, True, True]
+    assert rows["right_present"].tolist() == [False, True, True]
+    pd.testing.assert_frame_equal(rows, paired.persist().compute().to_pandas())
+
+
+def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServices) -> None:
+    root = calendar(local, 1)
+    backing = _memory_backing(root)
+    part = backing.data.copy_attachments()[0]
+    directory = part.rows.copy()
+    actual = datetime(2024, 1, 1, 6, tzinfo=timezone.utc)
+    directory["actual_start"] = pd.Series([actual], dtype="timestamp[us, tz=UTC][pyarrow]")
+    directory["actual_start_civil"] = pd.Series(
+        [actual.isoformat(timespec="microseconds")], dtype="string[pyarrow]"
+    )
+    frame = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                backing.data.schema, backing.data.copy_rows(), (replace(part, rows=directory),)
+            ),
+            backing.metadata,
+        ),
+    )
+    rows = frame.to_pandas()
+    assert rows["day"].tolist() == ["2024-01-01"]
+    assert rows["day.actual_start"].tolist() == [actual]
+    assert rows["day.actual_end"].tolist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]

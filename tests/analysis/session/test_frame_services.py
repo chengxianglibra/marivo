@@ -237,7 +237,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     monkeypatch.setattr(catalog, "load", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
     computed = derived.compute()
-    assert computed.to_pandas()[("value", "copy")].tolist() == [7]
+    assert computed.to_pandas()["copy"].tolist() == [7]
     assert computed.persist().artifact.session_id == local.session_ref
     column.show()
     axis.show()
@@ -270,7 +270,7 @@ def test_retained_authority_uses_original_writer_exclusion(session: Session) -> 
         memory = session.values(
             by=(), columns={"answer": None}, rows=(((), {"answer": 7}),)
         ).compute()
-        assert memory.to_pandas()[("value", "answer")].tolist() == [7]
+        assert memory.to_pandas()["answer"].tolist() == [7]
         memory.persist()
     assert terminal_runs(session) == before
     assert local.store.resources(local.session_ref) == ()

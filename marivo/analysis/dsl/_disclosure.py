@@ -466,20 +466,22 @@ def provider() -> DisclosureProvider:
             AnalysisFrame,
             "analysis_frame",
             "to_pandas",
-            (),
+            (
+                P(
+                    "axis_names",
+                    "Optional {current FrameAxis: name}; None keeps full names. Nonempty printable names; no surrounding whitespace.",
+                ),
+            ),
             "pandas.DataFrame",
-            "Export all fixed data without evaluation.",
-            "fixed = frame.compute()\n"
-            "result = fixed.to_pandas()\n"
-            "values = result[('value', 'value')]\n"
-            "axis_labels = result.attrs['axes']",
+            "Export complete fixed data as an isolated readable flat table.",
+            "result = frame.compute().to_pandas()\nvalues = result['value']",
             ("frame",),
             "results.inspect",
             (
-                "Example needs frame['value']. compute/persist first. No model/Catalog/source/method-payload reads.",
-                "Two-level MultiIndex(kind,name): coordinate=axis token (complete composite tuples); value=full output_names; presence=nonnullable bool, distinct from NA/zero. coordinate/presence optional.",
-                "attrs: axes(token/name/role/key_names/at), units/comparisons/frozen_coordinates. Match tokens, not positions. Internal descriptors have no stable reload contract. Keep numeric/NA/time carriers; names/roles do not imply float.",
-                "Isolated values/attrs grant no semantic definitions/graph/computation authority. Name/order/format here; continue supported analysis from Frame.",
+                "Example needs frame['value']. compute/persist first. No Catalog/source/method reads.",
+                "Flat axis/value/presence names; composite tuples. Calendar: label, .actual_start/.actual_end/.timezone; interval: .start/.end/.timezone; paired: .left/.right. UTC bounds; typed named labels.",
+                "Resolve collisions with axis_names={axis: 'name'} or select(). Preserve order, physical types and NA; boolean presence differs from NA/zero.",
+                "Isolated attrs: axes, units, comparisons, frozen_coordinates; no stable import or typed authority.",
             ),
         ),
         (

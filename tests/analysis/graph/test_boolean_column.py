@@ -92,11 +92,11 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
     rows = original.to_pandas()
     key = ordinary_columns(rows)[0]
     assert rows[key].tolist() == ["A", "B", "C", "D"]
-    assert rows[("presence", "right_present")].tolist() == [True, True, True, False]
+    assert rows["right_present"].tolist() == [True, True, True, False]
     selected = original.where(original["right.flag"].is_null()).compute()
     expected = selected.to_pandas()
     assert expected[key].tolist() == ["B", "D"]
-    assert expected[("presence", "right_present")].tolist() == [True, False]
+    assert expected["right_present"].tolist() == [True, False]
     assert selected.presence_names == original.presence_names
     assert tuple(axis.name for axis in selected.axes) == tuple(axis.name for axis in original.axes)
 

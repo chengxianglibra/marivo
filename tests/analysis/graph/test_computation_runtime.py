@@ -171,8 +171,8 @@ def test_runtime_linear_over_integer_sums_returns_decimal(
     count = computation_session.catalog.metrics.get("sales.gmv_quantity")
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
-    assert pa.array(rows[("value", "value")]).type == pa.decimal128(38, 0)
-    assert rows[("value", "value")].iloc[0] == 2
+    assert pa.array(rows["value"]).type == pa.decimal128(38, 0)
+    assert rows["value"].iloc[0] == 2
 
 
 def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
@@ -180,8 +180,8 @@ def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
 ) -> None:
     result = _aggregate(computation_session, "net_revenue")
     rows = result.to_pandas()
-    assert isinstance(rows[("value", "value")].iloc[0], Decimal)
-    assert rows[("value", "value")].iloc[0] == Decimal("13.00")
+    assert isinstance(rows["value"].iloc[0], Decimal)
+    assert rows["value"].iloc[0] == Decimal("13.00")
 
 
 def test_weighted_mean_over_computed_measure_executes(
@@ -193,8 +193,8 @@ def test_weighted_mean_over_computed_measure_executes(
 
 def test_direct_column_decimal_measure_regression(computation_session: mv.Session) -> None:
     rows = _aggregate(computation_session, "gmv").to_pandas()
-    assert isinstance(rows[("value", "value")].iloc[0], Decimal)
-    assert rows[("value", "value")].iloc[0] == Decimal("20.00")
+    assert isinstance(rows["value"].iloc[0], Decimal)
+    assert rows["value"].iloc[0] == Decimal("20.00")
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +495,7 @@ def test_trino_computed_measure_decimal_sum_is_exact(
 ) -> None:
     # 15.75 * 3 + 4.25 * 1 = 51.50, exact through Trino DECIMAL arithmetic.
     rows = _aggregate(trino_session, "net_total").to_pandas()
-    value = rows[("value", "value")].iloc[0]
+    value = rows["value"].iloc[0]
     assert isinstance(value, Decimal)
     assert value == Decimal("51.50")
 
@@ -529,4 +529,4 @@ def test_computed_measure_graph_reads_only_at_execute(
         query.show()
         assert terminal_runs(computation_session) == ()
     expected = Decimal("51.50") if metric == "net_total" else 36.5
-    assert query.persist().to_pandas()[("value", "value")].iloc[0] == expected
+    assert query.persist().to_pandas()["value"].iloc[0] == expected

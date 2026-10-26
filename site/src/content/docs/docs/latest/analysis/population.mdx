@@ -27,7 +27,7 @@ requested = mv.coordinates(
     keys=(((4,),), ((5,),), ((6,),), ((999,),)),
 )
 requested_count = session.observe({"members": requested.count()}).compute()
-assert requested_count.to_pandas()[("value", "members")].tolist() == [4]
+assert requested_count.to_pandas()["members"].tolist() == [4]
 ```
 
 Order 999 is requested but absent from the tutorial source. Literal membership still counts it. Keys do not prove source records exist. `keys=()` is empty; for `by=()`, `keys=((),)` is the one-element zero-axis domain.
@@ -53,7 +53,7 @@ Source analysis trusts declared identities, relationship cardinality and version
 ```python
 east_orders = session.members(Orders, where=region == "east")
 east_count = session.observe({"members": east_orders.count()}).compute()
-assert east_count.to_pandas()[("value", "members")].tolist() == [4]
+assert east_count.to_pandas()["members"].tolist() == [4]
 ```
 
 These are orders 1, 2, 4 and 5, across both months. Membership time and Metric observation time are separate choices. For a snapshot or validity Entity, supply `at=session.instant(...)` explicitly.
@@ -78,7 +78,7 @@ domain = mv.product(august, requested)
 observed = session.observe(
     {"revenue": revenue}, by=domain, where=mv.in_population(requested)
 ).compute()
-assert sorted(observed.to_pandas()[("value", "revenue")].tolist()) == [0, 100, 100, 600]
+assert sorted(observed.to_pandas()["revenue"].tolist()) == [0, 100, 100, 600]
 ```
 
 Order 999 remains with revenue zero because it has no contributions. A present order with only null amounts would have an unknown sum instead. `mv.product(*factors)` takes ordered Population, TimeScope or CalendarAxis factors (no default arguments); it forms their Cartesian product. It does not infer which combinations are valid in the business.
@@ -105,8 +105,8 @@ regions = classified.project(by=(region,))
 counts = session.observe(
     {"orders": classified.count(), "regions": regions.count()}
 ).compute()
-assert counts.to_pandas()[("value", "orders")].tolist() == [6]
-assert counts.to_pandas()[("value", "regions")].tolist() == [2]
+assert counts.to_pandas()["orders"].tolist() == [6]
+assert counts.to_pandas()["regions"].tolist() == [2]
 ```
 
 `P.count()` has no parameters and returns a lazy Metric counting complete distinct tuples, including Null categories and requested identities absent from the source. Keeping identity counts six orders; projecting to region first counts two regions. Neither is `Entity.count()` over fact contributions or `mv.row_count()` over represented Frame rows. `P.axes` contains coordinate rules, not the selected keys or allocation rules; passing P.axes loses the Population domain.
@@ -146,8 +146,8 @@ missing_requested = requested.difference(all_orders)
 set_counts = session.observe(
     {"present": present_requested.count(), "missing": missing_requested.count()}
 ).compute()
-assert set_counts.to_pandas()[("value", "present")].tolist() == [3]
-assert set_counts.to_pandas()[("value", "missing")].tolist() == [1]
+assert set_counts.to_pandas()["present"].tolist() == [3]
+assert set_counts.to_pandas()["missing"].tolist() == [1]
 ```
 
 An image preserves reached target foreign-key identities even if target archive rows are absent. A preimage selects receiver identities reaching any selected target without multiplying them by relationship multiplicity. Mapping orders to customers and back can include other orders from those customers; it need not recover the original subset.
@@ -164,7 +164,7 @@ An image preserves reached target foreign-key identities even if target archive 
 chosen = current.top(1, by=current["revenue"]).compute()
 chosen_regions = session.population_from(chosen, on=((chosen.axes[1], region),))
 chosen_count = session.observe({"regions": chosen_regions.count()}).compute()
-assert chosen_count.to_pandas()[("value", "regions")].tolist() == [1]
+assert chosen_count.to_pandas()["regions"].tolist() == [1]
 ```
 
 This fixes west as the selected region; a later observation does not rerank regions. The bridge does not restore an original source graph, historical facts or unselected attributes. Use `session.frame(P)` for keys and `session.read(P, fields)` for attributes on a single Entity identity domain. Cross-Session inputs reject. Exact references: `analysis.population`, `analysis.coordinates`, `analysis.session.members`, `analysis.session.population_from`.

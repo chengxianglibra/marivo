@@ -60,17 +60,15 @@ def test_comparison_owns_independent_nullable_columns(
     assert isinstance(result, mv.AnalysisFrame)
     exported = result.to_pandas()
     frame = exported.set_index(ordinary_columns(exported)[0])
-    assert frame[("value", "value")].tolist() == [30, 200, 0, 0]
-    assert frame[("value", "reference.baseline.value")].tolist() == [60, 120, 0, 0]
-    assert frame[("value", "reference.absolute.value")].tolist() == [-30, 80, 0, 0]
-    assert frame[("value", "reference.relative.value")].iloc[:2].tolist() == pytest.approx(
-        [-0.5, 2 / 3]
-    )
-    assert frame[("value", "reference.relative.value")].iloc[2:].isna().all()
-    assert frame["presence"].all().all()
+    assert frame["value"].tolist() == [30, 200, 0, 0]
+    assert frame["reference.baseline.value"].tolist() == [60, 120, 0, 0]
+    assert frame["reference.absolute.value"].tolist() == [-30, 80, 0, 0]
+    assert frame["reference.relative.value"].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
+    assert frame["reference.relative.value"].iloc[2:].isna().all()
+    assert frame[["current.present", "reference.present"]].all().all()
     filtered = defined.compute().to_pandas()
     assert filtered[ordinary_columns(filtered)[0]].tolist() == ["A", "B"]
-    assert total.compute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
+    assert total.compute().to_pandas()["value"].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
     assert "reference.absolute.value" in card and "reference.relative.value" in card
@@ -82,7 +80,7 @@ def test_comparison_owns_independent_nullable_columns(
         case.session.persisted_frame(result.artifact.id).to_pandas(), exported
     )
     # Exported values can be analyzed without constructing another execution.
-    assert frame[("value", "reference.relative.value")].dropna().sum() == pytest.approx(1 / 6)
+    assert frame["reference.relative.value"].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
         current.compare({"reference": result.artifact}, match={"reference": mv.ordinal()})  # type: ignore[arg-type]  # Audit views are not Frame operands.
@@ -96,9 +94,9 @@ def test_comparison_owns_independent_nullable_columns(
         .compute()
         .to_pandas()
     )
-    assert same[("value", "reference.absolute.value")].tolist() == [0, 0, 0, 0]
-    assert same[("value", "reference.relative.value")].iloc[:2].tolist() == [0.0, 0.0]
-    assert same[("value", "reference.relative.value")].iloc[2:].isna().all()
+    assert same["reference.absolute.value"].tolist() == [0, 0, 0, 0]
+    assert same["reference.relative.value"].iloc[:2].tolist() == [0.0, 0.0]
+    assert same["reference.relative.value"].iloc[2:].isna().all()
 
 
 def test_decimal_absolute_keeps_precision_and_relative_uses_float(
@@ -124,9 +122,9 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
         .to_pandas()
     )
     frame = frame.set_index(ordinary_columns(frame)[0])
-    assert frame.loc["C", ("value", "reference.absolute.value")] == Decimal("-0.05")
-    assert frame.loc["C", ("value", "reference.relative.value")] == -1.0
-    assert frame[("value", "reference.relative.value")].isna().any()
+    assert frame.loc["C", "reference.absolute.value"] == Decimal("-0.05")
+    assert frame.loc["C", "reference.relative.value"] == -1.0
+    assert frame["reference.relative.value"].isna().any()
 
 
 def test_comparison_output_rejects_incomplete_and_forged_columns(
@@ -155,4 +153,4 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
             data.schema,
             values=(replace(data.schema.values[0], name="forged"), *data.schema.values[1:]),
         )
-    assert saved.to_pandas()[("value", "reference.absolute.value")].tolist() == [0, 0, 0, -1]
+    assert saved.to_pandas()["reference.absolute.value"].tolist() == [0, 0, 0, -1]

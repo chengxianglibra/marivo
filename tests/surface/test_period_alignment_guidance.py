@@ -51,9 +51,7 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     assert "pending" in capsys.readouterr().out
     selected = comparison.select({"value": comparison["reference.absolute.value"]})
     defined = selected.where(~selected["value"].is_null())
-    assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()[
-        ("value", "count")
-    ].tolist() == [12]
+    assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()["count"].tolist() == [12]
     saved = comparison.persist()
     artifact = saved.artifact
     saved.show(n=1)
@@ -117,9 +115,7 @@ def test_offset_shift_and_named_compare_help_examples_are_executable(
                 "reference.relative.value",
             )
             assert result.presence_names == ("current.present", "reference.present")
-            assert result.compute().to_pandas()[("value", "reference.relative.value")].tolist() == [
-                0.5
-            ]
+            assert result.compute().to_pandas()["reference.relative.value"].tolist() == [0.5]
     assert "analysis.calendar_axis.shift" in render_help_text("analysis.calendar_axis")[0]
     assert "ValueError:" in render_help_text("analysis.calendar_axis.shift")[0]
     with pytest.raises(ValueError, match="offset"):
@@ -151,9 +147,9 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     assert "relative is dimensionless" in text
     result = current.compare({"reference": baseline}).compute()
     data = result.to_pandas()
-    assert data[("value", "reference.baseline.elapsed")].tolist() == [timedelta(microseconds=19)]
-    assert data[("value", "reference.absolute.elapsed")].tolist() == [timedelta(microseconds=19)]
-    assert data[("value", "reference.relative.elapsed")].tolist() == [1.0]
+    assert data["reference.baseline.elapsed"].tolist() == [timedelta(microseconds=19)]
+    assert data["reference.absolute.elapsed"].tolist() == [timedelta(microseconds=19)]
+    assert data["reference.relative.elapsed"].tolist() == [1.0]
     assert data.attrs["units"][-1] == ("reference.relative.elapsed", None)
     assert result.presence_names == ("current.present", "reference.present")
     assert terminal_runs(session) == ()

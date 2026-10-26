@@ -80,7 +80,7 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
     metric = one.sum(time=one_day) - two.sum(time=two_day)
     trace = capture_source(monkeypatch)
     result = session.observe({"net": metric}, by=(days.scope,)).compute().to_pandas()
-    assert result["value", "net"].tolist() == [-120]
+    assert result["net"].tolist() == [-120]
     assert trace.uploaded_key_rows == []
 
 
@@ -102,7 +102,7 @@ def test_calendar_parent_formula_uses_widened_sums(
     metric = one.sum(time=one_day) + two.sum(time=two_day)
     query = session.observe({"net": metric}, by=(days,))
     trace = capture_source(monkeypatch)
-    assert query.compute().to_pandas()["value", "net"].tolist() == [2**63, -(2**63)]
+    assert query.compute().to_pandas()["net"].tolist() == [2**63, -(2**63)]
     assert trace.uploaded_key_rows == []
 
 
@@ -121,10 +121,10 @@ def test_cross_owner_calendar_missing_days_use_additive_zero(
     query = session.observe({"net": metric}, by=(days.scope,))
     daily = session.observe({"net": metric}, by=(days,)).compute().to_pandas()
     assert len(daily) == 2
-    assert daily["value", "net"].tolist() == [60, -120]
+    assert daily["net"].tolist() == [60, -120]
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "net"].tolist() == [-60]
+    assert result["net"].tolist() == [-60]
 
 
 @pytest.mark.parametrize("partial", (False, True))
@@ -148,7 +148,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
     query = session.observe({"total": amount.sum(time=day)}, by=(month,))
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "total"].tolist() == [60 if partial else 120]
+    assert result["total"].tolist() == [60 if partial else 120]
     assert trace.uploaded_key_rows == []
 
 
@@ -166,7 +166,7 @@ def test_daily_formula_keeps_widened_source_sum(
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
     query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
     trace = capture_source(monkeypatch)
-    assert query.compute().to_pandas()["value", "value"].tolist()[:2] == [2**63, -(2**63) + 2]
+    assert query.compute().to_pandas()["value"].tolist()[:2] == [2**63, -(2**63) + 2]
 
 
 @pytest.mark.parametrize(
@@ -255,9 +255,9 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
-            assert query.compute().to_pandas()["value", "net"].tolist() == [2**63 + 1, -(2**63) - 1]
+            assert query.compute().to_pandas()["net"].tolist() == [2**63 + 1, -(2**63) - 1]
         else:
             result = query.compute().to_pandas()
-            assert result["value", "net"].tolist() == [-60 if boundary == "partial" else -120]
+            assert result["net"].tolist() == [-60 if boundary == "partial" else -120]
         assert trace.returned_rows
         assert trace.uploaded_key_rows == []

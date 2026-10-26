@@ -26,7 +26,7 @@ def check_original(
     exported = value.to_pandas() if exported is None else exported
     frame = exported.set_index(ordinary_columns(exported)[0])
     assert frame.index.tolist() == ["A", "B", "C", "D"]
-    values = frame[("value", "value")]
+    values = frame["value"]
     if physical == "decimal":
         assert kind == "quantile"
         assert values.iloc[:3].tolist() == [Decimal("1.01"), Decimal("1.02"), Decimal("1.04")]

@@ -78,17 +78,17 @@ def test_raw_mean_and_weighted_pairs_finish_after_regrouping(
     weight = session.catalog.fields.get("sales.orders.weight")
     region = session.catalog.fields.get("sales.orders.region")
     fine = session.observe({"mean": amount.mean()}, by=(region,)).compute()
-    assert fine.to_pandas()[("value", "mean")].tolist() == [20.0, 300.0]
+    assert fine.to_pandas()["mean"].tolist() == [20.0, 300.0]
     overall = session.observe(
         {"mean": amount.mean(), "weighted": amount.weighted_mean(weight=weight)}
     ).compute()
-    assert overall.to_pandas()[("value", "mean")].tolist() == pytest.approx([340 / 3])
-    assert overall.to_pandas()[("value", "weighted")].tolist() == [190.0]
+    assert overall.to_pandas()["mean"].tolist() == pytest.approx([340 / 3])
+    assert overall.to_pandas()["weighted"].tolist() == [190.0]
     with duckdb.connect(str(session.project_root / "original-source.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=3")
         connection.execute("UPDATE orders SET amount=NULL,weight=9 WHERE id=2")
     paired = session.observe({"weighted": amount.weighted_mean(weight=weight)}).compute()
-    assert paired.to_pandas()[("value", "weighted")].tolist() == [10.0]
+    assert paired.to_pandas()["weighted"].tolist() == [10.0]
 
 
 def test_original_constant_and_ratio_recompute_the_formula(
@@ -98,18 +98,18 @@ def test_original_constant_and_ratio_recompute_the_formula(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     original_ratio = session.observe({"ratio": amount.sum() / amount.count()}).compute()
-    assert original_ratio.to_pandas()[("value", "ratio")].tolist() == pytest.approx([340 / 3])
+    assert original_ratio.to_pandas()["ratio"].tolist() == pytest.approx([340 / 3])
     with duckdb.connect(str(session.project_root / "original-source.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=2")
         connection.execute("UPDATE orders SET amount=100 WHERE id=1")
     fine = session.observe({"shifted": amount.sum() + 10}, by=(region,)).compute()
-    assert fine.to_pandas()[("value", "shifted")].tolist() == [110, 310]
-    assert fine.to_pandas()[("value", "shifted")].sum() == 420
+    assert fine.to_pandas()["shifted"].tolist() == [110, 310]
+    assert fine.to_pandas()["shifted"].sum() == 420
     result = session.observe(
         {"shifted": amount.sum() + 10, "ratio": amount.sum() / amount.count()}
     ).compute()
-    assert result.to_pandas()[("value", "shifted")].tolist() == [410]
-    assert result.to_pandas()[("value", "ratio")].tolist() == [200.0]
+    assert result.to_pandas()["shifted"].tolist() == [410]
+    assert result.to_pandas()["ratio"].tolist() == [200.0]
 
 
 @pytest.mark.parametrize(("customer", "expected"), [("A", 400), ("B", 200)])
@@ -125,9 +125,9 @@ def test_per_keeps_full_internal_identity(
     sample = session.catalog.fields.get("sales.orders.customer")
     region = session.catalog.fields.get("sales.orders.region")
     fine = session.observe({"value": amount.sum().per(sample).mean()}, by=(region,)).compute()
-    assert fine.to_pandas()[("value", "value")].tolist() == [100.0, 300.0]
+    assert fine.to_pandas()["value"].tolist() == [100.0, 300.0]
     result = session.observe({"value": amount.sum().per(sample).mean()}).compute()
-    assert result.to_pandas()[("value", "value")].tolist() == [expected]
+    assert result.to_pandas()["value"].tolist() == [expected]
 
 
 def test_exact_quantile_and_distinct_use_complete_values(original_source_session: Session) -> None:
@@ -137,8 +137,8 @@ def test_exact_quantile_and_distinct_use_complete_values(original_source_session
     result = session.observe(
         {"quantile": amount.quantile(0.95), "distinct": customer.count_distinct()}
     ).compute()
-    assert result.to_pandas()[("value", "quantile")].tolist() == pytest.approx([273.0])
-    assert result.to_pandas()[("value", "distinct")].tolist() == [2]
+    assert result.to_pandas()["quantile"].tolist() == pytest.approx([273.0])
+    assert result.to_pandas()["distinct"].tolist() == [2]
 
 
 def test_explicit_source_signed_sum_and_zero_denominator(original_source_session: Session) -> None:
@@ -149,12 +149,12 @@ def test_explicit_source_signed_sum_and_zero_denominator(original_source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     fine = session.observe({"value": amount.sum()}, by=(region,)).compute()
-    assert fine.to_pandas()[("value", "value")].tolist() == [100, -100]
+    assert fine.to_pandas()["value"].tolist() == [100, -100]
     result = session.observe(
         {"sum": amount.sum(), "ratio": amount.count() / amount.sum()}
     ).compute()
-    assert result.to_pandas()[("value", "sum")].tolist() == [0]
-    assert result.to_pandas()[("value", "ratio")].isna().all()
+    assert result.to_pandas()["sum"].tolist() == [0]
+    assert result.to_pandas()["ratio"].isna().all()
 
 
 def test_member_count_uses_complete_identities_and_selected_fine_keys(
@@ -171,18 +171,18 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     with pytest.raises(AnalysisError, match="condition"):
         session.observe({"members": members.count()}, where=mv.in_population(keys))
     control = session.observe({"members": members.count()}).compute()
-    assert control.to_pandas()[("value", "members")].tolist() == [3]
+    assert control.to_pandas()["members"].tolist() == [3]
     selected_members = session.members(
         session.catalog.entities.get("sales.orders"), where=mv.in_population(keys)
     )
     result = session.observe({"members": selected_members.count()}).compute()
-    assert result.to_pandas()[("value", "members")].tolist() == [2]
+    assert result.to_pandas()["members"].tolist() == [2]
     overall = session.observe(
         {"members": members.count(), "ratio": amount.sum() / members.count()},
         where=mv.in_population(members),
     ).compute()
-    assert overall.to_pandas()[("value", "members")].tolist() == [3]
-    assert overall.to_pandas()[("value", "ratio")].tolist() == pytest.approx([340 / 3])
+    assert overall.to_pandas()["members"].tolist() == [3]
+    assert overall.to_pandas()["ratio"].tolist() == pytest.approx([340 / 3])
 
 
 def test_member_count_drill_reuses_selected_complete_member_identities(
@@ -194,7 +194,7 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     members = session.members(session.catalog.entities.get("sales.orders"), where=region == "East")
     members = members.classify(by=(members.axes[0], region, channel))
     result = session.observe({"members": members.count()}, by=(region, channel)).compute()
-    assert result.to_pandas()[("value", "members")].tolist() == [1, 1]
+    assert result.to_pandas()["members"].tolist() == [1, 1]
     assert len(result.to_pandas()) == 2
 
 
@@ -209,9 +209,9 @@ def test_version_coordinate_is_part_of_the_complete_contribution_identity(
     second_members = session.members(session.catalog.entities.get("sales.snapshots"), at=second)
     one = session.read(first_members, {"amount": amount.at(first)}).compute().to_pandas()
     two = session.read(second_members, {"amount": amount.at(second)}).compute().to_pandas()
-    assert one[("value", "amount")].tolist() == [10, 300]
-    assert two[("value", "amount")].tolist() == [30]
-    assert one[("value", "amount")].sum() + two[("value", "amount")].sum() == 340
+    assert one["amount"].tolist() == [10, 300]
+    assert two["amount"].tolist() == [30]
+    assert one["amount"].sum() + two["amount"].sum() == 340
 
 
 def test_window_space_rollup_preserves_both_original_endpoints(
@@ -223,7 +223,7 @@ def test_window_space_rollup_preserves_both_original_endpoints(
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
     result = session.observe({"window": metric}, by=(calendar,)).compute().to_pandas()
-    assert result[("value", "window")].tolist() == [310, 340]
+    assert result["window"].tolist() == [310, 340]
 
 
 def test_drill_reads_only_selected_contributions_and_recomputes_mean(
@@ -240,12 +240,12 @@ def test_drill_reads_only_selected_contributions_and_recomputes_mean(
         {"mean": amount.mean()}, by=(region, channel), where=mv.in_population(keys)
     ).compute()
     rows = detail.to_pandas()
-    assert list(zip(rows.iloc[:, 0], rows.iloc[:, 1], rows[("value", "mean")], strict=True)) == [
+    assert list(zip(rows.iloc[:, 0], rows.iloc[:, 1], rows["mean"], strict=True)) == [
         ("East", "Store", 30.0),
         ("East", "Web", 10.0),
     ]
     overall = session.observe({"mean": amount.mean()}, where=mv.in_population(keys)).compute()
-    assert overall.to_pandas()[("value", "mean")].tolist() == [20.0]
+    assert overall.to_pandas()["mean"].tolist() == [20.0]
 
 
 def test_rollup_then_drill_keeps_per_identity_after_key_renumbering(
@@ -257,10 +257,10 @@ def test_rollup_then_drill_keeps_per_identity_after_key_renumbering(
     channel = session.catalog.fields.get("sales.orders.channel")
     metric = amount.sum().per(customer).mean()
     overall = session.observe({"value": metric}).compute()
-    assert overall.to_pandas()[("value", "value")].tolist() == [170]
+    assert overall.to_pandas()["value"].tolist() == [170]
     result = session.observe({"value": metric}, by=(channel,)).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == ["Store", "Web"]
-    assert result[("value", "value")].tolist() == [30, 155]
+    assert result["value"].tolist() == [30, 155]
 
 
 def test_drill_attribute_template_retains_complete_output_key_integrity(
@@ -272,8 +272,8 @@ def test_drill_attribute_template_retains_complete_output_key_integrity(
     segment = session.catalog.fields.get("sales.profiles.segment")
     east = session.members(session.catalog.entities.get("sales.orders"), where=region == "East")
     rows = session.read(east, {"channel": channel, "segment": segment}).compute().to_pandas()
-    assert rows[("value", "channel")].tolist() == ["Web", "Store"]
-    assert rows[("value", "segment")].tolist() == ["Good", "Good"]
+    assert rows["channel"].tolist() == ["Web", "Store"]
+    assert rows["segment"].tolist() == ["Good", "Good"]
     west = session.members(session.catalog.entities.get("sales.orders"), where=region == "West")
     with pytest.raises(AnalysisError, match="complete unique stage key"):
         session.read(west, {"segment": segment}).compute()
@@ -291,15 +291,15 @@ def test_current_row_mean_differs_from_explicit_source_mean(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     fixed = session.observe({"mean": amount.mean()}, by=(region,)).compute()
-    assert fixed.to_pandas()[("value", "mean")].tolist() == [100.0, 10.0]
+    assert fixed.to_pandas()["mean"].tolist() == [100.0, 10.0]
     rows = fixed.reduce({"mean": fixed["mean"].mean()}).compute()
-    assert rows.to_pandas()[("value", "mean")].tolist() == [55.0]
+    assert rows.to_pandas()["mean"].tolist() == [55.0]
     overall = session.observe({"mean": amount.mean()}).compute()
-    assert overall.to_pandas()[("value", "mean")].tolist() == [1000 / 91]
+    assert overall.to_pandas()["mean"].tolist() == [1000 / 91]
     saved = fixed.persist()
     restored = session.persisted_frame(saved.artifact.id)
     assert restored.reduce({"mean": restored["mean"].mean()}).compute().to_pandas()[
-        ("value", "mean")
+        "mean"
     ].tolist() == [55.0]
 
 
@@ -315,10 +315,10 @@ def test_current_row_distinct_sum_differs_from_explicit_source_distinct(
     customer = session.catalog.fields.get("sales.orders.customer")
     region = session.catalog.fields.get("sales.orders.region")
     fixed = session.observe({"distinct": customer.count_distinct()}, by=(region,)).compute()
-    assert fixed.to_pandas()[("value", "distinct")].tolist() == [2, 2]
+    assert fixed.to_pandas()["distinct"].tolist() == [2, 2]
     assert fixed.reduce({"count": fixed["distinct"].sum()}).compute().to_pandas()[
-        ("value", "count")
+        "count"
     ].tolist() == [4]
     assert session.observe({"count": customer.count_distinct()}).compute().to_pandas()[
-        ("value", "count")
+        "count"
     ].tolist() == [3]

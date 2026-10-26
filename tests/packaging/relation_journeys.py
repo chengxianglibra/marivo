@@ -26,7 +26,6 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataSchema,
     IntervalDataAxis,
-    PairedDataAxis,
 )
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -166,26 +165,15 @@ def _oracle() -> dict[str, object]:
 
 
 def _frame(exported: pd.DataFrame) -> pd.DataFrame:
-    """Flatten one already-collected export without reading a result again."""
+    """Give already-collected readable coordinates short names for pandas recipes."""
     frame = exported.copy(deep=True)
-    names: list[str] = []
-    key = 0
-    for label in frame.columns:
-        assert isinstance(label, tuple) and len(label) == 2
-        kind, name = label
-        if kind == "value":
-            assert isinstance(name, str)
-            names.append(name)
-        elif kind == "presence":
-            assert isinstance(name, str)
-            names.append("presence." + name)
-        elif kind == "coordinate":
-            names.append(f"key_{key}")
-            key += 1
-        else:
-            raise AssertionError(f"Unexpected Frame export kind: {kind}")
-    frame.columns = names
-    return frame
+    names = {
+        axis["name"]
+        if axis["role"] in ("identity", "field", "calendar")
+        else axis["name"] + ".start": f"key_{index}"
+        for index, axis in enumerate(frame.attrs["axes"])
+    }
+    return frame.rename(columns=names)
 
 
 def _frozen_tables(exported: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -395,11 +383,13 @@ def _produce(
             {"value": count},
             by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
         )
+        regions = targets.classify(by=(region,))
+        assert isinstance(regions, mv.Population)
         groups = session.observe(
             {"value": count},
             by=mv.product(
                 session.time_scope(start="2026-08-01", end="2026-09-01"),
-                targets.classify(by=(region,)),
+                regions,
             ),
         )
         totals = [
@@ -588,47 +578,21 @@ def _assert_oracles(
         )
 
     def cells(name: str, expected: dict[tuple[str, ...], object], value: str = "value") -> None:
-        frame = _frame(exports[name])
+        frame = exports[name]
         schema = saved[name]._schema
         assert isinstance(schema, DataSchema)
-        keys = [f"key_{index}" for index, _ in enumerate(saved[name].axes)]
-        interval_positions = {
-            index
-            for index, axis in enumerate(schema.axes)
-            if isinstance(axis, IntervalDataAxis)
-            or (isinstance(axis, PairedDataAxis) and isinstance(axis.left, IntervalDataAxis))
-        }
-        if interval_positions:
-            expanded: dict[tuple[str, ...], object] = {}
-            for coordinate, wanted in expected.items():
-                assert len(coordinate) + len(interval_positions) == len(schema.axes)
-                values = iter(coordinate)
-                full_key = tuple(
-                    "0" if index in interval_positions else next(values)
-                    for index in range(len(schema.axes))
-                )
-                expanded[full_key] = wanted
-            expected = expanded
-        labels: dict[str, dict[object, str]] = {}
-        for index, axis in enumerate(schema.axes):
-            if isinstance(axis, CalendarDataAxis):
-                assert axis.frozen is not None and len(axis.columns) == 1
-                directory = _frozen_tables(exports[name])[axis.frozen.directory_name]
-                labels[keys[index]] = {
-                    key: str(start)[:7]
-                    for key, start in zip(
-                        directory[axis.columns[0].slot_id], directory.nominal_start, strict=True
-                    )
-                }
+        keys: list[str] = []
+        for axis in schema.axes:
+            if isinstance(axis, IntervalDataAxis):
+                # Each interval-scoped result has one complete declared interval;
+                # compare its member cells only after checking that coordinate.
+                interval = frame[[f"{axis.name}.{field}" for field in ("start", "end", "timezone")]]
+                assert interval.notna().all().all(), name
+                assert len(interval.drop_duplicates()) <= 1, name
+            else:
+                keys.append(axis.name)
         actual = {
-            tuple(
-                labels[key][row[key]]
-                if key in labels
-                else str(row[key])[:7]
-                if isinstance(row[key], (pd.Timestamp, datetime))
-                else str(row[key])
-                for key in keys
-            ): row[value]
+            tuple(str(row[key]) for key in keys): row[value]
             for row in frame.to_dict(orient="records")
         }
         assert len(actual) == len(frame) and actual.keys() == expected.keys(), name
@@ -675,8 +639,8 @@ def _assert_oracles(
         union = union_rows.set_index(_ordinary_keys(union_rows)[0])
         # Presence is independent of all value masks and complete identity keys.
         exported = exports["union"]
-        assert exported[("presence", "current.present")].all()
-        assert exported[("presence", "reference.present")].tolist() == [True, True, False, False]
+        assert exported["current.present"].all()
+        assert exported["reference.present"].tolist() == [True, True, False, False]
         current_rows = _frame(exports["current"])
         assert union.index.tolist() == current_rows[_ordinary_keys(current_rows)[0]].tolist()
         assert len(union) == 4
@@ -716,7 +680,7 @@ def _assert_oracles(
         cells(
             "period",
             {
-                (left, m): count(m, left) - count(m, right)
+                (f"{left}-01", m): count(m, left) - count(m, right)
                 for m in members
                 for left, right in (("2026-09", "2026-07"), ("2026-10", "2026-08"))
             },
@@ -749,7 +713,7 @@ def _assert_oracles(
         cells(
             "running",
             {
-                (month, m): sum(amount(m, earlier) for earlier in months[: index + 1])
+                (f"{month}-01", m): sum(amount(m, earlier) for earlier in months[: index + 1])
                 for m in members
                 for index, month in enumerate(months)
             },
@@ -757,7 +721,7 @@ def _assert_oracles(
         cells(
             "folded",
             {
-                (month, m): amount(m, month) if count(m, month) else 0
+                (f"{month}-01", m): amount(m, month) if count(m, month) else 0
                 for m in members
                 for month in months
             },
@@ -765,7 +729,7 @@ def _assert_oracles(
         cells(
             "running_total",
             {
-                (month,): sum(
+                (f"{month}-01",): sum(
                     amount(m, earlier) for m in members for earlier in months[: index + 1]
                 )
                 for index, month in enumerate(months)
@@ -912,10 +876,14 @@ def _assert_oracles(
             current - baseline > 0 for current, baseline in mix_expected.values()
         )
     else:
-        cells("values", {(month, m): count(m, month) for m in members for month in months})
+        cells("values", {(f"{month}-01", m): count(m, month) for m in members for month in months})
         cells(
             "controlled_values",
-            {(month, m): count(m, month) for m in members for month in ("2026-06", *months)},
+            {
+                (f"{month}-01", m): count(m, month)
+                for m in members
+                for month in ("2026-06", *months)
+            },
         )
         for name, threshold in (("cohort", 3), ("any", 1), ("all", 3)):
             expected_members = sorted(

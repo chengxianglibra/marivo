@@ -50,14 +50,14 @@ def test_integer_mean_uses_exact_wide_total(
     result = _mean(frame)
     expected = float(sum(map(Fraction, values), Fraction()) / len(values))
     exported = result.to_pandas()
-    assert exported["value", "mean"].tolist() == [expected]
-    assert pa.array(exported["value", "mean"]).type == pa.float64()
+    assert exported["mean"].tolist() == [expected]
+    assert pa.array(exported["mean"]).type == pa.float64()
     assert isinstance(result._backing, MemoryFrameBacking)
     assert result._backing.data.schema.values[0].dtype == ScalarDataType("float64")
     if values == (2**53 + 1, 1, 1):
         assert expected != float(sum(values)) / len(values)
     total = frame.reduce({"sum": frame["x"].sum()}).compute()
-    exported_sum = total.to_pandas()["value", "sum"]
+    exported_sum = total.to_pandas()["sum"]
     assert exported_sum.tolist() == [Decimal(sum(values))]
     assert pa.array(exported_sum).type == pa.decimal128(38, 0)
     assert total.top(0, by=total["sum"]).compute().to_pandas().empty
@@ -90,17 +90,15 @@ def test_decimal_mean_finishes_only_after_exact_division(
     result = _mean(frame)
     assert isinstance(result._backing, MemoryFrameBacking)
     assert result._backing.data.schema.values[0].dtype == dtype
-    assert result.to_pandas()["value", "mean"].tolist() == [expected]
+    assert result.to_pandas()["mean"].tolist() == [expected]
     assert expected.as_tuple().exponent == -dtype.scale
     total = frame.reduce({"sum": frame["x"].sum()})
     if values[0].adjusted() >= 35:
         with pytest.raises(MaterializationError, match=r"precision|decimal|Decimal"):
             total.compute()
     else:
-        assert total.compute().to_pandas()["value", "sum"].tolist() == [sum(values)]
-        assert pa.array(total.compute().to_pandas()["value", "sum"]).type == pa.decimal128(
-            38, dtype.scale
-        )
+        assert total.compute().to_pandas()["sum"].tolist() == [sum(values)]
+        assert pa.array(total.compute().to_pandas()["sum"]).type == pa.decimal128(38, dtype.scale)
     assert terminal_runs(case.session) == ()
 
 
@@ -157,14 +155,14 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     ).compute()
     exported = result.to_pandas()
     expected = float(Fraction(value)) if type(value) is int else value
-    assert exported["value", "x"].iloc[0] == expected
-    assert pd.isna(exported["value", "x"].iloc[1])
-    assert exported["value", "y"].tolist() == [2.0, 4.0]
-    assert exported["value", "rows"].tolist() == [3, 1]
+    assert exported["x"].iloc[0] == expected
+    assert pd.isna(exported["x"].iloc[1])
+    assert exported["y"].tolist() == [2.0, 4.0]
+    assert exported["rows"].tolist() == [3, 1]
     assert result.presence_names == ()
     for frame in (nullable.where(nullable["x"].is_null()), nullable.top(0, by=nullable["y"])):
         scalar = _mean(frame).to_pandas()
-        assert len(scalar) == 1 and pd.isna(scalar["value", "mean"].iloc[0])
+        assert len(scalar) == 1 and pd.isna(scalar["mean"].iloc[0])
     empty = nullable.top(0, by=nullable["y"])
     grouped = empty.reduce({"mean": empty["x"].mean()}, by=(empty.axes[0],)).compute()
     assert grouped.to_pandas().empty
@@ -192,12 +190,12 @@ def test_source_read_wide_mean_retains_receipts_and_decimal_sum(
     assert isinstance(fixed._backing, MemoryFrameBacking)
     assert fixed._backing.metadata.audit.source_facts
     mean = _mean(fixed)
-    assert mean.to_pandas()["value", "mean"].tolist() == [float(Fraction(2**63, 2))]
+    assert mean.to_pandas()["mean"].tolist() == [float(Fraction(2**63, 2))]
     assert isinstance(mean._backing, MemoryFrameBacking)
     assert mean._backing.metadata.audit.source_facts == fixed._backing.metadata.audit.source_facts
     for frame in (source, fixed):
         total = frame.reduce({"sum": frame["x"].sum()})
-        assert total.compute().to_pandas()["value", "sum"].tolist() == [Decimal(2**63)]
+        assert total.compute().to_pandas()["sum"].tolist() == [Decimal(2**63)]
         assert total.top(0, by=total["sum"]).compute().to_pandas().empty
     assert trace.returned_rows == [2, 2, 2]
     assert all(owner._closed for owner in trace.owners)
@@ -232,7 +230,7 @@ def test_float_mean_keeps_compensated_sum_and_finite_policy(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     frame = _values(case, (1e16, 1.0, -1e16)).compute()
-    assert _mean(frame).to_pandas()["value", "mean"].tolist() == [float(Fraction(1, 3))]
+    assert _mean(frame).to_pandas()["mean"].tolist() == [float(Fraction(1, 3))]
     overflow = _values(case, (1e308, 1e308)).compute()
     with pytest.raises(MaterializationError, match="overflow"):
         _mean(overflow)

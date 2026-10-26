@@ -72,7 +72,7 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
     memory = pending.compute()
     assert memory.compute() is memory
     assert memory._input_id != pending._input_id
-    assert memory.to_pandas()[("value", "value")].tolist() == [7]
+    assert memory.to_pandas()["value"].tolist() == [7]
     assert tuple(terminal_runs(local)) == before
     assert isinstance(memory._backing, MemoryFrameBacking)
     assert memory._backing.metadata.audit.evaluation.operations == ("literal",)
@@ -93,15 +93,15 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
 def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServices) -> None:
     root = _memory(local)
     reduced = root.reduce({"mean": root["value"].mean(), "rows": row_count()}).compute()
-    assert reduced.to_pandas()[("value", "mean")].tolist() == [55.0]
-    assert reduced.to_pandas()[("value", "rows")].tolist() == [2]
+    assert reduced.to_pandas()["mean"].tolist() == [55.0]
+    assert reduced.to_pandas()["rows"].tolist() == [2]
     assert reduced.axes == () and reduced.presence_names == ()
     top = root.top(2, by=root["value"])
     filtered = top.where(top["value"] > 0)
     selected = filtered.select({"net": filtered["value"] - 1}).compute()
-    assert selected.to_pandas()[("coordinate", "axis.0")].tolist() == ["A", "B"]
-    assert selected.to_pandas()[("value", "net")].tolist() == [99, 9]
-    assert selected.to_pandas()[("presence", "right_present")].tolist() == [True, False]
+    assert selected.to_pandas()[selected.axes[0].name].tolist() == ["A", "B"]
+    assert selected.to_pandas()["net"].tolist() == [99, 9]
+    assert selected.to_pandas()["right_present"].tolist() == [True, False]
     assert selected.output_names == ("net",) and selected.presence_names == ("right_present",)
     grouped = root.reduce({"rows": row_count()}, by=root.axes).compute()
     assert grouped.presence_names == () and grouped.axes[0].name == "region"
@@ -110,7 +110,7 @@ def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServ
     assert top_zero._backing.data.row_count == 0
     empty = root.top(0, by=root["value"])
     count = empty.reduce({"rows": row_count()}).compute()
-    assert count.to_pandas()[("value", "rows")].tolist() == [0]
+    assert count.to_pandas()["rows"].tolist() == [0]
 
 
 def test_show_is_metadata_only_for_pending_and_n_zero(
@@ -175,9 +175,9 @@ def test_pending_show_names_current_operations_and_direct_input_kinds(
 def test_export_values_and_attrs_are_isolated(local: LocalFrameServices) -> None:
     root = _memory(local)
     exported = root.to_pandas()
-    exported.loc[0, ("value", "value")] = 999
+    exported.loc[0, "value"] = 999
     exported.attrs["axes"][0]["name"] = "changed"
-    assert root.to_pandas()[("value", "value")].tolist() == [10, 100]
+    assert root.to_pandas()["value"].tolist() == [10, 100]
     assert root.to_pandas().attrs["axes"][0]["name"] == "region"
 
 
@@ -202,26 +202,23 @@ def test_reduce_automatic_names_and_grouped_manual_values(local: LocalFrameServi
     explicit = root.reduce(dict(zip(pending.output_names, statistics, strict=True)))
     result = pending.compute()
     table = result.to_pandas()
-    assert table[("value", "value_sum")].tolist() == [110]
-    assert table[("value", "value_mean")].tolist() == [55.0]
-    assert table[("value", "row_count")].tolist() == [2]
+    assert table["value_sum"].tolist() == [110]
+    assert table["value_mean"].tolist() == [55.0]
+    assert table["row_count"].tolist() == [2]
     pd.testing.assert_frame_equal(table, explicit.compute().to_pandas())
     assert result._schema.values == explicit._schema.values
     assert result.axes == () and result.presence_names == ()
     for name, statistic in zip(pending.output_names, statistics, strict=True):
         single = root.reduce(statistic)
         assert single.output_names == (name,)
-        assert (
-            single.compute().to_pandas()[("value", name)].tolist()
-            == table[("value", name)].tolist()
-        )
+        assert single.compute().to_pandas()[name].tolist() == table[name].tolist()
     grouped = root.reduce(statistics, by=root.axes).compute()
     groups = grouped.to_pandas()
     assert grouped._schema.axes == root._schema.axes
-    assert groups[("coordinate", "axis.0")].tolist() == ["A", "B"]
-    assert groups[("value", "value_sum")].tolist() == [100, 10]
-    assert groups[("value", "value_mean")].tolist() == [100.0, 10.0]
-    assert groups[("value", "row_count")].tolist() == [1, 1]
+    assert groups["region"].tolist() == ["A", "B"]
+    assert groups["value_sum"].tolist() == [100, 10]
+    assert groups["value_mean"].tolist() == [100.0, 10.0]
+    assert groups["row_count"].tolist() == [1, 1]
     assert grouped.presence_names == ()
     repeated = result.reduce(result["value_sum"].sum())
     assert repeated.output_names == ("value_sum_sum",)
@@ -309,3 +306,43 @@ def test_reduce_automatic_names_preserve_exact_frame_and_session_ownership(
             root.reduce(other["value"].sum())
         assert error.value.expected == "a statistic from this exact Frame input"
         assert "Reacquire" in error.value.repair.action
+
+
+def test_flat_export_aliases_conflicts_and_preview(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _memory(local)
+    frame = root.select({"region": root["value"]}).compute()
+    with pytest.raises(CoreRuleError) as caught:
+        frame.to_pandas()
+    assert caught.value.expected == "unique flat export column names"
+    assert "axis_names" in caught.value.repair.action
+    rows = frame.to_pandas(axis_names={frame.axes[0]: "customer_region"})
+    assert rows.columns.tolist() == ["customer_region", "region", "right_present"]
+    assert rows["customer_region"].tolist() == ["B", "A"]
+    assert rows["region"].tolist() == [10, 100]
+    assert rows["right_present"].tolist() == [False, True]
+    frame.show(n=1)
+    preview = capsys.readouterr().out
+    assert "region [coordinate axis.0]" in preview and "region [value]" in preview
+    with pytest.raises(CoreRuleError, match="exact Frame input"):
+        frame.to_pandas(axis_names={root.axes[0]: "customer_region"})
+    for name in ("", " region", "region\n"):
+        with pytest.raises(CoreRuleError, match="printable export name"):
+            root.to_pandas(axis_names={root.axes[0]: name})
+
+
+def test_export_alias_validation_precedes_stored_payload_reads(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _memory(local)
+    frame = root.select({"region": root["value"]}).persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("invalid export must not read stored data")
+
+    monkeypatch.setattr(LocalFrameServices, "read_data", forbidden)
+    with pytest.raises(CoreRuleError, match="unique flat export column names"):
+        frame.to_pandas()
+    with pytest.raises(CoreRuleError, match="exact Frame input"):
+        frame.to_pandas(axis_names={root.axes[0]: "name"})

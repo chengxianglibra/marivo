@@ -62,9 +62,7 @@ def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]
 def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
     frame = result.to_pandas()
     identity = next(axis for axis in result.axes if axis.role == "identity")
-    values = dict(
-        zip(frame[("coordinate", identity.token)], frame[("value", "value")], strict=True)
-    )
+    values = dict(zip(frame[identity.name], frame["value"], strict=True))
     assert isinstance(result._schema, DataSchema)
     assert [
         column.dtype
@@ -83,9 +81,9 @@ def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
         assert set(values) == {
             key for key, value in DEFINED.items() if value is not None and value > 0
         }
-        assert frame[("value", "value")].isna().all()
-        assert frame[("presence", "current.present")].all()
-        assert not frame[("presence", "reference.present")].any()
+        assert frame["value"].isna().all()
+        assert frame["current.present"].all()
+        assert not frame["reference.present"].any()
     else:
         assert set(values) == COMPLETE
         for key, value in DEFINED.items():

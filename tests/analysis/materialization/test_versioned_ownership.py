@@ -106,10 +106,10 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                 (9007199254740992, "a"),
                 (9007199254740993, "b"),
             ]
-            assert frame[("value", "amount")].tolist() == [10, 20]
-            assert frame[("value", "tenant")].tolist() == ["a", "b"]
-            assert frame[("value", "enabled")].tolist() == [False, True]
-            assert frame[("value", "beginning")].tolist() == [date(2026, 8, 1)] * 2
+            assert frame["amount"].tolist() == [10, 20]
+            assert frame["tenant"].tolist() == ["a", "b"]
+            assert frame["enabled"].tolist() == [False, True]
+            assert frame["beginning"].tolist() == [date(2026, 8, 1)] * 2
         saved = [snapshot(value, frame=frame) for value, frame in zip(fixed, frames, strict=True)]
         before = [run_ids(owner) for owner in sessions]
         published_before = [publication_counts(owner) for owner in sessions]

@@ -149,8 +149,8 @@ def test_native_distributions_independent_fixed_and_cold(
             value = query.persist()
             frame = value.to_pandas()
             identity = next(axis for axis in value.axes if axis.role == "identity")
-            coordinate = ("coordinate", identity.token)
-            mapped = dict(zip(frame[coordinate], frame[("value", "value")], strict=True))
+            coordinate = identity.name
+            mapped = dict(zip(frame[coordinate], frame["value"], strict=True))
             if kind in ("distinct", "identity", "approx_distinct"):
                 assert mapped == {"a": 4 if kind == "identity" else 2, "b": 1, "c": 0}
             else:
@@ -208,7 +208,7 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
         assert snapshot(value) == item['snapshot']
         frame = value.to_pandas()
         identity = next(axis for axis in value.axes if axis.role == 'identity')
-        values = dict(zip(frame[('coordinate', identity.token)], frame[('value','value')], strict=True))
+        values = dict(zip(frame[('coordinate', identity.token)], frame['value'], strict=True))
         if name == 'quantile':
             assert values['a'] == 4 and values['b'] == 6 and pd.isna(values['c'])
         else:

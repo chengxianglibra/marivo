@@ -77,21 +77,17 @@ def test_direct_distribution(
     observed = _distribution(case, agg)
     fixed = observed.compute()
     frame = fixed.to_pandas()
-    rows = frame.set_index(ordinary_columns(frame)[0])[("value", "value")]
+    rows = frame.set_index(ordinary_columns(frame)[0])["value"]
     if agg in ("count_distinct", "approx_count_distinct"):
         assert rows.tolist() == [1, 1, 1, 0]
     else:
         assert rows.loc[["A", "B", "C"]].tolist() == [450, 150, 400]
         assert rows.loc[["D"]].isna().all()
-    assert observed.reduce({"rows": mv.row_count()}).compute().to_pandas()[
-        ("value", "rows")
-    ].tolist() == [4]
+    assert observed.reduce({"rows": mv.row_count()}).compute().to_pandas()["rows"].tolist() == [4]
     if agg not in ("approx_count_distinct", "approx_median") and not (
         isinstance(agg, tuple) and agg[0] == "approx_percentile"
     ):
-        total = (
-            _distribution(case, agg, overall=True).compute().to_pandas()[("value", "value")].iloc[0]
-        )
+        total = _distribution(case, agg, overall=True).compute().to_pandas()["value"].iloc[0]
         expected = 3 if agg == "count_distinct" else 400 if agg == "median" else 275
         assert total == expected
     if agg == "count_distinct" and not parquet:
@@ -109,7 +105,7 @@ def test_direct_distribution(
         )
         for duplicate_agg, duplicate_expected in duplicate_cases:
             duplicate_result = _distribution(case, duplicate_agg).compute().to_pandas()
-            assert duplicate_result[("value", "value")].iloc[0] == duplicate_expected
+            assert duplicate_result["value"].iloc[0] == duplicate_expected
 
 
 @pytest.mark.parametrize("decimal_input", [False, True])
@@ -133,7 +129,7 @@ def test_native_quantile_precision_is_source_owned(
                 [str(index), "A", "web", "paid", "2026-08-15", amount],
             )
     result_frame = _distribution(case, ("percentile", 0.25)).compute().to_pandas()
-    result = result_frame.set_index(ordinary_columns(result_frame)[0]).loc["A", ("value", "value")]
+    result = result_frame.set_index(ordinary_columns(result_frame)[0]).loc["A", "value"]
     # Native DuckDB interpolation rounds int64 through double and truncates to Decimal scale.
     expected = Decimal("1.01") if decimal_input else float(2**53)
     assert result == expected
@@ -198,10 +194,10 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
         ("mean", 4.0, [2.0, 8.0]),
         ("weighted_mean", 20.75 / 4, [2.375, 8.0]),
     ):
-        frame = float_members[("value", kind)]
+        frame = float_members[kind]
         assert frame.iloc[:2].tolist() == by_member
         assert frame.iloc[2:].isna().all()
-        assert float_overall[("value", kind)].tolist() == [expected]
+        assert float_overall[kind].tolist() == [expected]
     decimal_metrics = {
         "sum": decimal_amount.sum(time=time),
         "min": decimal_amount.min(time=time),
@@ -225,18 +221,16 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
         ("min", "150.25", ["150.25", "400.25"]),
         ("max", "450.25", ["450.25", "400.25"]),
     ):
-        frame = decimal_frame[("value", kind)]
+        frame = decimal_frame[kind]
         assert frame.iloc[: len(decimal_by_member)].tolist() == [
             Decimal(value) for value in decimal_by_member
         ]
         assert frame.iloc[len(decimal_by_member) :].isna().all()
-        assert decimal_overall[("value", kind)].tolist() == [Decimal(decimal_expected)]
-        for value in (*frame.dropna(), *decimal_overall[("value", kind)]):
+        assert decimal_overall[kind].tolist() == [Decimal(decimal_expected)]
+        for value in (*frame.dropna(), *decimal_overall[kind]):
             assert isinstance(value, Decimal)
             assert value.as_tuple().exponent == -2
-    assert logical.reduce({"rows": mv.row_count()}).compute().to_pandas()[
-        ("value", "rows")
-    ].tolist() == [4]
+    assert logical.reduce({"rows": mv.row_count()}).compute().to_pandas()["rows"].tolist() == [4]
 
 
 def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -353,16 +347,9 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     "D": Decimal("3.000000"),
                 }
             )
-            assert (
-                fine.set_index(ordinary_columns(fine)[0])[("value", kind)].to_dict()
-                == expected_by_member
-            )
+            assert fine.set_index(ordinary_columns(fine)[0])[kind].to_dict() == expected_by_member
         if kind == "weighted":
-            assert (
-                fine.loc[fine[ordinary_columns(fine)[0]].isin(("C", "D")), ("value", kind)]
-                .isna()
-                .all()
-            )
+            assert fine.loc[fine[ordinary_columns(fine)[0]].isin(("C", "D")), kind].isna().all()
         expected = (
             sum(numbers, Fraction())
             if kind == "sum"
@@ -388,7 +375,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     rounding=ROUND_HALF_EVEN,
                 )
             )
-        actual = rolled_rows[("value", kind)].tolist()
+        actual = rolled_rows[kind].tolist()
         assert (
             actual == pytest.approx([oracle])
             if floating or kind in ("weighted", "ratio")
@@ -403,7 +390,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                 ).to_pandas()
             finally:
                 backend.disconnect()
-            assert fine.set_index(ordinary_columns(fine)[0])[("value", "mean")].to_dict() == dict(
+            assert fine.set_index(ordinary_columns(fine)[0])["mean"].to_dict() == dict(
                 zip(native.customer_id, native.value, strict=True)
             )
 
@@ -535,7 +522,7 @@ def test_duration_matrix(
         fine = coordinate_fine if coordinates else member_fine
         assert fine is not None
         if kind == "count_distinct":
-            assert fine[("value", kind)].tolist() == [2, 2, 0, 0]
+            assert fine[kind].tolist() == [2, 2, 0, 0]
         else:
             assert overall is not None
             expected = {
@@ -548,13 +535,10 @@ def test_duration_matrix(
                 "linear": 14,
             }[kind]
             if kind == "ratio":
-                assert overall[("value", kind)].tolist() == [expected]
+                assert overall[kind].tolist() == [expected]
             else:
                 actual = (
-                    pa.array(overall[("value", kind)])
-                    .cast(pa.duration(unit))
-                    .cast(pa.int64())
-                    .to_pylist()
+                    pa.array(overall[kind]).cast(pa.duration(unit)).cast(pa.int64()).to_pylist()
                 )
                 assert actual == [expected]
         assert len(fine) == (5 if coordinates else 4)
@@ -643,12 +627,9 @@ def test_typed_temporal_matrix(
         ):
             frame = result.to_pandas()
             actual = (
-                pa.array(frame[("value", "value")])
-                .cast(pa.duration("us"))
-                .cast(pa.int64())
-                .to_pylist()
+                pa.array(frame["value"]).cast(pa.duration("us")).cast(pa.int64()).to_pylist()
                 if family == "duration"
-                else frame[("value", "value")].tolist()
+                else frame["value"].tolist()
             )
             assert actual == [expected]
 
@@ -771,7 +752,7 @@ for name, artifact in json.loads(sys.argv[2]).items():
     saved = session.persisted_frame(artifact)
     assert snapshot(saved) == manifests[name]
     frame = saved.to_pandas()
-    values = frame[('value','value')]
+    values = frame['value']
     if sys.argv[3] == 'duration':
         values = pa.array(values).cast(pa.duration('ns')).cast(pa.int64()).to_pylist()
     output[name] = {'values':[str(value) for value in values], 'artifact':saved.artifact.id}
@@ -832,9 +813,9 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
             else sum(numbers)
         )
         fixed = logical.persist()
-        assert fixed.to_pandas()[("value", "boundary")].tolist() == [expected]
+        assert fixed.to_pandas()["boundary"].tolist() == [expected]
         assert case.session.observe({"boundary": metric}).compute().to_pandas()[
-            ("value", "boundary")
+            "boundary"
         ].tolist() == [expected]
         assert case.session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
 
@@ -856,7 +837,7 @@ def test_definition_quantile_checks_q_and_accepts_endpoints(
             {"value": value.quantile(q, time=time)},
             by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
         ).compute()
-        assert result.to_pandas()[("value", "value")].tolist() == [expected]
+        assert result.to_pandas()["value"].tolist() == [expected]
 
 
 def test_exact_and_approximate_definition_identities_never_alias(
@@ -929,7 +910,7 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
             where=mv.in_population(members),
         ).compute(),
     ):
-        actual = result.to_pandas()[("value", "value")].iloc[0]
+        actual = result.to_pandas()["value"].iloc[0]
         if floating:
             assert abs(actual - float(oracle)) <= (2 * abs(large) + 1) * 1e-12 + 1e-12
         else:
@@ -953,14 +934,10 @@ def test_current_row_counts_keep_numeric_null_policy(
         ),
     )
     frame = logical.compute().to_pandas()
-    assert len(frame) == 4 and frame[("value", "value")].notna().sum() == 4
-    assert logical.reduce({"count": mv.row_count()}).compute().to_pandas()[
-        ("value", "count")
-    ].tolist() == [4]
+    assert len(frame) == 4 and frame["value"].notna().sum() == 4
+    assert logical.reduce({"count": mv.row_count()}).compute().to_pandas()["count"].tolist() == [4]
     defined = logical.where(~logical["value"].is_null())
-    assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()[
-        ("value", "count")
-    ].tolist() == [4]
+    assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()["count"].tolist() == [4]
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Invalid statistic read business rows")

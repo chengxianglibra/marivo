@@ -22,11 +22,11 @@ from tests.support.source_trace import SourceTrace
 
 
 def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    result = pd.DataFrame({"value": frame[("value", "value")]})
+    result = pd.DataFrame({"value": frame["value"]})
     for axis in frame.attrs["axes"]:
-        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[
-            ("coordinate", axis["token"])
-        ]
+        if axis["role"] == "interval":
+            continue
+        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[axis["name"]]
     return result
 
 
@@ -149,7 +149,7 @@ def test_observation_preserves_population_windows_and_query_count(
         .to_pandas()
     )
     assert len(direct) == 5
-    assert direct[("value", "value")].ne(0).sum() == 3
+    assert direct["value"].ne(0).sum() == 3
 
 
 @pytest.mark.parametrize("integer", [False, True])
@@ -181,8 +181,8 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
             .to_pandas()
         )
         # Check producer order before the separate membership normalization oracle.
-        assert rows.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
-        assert rows.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
+        assert rows["calendar:month"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
+        assert rows[rows.attrs["axes"][1]["name"]].tolist() == ["A", "B", "C", "D"] * 2
         directory = rows.attrs["frozen_coordinates"][0]["rows"]
         assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
             "2026-08-01T00:00:00+00:00",
@@ -237,7 +237,7 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
                 or isinstance(default, (sge.Null, sge.Case))
                 or (isinstance(default, sge.Cast) and isinstance(default.this, sge.Null))
             )
-    assert optimized.coord_0.tolist() == [0, 1] * 4
+    assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
     reads.clear()
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
@@ -259,7 +259,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
         return query.compute().to_pandas()
 
     optimized = execute()
-    assert optimized[("value", "value")].tolist() == [1077, 1176]
+    assert optimized["value"].tolist() == [1077, 1176]
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
         previous = execute()
@@ -271,7 +271,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
         .compute()
         .to_pandas()
     )
-    assert scalar[("value", "value")].tolist() == [1176]
+    assert scalar["value"].tolist() == [1176]
 
 
 def test_event_column_on_relationship_destination_keeps_its_own_range(
@@ -374,5 +374,5 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
         previous = execute()
     pd.testing.assert_frame_equal(optimized, previous)
-    assert optimized["value", "value"].iloc[0] == 2 * (2**63 - 1)
+    assert optimized["value"].iloc[0] == 2 * (2**63 - 1)
     assert terminal_runs(case.session) == ()

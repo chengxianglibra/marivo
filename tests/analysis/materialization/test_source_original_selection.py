@@ -197,13 +197,13 @@ def _selected_original_case(
         frame = query.compute().to_pandas()
         if operation == "rollup":
             assert frame.iloc[:, 0].tolist() == ["t1"]
-            assert frame["value", "value"].tolist() == [
+            assert frame["value"].tolist() == [
                 0 if mutation == "delete" else 127 if backend in ("postgres", "mysql") else 120
             ]
         elif operation == "drill":
-            assert frame["value", "value"].tolist() == ([] if mutation == "delete" else [120, 7])
+            assert frame["value"].tolist() == ([] if mutation == "delete" else [120, 7])
         else:
-            assert frame["value", "value"].tolist() == [0]
+            assert frame["value"].tolist() == [0]
         pd.testing.assert_frame_equal(fixed.to_pandas(), initial, check_exact=True)
         assert trace.returned_rows
         assert not any(
@@ -326,7 +326,7 @@ def test_empty_selection_retains_widened_parent_sum(
         fine = session.observe({"value": amount.sum()}, by=(category,))
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
-        assert fine.compute().to_pandas()["value", "value"].max() >= 2**63
+        assert fine.compute().to_pandas()["value"].max() >= 2**63
         assert query.compute().to_pandas().empty
         assert len(trace.returned_rows) == 2
         assert trace.returned_rows == [2, 2]
@@ -354,7 +354,7 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
         category = session.catalog.fields.get("sales.facts.category")
         fine = session.observe({"value": amount.mean()}, by=(category,))
         fixed = fine.compute()
-        threshold = fixed.to_pandas()["value", "value"].iloc[0]
+        threshold = fixed.to_pandas()["value"].iloc[0]
         selected = fixed.where(fixed["value"] > float(threshold)).compute()
         assert selected.to_pandas().empty
         keys = session.population_from(selected, on=((selected.axes[0], category),))
@@ -365,8 +365,8 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
             .to_pandas()
         )
         assert len(frame) == 1
-        assert pd.isna(frame["value", "value"].iloc[0])
-        assert fixed.to_pandas()["value", "value"].iloc[0] == threshold
+        assert pd.isna(frame["value"].iloc[0])
+        assert fixed.to_pandas()["value"].iloc[0] == threshold
         assert trace.returned_rows
 
 
@@ -429,7 +429,7 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
         .to_pandas()
     )
     assert frame.iloc[:, 0].tolist() == ["t1"]
-    assert frame["value", "value"].tolist() == [0 if mutation == "delete" else 127]
+    assert frame["value"].tolist() == [0 if mutation == "delete" else 127]
     pd.testing.assert_frame_equal(fixed.to_pandas(), initial, check_exact=True)
     assert trace.returned_rows
     assert not any("__original_value" in name for names in trace.returned_columns for name in names)

@@ -989,8 +989,8 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
     assert isinstance(result._schema.axes[0], CalendarDataAxis)
     assert result._schema.axes == current._schema.axes
     rows = result.to_pandas()
-    assert rows[("value", "yoy.absolute.amount")].tolist() == [8, 15]
-    assert rows[("value", "mom.relative.amount")].tolist() == [1.0, 1.0]
+    assert rows["yoy.absolute.amount"].tolist() == [8, 15]
+    assert rows["mom.relative.amount"].tolist() == [1.0, 1.0]
     assert len(_memory_backing(result).data.copy_attachments()) == 5
     baseline_tokens = set()
     for fact in result._schema.comparisons:
@@ -998,11 +998,11 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
         baseline_tokens.add(fact.binding.baseline.token)
     assert len(baseline_tokens) == 2
     equivalent = current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-12)}).compute()
-    assert equivalent.to_pandas()[("value", "yoy.absolute.amount")].tolist() == [8, 15]
+    assert equivalent.to_pandas()["yoy.absolute.amount"].tolist() == [8, 15]
     bare = current.compare(yoy).compute()
     bare_rows = bare.to_pandas()
-    assert bare_rows[("value", "reference.absolute.amount")].tolist() == [8, 15]
-    assert bare_rows[("value", "reference.relative.amount")].tolist() == [2.0, 3.0]
+    assert bare_rows["reference.absolute.amount"].tolist() == [8, 15]
+    assert bare_rows["reference.relative.amount"].tolist() == [2.0, 3.0]
     pd.testing.assert_frame_equal(
         bare_rows, current.compare({"reference": yoy}).compute().to_pandas()
     )
@@ -1025,8 +1025,8 @@ def test_empty_direct_baseline_does_not_hide_conflicting_offset_intent(
     current = _captured_calendar_frame(local, calendar, (7,))
     absent = _captured_calendar_frame(local, calendar.shift(mv.offset(years=-1)), ())
     output = current.compare({"yoy": absent}).compute()
-    assert output.to_pandas()[("presence", "yoy.present")].tolist() == [False]
-    assert output.to_pandas()[("value", "yoy.baseline.amount")].isna().all()
+    assert output.to_pandas()["yoy.present"].tolist() == [False]
+    assert output.to_pandas()["yoy.baseline.amount"].isna().all()
     with pytest.raises(AnalysisError, match="target intentions"):
         current.compare({"yoy": absent}, match={"yoy": mv.offset(periods=-52)}).compute()
 
@@ -1058,7 +1058,7 @@ def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
     actual = current.compare({"prior": baseline}, match={"prior": mv.offset(periods=-2)}).compute()
     control = current.compare({"prior": manual}, match={"prior": mv.offset(periods=-2)}).compute()
     pd.testing.assert_frame_equal(actual.to_pandas(), control.to_pandas())
-    assert actual.to_pandas()[("value", "prior.absolute.amount")].tolist() == [8]
+    assert actual.to_pandas()["prior.absolute.amount"].tolist() == [8]
     for how in ("exact", "outer"):
         with pytest.raises(AnalysisError, match="explicit match from the current"):
             current.compare({"prior": baseline}).compute()
@@ -1116,8 +1116,8 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
         fixed = paired.compute()
         assert isinstance(fixed._schema.axes[0], PairedDataAxis)
         fixed_rows = fixed.to_pandas()
-        assert fixed_rows[("value", "left.delta")].tolist() == [6]
-        assert fixed_rows[("value", "right.delta")].tolist() == [6]
+        assert fixed_rows["left.delta"].tolist() == [6]
+        assert fixed_rows["right.delta"].tolist() == [6]
         assert tuple(fact.namespace for fact in fixed._schema.comparisons) == (
             ("left",),
             ("right",),
@@ -1128,7 +1128,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
         )
         scalar = paired.select({"constant": 1}).compute()
         scalar_rows = scalar.to_pandas()
-        assert scalar_rows[("value", "constant")].tolist() == [1]
+        assert scalar_rows["constant"].tolist() == [1]
         assert scalar._schema.comparisons == fixed._schema.comparisons
 
     explicit_chain(selected)
@@ -1143,7 +1143,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
     )
     assert len(_memory_backing(expected_same).data.copy_attachments()) == 7
     expected_same_rows = expected_same.to_pandas()
-    assert expected_same_rows[("value", "again.absolute.delta")].tolist() == [0]
+    assert expected_same_rows["again.absolute.delta"].tolist() == [0]
     assert len(expected_displaced._schema.comparisons) == 3
     assert all(
         isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
@@ -1151,7 +1151,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
     )
     assert len(_memory_backing(expected_displaced).data.copy_attachments()) == 3
     expected_displaced_rows = expected_displaced.to_pandas()
-    assert expected_displaced_rows[("value", "saved")].tolist() == [6, pd.NA]
+    assert expected_displaced_rows["saved"].tolist() == [6, pd.NA]
 
     persisted = selected.persist()
     explicit_chain(persisted)
@@ -1283,7 +1283,7 @@ def test_retained_comparison_absence_rejects_true_exact_endpoint_presence(
         match={"reference": mv.offset(years=-1)},
     ).compute()
     # A mapped period need not have an actual baseline row for the current joint category.
-    assert report.to_pandas()[("presence", "reference.present")].tolist() == [False, False, True]
+    assert report.to_pandas()["reference.present"].tolist() == [False, False, True]
     inherited = report.align(report, on=tuple(zip(report.axes, report.axes, strict=True))).compute()
     original = CompletedFrameData.copy_rows
     for frame, namespace in ((report, ()), (inherited, ("left",))):

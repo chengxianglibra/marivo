@@ -149,22 +149,22 @@ def test_complete_versioned_members(
         result = values.persist()
         read = result.to_pandas()
         keyed = read.set_index(read.columns[0])
-        assert keyed[("value", "amount")].to_dict() == {
+        assert keyed["amount"].to_dict() == {
             (9007199254740992, "a"): 10,
             (9007199254740993, "a"): 20,
             (9007199254740993, "b"): 30,
         }
-        assert keyed[("value", "tenant")].to_dict() == {
+        assert keyed["tenant"].to_dict() == {
             (9007199254740992, "a"): "a",
             (9007199254740993, "a"): "a",
             (9007199254740993, "b"): "b",
         }
-        assert keyed[("value", "enabled")].to_dict() == {
+        assert keyed["enabled"].to_dict() == {
             (9007199254740992, "a"): False,
             (9007199254740993, "a"): True,
             (9007199254740993, "b"): True,
         }
-        assert set(read[("value", "beginning")]) == {date(2026, 8, 1)}
+        assert set(read["beginning"]) == {date(2026, 8, 1)}
         enabled = True
         selected_values = values.where(values["enabled"] == enabled)
         selected = session.population_from(
@@ -313,10 +313,8 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
         scoped = scoped_result.to_pandas()
         assert len(scoped) == 2
-        assert scoped[("value", "value")].dropna().tolist() == [10]
-        assert scoped.loc[scoped[("value", "value")].isna()].iloc[:, 0].tolist() == [
-            (9007199254740993, "a")
-        ]
+        assert scoped["value"].dropna().tolist() == [10]
+        assert scoped.loc[scoped["value"].isna()].iloc[:, 0].tolist() == [(9007199254740993, "a")]
         with pytest.raises(AnalysisError):
             explicit.compute()
         assert session._runtime.store.resources(session.id) == ()

@@ -106,10 +106,10 @@ def test_shared_selected_keys_keep_both_host_endpoint_values(
     plans = _plans(monkeypatch)
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
-    assert sorted(rows["value", "left.n"].tolist()) == [0, 0, 1, 2]
-    assert rows["value", "left.n"].equals(rows["value", "right.n"])
+    assert sorted(rows["left.n"].tolist()) == [0, 0, 1, 2]
+    assert rows["left.n"].equals(rows["right.n"])
     assert rows.iloc[:, 0].isna().sum() == 1
-    assert rows["presence", "left_present"].all() and rows["presence", "right_present"].all()
+    assert rows["left_present"].all() and rows["right_present"].all()
     assert len(plans) == 1
     assert trace.uploaded_key_rows == [4]
     assert trace.returned_rows == [4, 4]
@@ -139,8 +139,8 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     )
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
-    assert rows["value", "total"].tolist() == [60]
-    assert rows["value", "mean"].tolist() == [30.0]
+    assert rows["total"].tolist() == [60]
+    assert rows["mean"].tolist() == [30.0]
     # Matching axes do not qualify sampled contributions for common-source
     # sharing. Remote consumers retain their own checked parameter boundary.
     assert trace.uploaded_key_rows == ([3] if backend == "duckdb" else [3, 3])
@@ -166,8 +166,8 @@ def test_shared_query_population_remains_a_real_host_sample_domain(
     plans = _plans(monkeypatch)
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
-    assert rows["value", "direct"].tolist() == [3]
-    assert rows["value", "sample"].tolist() == [13]
+    assert rows["direct"].tolist() == [3]
+    assert rows["sample"].tolist() == [13]
     assert len(plans) == 1
     assert trace.uploaded_key_rows == [4]
     # The same four-key sample input is retained for both source consumers and
@@ -227,8 +227,8 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     )
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
-    assert rows["value", "direct"].tolist() == [10]
-    assert rows["value", "sample"].tolist() == [10.0]
+    assert rows["direct"].tolist() == [10]
+    assert rows["sample"].tolist() == [10.0]
     assert trace.uploaded_key_rows == [1]
 
 
@@ -282,6 +282,6 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()
-        assert rows["value", "history"].tolist() == [1000, 1000]
-        assert rows["value", "recent"].tolist() == [500, 500]
+        assert rows["history"].tolist() == [1000, 1000]
+        assert rows["recent"].tolist() == [500, 500]
         assert trace.uploaded_key_rows == ([2] if backend == "duckdb" else [2, 2, 2, 2])

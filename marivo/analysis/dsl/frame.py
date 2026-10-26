@@ -1214,32 +1214,37 @@ class AnalysisFrame:
             )
         return self._local.artifact(self._backing.artifact_id)
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Export all fixed data as isolated typed arrays and inert attrs.
+    def to_pandas(self, *, axis_names: Mapping[FrameAxis, str] | None = None) -> pd.DataFrame:
+        """Export complete fixed data as a readable, isolated flat table.
 
-        This method accepts no parameters.
+        Args:
+            axis_names: Optional names for axes from this exact Frame input. Names
+                must be nonempty printable strings without surrounding whitespace.
+                Defaults to the complete captured axis names.
 
         Returns:
-            A complete pandas DataFrame with two-level MultiIndex columns named
-            kind/name. coordinate uses axis tokens (complete tuples for composite
-            keys); value uses full output names; presence uses independent nonnullable
-            booleans, distinct from value NA and zero. Coordinate and presence groups
-            may be absent. attrs['axes'] maps token/name/role/key_names/at; units,
-            comparisons and frozen_coordinates retain inert interpretation.
+            A pandas DataFrame with string columns: readable coordinates, full
+            output names and independent boolean presence. Composite identities
+            remain tuples. Calendar coordinates include labels, actual_start,
+            actual_end and timezone; intervals include start/end/timezone. Paired
+            coordinates use left/right prefixes. Exact bounds are UTC timestamps.
+            attrs retain isolated axes, units, comparisons and frozen_coordinates.
 
         Example:
-            ``rows = frame.compute().to_pandas()``; read a known output with
-            ``rows[("value", "amount")]`` and discover axes through ``rows.attrs["axes"]``.
+            ``fixed = frame.compute(); rows = fixed.to_pandas()``;
+            ``amounts = rows["amount"]``. Rename an axis with
+            ``fixed.to_pandas(axis_names={fixed.axes[0]: "region"})``.
 
         Constraints:
             Pending expressions require compute/persist, including derivatives of
-            fixed data; use the returned Frame. Saved reads fully validate current
-            data. Numeric, missing and temporal carriers retain their physical types;
-            do not infer float conversion from column names or roles. Data and attrs
-            are isolated copies without semantic definitions or computation authority;
-            internal descriptors are not a stable deserialization contract.
+            fixed data; use the returned Frame. Column names must be unique; resolve
+            collisions with axis_names or select(). Saved reads fully validate current
+            data without Catalog, source or method-payload reads. Value types, NA,
+            presence and row order are preserved; no float coercion or zero filling.
+            Exported data and attrs grant no typed computation authority or stable
+            deserialization protocol. Continue typed analysis from the Frame.
         """
-        from marivo.analysis.materialization.pandas_export import export_frame
+        from marivo.analysis.materialization.pandas_export import export_frame, export_names
 
         if isinstance(self._backing, ExpressionFrameBacking):
             reject(
@@ -1249,12 +1254,38 @@ class AnalysisFrame:
                 "frame.to_pandas",
                 canonical_id="analysis_frame.to_pandas",
             )
+        if axis_names is not None and not isinstance(axis_names, Mapping):
+            reject(
+                "a mapping from current Frame axes to export names",
+                type(axis_names).__name__,
+                "Pass axis_names={frame.axes[0]: 'name'} or omit axis_names.",
+                "frame.to_pandas",
+                canonical_id="analysis_frame.to_pandas",
+            )
+        names = [axis.name for axis in self.axes]
+        for axis, name in (axis_names or {}).items():
+            index = self._axis_index(
+                axis, location="frame.to_pandas", canonical_id="analysis_frame.to_pandas"
+            )
+            if type(name) is not str or not name or name != name.strip() or not name.isprintable():
+                reject(
+                    "a nonempty printable export name without surrounding whitespace",
+                    repr(name),
+                    "Assign a distinct readable name to each renamed axis.",
+                    "frame.to_pandas",
+                    canonical_id="analysis_frame.to_pandas",
+                )
+            names[index] = name
+        assert isinstance(self._schema, DataSchema)
+        export_names(self._schema, tuple(names))
         data = (
             self._local.read_data(self._backing)
             if isinstance(self._backing, StoredFrameBacking)
             else self._backing.data
         )
-        return export_frame(data.schema, data.copy_rows(), data.copy_attachments())
+        return export_frame(
+            data.schema, data.copy_rows(), data.copy_attachments(), axis_names=tuple(names)
+        )
 
     def show(self, *, n: int = 20) -> None:
         """Display current metadata and a bounded fixed-data prefix without evaluation.

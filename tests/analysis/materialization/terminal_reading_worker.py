@@ -48,12 +48,12 @@ def period_produce(root: Path, name: str) -> None:
     stored_report = saved_current.compare({"base": saved_baseline}).compute()
     for report in (pending_report, memory_report, stored_report):
         rows = report.to_pandas()
-        assert rows["value", "total"].tolist() == [180, 30]
-        assert rows["value", "base.baseline.total"].tolist() == [120, 0]
-        assert rows["value", "base.absolute.total"].tolist() == [60, 30]
-        assert rows["value", "base.relative.total"].iloc[0] == 0.5
-        assert pd.isna(rows["value", "base.relative.total"].iloc[1])
-        assert rows["presence"].all().all()
+        assert rows["total"].tolist() == [180, 30]
+        assert rows["base.baseline.total"].tolist() == [120, 0]
+        assert rows["base.absolute.total"].tolist() == [60, 30]
+        assert rows["base.relative.total"].iloc[0] == 0.5
+        assert pd.isna(rows["base.relative.total"].iloc[1])
+        assert rows[["current.present", "reference.present"]].all().all()
         assert report._schema == pending_report._schema
     saved_report = stored_report.persist()
     print(
@@ -85,13 +85,13 @@ def period_read(name: str, identities: list[str]) -> None:
         assert recomputed._schema == report._schema
         pd.testing.assert_frame_equal(recomputed.to_pandas(), report.to_pandas())
         rows = report.to_pandas()
-        assert rows["value", "total"].tolist() == [180, 30]
-        assert rows["value", "base.baseline.total"].tolist() == [120, 0]
-        assert rows["value", "base.absolute.total"].tolist() == [60, 30]
-        assert rows["value", "base.relative.total"].iloc[0] == 0.5
-        assert pd.isna(rows["value", "base.relative.total"].iloc[1])
+        assert rows["total"].tolist() == [180, 30]
+        assert rows["base.baseline.total"].tolist() == [120, 0]
+        assert rows["base.absolute.total"].tolist() == [60, 30]
+        assert rows["base.relative.total"].iloc[0] == 0.5
+        assert pd.isna(rows["base.relative.total"].iloc[1])
         assert report.presence_names == ("current.present", "base.present")
-        assert rows["presence"].all().all()
+        assert rows[["current.present", "reference.present"]].all().all()
         directories = rows.attrs["frozen_coordinates"]
         current_directory = next(
             part["rows"] for part in directories if part["name"] == "calendar.axis.0"
@@ -108,12 +108,12 @@ def period_read(name: str, identities: list[str]) -> None:
         report.show(n=1)
         positive = report.where(report["base.absolute.total"] > 30)
         selected = positive.select({"delta": positive["base.absolute.total"]}).compute()
-        assert selected.to_pandas()["value", "delta"].tolist() == [60]
+        assert selected.to_pandas()["delta"].tolist() == [60]
         literal = report.select({"constant": 1}).compute()
         assert literal._schema.comparisons[0].values == ()
         assert literal.presence_names == report.presence_names
         reduced = selected.reduce({"total_delta": selected["delta"].sum()}).compute()
-        assert reduced.to_pandas()["value", "total_delta"].tolist() == [60]
+        assert reduced.to_pandas()["total_delta"].tolist() == [60]
         assert reduced._schema.comparisons == () and reduced.presence_names == ()
         assert len(terminal_runs(session)) == before
     print("period-cold-ok")
@@ -141,9 +141,7 @@ def main() -> None:
         rows = artifact.to_pandas()
         assert {
             (None if key is None or key is pd.NA else key): value
-            for key, value in zip(
-                rows[("coordinate", "axis.0")], rows[("value", "total")], strict=True
-            )
+            for key, value in zip(rows[rows.attrs["axes"][0]["name"]], rows["total"], strict=True)
         } == {None: 5, "A": 9007199254740993}
         print(session.id, artifact.artifact.id)
         return
@@ -164,7 +162,7 @@ def main() -> None:
         assert {
             (None if key is None or key is pd.NA else key): value
             for key, value in zip(
-                frame[("coordinate", "axis.0")], frame[("value", "total")], strict=True
+                frame[frame.attrs["axes"][0]["name"]], frame["total"], strict=True
             )
         } == {None: 5, "A": 9007199254740993}
         assert dict(frame.attrs["units"])["total"] == "CNY"
@@ -184,9 +182,9 @@ def main() -> None:
         comparison = artifact.compare(
             {"base": artifact}, on={"base": ((artifact.axes[0], artifact.axes[0]),)}
         ).compute()
-        assert comparison.to_pandas()[("value", "base.absolute.total")].tolist() == [0, 0]
+        assert comparison.to_pandas()["base.absolute.total"].tolist() == [0, 0]
         reduced = artifact.reduce({"rows": mv.row_count()}).compute()
-        assert reduced.to_pandas()[("value", "rows")].tolist() == [2]
+        assert reduced.to_pandas()["rows"].tolist() == [2]
         assert len(terminal_runs(session)) == before
         copied = fixed.persist()
         assert isinstance(copied._backing, StoredFrameBacking)

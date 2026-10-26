@@ -6,7 +6,12 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from tests.analysis.numeric.test_period_alignment import comparison_tables, paired_tables, period
+from tests.analysis.numeric.test_period_alignment import (
+    comparison_tables,
+    paired_tables,
+    period,
+    temporal_keys,
+)
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -36,20 +41,20 @@ def test_public_ordinal_retains_original_positions_after_selection(
     presence = (
         ("left_present", "right_present") if paired else ("current.present", "reference.present")
     )
-    assert frame[("presence", presence[0])].sum() == 1
-    assert frame[("presence", presence[1])].sum() == lengths[1] * 4
+    assert frame[presence[0]].sum() == 1
+    assert frame[presence[1]].sum() == lengths[1] * 4
     changes = (
         result.select({"change": result["left.value"] - result["right.value"]})
         .compute()
-        .to_pandas()[("value", "change")]
+        .to_pandas()["change"]
         if paired
-        else frame[("value", "reference.absolute.value")]
+        else frame["reference.absolute.value"]
     )
     assert changes.dropna().tolist() == [1]
     mapping, left_directory, _ = (
         paired_tables(frame) if paired else comparison_tables(result, frame)
     )
-    retained = set(frame.loc[frame[("presence", presence[0])]].iloc[:, 0])
+    retained = set(temporal_keys(result).loc[frame[presence[0]]])
     current_column = "left.0" if paired else mapping.columns[0]
     keys = set(mapping.loc[mapping.iloc[:, 0].isin(retained), current_column].dropna())
     assert left_directory.loc[left_directory.iloc[:, 0].isin(keys), "ordinal"].tolist() == [0]
@@ -98,8 +103,8 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).compute()
     frame = result.to_pandas()
-    assert len(frame) == 8 and frame["presence"].all().all()
-    assert frame[("value", "reference.absolute.value")].tolist() == expected
+    assert len(frame) == 8 and frame[["current.present", "reference.present"]].all().all()
+    assert frame["reference.absolute.value"].tolist() == expected
     assert frame.attrs["axes"][0]["role"] == "calendar"
     mapping, left_directory, right_directory = comparison_tables(result, frame)
     assert len(mapping) == len(left_directory) == len(right_directory) == 2
@@ -122,13 +127,12 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     ).compute()
     frame = result.to_pandas()
     mapping, left_directory, _ = comparison_tables(result, frame)
-    labels = dict(zip(left_directory.iloc[:, 0], left_directory["nominal_label"], strict=True))
     assert set(mapping.iloc[:, 0]) == set(left_directory.iloc[:, 0])
-    assert [labels[key] for key in frame.iloc[:, 0]] == [
+    assert frame["calendar:day"].tolist() == [
         "2024-02-28",
         "2024-02-29",
     ]
-    assert frame[("presence", "current.present")].tolist() == [True, True]
-    assert frame[("presence", "reference.present")].tolist() == [True, False]
-    assert frame[("value", "reference.absolute.value")].iloc[0] == 0
-    assert pd.isna(frame[("value", "reference.absolute.value")].iloc[1])
+    assert frame["current.present"].tolist() == [True, True]
+    assert frame["reference.present"].tolist() == [True, False]
+    assert frame["reference.absolute.value"].iloc[0] == 0
+    assert pd.isna(frame["reference.absolute.value"].iloc[1])

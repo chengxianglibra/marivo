@@ -30,7 +30,7 @@ def test_new_public_session_starts_with_empty_v16_store(
     memory = pending.compute()
     assert isinstance(memory, mv.AnalysisFrame)
     assert memory.compute() is memory
-    assert memory.to_pandas()[("value", "answer")].tolist() == [7]
+    assert memory.to_pandas()["answer"].tolist() == [7]
     assert terminal_runs(session) == ()
     saved = memory.persist()
     assert isinstance(saved, mv.AnalysisFrame)

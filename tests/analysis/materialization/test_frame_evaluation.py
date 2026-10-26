@@ -128,10 +128,8 @@ def test_literal_joint_identity_coordinates_preserve_complete_tuples(
         (("t1", 1), "Web"),
     ]
     counts = session.observe({"n": population.count()}, by=(channel,)).compute().to_pandas()
-    assert counts[("value", "n")].tolist() == [1, 1]
-    assert session.observe({"n": population.count()}).compute().to_pandas()[
-        ("value", "n")
-    ].tolist() == [2]
+    assert counts["n"].tolist() == [1, 1]
+    assert session.observe({"n": population.count()}).compute().to_pandas()["n"].tolist() == [2]
 
 
 def _observe(
@@ -213,7 +211,7 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
     rows = result.to_pandas()
     if entry in ("observe", "read", "values"):
         assert (
-            rows[("value", "q")].tolist()
+            rows["q"].tolist()
             == {
                 "observe": [1000],
                 "read": [450, 450, 50, 50],
@@ -223,14 +221,14 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
     elif entry == "population":
         assert rows.iloc[:, 0].tolist() == [("t1", 1), ("t1", 2), ("t2", 1), ("t2", 2)]
     elif entry == "compare":
-        assert rows[("value", "q")].tolist() == [100, 900]
-        assert rows[("value", "base.absolute.q")].tolist() == [-100, -900]
+        assert rows["q"].tolist() == [100, 900]
+        assert rows["base.absolute.q"].tolist() == [-100, -900]
     else:
-        assert rows[("value", "detail.current.q")].tolist() == [50, 900]
-        assert rows[("value", "detail.baseline.q")].tolist() == [100, 450]
-        assert rows[("value", "detail.absolute.q")].tolist() == [-50, 450]
-        assert rows[("value", "contribution.q")].tolist() == [-50, 450]
-        assert rows[("value", "contribution_share.q")].tolist() == [-0.125, 1.125]
+        assert rows["detail.current.q"].tolist() == [50, 900]
+        assert rows["detail.baseline.q"].tolist() == [100, 450]
+        assert rows["detail.absolute.q"].tolist() == [-50, 450]
+        assert rows["contribution.q"].tolist() == [-50, 450]
+        assert rows["contribution_share.q"].tolist() == [-0.125, 1.125]
     assert _inventory(session) == before
     assert terminal_runs(session) == ()
 
@@ -330,8 +328,8 @@ def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
         ]
     else:
         rows = pending.compute().to_pandas()
-        assert rows[("value", "q")].tolist() == [1000]
-        assert rows[("value", "base.absolute.q")].tolist() == pytest.approx([1000 - 1000 / 91])
+        assert rows["q"].tolist() == [1000]
+        assert rows["base.absolute.q"].tolist() == pytest.approx([1000 - 1000 / 91])
         assert events == [
             ("connection_open", 0),
             ("source_open", 0),
@@ -360,11 +358,11 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
     before = _inventory(session)
     fixed = source.compute()
     assert _inventory(session) == before
-    assert fixed.to_pandas()[("value", "ratio")].tolist() == [100.0, 10.0]
+    assert fixed.to_pandas()["ratio"].tolist() == [100.0, 10.0]
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("UPDATE facts SET numerator=numerator+denominator")
     fresh = source.compute()
-    assert fresh.to_pandas()[("value", "ratio")].tolist() == [101.0, 11.0]
+    assert fresh.to_pandas()["ratio"].tolist() == [101.0, 11.0]
     assert _memory(fixed).metadata.result_id != _memory(fresh).metadata.result_id
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -374,7 +372,7 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     reduced = fixed.reduce({"mean": fixed["ratio"].mean()}).compute()
-    assert reduced.to_pandas()[("value", "mean")].tolist() == [55.0]
+    assert reduced.to_pandas()["mean"].tolist() == [55.0]
     assert (
         _memory(reduced).metadata.audit.source_facts == _memory(fixed).metadata.audit.source_facts
     )
@@ -630,7 +628,7 @@ def test_read_retains_complete_population_scope_without_producer_formula(session
         population,
         {"channel": session.catalog.fields.get("sales.facts.channel")},
     ).compute()
-    assert result.to_pandas()[("value", "channel")].tolist() == ["Web", "Store"]
+    assert result.to_pandas()["channel"].tolist() == ["Web", "Store"]
     facts = _memory(result).metadata.audit.source_facts
     assert any(
         _contains_scope(scope, json.loads(source_scope(population._definition)))
@@ -802,8 +800,8 @@ def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
         if descending
         else [("t2", 1), ("t2", 2), ("t1", 1), ("t1", 2)]
     )
-    assert result[("value", "score")].iloc[-1] is pd.NA
-    assert str(result[("value", "score")].dtype) == "int64[pyarrow]"
+    assert result["score"].iloc[-1] is pd.NA
+    assert str(result["score"].dtype) == "int64[pyarrow]"
     assert trace.returned_rows == [4]
     trace.returned_rows.clear()
     trace.native_sql.clear()
@@ -857,8 +855,8 @@ def test_pending_read_top_does_not_truncate_another_consumer(
     trace = capture_source(monkeypatch)
     rows = combined.compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == [("t1", 1), ("t1", 2), ("t2", 1), ("t2", 2)]
-    assert rows["presence", "left_present"].tolist() == [True, False, False, False]
-    assert rows["presence", "right_present"].tolist() == [True, True, True, True]
+    assert rows["left_present"].tolist() == [True, False, False, False]
+    assert rows["right_present"].tolist() == [True, True, True, True]
     assert trace.returned_rows == [4]
     assert trace.uploaded_key_rows == []
 
@@ -874,7 +872,7 @@ def test_pending_read_top_preserves_an_empty_source(
     trace = capture_source(monkeypatch)
     result = pending.top(1, by=pending["score"]).compute().to_pandas()
     assert result.empty
-    assert str(result[("value", "score")].dtype) == "int64[pyarrow]"
+    assert str(result["score"].dtype) == "int64[pyarrow]"
     assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
 
 
@@ -893,8 +891,8 @@ def test_pending_read_top_preserves_native_infinite_values(
     result = pending.top(n, by=pending["score"]).compute().to_pandas()
     assert len(result) == n
     if n:
-        assert result["value", "score"].tolist() == [45]
-        assert result["value", "invalid"].tolist() == [450.0]
+        assert result["score"].tolist() == [45]
+        assert result["invalid"].tolist() == [450.0]
     assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
 
 
@@ -1032,7 +1030,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert "sales.order_links" in card and "sales.link_tags" in card
     assert _inventory(session) == before and terminal_runs(session) == ()
     fixed = pending.compute()
-    assert fixed.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
+    assert fixed.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert _inventory(session) == before and terminal_runs(session) == ()
     metadata = _memory(fixed).metadata
     facts = metadata.audit.source_facts
@@ -1059,5 +1057,5 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert reopened._backing.metadata == metadata
     loaded = reopened.compute()
     assert _memory(loaded).metadata == metadata
-    assert loaded.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
+    assert loaded.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert len(terminal_runs(session)) == 1

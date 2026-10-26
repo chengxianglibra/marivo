@@ -166,7 +166,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     trace = capture_source(monkeypatch)
     frame = query.compute().to_pandas()
     if operation != "image":
-        assert frame[("value", "v")].tolist() == [
+        assert frame["v"].tolist() == [
             2 if operation == "image_count" else 0 if operation == "empty_query" else 500
         ]
     if operation == "image":
@@ -230,9 +230,9 @@ def test_relationship_member_count_returns_completed_count(
     )
     trace = capture_source(monkeypatch, measure_cost=True)
     frame = query.compute().to_pandas()
-    assert frame[("value", "n")].tolist() == [size // 2]
+    assert frame["n"].tolist() == [size // 2]
     if with_sum:
-        assert frame[("value", "v")].tolist() == [size // 2]
+        assert frame["v"].tolist() == [size // 2]
     assert sum(trace.returned_rows) <= 2
     assert trace.uploaded_key_rows == []
     assert sum(trace.returned_arrow_bytes) < 200
@@ -271,7 +271,7 @@ def test_source_member_count_zero_axes_preserves_empty_and_unit(
     domain = session.members(session.catalog.entities.get("sales.orders")).project(by=())
     trace = capture_source(monkeypatch)
     result = session.observe({"n": domain.count()}).compute().to_pandas()
-    assert result[("value", "n")].tolist() == [0 if empty else 1]
+    assert result["n"].tolist() == [0 if empty else 1]
     assert sum(trace.returned_rows) <= 2
     assert trace.uploaded_key_rows == []
 
@@ -290,11 +290,9 @@ def test_source_member_counts_keep_complete_tuples_and_null_categories(
     categories = selected.project(by=(customer,))
     trace = capture_source(monkeypatch)
     grouped = session.observe({"n": selected.count()}, by=(customer,)).compute().to_pandas()
-    assert grouped[("value", "n")].tolist() == [10] * 10
+    assert grouped["n"].tolist() == [10] * 10
     assert grouped.iloc[:, 0].isna().sum() == 1
-    assert session.observe({"n": categories.count()}).compute().to_pandas()[
-        ("value", "n")
-    ].tolist() == [10]
+    assert session.observe({"n": categories.count()}).compute().to_pandas()["n"].tolist() == [10]
     assert sum(trace.returned_rows) <= 11
     assert trace.uploaded_key_rows == []
 
@@ -352,8 +350,8 @@ def test_member_read_preserves_missing_requested_identity_as_null(
         .to_pandas()
     )
     assert rows.iloc[:, 0].tolist() == [1, 999]
-    assert rows[("value", "label")].iloc[0] == "A"
-    assert rows[("value", "label")].isna().tolist() == [False, True]
+    assert rows["label"].iloc[0] == "A"
+    assert rows["label"].isna().tolist() == [False, True]
 
 
 @pytest.mark.parametrize("dialect", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
@@ -481,12 +479,8 @@ def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
             None if pd.isna(key) else key: value
             for key, value in grouped.itertuples(index=False, name=None)
         } == {"A": 2, "a": 1, "Á": 1, "A ": 1, "a ": 1, "": 1, None: 1}
-        assert session.observe({"n": members.count()}).compute().to_pandas()[
-            ("value", "n")
-        ].tolist() == [8]
-        assert session.observe({"n": categories.count()}).compute().to_pandas()[
-            ("value", "n")
-        ].tolist() == [7]
+        assert session.observe({"n": members.count()}).compute().to_pandas()["n"].tolist() == [8]
+        assert session.observe({"n": categories.count()}).compute().to_pandas()["n"].tolist() == [7]
         assert sum(trace.returned_rows) == 9
         assert trace.uploaded_key_rows == []
 
@@ -598,9 +592,9 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                     .compute()
                     .to_pandas()
                 )
-                assert result[("value", "n")].tolist() == [500]
+                assert result["n"].tolist() == [500]
                 if "v" in metrics:
-                    assert result[("value", "v")].tolist() == [500]
+                    assert result["v"].tolist() == [500]
             assert sum(count_trace.returned_rows) <= 3
             assert count_trace.uploaded_key_rows == []
         trace = capture_source(monkeypatch)
@@ -616,7 +610,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             .compute()
             .to_pandas()
         )
-        assert count[("value", "v")].tolist() == [2]
+        assert count["v"].tolist() == [2]
         fields = session.read(
             session.members(session.catalog.entities.get("sales.tags")),
             {"label": session.catalog.fields.get("sales.tags.label")},
@@ -635,7 +629,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 .compute()
                 .to_pandas()
             )
-            assert frame[("value", "v")].tolist() == [expected]
+            assert frame["v"].tolist() == [expected]
         if backend != "postgres":
             assert trace.uploaded_key_rows == [1, 0], {
                 "rows": trace.returned_rows,

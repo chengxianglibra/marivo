@@ -46,20 +46,20 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             .reduce({"value": mv.row_count()})
             .persist(),
         }
-        sums = results["sum"].to_pandas()[("value", "value")].tolist()
+        sums = results["sum"].to_pandas()["value"].tolist()
         assert sums == [Decimal("120"), Decimal("20"), Decimal("7")], sums
         assert all(isinstance(value, Decimal) for value in sums)
-        assert results["mean"].to_pandas()[("value", "value")].tolist() == [120, 20, 7]
-        assert results["count"].to_pandas()[("value", "value")].tolist() == [1, 1, 1]
-        raw = observed.persist().to_pandas()[("value", "value")]
+        assert results["mean"].to_pandas()["value"].tolist() == [120, 20, 7]
+        assert results["count"].to_pandas()["value"].tolist() == [1, 1, 1]
+        raw = observed.persist().to_pandas()["value"]
         assert raw.min() == 7 and raw.max() == 120
         for name in ("distinct", "approx_distinct", "quantile"):
             results[name] = session.observe(
                 {"value": session.catalog.metrics.get("sales." + name)},
                 by=mv.product(scope, members),
             ).persist()
-        assert results["distinct"].to_pandas()[("value", "value")].tolist() == [2, 1, 1]
-        assert results["quantile"].to_pandas()[("value", "value")].tolist() == [60, 20, 7]
+        assert results["distinct"].to_pandas()["value"].tolist() == [2, 1, 1]
+        assert results["quantile"].to_pandas()["value"].tolist() == [60, 20, 7]
         results["read"] = session.read(
             session.members(session.catalog.entities.get("sales.order")),
             {"value": session.catalog.fields.get("sales.order.amount")},

@@ -77,15 +77,12 @@ change = current.compare(
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
-assert table.columns.names == ["kind", "name"]
-coordinates = {
-    axis["token"]: table[("coordinate", axis["token"])]
-    for axis in table.attrs["axes"]
-}
-presence = table["presence"] if "presence" in table.columns.get_level_values("kind") else None
-assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
-assert table[("presence", "current.present")].all()
-assert table[("presence", "reference.present")].all()
+assert table.columns.nlevels == 1
+assert table["sales.orders.region"].tolist() == ["east", "west"]
+assert table["interval.timezone"].tolist() == ["UTC", "UTC"]
+assert table["reference.absolute.revenue"].tolist() == [-100, -100]
+assert table["current.present"].all()
+assert table["reference.present"].all()
 saved.show()
 saved.artifact.show()  # Submission and audit only.
 reopened = session.persisted_frame(saved.artifact.id)
@@ -125,26 +122,22 @@ cleaned or numbered automatically. Names are fixed at capture, available through
 regional = session.observe(revenue, by=(august, region)).compute()
 regional.show()
 overall = session.observe(revenue, by=(august,)).compute()
-assert overall.to_pandas()[("value", "revenue")].tolist() == [800]
+assert overall.to_pandas()["revenue"].tolist() == [800]
 ```
 
 The regional rows are east 200 and west 600. The overall row is 800. `observe` binds the named metric, selected period, and grouping; `compute` reads and evaluates it. Continue from the returned Frame when you need the same values later.
 
 To read individual records, provide complete Entity identities and named fields to `session.read`. The [population guide](/docs/latest/analysis/dsl/#select-and-filter) supplies a runnable order example.
 
-`show()` presents a bounded view. `to_pandas()` returns a complete isolated copy for further work. Columns and axes belong to their exact Frame: obtain them again after deriving a new input rather than reusing handles from an earlier one.
+`show()` presents a bounded view. `to_pandas()` returns a complete isolated copy for further work. Column and FrameAxis handles belong to their exact Frame: obtain them again after deriving a new input rather than reusing handles from an earlier one.
 
 Export requires a completed Frame. A derivation such as `fixed.select(...)` is lazy even when `fixed` is already complete: call `compute()` on the derivative and use the returned object. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
 
-The exported columns have a two-level MultiIndex named `kind` and `name`:
+The export has ordinary string columns: complete axis names, full value names and independent boolean presence names. Composite identities remain tuples. Calendar axes expose a readable label and `.actual_start`, `.actual_end`, `.timezone` columns; intervals expose `.start`, `.end`, `.timezone`. Paired time axes use `.left` and `.right` prefixes. Bounds are exact UTC timestamps, and named calendar labels retain their scalar types. No coordinate decoding is required.
 
-| kind | Second level and contents |
-| --- | --- |
-| `coordinate` | Current axis token; a composite axis keeps its complete key tuple in each cell |
-| `value` | Complete output name, discoverable through `frame.output_names` |
-| `presence` | Independent nonnullable boolean; distinct from numeric NA or legitimate zero |
+Names must be unique. To choose a short axis name or resolve a collision, use `saved.to_pandas(axis_names={saved.axis("sales.orders.region"): "region"})`. Axes must belong to this exact Frame. Aliases change export column names only; captured axis metadata, value and presence names are unchanged; rename values through `select()` when needed.
 
-Use `table.attrs["axes"]` to map `token` to `name`, `role`, `key_names` and `at`; do not assume a fixed axis position. Coordinate and presence groups may be absent. `units`, `comparisons` and `frozen_coordinates` describe exported values; internal descriptors are not a stable import protocol. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Exported data and attrs are isolated, inert copies; continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
+`table.attrs["axes"]`, `units`, `comparisons` and `frozen_coordinates` retain isolated interpretation metadata. Internal descriptors are not a stable import protocol. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
 
 
 Next, [compare two periods](/docs/latest/analysis/dsl/#compare-and-align) or [save the result](/docs/latest/analysis/results/).
@@ -185,8 +178,8 @@ compared.show()
 
 ```python
 comparison = saved.to_pandas()
-assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
-assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
+assert comparison["reference.absolute.revenue"].tolist() == [-100, -100]
+assert comparison["reference.relative.revenue"].tolist() == [-1 / 3, -1 / 7]
 ```
 
 July and August are paired deliberately by ordinal; region keys match exactly. East changes by -100 (-1/3), west by -100 (-1/7). A zero baseline makes relative change NA; absent endpoints or NA values never become zero. Outer correspondence keeps missing-side rows, but baseline time rows must map into the current declared time domain. Use align for a general time union. Help: `analysis.analysis_frame.compare`.
@@ -248,7 +241,7 @@ target = overall_change.select(
     {"revenue": overall_change["reference.absolute.revenue"]}
 )
 explained = target.attribute(by=(region,)).compute()
-assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
 facts = explained.method_facts
 facts[0].show(n=0)
 declines = explained.where(explained["contribution.revenue"] < 0).compute()
@@ -302,8 +295,8 @@ association = paired.correlate(
     method="pearson",
 ).compute()
 pairs = association.to_pandas()
-assert pairs[("value", "n_pairs")].tolist() == [2]
-assert abs(pairs[("value", "coefficient")].iloc[0] - 1.0) < 1e-12
+assert pairs["n_pairs"].tolist() == [2]
+assert abs(pairs["coefficient"].iloc[0] - 1.0) < 1e-12
 association.show()
 ```
 
@@ -390,9 +383,9 @@ summary = current.reduce(
     }
 ).compute()
 summary_rows = summary.to_pandas()
-assert summary_rows[("value", "total")].tolist() == [800]
-assert summary_rows[("value", "mean_region")].tolist() == [400]
-assert summary_rows[("value", "rows")].tolist() == [2]
+assert summary_rows["total"].tolist() == [800]
+assert summary_rows["mean_region"].tolist() == [400]
+assert summary_rows["rows"].tolist() == [2]
 ```
 
 400 is mean regional revenue, not average order value. Summing ratios or distinct counts does not recover the original overall Metric; use a new observe for that question. Empty sums are zero; nonempty all-NA sums and means with no valid cells are NA. `row_count()` includes rows whose values are NA. Help: `analysis.analysis_frame.reduce`.
@@ -420,7 +413,7 @@ normalized = current.select(
         "share": current["revenue"].share(along=(current.axes[1],)),
     }
 ).compute()
-assert normalized.to_pandas()[("value", "share")].tolist() == [0.25, 0.75]
+assert normalized.to_pandas()["share"].tolist() == [0.25, 0.75]
 ```
 
 Here share sums regions within each interval. `over(..., by=())` uses all current rows. Filtering before share changes the denominator; filtering the completed share afterwards preserves it. A zero partition total yields NA; signed shares may lie outside [0, 1]. Share needs at least one axis and does not establish original Metric additivity. Help: `analysis.analysis_frame.over` and `analysis.column.share`.

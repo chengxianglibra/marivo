@@ -40,7 +40,7 @@ def test_full_entity_time_cohort(
         frame = fixed_values.to_pandas()
         assert len(frame) == len(analysis_dsl_rows("j2").customers) * 3
         member_column = frame.columns[0]
-        mask = frame[("value", "value")] > 0
+        mask = frame["value"] > 0
         active_months = frame.loc[mask].groupby(member_column).size()
         assert set(active_months.loc[active_months >= 2].index) == expected
 
@@ -113,7 +113,7 @@ def spending_amount():
     )
     assert terminal_runs(session) == ()
     frame = spending.compute().to_pandas()
-    assert frame.set_index(frame.columns[1])[("value", "value")].to_dict() == {"A": 100, "C": 300}
+    assert frame.set_index("sales.customer")["value"].to_dict() == {"A": 100, "C": 300}
 
 
 @pytest.mark.release
@@ -155,7 +155,7 @@ targets, values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
 assert len(frame) == len(targets.to_pandas()) * 3
 member = frame.columns[0]
-active = frame.loc[frame[("value", "value")] > 0].groupby(member).size()
+active = frame.loc[frame["value"] > 0].groupby(member).size()
 assert set(active.loc[active >= 1].index) == set(saved.to_pandas().iloc[:, 0])
 assert len(terminal_runs(session)) == 3
 """
@@ -196,6 +196,6 @@ def test_no_time_selection_preserves_complete_target_decisions(
     assert set(selected.to_pandas().iloc[:, 0]) == expected
     frame = category.compute().to_pandas()
     assert len(frame) == len(analysis_dsl_rows("j2").customers)
-    accepted = frame[("value", "region")] == "east"
+    accepted = frame["region"] == "east"
     assert set(frame.loc[accepted].iloc[:, 0]) == expected
     assert accepted.tolist() == [True, True, False, False]

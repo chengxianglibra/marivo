@@ -72,7 +72,7 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     result = query.persist()
     # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).
     for materialized in (result, session.persisted_frame(result.artifact.id)):
-        values = materialized.to_pandas()[("value", "value")].tolist()
+        values = materialized.to_pandas()["value"].tolist()
         assert values == [Decimal("18.05")]
         value = values[0]
         assert isinstance(value, Decimal)

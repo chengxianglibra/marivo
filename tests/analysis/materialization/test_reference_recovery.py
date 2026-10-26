@@ -54,7 +54,7 @@ def test_native_reference_independent_fixed_and_cold(
             chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
         )
         total = session.observe({"value": session.catalog.metrics.get("sales.total")}).compute()
-        denominator = total.to_pandas()[("value", "value")].iloc[0]
+        denominator = total.to_pandas()["value"].iloc[0]
         assert denominator == 6
         queries = {
             "current": values,

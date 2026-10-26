@@ -229,7 +229,7 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
         # Completed samples: q=[0, 9.5, NULL], median=[0, 5, NULL].
         # The off-grid 00:30 sample participates; the present-NULL 01:00 does not.
         for name, expected in (("q", "4.75"), ("median", "2.50")):
-            actual = rows[("value", name)].tolist()
+            actual = rows[name].tolist()
             assert actual == [Decimal(expected) if amount_type != "DOUBLE" else float(expected)]
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
@@ -252,7 +252,7 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             .compute()
             .to_pandas()
         )
-        assert pd.isna(empty[("value", "v")].iloc[0])
+        assert pd.isna(empty["v"].iloc[0])
 
 
 @pytest.mark.parametrize(
@@ -289,7 +289,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
         result = session.observe({"v": metric}, by=(scope, category)).compute()
-        assert result.to_pandas()[("value", "v")].tolist() == pytest.approx([100 / 3])
+        assert result.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows == [1]
         assert "__mean_folded" in trace.returned_columns[0]
         mixed = session.observe(
@@ -299,12 +299,12 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             },
             by=(scope,),
         ).compute()
-        assert mixed.to_pandas()[("value", "v")].tolist() == pytest.approx([100 / 3])
+        assert mixed.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-2:] == [1, 1]
         with monkeypatch.context() as legacy:
             legacy.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
             old = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
-        assert old[("value", "v")].tolist() == pytest.approx([100 / 3])
+        assert old["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-1] == (3 if aware else 5)
         assert not trace.uploaded_key_rows
         stored = result.persist()
@@ -313,7 +313,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             raise AssertionError("fixed result must not read its source")
 
         monkeypatch.setattr("marivo.datasource.adapters.SourceSession.execute", offline)
-        assert stored.to_pandas()[("value", "v")].tolist() == pytest.approx([100 / 3])
+        assert stored.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
 
 
 @pytest.mark.parametrize(
@@ -348,7 +348,7 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         query = session.observe({"v": session.catalog.metrics.get("sales.average")}, by=(scope,))
         trace = capture_source(monkeypatch)
-        value = query.compute().to_pandas()[("value", "v")].iloc[0]
+        value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
         assert trace.returned_rows == [1]
         assert "__mean_folded" in trace.returned_columns[0]
@@ -442,7 +442,7 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
                 i for i, name in enumerate(trace.returned_columns[0]) if name.endswith("/value")
             )
             expected = native[0][index]
-            value = actual[("value", "v")].iloc[0]
+            value = actual["v"].iloc[0]
             if expected is None:
                 assert pd.isna(value)
             elif isinstance(expected, float) and isnan(expected):
@@ -506,7 +506,7 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         direct = session.observe({"v": amount.mean(time=point)}, by=(scope,)).compute().to_pandas()
         # The standalone AVG shares the declared carrier boundary, including
         # PostgreSQL's native numeric AVG over bigint before the output cast.
-        assert direct[("value", "v")].tolist() == [
+        assert direct["v"].tolist() == [
             Decimal("60.00") if amount_type == "DECIMAL(18,2)" else 60.0
         ]
         rows = (
@@ -515,9 +515,9 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
             .to_pandas()
         )
         if amount_type == "DECIMAL(18,2)":
-            assert rows[("value", "v")].tolist() == expected
+            assert rows["v"].tolist() == expected
         else:
-            assert rows[("value", "v")].tolist() == pytest.approx(expected)
+            assert rows["v"].tolist() == pytest.approx(expected)
         assert trace.returned_rows == [1, 1]
         assert "__mean_folded" in trace.returned_columns[-1]
         assert not trace.uploaded_key_rows
@@ -567,7 +567,7 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
         trace = capture_source(monkeypatch)
         rows = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
         # Three completed timestamp means are [0, 80, 20], despite a raw maximum of 100.
-        assert rows[("value", "v")].tolist() == [expected]
+        assert rows["v"].tolist() == [expected]
         assert trace.returned_rows == [1]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         with pytest.raises(MaterializationError, match="missing state sample"):
@@ -606,14 +606,14 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         trace = capture_source(monkeypatch)
         rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
         # The native timestamp means are [0, NULL, 20].
-        assert rows[("value", "v")].tolist() == [expected]
+        assert rows["v"].tolist() == [expected]
         strict = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
         with pytest.raises(MaterializationError, match="non-NA internal samples"):
             session.observe({"v": strict}, by=(scope,)).compute()
         empty = amount.mean(time=point).where(amount < 0).per(point)
         metric = empty.min() if reducer == "min" else empty.max()
         rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-        assert rows[("value", "v")].isna().all() and len(rows) == 1
+        assert rows["v"].isna().all() and len(rows) == 1
         # Empty grouped input returns no source row; the fixed scope supplies
         # the one NA output cell.
         assert trace.returned_rows == [1, 1, 0]
@@ -656,7 +656,7 @@ def test_native_extrema_preserve_null_policy_and_backend_floats(
             with pytest.raises(MaterializationError, match=error):
                 query.compute()
         else:
-            value = query.compute().to_pandas()[("value", "v")].iloc[0]
+            value = query.compute().to_pandas()["v"].iloc[0]
             assert pd.isna(value) if expected is None else value == expected
         assert trace.returned_rows == [1]
 
@@ -693,15 +693,15 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
                 .to_pandas()
             )
             # The selected timestamp means are [100, 20]; the zero group is absent.
-            assert rows[("value", "v")].tolist() == [expected]
+            assert rows["v"].tolist() == [expected]
             empty = amount.mean(time=point).where(amount < 0).per(point)
             metric = empty.min(nulls=nulls) if reducer == "min" else empty.max(nulls=nulls)
             rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-            assert rows[("value", "v")].isna().all() and len(rows) == 1
+            assert rows["v"].isna().all() and len(rows) == 1
         invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
         metric = invalid.min() if reducer == "min" else invalid.max()
         rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-        assert rows[("value", "v")].isna().all() and len(rows) == 1
+        assert rows["v"].isna().all() and len(rows) == 1
 
 
 @pytest.mark.parametrize("reducer", ["min", "max"])
@@ -764,7 +764,7 @@ def test_native_sample_extrema_strict_filter_uses_selected_sample_presence(
         metric = amount.mean(time=point).where(amount > 0).per(point).max(nulls="error")
         trace = capture_source(monkeypatch)
         rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-        assert rows[("value", "v")].tolist() == [100.0]
+        assert rows["v"].tolist() == [100.0]
         assert trace.returned_rows == [1]
 
 
@@ -795,8 +795,8 @@ def test_native_sample_extrema_return_final_rows_at_scale(
             {"min": samples.min(), "max": samples.max()}, by=(scope,)
         ).compute()
         rows = result.to_pandas()
-        assert rows[("value", "min")].tolist() == [0.0]
-        assert rows[("value", "max")].tolist() == [10.0]
+        assert rows["min"].tolist() == [0.0]
+        assert rows["max"].tolist() == [10.0]
         assert trace.returned_rows == [1, 1]
         assert not trace.uploaded_key_rows
         trace.save(
@@ -860,7 +860,7 @@ def test_trino_four_day_mean_transport_and_cost(
                 rows = frame.to_pandas()
                 elapsed = perf_counter() - started
             # 86400 is divisible by 100, so each day averages 0..99 equally.
-            assert rows[("value", "v")].tolist() == [49.5]
+            assert rows["v"].tolist() == [49.5]
             assert trace.returned_rows[-1] == (1 if route == "compact" else days * 172800)
             measurements.append(
                 {
@@ -936,7 +936,7 @@ def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
             amount.mean(time=point, nulls="error").per(point).mean(),
         ):
             rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-            assert rows[("value", "v")].tolist() == [0.0]
+            assert rows["v"].tolist() == [0.0]
         empty = (
             session.observe(
                 {"v": amount.mean(time=point).where(amount < 0).per(point).mean()}, by=(scope,)
@@ -944,27 +944,27 @@ def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
             .compute()
             .to_pandas()
         )
-        assert pd.isna(empty[("value", "v")].iloc[0])
+        assert pd.isna(empty["v"].iloc[0])
         clipped = session.time_scope(start="2026-10-01T00:15:00", end="2026-10-01T01:15:00")
         rows = (
             session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(clipped,))
             .compute()
             .to_pandas()
         )
-        assert rows[("value", "v")].tolist() == [0.0]
+        assert rows["v"].tolist() == [0.0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = (
             session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(missing,))
             .compute()
             .to_pandas()
         )
-        assert rows[("value", "v")].tolist() == [0.0]
+        assert rows["v"].tolist() == [0.0]
         unbounded = (
             session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(category,))
             .compute()
             .to_pandas()
         )
-        assert unbounded[("value", "v")].tolist() == [0.0]
+        assert unbounded["v"].tolist() == [0.0]
         assert trace.returned_rows == [1, 1, 0, 1, 1, 1]
         assert not trace.uploaded_key_rows
         assert all("__coverage_" not in sql and "ROW_NUMBER" not in sql for sql in trace.native_sql)

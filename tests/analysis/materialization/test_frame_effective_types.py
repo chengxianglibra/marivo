@@ -120,7 +120,7 @@ def test_native_float_read_pending_chain_and_reducers(
     captured = source._schema
     fixed = source.compute()
     assert calls == [4]
-    values = fixed.to_pandas()["value", "big"]
+    values = fixed.to_pandas()["big"]
     assert values.dropna().tolist() == [9007199254740992.0, 4.0]
     assert values.isna().tolist() == [False, True, False, True]
     assert _schema(fixed) == (ScalarDataType("float64"),)
@@ -174,13 +174,13 @@ def test_native_float_binary_pending_shared_input_matches_completed(
         if operation == "compare"
         else ("left_present", "right_present")
     )
-    assert pending.to_pandas()["presence", presence[0]].tolist() == [True] * 4
-    assert pending.to_pandas()["presence", presence[1]].tolist() == [True, False, True, False]
+    assert pending.to_pandas()[presence[0]].tolist() == [True] * 4
+    assert pending.to_pandas()[presence[1]].tolist() == [True, False, True, False]
     if operation == "compare":
         values = pending.to_pandas()
-        assert values["value", "reference.absolute.big"].dropna().tolist() == [0.0, 0.0]
-        assert values["value", "reference.relative.big"].dropna().tolist() == [0.0, 0.0]
-        assert values["value", "reference.absolute.big"].isna().tolist() == [
+        assert values["reference.absolute.big"].dropna().tolist() == [0.0, 0.0]
+        assert values["reference.relative.big"].dropna().tolist() == [0.0, 0.0]
+        assert values["reference.absolute.big"].isna().tolist() == [
             False,
             True,
             False,
@@ -203,7 +203,7 @@ def test_native_types_empty_all_null_persist_and_reopen(
         fixed = pending.compute()
         assert _schema(fixed) == (ScalarDataType("float64"),)
         reduced = pending.reduce({"sum": pending["big"].sum()}).compute()
-        actual = reduced.to_pandas()["value", "sum"].iloc[0]
+        actual = reduced.to_pandas()["sum"].iloc[0]
         assert actual == 0 if len(fixed.to_pandas()) == 0 else pd.isna(actual)
         assert _schema(reduced) == (ScalarDataType("float64"),)
     saved = source.persist()
@@ -219,17 +219,17 @@ def test_native_types_empty_all_null_persist_and_reopen(
 
 def test_duckdb_exact_integer_and_native_decimal_remain_exact(session: Session) -> None:
     integer = _read(session).compute()
-    assert integer.to_pandas()["value", "big"].dropna().tolist() == [9007199254740993, 4]
+    assert integer.to_pandas()["big"].dropna().tolist() == [9007199254740993, 4]
     assert _schema(integer) == (ScalarDataType("int64"),)
     decimal = _read(session, "amount").compute()
-    assert decimal.to_pandas()["value", "amount"].dropna().tolist() == [
+    assert decimal.to_pandas()["amount"].dropna().tolist() == [
         Decimal("1.25"),
         Decimal("2.50"),
     ]
     assert isinstance(_schema(decimal)[0], DecimalDataType)
     source = _read(session, "amount")
     pending = source.select({"negated": -source["amount"]}).compute()
-    assert pending.to_pandas()["value", "negated"].dropna().tolist() == [
+    assert pending.to_pandas()["negated"].dropna().tolist() == [
         Decimal("-1.25"),
         Decimal("-2.50"),
     ]
@@ -242,9 +242,9 @@ def test_native_decimal_float_type_is_retained(
     source = _read(session, "amount")
     fixed = source.compute()
     assert _schema(fixed) == (ScalarDataType("float64"),)
-    assert fixed.to_pandas()["value", "amount"].dropna().tolist() == [1.25, 2.5]
+    assert fixed.to_pandas()["amount"].dropna().tolist() == [1.25, 2.5]
     reduced = source.reduce({"sum": source["amount"].sum()}).compute()
-    assert reduced.to_pandas()["value", "sum"].tolist() == [3.75]
+    assert reduced.to_pandas()["sum"].tolist() == [3.75]
     assert _schema(reduced) == (ScalarDataType("float64"),)
 
 
@@ -260,11 +260,11 @@ def test_native_all_null_and_empty_source_carriers(
         )
         fixed = source.compute()
         assert len(fixed.to_pandas()) == count
-        assert fixed.to_pandas()["value", "big"].isna().all()
+        assert fixed.to_pandas()["big"].isna().all()
         expected = ScalarDataType("float64")
         assert _schema(fixed) == (expected,)
         reduced = source.reduce({"sum": source["big"].sum()}).compute()
-        actual = reduced.to_pandas()["value", "sum"].iloc[0]
+        actual = reduced.to_pandas()["sum"].iloc[0]
         assert actual == 0 if len(fixed.to_pandas()) == 0 else pd.isna(actual)
         assert _schema(reduced) == (expected,)
 
@@ -339,16 +339,16 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         reopened_projection,
     ):
         exported = frame.to_pandas()
-        infinite = pa.array(exported["value", "infinite"])
-        not_a_number = pa.array(exported["value", "not_a_number"])
-        missing = pa.array(exported["value", "missing"])
+        infinite = pa.array(exported["infinite"])
+        not_a_number = pa.array(exported["not_a_number"])
+        missing = pa.array(exported["missing"])
         assert infinite.is_valid().to_pylist() == [True]
         assert not_a_number.is_valid().to_pylist() == [True]
         assert missing.is_valid().to_pylist() == [False]
         assert infinite[0].as_py() == oracle[0]
         assert math.isnan(not_a_number[0].as_py())
         # Export is an isolated copy, including the Arrow validity bitmap.
-        exported.loc[:, ("value", "infinite")] = 0.0
-        assert math.isinf(frame.to_pandas()["value", "infinite"].iloc[0])
+        exported.loc[:, "infinite"] = 0.0
+        assert math.isinf(frame.to_pandas()["infinite"].iloc[0])
     with pytest.raises(MaterializationError, match="finite numeric output"):
         reopened.select({"computed": reopened["infinite"] + 1}).compute()

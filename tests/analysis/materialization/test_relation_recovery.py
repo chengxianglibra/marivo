@@ -104,8 +104,8 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     previous = current.persist()
     expected = difference.to_pandas()
     previous_rows = previous.to_pandas()
-    assert expected[("value", "reference.absolute.value")].tolist() == [0, 0, 0, 0]
-    assert previous_rows[("value", "value")].tolist() == [1, 1, 1, 1]
+    assert expected["reference.absolute.value"].tolist() == [0, 0, 0, 0]
+    assert previous_rows["value"].tolist() == [1, 1, 1, 1]
     runs_before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:

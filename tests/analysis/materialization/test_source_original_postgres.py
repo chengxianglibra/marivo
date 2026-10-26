@@ -69,13 +69,13 @@ def test_postgres_integer_original_rollup_preserves_native_values(
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     if method == "sum":
-        assert result["value", "value"].tolist() == [2**53 + 7]
+        assert result["value"].tolist() == [2**53 + 7]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
     assert not any(
         "__original_value" in column for columns in trace.returned_columns for column in columns
     )
-    assert result["value", "value"].tolist() == [native]
+    assert result["value"].tolist() == [native]
 
 
 def test_postgres_drill_preserves_large_integer_values_and_null_categories(
@@ -107,9 +107,9 @@ def test_postgres_drill_preserves_large_integer_values_and_null_categories(
         tuple(None if pd.isna(value) else value for value in row)
         for row in ordered.itertuples(index=False, name=None)
     ] == native
-    assert sorted(result[("value", "value")].tolist()) == [1, 2, 3, 2**53 + 1]
+    assert sorted(result["value"].tolist()) == [1, 2, 3, 2**53 + 1]
     assert result.iloc[:, 0].isna().sum() == 1
-    assert 2**53 + 1 in result["value", "value"].tolist()
+    assert 2**53 + 1 in result["value"].tolist()
     assert trace.returned_rows == [4]
     assert trace.uploaded_key_rows == []
 
@@ -123,7 +123,7 @@ def test_postgres_empty_original_scalar_returns_zero(
     query = session.observe({"value": amount.sum().where(amount > 2**63 - 1)})
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "value"].tolist() == [0]
+    assert result["value"].tolist() == [0]
     assert trace.returned_rows == [1]
 
 
@@ -147,7 +147,7 @@ def test_postgres_nullable_integer_distinct_recomputes_before_transport(
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
-        assert result["value", "value"].tolist() == [2]
+        assert result["value"].tolist() == [2]
         assert trace.returned_rows == [1]
         assert not any(
             "__original_value" in column for columns in trace.returned_columns for column in columns
@@ -183,7 +183,7 @@ def test_postgres_integer_means_use_native_compact_states(
     assert not any(
         "__original_value" in column for columns in trace.returned_columns for column in columns
     )
-    assert result["value", "value"].tolist() == [native]
+    assert result["value"].tolist() == [native]
     assert native == float(2**53 + 7) / 4
 
 
@@ -198,7 +198,7 @@ def test_postgres_original_period_binding_preserves_selected_input(
     query = session.observe({"value": amount.sum(time=day)}, by=(period,))
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "value"].tolist() == [2**53 + 4]
+    assert result["value"].tolist() == [2**53 + 4]
     assert trace.returned_rows == [1]
 
 
@@ -223,7 +223,7 @@ def test_postgres_original_parent_sum_widens_before_publication(
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.sum()}, by=(category,))
         before = publication_counts(session)
-        assert query.compute().to_pandas()["value", "value"].tolist() == [2**63, -(2**63)]
+        assert query.compute().to_pandas()["value"].tolist() == [2**63, -(2**63)]
         trace = capture_source(monkeypatch)
         saved = query.persist()
         assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
@@ -252,7 +252,7 @@ def test_postgres_decimal_distinct_recomputes_before_transport(
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
-        assert result["value", "value"].tolist() == [2]
+        assert result["value"].tolist() == [2]
         assert trace.returned_rows == [1]
 
 
@@ -305,7 +305,7 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
                 ordered = result.sort_values(result.columns[1])
                 assert ordered.iloc[:, 0].tolist() == native.category.tolist() == ["A", "a", "a"]
                 assert ordered.iloc[:, 1].tolist() == native.tenant.tolist()
-                assert ordered[("value", "value")].tolist() == native.value.tolist() == [1, 2, 3]
+                assert ordered["value"].tolist() == native.value.tolist() == [1, 2, 3]
                 assert trace.returned_rows
                 assert trace.qualifications
         finally:
@@ -349,7 +349,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         parents = selection.top(1, by=selection["q"]).compute()
         parent_rows = parents.to_pandas()
         assert parent_rows.iloc[:, 0].tolist() == ["EAST"]
-        assert parent_rows[("value", "q")].tolist() == [9007199254741073]
+        assert parent_rows["q"].tolist() == [9007199254741073]
 
         assert isinstance(case.source, TableSourceIR)
         assert isinstance(case.source.database, str)
@@ -434,18 +434,25 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
         assert terminal_runs(session) == ()
         assert fixed.method_facts == ()
-        ordered = rows.sort_values(rows.columns[2], na_position="first", kind="stable")
+        ordered = rows.sort_values("sales.facts.category", na_position="first", kind="stable")
         actual = [
             tuple(None if pd.isna(value) else value for value in row)
-            for row in ordered.iloc[:, 1:].itertuples(index=False, name=None)
+            for row in ordered[
+                [
+                    "sales.facts.tenant",
+                    "sales.facts.category",
+                    *fixed.output_names,
+                    *fixed.presence_names,
+                ]
+            ].itertuples(index=False, name=None)
         ]
         assert actual == native == expected
         for name in fixed.output_names:
-            values = rows[("value", name)]
+            values = rows[name]
             assert values.dtype == pd.ArrowDtype(pa.decimal128(38, 0))
             assert all(isinstance(value, Decimal) for value in values.dropna())
         for name in fixed.presence_names:
-            presence = rows[("presence", name)]
+            presence = rows[name]
             assert pd.api.types.is_bool_dtype(presence.dtype)
             assert not presence.isna().any()
         trace.record(fixed)
@@ -485,7 +492,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             {"change": parent_comparison["reference.absolute.q"]}
         ).compute()
         observed = target.to_pandas()
-        assert observed[("value", "change")].tolist() == [40]
+        assert observed["change"].tolist() == [40]
         with pg.connection(admin=True) as admin:
             admin.execute(
                 sql.SQL("UPDATE {} SET amount = amount + 20 WHERE tenant = %s AND id = %s").format(
@@ -495,20 +502,22 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             )
         report = target.attribute(by=(category,)).compute()
         attributed = report.to_pandas()
-        assert list(attributed.iloc[:, 1:3].itertuples(index=False, name=None)) == [
+        assert list(
+            attributed[["sales.facts.tenant", "sales.facts.category"]].itertuples(
+                index=False, name=None
+            )
+        ) == [
             ("EAST", "A"),
             ("EAST", "B"),
         ]
-        assert attributed[("value", "detail.current.change")].tolist() == [
+        assert attributed["detail.current.change"].tolist() == [
             9007199254741013,
             80,
         ]
-        assert attributed[("value", "contribution.change")].tolist() == [80, -20]
-        assert attributed[("value", "total.change")].tolist() == [60, 60]
-        assert attributed[("value", "observed_total.change")].tolist() == [40, 40]
-        assert attributed[("value", "contribution_share.change")].tolist() == pytest.approx(
-            [4 / 3, -1 / 3]
-        )
+        assert attributed["contribution.change"].tolist() == [80, -20]
+        assert attributed["total.change"].tolist() == [60, 60]
+        assert attributed["observed_total.change"].tolist() == [40, 40]
+        assert attributed["contribution_share.change"].tolist() == pytest.approx([4 / 3, -1 / 3])
         pd.testing.assert_frame_equal(target.to_pandas(), observed)
         assert terminal_runs(session) == ()
 

@@ -37,14 +37,14 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
     )
     previous = logical.persist()
     frame = previous.to_pandas()
-    assert frame[("value", "value")].tolist() == [1000]
+    assert frame["value"].tolist() == [1000]
     manifest = previous.artifact._manifest
     evidence = previous.artifact.evidence_digest()
     # A compatible physical carrier is requalified for this invocation.
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
     changed = logical.persist()
-    assert changed.to_pandas()[("value", "value")].tolist() == [1000.0]
+    assert changed.to_pandas()["value"].tolist() == [1000.0]
     before = terminal_runs(session)
     published_before = _publications(session)
     calls: list[str] = []
@@ -77,7 +77,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         with duckdb.connect(str(case.database_path)) as connection:
             connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE BIGINT')
     retried = logical.persist()
-    assert retried.to_pandas()[("value", "value")].tolist() == [1000]
+    assert retried.to_pandas()["value"].tolist() == [1000]
     assert len(terminal_runs(session)) == len(before) + 1
     assert session._runtime.store.resources(session.id) == ()
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):

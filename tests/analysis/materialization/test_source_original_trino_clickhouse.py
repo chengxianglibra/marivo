@@ -98,7 +98,7 @@ def test_remote_original_recompute_uses_qualified_integer_results(
         )
         if backend == "clickhouse" and method == "count_distinct":
             assert "uniqExact" in trace.native_sql[0]
-        assert frame["value", "value"].tolist() == [native]
+        assert frame["value"].tolist() == [native]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -121,12 +121,12 @@ def test_remote_original_drill_and_share_preserve_complete_keys(
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [3]
         assert trace.uploaded_key_rows == []
-        assert sorted(frame["value", "value"].tolist()) == [0, 0, 9007199254740993]
+        assert sorted(frame["value"].tolist()) == [0, 0, 9007199254740993]
 
         actual = [
             (None if pd.isna(category_key) else category_key, tenant_key, value)
             for category_key, tenant_key, value in zip(
-                frame.iloc[:, 0], frame.iloc[:, 1], frame[("value", "value")], strict=True
+                frame.iloc[:, 0], frame.iloc[:, 1], frame["value"], strict=True
             )
         ]
         assert sorted(actual, key=lambda row: row[1]) == [
@@ -185,7 +185,7 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
         )
-        assert frame["value", "value"].tolist() == [native]
+        assert frame["value"].tolist() == [native]
 
         tenant = session.catalog.fields.get("sales.facts.tenant")
         fixed = session.values(
@@ -197,7 +197,7 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
         exact = float(Fraction(sum(numbers), len(numbers)))
         assert exact == (1 / 3 if samples == "cancellation" else (2**53 + 3) / 3)
         finished = fixed.reduce({"mean": fixed["amount"].mean()}).compute()
-        assert finished.to_pandas()[("value", "mean")].tolist() == [exact]
+        assert finished.to_pandas()["mean"].tolist() == [exact]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -229,7 +229,7 @@ def test_remote_nullable_integer_distinct_recomputes_before_native_transport(
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame["value", "value"].tolist() == [2]
+        assert frame["value"].tolist() == [2]
         assert trace.returned_rows == [1]
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
@@ -299,7 +299,7 @@ def test_remote_nullable_native_values_keep_fractional_parts(
         )
         trace = capture_source(monkeypatch)
         frame = session.observe({"value": metric}).compute().to_pandas()
-        assert frame["value", "value"].tolist() == [expected]
+        assert frame["value"].tolist() == [expected]
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         assert not any(
@@ -325,9 +325,9 @@ def test_trino_basic_integer_recompute_does_not_require_iceberg_snapshot(
         native = _native_scalar(case, "sum")
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame["value", "value"].tolist() == [2**53 + 1]
+        assert frame["value"].tolist() == [2**53 + 1]
         assert trace.returned_rows == [1]
-        assert frame["value", "value"].tolist() == [native]
+        assert frame["value"].tolist() == [native]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -380,7 +380,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
             assert trace.returned_rows == []
         else:
             frame = query.compute().to_pandas()
-            assert frame["value", "value"].tolist() == [native]
+            assert frame["value"].tolist() == [native]
             assert trace.returned_rows == [1]
         assert len(trace.native_sql) == 1
         assert trace.uploaded_key_rows == []
@@ -402,7 +402,7 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
         ).compute()
         # All source weights are one; this exact row mean is a separate witness.
         finished = fixed.reduce({"mean": fixed["amount"].mean()}).compute()
-        assert finished.to_pandas()[("value", "mean")].tolist() == [float(exact)]
+        assert finished.to_pandas()["mean"].tolist() == [float(exact)]
 
 
 def _native_clickhouse_weighted_scalar(case: Case) -> float:

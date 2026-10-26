@@ -94,8 +94,8 @@ def test_named_metric_population_dependency_owns_its_window_scope(
     )
     # The upstream all-history endpoint selects web (927). The consumer's
     # July endpoint includes only the earlier web fact under either rule.
-    assert observed.compute().to_pandas()[("value", "rows")].tolist() == [1]
-    assert producer.compute().to_pandas()[("value", "total")].tolist() == [150, 927]
+    assert observed.compute().to_pandas()["rows"].tolist() == [1]
+    assert producer.compute().to_pandas()["total"].tolist() == [150, 927]
 
 
 def test_members_scalar_predicate_retains_its_relationship_sources(
@@ -120,7 +120,7 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "revenue")].tolist() == [600]
+    assert result["revenue"].tolist() == [600]
 
 
 def test_members_scalar_predicate_retains_intermediate_relationship_sources(
@@ -143,7 +143,7 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
     result = (
         session.observe({"revenue": revenue}, where=mv.in_population(lines)).compute().to_pandas()
     )
-    assert result[("value", "revenue")].tolist() == [100]
+    assert result["revenue"].tolist() == [100]
 
 
 def test_identity_membership_uses_equality_while_null_field_categories_still_match(
@@ -166,7 +166,7 @@ def test_identity_membership_uses_equality_while_null_field_categories_still_mat
         .compute()
         .to_pandas()
     )
-    assert result[("value", "value")].tolist() == [110]
+    assert result["value"].tolist() == [110]
     assert sum(sql.count("IS NOT DISTINCT FROM") for sql in trace.native_sql) == 1
 
 
@@ -190,8 +190,8 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "aov_mean")].tolist() == [60.0]
-    assert result[("value", "fixed_revenue_mean")].tolist() == [47]
+    assert result["aov_mean"].tolist() == [60.0]
+    assert result["fixed_revenue_mean"].tolist() == [47]
     assert population_keys(
         full.difference(mv.coordinates(by=(customer,), keys=((2,),)))._definition
     ) == ((1,), (3,))
@@ -203,7 +203,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
         observed.compute()
     assert error.value.stage == "population_coverage"
     assert session.observe({"v": revenue.per(omitted).mean()}).compute().to_pandas()[
-        ("value", "v")
+        "v"
     ].tolist() == [40]
 
 
@@ -224,15 +224,15 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
     result = session.observe({"revenue": revenue}, by=(full, buckets)).compute().to_pandas()
-    assert result[("value", "revenue")].tolist() == [20, 10, 0]
+    assert result["revenue"].tolist() == [20, 10, 0]
     unmatched = mv.membership(label, via=(path,), unmatched="null")
     with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
-    assert sorted(with_null[("value", "revenue")].tolist()) == [10, 20, 100]
+    assert sorted(with_null["revenue"].tolist()) == [10, 20, 100]
     samples = session.observe({"mean": revenue.per((full, buckets)).mean()}).compute().to_pandas()
-    assert samples[("value", "mean")].tolist() == [10]
+    assert samples["mean"].tolist() == [10]
     classified = session.members(session.catalog.entities.get("sales.tags")).classify(by=(label,))
     result = session.observe({"revenue": revenue}, by=(classified, buckets)).compute().to_pandas()
-    assert result[("value", "revenue")].tolist() == [20, 10, 0]
+    assert result["revenue"].tolist() == [20, 10, 0]
 
 
 def test_membership_correlated_tuple_differs_from_independent_product(
@@ -255,7 +255,7 @@ def test_membership_correlated_tuple_differs_from_independent_product(
     independent = session.observe({"revenue": revenue}, by=(tags, channels)).compute().to_pandas()
     assert len(correlated) == 2
     assert len(independent) == 4
-    assert sorted(independent[("value", "revenue")].tolist()) == [10, 10, 10, 40]
+    assert sorted(independent["revenue"].tolist()) == [10, 10, 10, 40]
 
 
 @pytest.mark.parametrize("outer_route", ("direct", "association"))
@@ -309,11 +309,11 @@ def test_nested_per_keeps_each_layers_membership_rule(
     # Reversing the layers preserves their sum but changes their three maxima.
     # Bound Decimal(38,0) rounds each inner mean: direct layers produce
     # [17,33,0], association layers [13,3,33], before the outer mean.
-    assert result[("value", "mean_of_means")].tolist() == [17 if outer_route == "direct" else 16]
-    assert result[("value", "mean_of_maxima")].tolist() == [47 if outer_route == "direct" else 50]
+    assert result["mean_of_means"].tolist() == [17 if outer_route == "direct" else 16]
+    assert result["mean_of_maxima"].tolist() == [47 if outer_route == "direct" else 50]
     # The selected rectangle carries A/A=40 and B/A=10, with empty C samples.
     # Grouping by direct first yields maxima 40/0; association first yields 40/10.
-    assert result[("value", "subset_maxima")].tolist() == [20 if outer_route == "direct" else 25]
+    assert result["subset_maxima"].tolist() == [20 if outer_route == "direct" else 25]
 
 
 def test_population_filters_and_relationship_images_preserve_typed_keys(
@@ -366,8 +366,8 @@ def test_metric_population_condition_selects_facts_without_multiplicity(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "selected")].tolist() == [40]
-    assert result[("value", "other")].tolist() == [100]
+    assert result["selected"].tolist() == [40]
+    assert result["other"].tolist() == [100]
 
 
 @pytest.mark.parametrize("source", ["members", "query", "product"])
@@ -425,7 +425,7 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     result = (
         session.observe({"value": revenue}, where=mv.in_population(selected)).compute().to_pandas()
     )
-    assert result[("value", "value")].tolist() == [40]
+    assert result["value"].tolist() == [40]
 
 
 def test_output_coverage_and_internal_subset_have_distinct_policies(
@@ -476,8 +476,8 @@ def test_output_coverage_and_internal_subset_have_distinct_policies(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "selected")].tolist() == [40]
-    assert result[("value", "completed")].tolist() == [20]
+    assert result["selected"].tolist() == [40]
+    assert result["completed"].tolist() == [20]
 
 
 @pytest.mark.parametrize(
@@ -505,9 +505,9 @@ def test_sample_selection_preserves_required_external_coordinates(
     result = session.observe({"v": metric}, by=complete).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [1, 2]
     if "empty" in sampling:
-        assert result[("value", "v")].isna().tolist() == [True, True]
+        assert result["v"].isna().tolist() == [True, True]
     else:
-        assert result[("value", "v")].tolist() == [0, 0]
+        assert result["v"].tolist() == [0, 0]
     subset = mv.coordinates(by=(customer,), keys=((1,),))
     failed = session.observe({"v": metric}, by=subset)
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:
@@ -516,11 +516,7 @@ def test_sample_selection_preserves_required_external_coordinates(
     assert "2" in error.value.received
     filtered = session.observe({"v": metric}, by=subset, where=customer == 1).compute().to_pandas()
     assert filtered.iloc[:, 0].tolist() == [1]
-    assert (
-        pd.isna(filtered[("value", "v")].iloc[0])
-        if "empty" in sampling
-        else filtered[("value", "v")].tolist() == [0]
-    )
+    assert pd.isna(filtered["v"].iloc[0]) if "empty" in sampling else filtered["v"].tolist() == [0]
 
 
 def test_empty_output_population_checks_fact_keys_including_zero_axis(
@@ -540,7 +536,7 @@ def test_empty_output_population_checks_fact_keys_including_zero_axis(
         assert result.empty
     singleton = mv.coordinates(by=(), keys=((),))
     result = session.observe({"v": revenue}, by=singleton).compute().to_pandas()
-    assert result[("value", "v")].tolist() == [140]
+    assert result["v"].tolist() == [140]
 
 
 def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
@@ -576,7 +572,7 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
         session.observe({"v": revenue}, by=(nonnull, allocation)).compute()
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), (None,)))
     result = session.observe({"v": revenue}, by=(full, allocation)).compute().to_pandas()
-    assert dict(zip(result.iloc[:, 0].fillna("<null>"), result[("value", "v")], strict=True)) == {
+    assert dict(zip(result.iloc[:, 0].fillna("<null>"), result["v"], strict=True)) == {
         "A": 40,
         "B": 10,
         "<null>": 100,
@@ -593,7 +589,7 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
     result = (
         session.observe({"v": revenue + refunded}, by=(complete, independent)).compute().to_pandas()
     )
-    assert result[("value", "v")].tolist() == [40, 10, 7]
+    assert result["v"].tolist() == [40, 10, 7]
 
 
 @pytest.mark.parametrize("sampling", ("selected", "open", "nested"))
@@ -622,11 +618,9 @@ def test_internal_membership_exclusion_preserves_parent_coordinates(
         rows = session.observe({"v": metric}, by=output).compute().to_pandas()
         assert rows.iloc[:, 0].tolist() == [1, 2]
         expected = [25, None] if sampling == "open" else [0, 0] if sampling == "nested" else [17, 0]
-        assert rows[("value", "v")].iloc[0] == expected[0]
+        assert rows["v"].iloc[0] == expected[0]
         assert (
-            pd.isna(rows[("value", "v")].iloc[1])
-            if expected[1] is None
-            else rows[("value", "v")].iloc[1] == expected[1]
+            pd.isna(rows["v"].iloc[1]) if expected[1] is None else rows["v"].iloc[1] == expected[1]
         )
     subset = mv.coordinates(by=(customer,), keys=((1,),))
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:

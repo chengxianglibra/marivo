@@ -22,27 +22,18 @@ ForecastModel = Literal["naive", "drift", "seasonal_naive"]
 def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     """Keep every exported key/value while giving pandas recipes simple labels."""
     frame = result.to_pandas()
-    names: list[str] = []
-    key = 0
-    for label in frame.columns:
-        if not isinstance(label, tuple) or len(label) != 2:
-            raise AssertionError("Frame exports require kind/name column pairs")
-        kind, name = label
-        if kind == "value":
-            assert isinstance(name, str)
-            names.append(name)
-        elif kind == "coordinate":
-            names.append(f"key_{key}")
-            key += 1
-        elif kind == "presence":
-            assert isinstance(name, str)
-            names.append("presence." + name)
-        else:
-            raise AssertionError(f"Unexpected Frame export kind: {kind}")
-    if len(set(names)) != len(names):
-        raise AssertionError("Flattened Frame labels must remain unique")
-    frame.columns = names
-    return frame
+    names: dict[str, str] = {}
+    for index, axis in enumerate(result.axes):
+        column = (
+            axis.name if axis.role in ("field", "identity", "calendar") else axis.name + ".start"
+        )
+        if axis.role == "paired":
+            column = axis.name + ".left"
+            if column not in frame.columns:
+                column += ".start"
+        names[column] = f"key_{index}"
+    names.update((name, "presence." + name) for name in result.presence_names)
+    return frame.rename(columns=names)
 
 
 def orders(case: DslCase) -> mv.AnalysisFrame:

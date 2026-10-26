@@ -89,15 +89,15 @@ def author_decimal_mean_project(project: Path) -> Path:
 
 def _values(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
-    assert isinstance(frame[("value", "net_amount")].iloc[0], Decimal)
-    assert isinstance(frame[("value", "net_qty")].iloc[0], Decimal)
-    assert isinstance(frame[("value", "amount_mean")].iloc[0], float)
-    return {name: str(frame[("value", name)].iloc[0]) for name in METRIC_NAMES}
+    assert isinstance(frame["net_amount"].iloc[0], Decimal)
+    assert isinstance(frame["net_qty"].iloc[0], Decimal)
+    assert isinstance(frame["amount_mean"].iloc[0], float)
+    return {name: str(frame[name].iloc[0]) for name in METRIC_NAMES}
 
 
 def _dtypes(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
-    return {name: str(frame[("value", name)].dtype) for name in METRIC_NAMES}
+    return {name: str(frame[name].dtype) for name in METRIC_NAMES}
 
 
 def run(mode: str, project: Path) -> dict[str, Json]:

@@ -134,9 +134,9 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         ordinary = (
             session.observe({"total": amount.sum()}, by=(calendar, category)).compute().to_pandas()
         )
-        assert ordinary.iloc[:, 0].tolist() == [0, 1]
-        assert ordinary.iloc[:, 1].tolist() == ["selected", "selected"]
-        assert ordinary[("value", "total")].tolist() == [Decimal(10), Decimal(20)]
+        assert ordinary["calendar:week"].tolist() == ["2020-12-21", "2021-01-04"]
+        assert ordinary["sales.facts.category"].tolist() == ["selected", "selected"]
+        assert ordinary["total"].tolist() == [Decimal(10), Decimal(20)]
         windows = (
             session.observe(
                 {"total": amount.sum().window(mv.trailing_periods(count=2))}, by=(calendar,)
@@ -144,7 +144,7 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
             .compute()
             .to_pandas()
         )
-        assert windows[("value", "total")].tolist() == [Decimal(10), Decimal(120)]
+        assert windows["total"].tolist() == [Decimal(10), Decimal(120)]
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
@@ -182,7 +182,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
         artifact = session.read(
             members, {"happened": session.catalog.fields.get("sales.facts.happened")}
         ).persist()
-        returned = artifact.to_pandas()[("value", "happened")]
+        returned = artifact.to_pandas()["happened"]
         assert returned.isna().tolist() == native.happened.isna().tolist()
         assert returned.dropna().tolist() == [
             datetime(2026, 11, 1, 5, 30, 0, 123456, tzinfo=timezone.utc),
@@ -258,11 +258,11 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
             {"total": amount.sum(), "count": amount.count()}, by=(scope,)
         ).persist()
         scalar = artifact.to_pandas()
-        assert scalar[("value", "total")].tolist() == native.total.tolist()
-        assert scalar[("value", "count")].tolist() == native["count"].tolist()
+        assert scalar["total"].tolist() == native.total.tolist()
+        assert scalar["count"].tolist() == native["count"].tolist()
         fine = session.observe({"total": amount.sum()}, by=(scope, happened)).compute().to_pandas()
-        assert fine[("coordinate", "axis.1")].tolist() == [point[1] for point in points[:-1]]
-        assert fine[("value", "total")].tolist() == [1, 10, 20]
+        assert fine[fine.attrs["axes"][1]["name"]].tolist() == [point[1] for point in points[:-1]]
+        assert fine["total"].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact.id).to_pandas()
         )
@@ -290,13 +290,13 @@ def test_public_native_numeric_query(
         )
         artifact = query.persist()
         frame = artifact.to_pandas()
-        nonnull = frame.loc[frame[("coordinate", "axis.0")].notna()]
-        assert nonnull[("value", "total")].tolist() == [Decimal("4.00")]
-        assert nonnull[("value", "minimum")].tolist() == [Decimal("1.25")]
-        assert nonnull[("value", "maximum")].tolist() == [Decimal("2.75")]
-        assert nonnull[("value", "count")].tolist() == [2]
+        nonnull = frame.loc[frame[frame.attrs["axes"][0]["name"]].notna()]
+        assert nonnull["total"].tolist() == [Decimal("4.00")]
+        assert nonnull["minimum"].tolist() == [Decimal("1.25")]
+        assert nonnull["maximum"].tolist() == [Decimal("2.75")]
+        assert nonnull["count"].tolist() == [2]
         assert len(frame) == 2
-        assert frame.loc[frame[("coordinate", "axis.0")].isna(), ("value", "total")].isna().all()
+        assert frame.loc[frame[frame.attrs["axes"][0]["name"]].isna(), "total"].isna().all()
         assert frame.equals(session.persisted_frame(artifact.artifact.id).to_pandas())
         members = session.members(session.catalog.entities.get("sales.facts"))
         direct_query = session.read(members, {"big": session.catalog.fields.get("sales.facts.big")})
@@ -309,7 +309,7 @@ def test_public_native_numeric_query(
             assert terminal_runs(session) == before
             return
         direct = direct_query.compute()
-        returned = direct.to_pandas()[("value", "big")]
+        returned = direct.to_pandas()["big"]
         assert returned.isna().sum() == 3
         assert pd.notna(returned.iloc[0])
         if backend == "duckdb":
@@ -360,14 +360,14 @@ def test_public_native_numeric_methods(
 
         monkeypatch.setattr(SourceSession, "execute", record)
         frame = query.compute().to_pandas()
-        assert float(frame[("value", "average")].iloc[0]) == pytest.approx(2.0)
-        assert frame[("value", "row_ratio")].tolist() == [1.0]
+        assert float(frame["average"].iloc[0]) == pytest.approx(2.0)
+        assert frame["row_ratio"].tolist() == [1.0]
         # Only the two non-NULL value/weight pairs contribute: (1.25 + 2.75*3)/4.
-        assert frame[("value", "weighted")].tolist() == [2.375]
+        assert frame["weighted"].tolist() == [2.375]
         if backend == "clickhouse":
             assert "uniqExact(" in "\n".join(statements)
             assert "uniq(" not in "\n".join(statements)
-        assert frame[("value", "distinct")].tolist() == [2]
+        assert frame["distinct"].tolist() == [2]
         for name in (
             "row_zero",
             "integer_zero",
@@ -378,8 +378,8 @@ def test_public_native_numeric_methods(
             "zero_weight",
             "cancelled_weight",
         ):
-            assert frame[("value", name)].isna().tolist() == [True]
-        assert float(frame[("value", "q")].iloc[0]) == 2.0
+            assert frame[name].isna().tolist() == [True]
+        assert float(frame["q"].iloc[0]) == 2.0
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -451,22 +451,22 @@ def test_public_native_quantile_algorithms(
             ("floating", 9.5),
             ("integer", 3),
         ):
-            assert float(result[("value", name)].iloc[0]) == expected
-        assert isinstance(result[("value", "q95")].iloc[0], Decimal)
-        assert result[("value", "empty")].isna().all()
-        assert result[("value", "null")].isna().all()
+            assert float(result[name].iloc[0]) == expected
+        assert isinstance(result["q95"].iloc[0], Decimal)
+        assert result["empty"].isna().all()
+        assert result["null"].isna().all()
         assert sizes and max(sizes) == 1
         grouped = (
             session.observe({"q": amount.quantile(0.95)}, by=(category,)).compute().to_pandas()
         )
-        assert sorted(float(v) for v in grouped[("value", "q")].dropna()) == [9.5]
+        assert sorted(float(v) for v in grouped["q"].dropna()) == [9.5]
         folded = (
             session.observe({"q": amount.quantile(0.95).per(category).mean()}).compute().to_pandas()
         )
-        assert float(folded[("value", "q")].iloc[0]) == 9.5
+        assert float(folded["q"].iloc[0]) == 9.5
         samples = mv.coordinates(by=(category,), keys=(("x",), ("missing",)))
         sampled = session.observe({"q": amount.quantile(0.95).per(samples).mean()})
-        assert float(sampled.compute().to_pandas()[("value", "q")].iloc[0]) == 9.5
+        assert float(sampled.compute().to_pandas()["q"].iloc[0]) == 9.5
         approximate = session.observe(
             {
                 "q": amount.approx_quantile(0.95),
@@ -485,7 +485,7 @@ def test_public_native_quantile_algorithms(
 
             before = len(statements)
             frame = approximate.compute().to_pandas()
-            assert 0 <= float(frame[("value", "q")].iloc[0]) <= 10
+            assert 0 <= float(frame["q"].iloc[0]) <= 10
             native_table = case.session.bind(
                 case.source, source_identity="quantile-oracle"
             ).relation
@@ -500,10 +500,10 @@ def test_public_native_quantile_algorithms(
                 schema={"v": "float64"},
             ).execute()
             assert isinstance(oracle, pd.DataFrame)
-            assert float(frame[("value", "median")].iloc[0]) == float(oracle.v.iloc[0])
-            assert isinstance(frame[("value", "q")].iloc[0], Decimal)
-            assert frame[("value", "empty")].isna().all()
-            assert frame[("value", "null")].isna().all()
+            assert float(frame["median"].iloc[0]) == float(oracle.v.iloc[0])
+            assert isinstance(frame["q"].iloc[0], Decimal)
+            assert frame["empty"].isna().all()
+            assert frame["null"].isna().all()
             sql = "\n".join(statements[before:])
             assert {
                 "duckdb": "approx_quantile",
@@ -574,9 +574,9 @@ def test_native_quantile_edge_groups(
             ("negative", "9.00"),
             ("large", "9007199254740994.90"),
         ):
-            assert frame.loc[group, ("value", "q")] == Decimal(expected)
-        assert frame.loc["negative", ("value", "tiny")] == Decimal("-10.00")
-        assert frame.loc["large", ("value", "integer")] == 9007199254740994.0
+            assert frame.loc[group, "q"] == Decimal(expected)
+        assert frame.loc["negative", "tiny"] == Decimal("-10.00")
+        assert frame.loc["large", "integer"] == 9007199254740994.0
         assert frame.loc["null"].isna().all()
 
 
@@ -609,7 +609,7 @@ def test_native_time_dependencies_and_drill(
             chosen_values, on=((chosen_values.axes[0], entity), (chosen_values.axes[1], category))
         )
         selected = session.observe({"weight": weight.sum()}, where=mv.in_population(chosen))
-        assert selected.compute().to_pandas()[("value", "weight")].tolist() == [1]
+        assert selected.compute().to_pandas()["weight"].tolist() == [1]
         fine = session.observe({"total": amount.sum()}, by=(category,))
         positive = fine.where(fine["total"] > 0).compute()
         categories = session.population_from(positive, on=((positive.axes[0], category),))
@@ -620,20 +620,20 @@ def test_native_time_dependencies_and_drill(
             .compute()
             .to_pandas()
         )
-        assert [float(value) for value in drilled[("value", "total")]] == [1.25, 2.75]
+        assert [float(value) for value in drilled["total"]] == [1.25, 2.75]
         scope = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
         window = session.catalog.metrics.get("sales.total").window(mv.all_history())
         cumulative = session.observe({"total": window}, by=(scope,)).compute().to_pandas()
-        assert [float(value) for value in cumulative[("value", "total")]] == [4.0, 4.0]
+        assert [float(value) for value in cumulative["total"]] == [4.0, 4.0]
         empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).compute()
-        assert empty.to_pandas()[("value", "empty")].tolist() == [Decimal("0.00")]
+        assert empty.to_pandas()["empty"].tolist() == [Decimal("0.00")]
         from tests.analysis.materialization.publication_fixtures import publication_counts
 
         before = publication_counts(session)
         result = session.observe(
             {"zero": session.catalog.metrics.get("sales.zero_weight")}
         ).compute()
-        assert result.to_pandas()[("value", "zero")].isna().all()
+        assert result.to_pandas()["zero"].isna().all()
         assert publication_counts(session) == before
 
 
@@ -668,9 +668,9 @@ def test_mixed_predicate_keeps_null_rows_and_complete_identity_membership(
             (~(field | member), 0, set()),
         ):
             observed = session.observe({"weight": weight.sum()}, where=condition)
-            assert observed.compute().to_pandas()[("value", "weight")].tolist() == [total]
+            assert observed.compute().to_pandas()["weight"].tolist() == [total]
             scoped = session.observe({"weight": weight.sum().where(condition)})
-            assert scoped.compute().to_pandas()[("value", "weight")].tolist() == [total]
+            assert scoped.compute().to_pandas()["weight"].tolist() == [total]
             selected = session.frame(session.members(entity, where=condition)).compute().to_pandas()
             assert set(selected.iloc[:, 0].tolist()) == identities
 
@@ -780,9 +780,9 @@ def test_same_source_read_filter_population_consumer(
 
         result = consumer.compute().to_pandas()
         expected = {"string": 1, "null": 103, "nul": 0}[selection]
-        assert result[("value", "weight")].tolist() == [expected]
+        assert result["weight"].tolist() == [expected]
         if selection != "nul":
-            coordinate = result[("coordinate", "axis.0")]
+            coordinate = result[result.attrs["axes"][0]["name"]]
             assert coordinate.isna().all() if selection == "null" else coordinate.tolist() == ["e"]
         else:
             assert all(chr(0) not in statement for statement in statements)
@@ -806,7 +806,7 @@ def test_same_source_read_filter_population_consumer(
                 result = (
                     session.observe({"weight": weight.sum()}, where=condition).compute().to_pandas()
                 )
-                assert result[("value", "weight")].tolist() == [expected]
+                assert result["weight"].tolist() == [expected]
                 assert_source_read()
 
 
@@ -861,7 +861,7 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
             .compute()
             .to_pandas()
         )
-        assert result[("value", "weight")].tolist() == [1]
+        assert result["weight"].tolist() == [1]
         assert statements
         assert statements[0].lstrip().startswith(("SELECT", "WITH"))
 

@@ -469,7 +469,7 @@ class Workload:
         expected = sum(valid) if valid or not self.rows else None
         assert isinstance(result._backing, (MemoryFrameBacking, StoredFrameBacking))
         frame = result.to_pandas()
-        values = frame[("value", "value")]
+        values = frame["value"]
         assert values.isna().all() if expected is None else values.tolist() == [expected]
         assert len(frame) == 1
         assert tuple(axis.role for axis in result.axes) in ((), ("interval",))

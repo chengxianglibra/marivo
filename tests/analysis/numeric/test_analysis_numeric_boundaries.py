@@ -78,7 +78,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     expected_total = 3.0 / 16.0 if kind == "ratio" else 1.0
     fixed = logical.persist()
     rows = fixed.to_pandas()
-    defined = dict(zip(rows.iloc[:, 0], rows[("value", "value")], strict=True))
+    defined = dict(zip(rows.iloc[:, 0], rows["value"], strict=True))
     defined = {key: value for key, value in defined.items() if not pd.isna(value)}
     expected = (
         {"A": 1.0 / 1e16, "B": -1.0 / 1e16, "C": 1.0 / 16.0}
@@ -92,7 +92,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(rows)
     results = [session.observe({"value": metric}, where=mv.in_population(members)).compute()]
     for result in results:
-        assert result.to_pandas()[("value", "value")].tolist() == [expected_total]
+        assert result.to_pandas()["value"].tolist() == [expected_total]
 
 
 @pytest.mark.parametrize(
@@ -138,7 +138,7 @@ def test_decimal_fold_retains_widened_sample_type(
             where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
         ).compute(),
     ):
-        assert result.to_pandas()[("value", "value")].tolist() == [Decimal(1800)]
+        assert result.to_pandas()["value"].tolist() == [Decimal(1800)]
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
 
 
@@ -187,7 +187,7 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
             where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
         ).compute(),
     ):
-        assert result.to_pandas()[("value", "value")].tolist() == [value]
+        assert result.to_pandas()["value"].tolist() == [value]
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
 
 
@@ -231,4 +231,4 @@ def test_numeric_raw_order_and_exchange_batches(
             where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
         ).compute(),
     ):
-        assert abs(result.to_pandas()[("value", "value")].iloc[0] - float(exact)) <= bound
+        assert abs(result.to_pandas()["value"].iloc[0] - float(exact)) <= bound

@@ -35,7 +35,7 @@ def test_public_observation_retains_components_values_and_laziness(
         assert len(binding.contributions) == components
         assert len({item.occurrence for item in binding.contributions}) == components
         result = observed.persist().to_pandas()
-        assert result[("value", "value")].iloc[0] == pytest.approx(expected), shape
+        assert result["value"].iloc[0] == pytest.approx(expected), shape
 
 
 def test_business_completeness_uses_the_complete_calendar_domain(
@@ -49,7 +49,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     assert terminal_runs(case.session) == ()
     frame = observed.persist().to_pandas()
     assert len(frame) == 31
-    values = frame[("value", "revenue")]
+    values = frame["revenue"]
     assert values.sum() == 1000
     assert values.eq(0).sum() == 28
     with pytest.raises(SemanticRuntimeError, match=r"missing\.metric") as missing:

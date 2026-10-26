@@ -88,11 +88,11 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
     saved_data = saved.to_pandas()
     result = saved_data.set_index(saved_data.columns[0])
     for name in ("daily", "local_daily", "row_daily", "ordinary"):
-        assert result.loc["present", ("value", name)] == 5.0
+        assert result.loc["present", name] == 5.0
     for name in ("hourly", "local_hourly"):
-        assert result.loc["present", ("value", name)] == 18.0
-    assert result.loc["present", ("value", "combined_rows")] == 23.0
-    assert all(pd.isna(result.loc["null", ("value", name)]) for name in metrics)
+        assert result.loc["present", name] == 18.0
+    assert result.loc["present", "combined_rows"] == 23.0
+    assert all(pd.isna(result.loc["null", name]) for name in metrics)
     assert {column.name: column.unit for column in saved._schema.values} == {
         name: "By" if name == "ordinary" else "GiB/s" for name in metrics
     }
@@ -119,13 +119,12 @@ def test_rescale_decimal_division_and_divisor_one_keep_existing_numeric_null_rul
     ).compute()
     data = frame.to_pandas()
     result = data.set_index(data.columns[0])
-    assert result.loc["present", ("value", "row")] == 40.0
-    assert result.loc["present", ("value", "metric")] == 40.0
-    assert result.loc["present", ("value", "ordinary")] == 40.0
-    assert result.loc["present", ("value", "assertion")] == 4.0
+    assert result.loc["present", "row"] == 40.0
+    assert result.loc["present", "metric"] == 40.0
+    assert result.loc["present", "ordinary"] == 40.0
+    assert result.loc["present", "assertion"] == 4.0
     assert all(
-        pd.isna(result.loc["null", ("value", name)])
-        for name in ("row", "metric", "ordinary", "assertion")
+        pd.isna(result.loc["null", name]) for name in ("row", "metric", "ordinary", "assertion")
     )
     assert {column.name: column.unit for column in frame._schema.values} == {
         "row": "scaled_CNY",

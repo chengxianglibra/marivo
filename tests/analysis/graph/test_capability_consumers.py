@@ -25,7 +25,7 @@ from tests.support.source_trace import SourceTrace
 
 
 def _value(result: mv.AnalysisFrame) -> pd.Series:
-    return result.to_pandas()["value", "value"]
+    return result.to_pandas()["value"]
 
 
 def _full(
@@ -134,8 +134,8 @@ def test_declared_string_time_uses_owned_execution_functions(
         }
         if time_case == "dst":
             expected_values["a", 9007199254740996, 1] = 5
-        assert frame["value", "value"].to_dict() == expected_values
-        assert frame["value", "value"].isna().sum() == 1
+        assert frame["value"].to_dict() == expected_values
+        assert frame["value"].isna().sum() == 1
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-{('dst' if time_case == 'dst' else 'string-time')}",
@@ -237,7 +237,7 @@ def test_source_coordinates_statistics_and_original_state(
         frame = tuples.to_pandas()
         assert list(frame.iloc[:, 0]) == ["a", "a"]
         assert list(frame.iloc[:, 1]) == [1, 2]
-        assert frame[("value", "value")].tolist() == [1, 1]
+        assert frame["value"].tolist() == [1, 1]
         summed = values.reduce({"value": values["value"].sum()}, by=(values.axes[1],)).persist()
         expected_sum = Decimal("2") if numeric_type == "int64" else 2.0
         assert _value(summed).tolist() == [expected_sum]
@@ -278,10 +278,10 @@ def test_source_coordinates_statistics_and_original_state(
                 .persist()
                 .to_pandas()
             )
-            differences = difference["value", "reference.absolute.value"].tolist()
+            differences = difference["reference.absolute.value"].tolist()
             assert dict(
                 zip(
-                    difference.iloc[:, 1],
+                    difference["sales.customer"],
                     [None if pd.isna(value) else value for value in differences],
                     strict=True,
                 )
@@ -412,8 +412,8 @@ def test_original_mean_preserves_component_weights(
         fixed = grouped.persist()
         exported = fixed.to_pandas()
         frame = exported.set_index(exported.columns[0])
-        assert frame["value", "value"].to_dict() == {"a": 1.0, "b": 100.0}
-        assert dict(zip(frame["value", "sum"], frame["value", "count"], strict=True)) == {
+        assert frame["value"].to_dict() == {"a": 1.0, "b": 100.0}
+        assert dict(zip(frame["sum"], frame["count"], strict=True)) == {
             2: 2,
             100: 1,
         }
@@ -425,8 +425,8 @@ def test_original_mean_preserves_component_weights(
         with monkeypatch.context() as isolated:
             isolated.setattr(type(case.session), "execute", forbid_source)
             saved = fixed.to_pandas()
-            assert saved["value", "value"].mean() == 50.5
-            assert saved["value", "sum"].sum() / saved["value", "count"].sum() == 34.0
+            assert saved["value"].mean() == 50.5
+            assert saved["sum"].sum() / saved["count"].sum() == 34.0
         assert len(source_trace.native_sql) == submissions_before
         for result in (current, original, fixed):
             source_trace.record(result)
@@ -612,7 +612,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 8
-        assert not frame["value", "value"].isna().any()
+        assert not frame["value"].isna().any()
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
@@ -848,7 +848,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
-        assert len(frame) == 8 and (not frame["value", "value"].isna().any())
+        assert len(frame) == 8 and (not frame["value"].isna().any())
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
@@ -955,7 +955,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
-        assert len(frame) == 10 and (not frame["value", "value"].isna().any())
+        assert len(frame) == 10 and (not frame["value"].isna().any())
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
@@ -1031,8 +1031,8 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
-        assert len(frame) == 4 and (not frame["value", "value"].isna().any())
-        assert sorted(frame["value", "value"].tolist()) == [0, 2, 5, 11]
+        assert len(frame) == 4 and (not frame["value"].isna().any())
+        assert sorted(frame["value"].tolist()) == [0, 2, 5, 11]
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)

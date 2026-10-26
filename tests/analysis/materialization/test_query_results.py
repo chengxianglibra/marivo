@@ -163,21 +163,21 @@ def test_select_where_top_and_independent_statistics(result_session: Session) ->
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
     q = session.observe({"sum": amount.sum(), "mean": amount.mean()}, by=(region,))
-    net = q.select({"net": q["sum"] - 10}).compute().to_pandas()[("value", "net")]
+    net = q.select({"net": q["sum"] - 10}).compute().to_pandas()["net"]
     assert net.iloc[:2].tolist() == [30, 10]
     assert pd.isna(net.iloc[2])
     selected = q.where(q["sum"] >= 20)
     result = selected.top(1, by=selected["sum"]).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == ["A"]
-    assert result[("value", "sum")].tolist() == [40]
+    assert result["sum"].tolist() == [40]
     statistics = (
         q.reduce({"sum": q["sum"].sum(), "mean": q["mean"].mean(), "rows": row_count()})
         .compute()
         .to_pandas()
     )
-    assert statistics[("value", "sum")].tolist() == [60]
-    assert statistics[("value", "mean")].tolist() == [20.0]
-    assert statistics[("value", "rows")].tolist() == [3]
+    assert statistics["sum"].tolist() == [60]
+    assert statistics["mean"].tolist() == [20.0]
+    assert statistics["rows"].tolist() == [3]
 
 
 def test_explicit_source_reads_selected_fibers_and_original_mean(result_session: Session) -> None:
@@ -194,11 +194,11 @@ def test_explicit_source_reads_selected_fibers_and_original_mean(result_session:
     )
     frame = drilled.compute().to_pandas()
     assert frame.iloc[:, 0].tolist() == ["A", "A"]
-    assert frame.iloc[:, 1].tolist() == ["Store", "Web"]
-    assert frame[("value", "mean")].tolist() == [30.0, 10.0]
+    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["Store", "Web"]
+    assert frame["mean"].tolist() == [30.0, 10.0]
     assert session.observe(
         {"mean": amount.mean()}, by=(region,), where=mv.in_population(chosen)
-    ).compute().to_pandas()[("value", "mean")].tolist() == [20.0]
+    ).compute().to_pandas()["mean"].tolist() == [20.0]
 
 
 def test_explicit_selected_members_keep_complete_identity(result_session: Session) -> None:
@@ -220,9 +220,9 @@ def test_explicit_selected_members_keep_complete_identity(result_session: Sessio
     )
     domain = domain.classify(by=(domain.axes[0], region, channel))
     drilled = session.observe({"people": domain.count()}, by=(region, channel))
-    assert drilled.compute().to_pandas()[("value", "people")].tolist() == [1, 1]
+    assert drilled.compute().to_pandas()["people"].tolist() == [1, 1]
     assert session.observe({"people": domain.count()}, by=(region,)).compute().to_pandas()[
-        ("value", "people")
+        "people"
     ].tolist() == [2]
 
 
@@ -273,11 +273,11 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
         {"total": amount.sum()}, by=(region, channel), where=mv.in_population(chosen)
     )
     frame = drilled.compute().to_pandas()
-    assert frame.iloc[:, 1].tolist() == ["Store", "Web"]
-    assert frame[("value", "total")].tolist() == [30, 10]
+    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["Store", "Web"]
+    assert frame["total"].tolist() == [30, 10]
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(chosen)
-    ).compute().to_pandas()[("value", "total")].tolist() == [40]
+    ).compute().to_pandas()["total"].tolist() == [40]
 
 
 def test_result_fixed_null_division_and_exact_input_binding(result_session: Session) -> None:
@@ -286,7 +286,7 @@ def test_result_fixed_null_division_and_exact_input_binding(result_session: Sess
     region = session.catalog.fields.get("sales.orders.region")
     q = session.observe({"sum": amount.sum()}, by=(region,))
     divided = q.select({"ratio": q["sum"] / 0}).compute().to_pandas()
-    assert divided[("value", "ratio")].isna().all()
+    assert divided["ratio"].isna().all()
     with pytest.raises(AnalysisError) as failure:
         q.select({"ratio": q["sum"] * 1e308}).compute()
     _assert_compute_repair(failure.value)
@@ -295,7 +295,7 @@ def test_result_fixed_null_division_and_exact_input_binding(result_session: Sess
     # Independent captures require explicit Frame correspondence before composition.
     with pytest.raises(AnalysisError):
         q.select({"same": other["sum"]})
-    assert q.select({"same": q["sum"]}).compute().to_pandas()[("value", "same")].to_dict() == {
+    assert q.select({"same": q["sum"]}).compute().to_pandas()["same"].to_dict() == {
         0: 40,
         1: 20,
         2: None,
@@ -321,14 +321,14 @@ def test_public_compare_retains_presence_and_projection_on_cold_read(
     )
     artifact = comparison.persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
-    assert frame[("value", "base.absolute.sales")].iloc[:2].tolist() == [60, 20]
-    assert frame[("value", "base.relative.sales")].iloc[0] == 3.0
-    assert pd.isna(frame[("value", "base.relative.sales")].iloc[1])
-    assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
-    assert frame[("presence", "base.present")].tolist() == [True, True, False, True]
+    assert frame["base.absolute.sales"].iloc[:2].tolist() == [60, 20]
+    assert frame["base.relative.sales"].iloc[0] == 3.0
+    assert pd.isna(frame["base.relative.sales"].iloc[1])
+    assert frame["current.present"].tolist() == [True, True, True, False]
+    assert frame["base.present"].tolist() == [True, True, False, True]
     assert comparison.axes[0].role == "field"
     selected = comparison.select({"delta": comparison["base.absolute.sales"]})
-    assert selected.compute().to_pandas()[("presence", "current.present")].tolist() == [
+    assert selected.compute().to_pandas()["current.present"].tolist() == [
         True,
         True,
         True,
@@ -348,9 +348,9 @@ def test_empty_reduction_keeps_scalar_and_checks(result_session: Session) -> Non
         .compute()
         .to_pandas()
     )
-    assert result[("value", "sum")].tolist() == [0]
-    assert result[("value", "mean")].isna().all()
-    assert result[("value", "rows")].tolist() == [0]
+    assert result["sum"].tolist() == [0]
+    assert result["mean"].isna().all()
+    assert result["rows"].tolist() == [0]
 
 
 def test_literal_values_and_saved_top_order(result_session: Session) -> None:
@@ -377,7 +377,7 @@ def test_literal_values_and_saved_top_order(result_session: Session) -> None:
         "C",
     ]
     scalar = session.values(by=(), columns={"budget": "CNY"}, rows=(((), {"budget": 100}),))
-    assert scalar.compute().to_pandas()[("value", "budget")].tolist() == [100]
+    assert scalar.compute().to_pandas()["budget"].tolist() == [100]
 
 
 def test_values_bind_real_key_types_and_preserve_exact_constants(
@@ -412,7 +412,7 @@ def test_values_bind_real_key_types_and_preserve_exact_constants(
         .compute()
         .to_pandas()
     )
-    assert large[("value", "budget")].tolist() == [Decimal(2**70)]
+    assert large["budget"].tolist() == [Decimal(2**70)]
     mixed = (
         session.values(
             by=(region,),
@@ -422,7 +422,7 @@ def test_values_bind_real_key_types_and_preserve_exact_constants(
         .compute()
         .to_pandas()
     )
-    assert mixed[("value", "budget")].tolist() == [1.5, 2.0]
+    assert mixed["budget"].tolist() == [1.5, 2.0]
     for invalid in (float("nan"), datetime(2026, 1, 1)):
         with pytest.raises(AnalysisError):
             session.values(by=(), columns={"value": None}, rows=(((), {"value": invalid}),))
@@ -461,16 +461,16 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         .compute()
         .to_pandas()
     )
-    assert result[("value", "total")].tolist() == [30]
-    assert result[("value", "people")].tolist() == [3]
-    assert result[("value", "per_person")].tolist() == [10.0]
+    assert result["total"].tolist() == [30]
+    assert result["people"].tolist() == [3]
+    assert result["per_person"].tolist() == [10.0]
     complete = (
         session.observe({"total": amount.sum()}, by=requested, where=mv.in_population(requested))
         .compute()
         .to_pandas()
     )
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
-    assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: 0}
+    assert complete["total"].to_dict() == {0: 10, 1: 20, 2: 0}
     assert isinstance(requested.axes[0], mv.Grouping)
     assert requested.axes[0].kind == "identity"
     assert requested.classify(by=(requested.axes[0],)).axes == requested.axes
@@ -483,7 +483,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         by=(session.catalog.fields.get("sales.orders.region"),), keys=(("A",),)
     )
     assert session.observe({"regions": regions.count()}).compute().to_pandas()[
-        ("value", "regions")
+        "regions"
     ].tolist() == [1]
     empty = mv.coordinates(by=(mv.identity(orders),), keys=())
     result = (
@@ -493,8 +493,8 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         .compute()
         .to_pandas()
     )
-    assert result[("value", "people")].tolist() == [0]
-    assert result[("value", "sum")].tolist() == [0]
+    assert result["people"].tolist() == [0]
+    assert result["sum"].tolist() == [0]
 
 
 def test_population_count_counts_full_tuples_and_empty_cells(result_session: Session) -> None:
@@ -506,7 +506,7 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
         keys=(("A", "Web"), ("A", "Store"), (None, "Web"), ("A", "Web")),
     )
     scalar = session.observe({"tuples": domain.count()}).compute().to_pandas()
-    assert scalar[("value", "tuples")].tolist() == [3]
+    assert scalar["tuples"].tolist() == [3]
     groups = mv.coordinates(by=(region,), keys=(("A",), (None,), ("missing",)))
     grouped = session.observe({"tuples": domain.count()}, by=groups).compute().to_pandas()
     assert [
@@ -520,8 +520,8 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
     empty = mv.coordinates(by=(), keys=())
     unit = mv.coordinates(by=(), keys=((),))
     scalars = session.observe({"empty": empty.count(), "unit": unit.count()}).compute().to_pandas()
-    assert scalars[("value", "empty")].tolist() == [0]
-    assert scalars[("value", "unit")].tolist() == [1]
+    assert scalars["empty"].tolist() == [0]
+    assert scalars["unit"].tolist() == [1]
 
 
 def test_dependent_source_uses_complete_null_safe_key_relations(
@@ -562,7 +562,7 @@ def test_dependent_source_uses_complete_null_safe_key_relations(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "total")].tolist() == [57]
+    assert result["total"].tolist() == [57]
     assert len(statements) == 1
     assert "UNION" not in statements[0]
     assert "JOIN" in statements[0]
@@ -616,7 +616,7 @@ def test_frame_population_transport_keeps_consumer_expression_bounded(
             [count],
         )
     result = consumer.compute().to_pandas()
-    assert result[("value", "total")].tolist() == [count]
+    assert result["total"].tolist() == [count]
     assert len(keys) == 1 and keys[0].num_rows == count
     assert set(keys[0].column(0).to_pylist()) == {f"region_{i}" for i in range(count)}
     assert len(statements) == 2
@@ -676,7 +676,7 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
         )
     result = consumer.compute().to_pandas()
     # The selected amounts are the first count // 2 odd positive integers.
-    assert result[("value", "total")].tolist() == [(count // 2) ** 2]
+    assert result["total"].tolist() == [(count // 2) ** 2]
     assert len(keys) == 1 and keys[0].num_rows == count // 2
     assert set(keys[0].column(0).to_pylist()) == {large + i for i in range(0, count, 2)}
     assert len(statements) == 2
@@ -761,7 +761,7 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
     ):
         statements.clear()
         result = session.observe({"total": amount.sum()}, where=condition).compute().to_pandas()
-        assert result[("value", "total")].tolist() == [expected]
+        assert result["total"].tolist() == [expected]
         assert len(statements) == 2
         assert "IS NOT DISTINCT FROM" not in statements[-1]
 
@@ -829,7 +829,7 @@ def test_top_selected_frame_bridge_keeps_source_checks(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "total")].tolist() == [30]
+    assert result["total"].tolist() == [30]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
 
@@ -862,7 +862,7 @@ def test_float_nan_attribute_selection_is_distinct_from_null(
 
     monkeypatch.setattr(SourceSession, "execute", record)
     result = session.observe({"rows": entity.count()}, where=mv.in_population(selected)).compute()
-    assert result.to_pandas()["value", "rows"].tolist() == [0]
+    assert result.to_pandas()["rows"].tolist() == [0]
     assert len(statements) == 2
 
 
@@ -909,7 +909,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "total")].tolist() == [60]
+    assert result["total"].tolist() == [60]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
 
@@ -955,8 +955,8 @@ def test_shared_frame_selection_transports_once_for_checked_source_consumers(
     monkeypatch.setattr(SourceSession, "execute", record)
     monkeypatch.setattr(SourceSession, "_bind_key_relation", upload)
     result = consumer.compute().to_pandas()
-    assert result[("value", "selected")].tolist() == [40]
-    assert result[("value", "other")].tolist() == [20]
+    assert result["selected"].tolist() == [40]
+    assert result["other"].tolist() == [20]
     assert uploads == [2]
     assert len(statements) == 3
     assert "_marivo_keys_" in statements[-1]
@@ -971,19 +971,19 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     q = session.read(people, {"amount": amount, "region": region})
     result = q.compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [1, 2]
-    assert result[("value", "region")].tolist() == ["A", "A"]
+    assert result["region"].tolist() == ["A", "A"]
     selected = _population(
         session, q.where(q["amount"] > 10), session.catalog.entities.get("sales.orders")
     )
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(selected)
-    ).compute().to_pandas()[("value", "total")].tolist() == [30]
+    ).compute().to_pandas()["total"].tolist() == [30]
     missing = session.read(
         mv.coordinates(by=(mv.identity(orders),), keys=(((999,),),)), {"region": region}
     )
     missing_rows = missing.compute().to_pandas()
     assert missing_rows.iloc[:, 0].tolist() == [999]
-    assert missing_rows[("value", "region")].isna().tolist() == [True]
+    assert missing_rows["region"].isna().tolist() == [True]
 
 
 def test_explicit_source_aggregation_and_current_row_statistics(result_session: Session) -> None:
@@ -1003,33 +1003,30 @@ def test_explicit_source_aggregation_and_current_row_statistics(result_session: 
         .compute()
         .to_pandas()
     )
-    assert original[("value", "sales")].tolist() == [60]
-    assert original[("value", "aov")].tolist() == [20.0]
-    assert original[("value", "shifted")].tolist() == [70]
+    assert original["sales"].tolist() == [60]
+    assert original["aov"].tolist() == [20.0]
+    assert original["shifted"].tolist() == [70]
     rows = (
         chosen.reduce({"sales": chosen["sales"].sum(), "shifted": chosen["shifted"].sum()})
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "sales")].tolist() == [60]
-    assert rows[("value", "shifted")].tolist() == [80]
+    assert rows["sales"].tolist() == [60]
+    assert rows["shifted"].tolist() == [80]
     fixed = fine.compute()
     denominator = int(
-        fixed.reduce({"total": fixed["sales"].sum()})
-        .compute()
-        .to_pandas()[("value", "total")]
-        .iloc[0]
+        fixed.reduce({"total": fixed["sales"].sum()}).compute().to_pandas()["total"].iloc[0]
     )
     shares = fixed.select({"sales": fixed["sales"], "share": fixed["sales"] / denominator})
     normalized = shares.compute().to_pandas()
-    assert normalized[("value", "share")].dropna().tolist() == pytest.approx([2 / 3, 1 / 3])
-    assert normalized[("value", "share")].isna().tolist() == [False, False, True]
+    assert normalized["share"].dropna().tolist() == pytest.approx([2 / 3, 1 / 3])
+    assert normalized["share"].isna().tolist() == [False, False, True]
     assert shares.where(shares["sales"] > 20).compute().to_pandas()[
-        ("value", "share")
+        "share"
     ].tolist() == pytest.approx([2 / 3])
     assert session.observe(
         {"sales": amount.sum()}, by=(region,), where=mv.in_population(domain)
-    ).compute().to_pandas()[("value", "sales")].tolist() == [40, 20]
+    ).compute().to_pandas()["sales"].tolist() == [40, 20]
 
 
 def test_two_datasource_composite_parameters_compare_and_terminal_read(
@@ -1093,7 +1090,7 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    assert filtered.compute().to_pandas()[("value", "sales")].tolist() == [150]
+    assert filtered.compute().to_pandas()["sales"].tolist() == [150]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
     comparison = left.compare(
@@ -1102,8 +1099,8 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     )
     artifact = comparison.persist()
     frame = artifact.to_pandas()
-    assert frame[("value", "base.absolute.sales")].tolist() == [50, 25]
-    assert frame[("presence", "current.present")].tolist() == [True, True]
+    assert frame["base.absolute.sales"].tolist() == [50, 25]
+    assert frame["current.present"].tolist() == [True, True]
 
     def unavailable(*args: object, **kwargs: object) -> None:
         raise AssertionError("terminal reads must not reopen sources")
@@ -1144,10 +1141,10 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
     region = session.catalog.fields.get("sales.orders.region")
     grid = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("day"))
     daily = session.observe({"sales": amount.sum(time=day)}, by=(grid, region))
-    assert daily.compute().to_pandas()[("value", "sales")].tolist() == [10, 30, 60, 0, 20, 0, 40, 0]
+    assert daily.compute().to_pandas()["sales"].tolist() == [10, 30, 60, 0, 20, 0, 40, 0]
     monthly = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("month"))
     coarse = session.observe({"sales": amount.sum(time=day)}, by=(monthly,))
-    assert coarse.compute().to_pandas()[("value", "sales")].tolist() == [60, 100]
+    assert coarse.compute().to_pandas()["sales"].tolist() == [60, 100]
 
 
 @pytest.mark.parametrize("kind", ["integer", "float", "decimal", "duration"])
@@ -1188,9 +1185,9 @@ def test_column_sum_distinguishes_missing_samples_from_valid_zero(
         )
         artifact = query.reduce({"sum": query["value"].sum(), "rows": row_count()}).persist()
         rows = artifact.to_pandas()
-        actual = rows[("value", "sum")].iloc[0]
+        actual = rows["sum"].iloc[0]
         assert pd.isna(actual) if expected is None else actual == expected
-        assert rows[("value", "rows")].tolist() == [count]
+        assert rows["rows"].tolist() == [count]
         assert session.persisted_frame(artifact.artifact.id).to_pandas().equals(rows)
 
 
@@ -1208,15 +1205,15 @@ def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
     query = session.observe({"total": total, "shifted": total + 10}, by=(region,))
     artifact = query.persist()
     frame = artifact.to_pandas()
-    assert frame[("value", "total")].to_dict() == {0: large, 1: 20, 2: None}
-    assert frame[("value", "shifted")].to_dict() == {0: large + 10, 1: 30, 2: None}
-    assert pa.array(frame[("value", "total")]).type == pa.decimal128(38, 0)
+    assert frame["total"].to_dict() == {0: large, 1: 20, 2: None}
+    assert frame["shifted"].to_dict() == {0: large + 10, 1: 30, 2: None}
+    assert pa.array(frame["total"]).type == pa.decimal128(38, 0)
     pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact.id).to_pandas(), frame)
     for reduced in (
         query.reduce({"total": query["total"].sum()}),
         session.observe({"total": total.per(region).sum()}),
     ):
-        assert reduced.compute().to_pandas()[("value", "total")].tolist() == [large + 20]
+        assert reduced.compute().to_pandas()["total"].tolist() == [large + 20]
 
 
 def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session) -> None:
@@ -1230,12 +1227,12 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
         .compute()
         .to_pandas()
     )
-    assert list(zip(rows.iloc[:, 0], rows.iloc[:, 1], strict=True)) == [
+    assert list(zip(rows.iloc[:, 0], rows[rows.attrs["axes"][1]["name"]], strict=True)) == [
         ("A", "Web"),
         ("B", "Store"),
     ]
-    assert rows[("value", "mean")].iloc[0] == 10
-    assert pd.isna(rows[("value", "mean")].iloc[1])
+    assert rows["mean"].iloc[0] == 10
+    assert pd.isna(rows["mean"].iloc[1])
     unit = mv.coordinates(by=(), keys=((),))
     empty = mv.coordinates(by=(), keys=())
     assert len(session.observe({"total": amount.sum()}, by=unit).compute().to_pandas()) == 1
@@ -1270,10 +1267,10 @@ def test_population_counts_are_independent_of_fact_conditions(result_session: Se
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "p")].tolist() == [3]
-    assert rows[("value", "q")].tolist() == [1]
-    assert rows[("value", "sum")].tolist() == [50]
-    assert rows[("value", "ratio")].tolist() == [50 / 3]
+    assert rows["p"].tolist() == [3]
+    assert rows["q"].tolist() == [1]
+    assert rows["sum"].tolist() == [50]
+    assert rows["ratio"].tolist() == [50 / 3]
     with pytest.raises(AnalysisError, match="fact contributions"):
         session.observe({"p": p.count()}, where=amount > 15)
 
@@ -1296,8 +1293,8 @@ def test_count_domains_follow_their_own_internal_samples(result_session: Session
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "count")].tolist() == [2]
-    assert rows[("value", "mean")].tolist() == [30.0]
+    assert rows["count"].tolist() == [2]
+    assert rows["mean"].tolist() == [30.0]
     rows = (
         session.observe(
             {"count": selected.count(), "sampled_count": selected.count().per(region).sum()}
@@ -1305,14 +1302,14 @@ def test_count_domains_follow_their_own_internal_samples(result_session: Session
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "count")].tolist() == [2]
-    assert rows[("value", "sampled_count")].tolist() == [2]
+    assert rows["count"].tolist() == [2]
+    assert rows["sampled_count"].tolist() == [2]
     grouped = (
         session.observe({"count": selected.count().per(region).sum()}, by=(region,))
         .compute()
         .to_pandas()
     )
-    assert grouped[("value", "count")].tolist() == [1, 1]
+    assert grouped["count"].tolist() == [1, 1]
     requested = mv.coordinates(by=(region,), keys=(("A",), ("C",)))
     rows = session.observe({"count": selected.count().per(requested).sum()}).compute().to_pandas()
-    assert rows[("value", "count")].tolist() == [1]
+    assert rows["count"].tolist() == [1]

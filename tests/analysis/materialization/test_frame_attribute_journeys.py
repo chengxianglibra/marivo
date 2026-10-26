@@ -50,10 +50,10 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
     report = targets.attribute(by=(channel,)).compute()
     rows = report.to_pandas()
     for name, expected in (("july_change", 30), ("august_change", 50)):
-        assert rows[("value", f"contribution.{name}")].tolist() == [expected]
-        assert rows[("value", f"total.{name}")].tolist() == [expected]
-        assert rows[("value", f"observed_total.{name}")].tolist() == [expected]
-        assert rows[("value", f"contribution_share.{name}")].tolist() == [1]
+        assert rows[f"contribution.{name}"].tolist() == [expected]
+        assert rows[f"total.{name}"].tolist() == [expected]
+        assert rows[f"observed_total.{name}"].tolist() == [expected]
+        assert rows[f"contribution_share.{name}"].tolist() == [1]
     assert len(report.axes) == 3
 
 
@@ -74,7 +74,7 @@ def test_unsupported_quantile_continues_through_explicit_parent_key_bridge(
     detail = session.observe(
         {"median": metric}, by=(region, channel), where=mv.in_population(keys)
     ).compute()
-    assert detail.to_pandas()[("value", "median")].tolist() == [100]
+    assert detail.to_pandas()["median"].tolist() == [100]
     assert detail.output_names == ("median",)
 
 
@@ -102,5 +102,5 @@ def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     detail_path = "detail.value.metric_7"
     assert detail_path in reopened.output_names
     selected = reopened.select({"original": reopened[detail_path]}).compute()
-    assert selected.to_pandas()[("value", "original")].tolist() == [610, 50, 0]
+    assert selected.to_pandas()["original"].tolist() == [610, 50, 0]
     assert selected.method_facts[0].targets == report.method_facts[0].targets

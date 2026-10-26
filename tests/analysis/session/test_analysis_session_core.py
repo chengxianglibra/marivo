@@ -161,5 +161,5 @@ def test_session_observe_uses_external_layer_datasource(
     metric = session.catalog.metrics.get("finance.refunds_total")
     frame = session.observe({"refunds": metric}).compute()
 
-    assert frame.to_pandas()[("value", "refunds")].tolist() == [150.0]
+    assert frame.to_pandas()["refunds"].tolist() == [150.0]
     assert terminal_runs(session) == ()

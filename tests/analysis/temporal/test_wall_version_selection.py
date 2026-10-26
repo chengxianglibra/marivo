@@ -88,5 +88,5 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         .compute()
         .to_pandas()
     )
-    gap = projected.loc[projected.iloc[:, 0] == "gap", ("value", "begins")].iloc[0]
+    gap = projected.loc[projected.iloc[:, 0] == "gap", "begins"].iloc[0]
     assert gap.isoformat() == "2026-03-08T07:15:00+00:00"

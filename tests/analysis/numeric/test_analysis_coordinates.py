@@ -85,9 +85,7 @@ def _region(case: DslCase) -> mv.AnalysisFrame:
 def _dict(frame: pd.DataFrame, name: str = "value") -> dict[object, object]:
     coordinates = [axis for axis in frame.attrs["axes"] if axis["role"] != "interval"]
     assert len(coordinates) == 1
-    return dict(
-        zip(frame[("coordinate", coordinates[0]["token"])], frame[("value", name)], strict=True)
-    )
+    return dict(zip(frame[coordinates[0]["name"]], frame[name], strict=True))
 
 
 def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -97,12 +95,12 @@ def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory)
     observed = _observe(case)
     fixed = observed.persist()
     frame = fixed.to_pandas()
-    assert frame[("value", "value")].min() == 150
-    assert frame[("value", "value")].max() == 450
+    assert frame["value"].min() == 150
+    assert frame["value"].max() == 450
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        values = case.session.persisted_frame(fixed.artifact.id).to_pandas()[("value", "value")]
+        values = case.session.persisted_frame(fixed.artifact.id).to_pandas()["value"]
         assert values.min() == 150 and values.max() == 450
     finally:
         offline.rename(case.database_path)
@@ -124,7 +122,7 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
         case, session.catalog.metrics.get("sales.revenue"), by=(channel, status)
     ).persist()
     frame = result.to_pandas()
-    assert frame[("value", "value")].tolist() == [150, 850]
+    assert frame["value"].tolist() == [150, 850]
     assert len(frame) == 2
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
@@ -136,17 +134,13 @@ def test_empty_numeric_row_state(analysis_dsl_case_factory: DslCaseFactory) -> N
         connection.execute("DELETE FROM customer")
     observed = _observe(case)
     frame = observed.compute().to_pandas()
-    assert (
-        frame.empty
-        and pd.isna(frame[("value", "value")].min())
-        and pd.isna(frame[("value", "value")].max())
-    )
+    assert frame.empty and pd.isna(frame["value"].min()) and pd.isna(frame["value"].max())
     result = observed.reduce(
         {"sum": observed["value"].sum(), "mean": observed["value"].mean(), "count": mv.row_count()}
     ).persist()
     row = result.to_pandas().iloc[0]
-    assert row[("value", "sum")] == 0 and row[("value", "count")] == 0
-    assert pd.isna(row[("value", "mean")])
+    assert row["sum"] == 0 and row["count"] == 0
+    assert pd.isna(row["mean"])
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
 
 
@@ -185,7 +179,7 @@ def test_selected_row_groups_preserve_count_mean_state(
     assert _dict(frame, "count") == {"east": 2}
     assert _dict(frame, "sum") == {"east": 600}
     assert _dict(frame, "mean") == {"east": 300}
-    assert (frame[("value", "sum")].sum() / frame[("value", "count")].sum()) == 300
+    assert (frame["sum"].sum() / frame["count"].sum()) == 300
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
     assert not hasattr(stats, "rollup")
 
@@ -206,11 +200,11 @@ def test_original_mean_merges_support_not_finished_values(
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
     fixed = observed.compute()
-    assert fixed.to_pandas()[("value", "value")].tolist() == [1, 100]
+    assert fixed.to_pandas()["value"].tolist() == [1, 100]
     assert _source(
         case, session.catalog.metrics.get("sales.mean_amount"), members=_members(case)
-    ).compute().to_pandas()[("value", "value")].tolist() == pytest.approx([200 / 101])
-    assert fixed.to_pandas()[("value", "value")].mean() == 50.5
+    ).compute().to_pandas()["value"].tolist() == pytest.approx([200 / 101])
+    assert fixed.to_pandas()["value"].mean() == 50.5
 
 
 def test_partial_reduction_matches_components_and_preserves_keys(
@@ -226,9 +220,9 @@ def test_partial_reduction_matches_components_and_preserves_keys(
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
     partial = _source(case, session.catalog.metrics.get("sales.revenue"), by=(customer, channel))
-    assert partial.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400]
+    assert partial.compute().to_pandas()["value"].tolist() == [450, 150, 400]
     direct = _source(case, session.catalog.metrics.get("sales.revenue")).compute()
-    assert direct.to_pandas()[("value", "value")].tolist() == [1000]
+    assert direct.to_pandas()["value"].tolist() == [1000]
     assert len(direct.to_pandas().attrs["frozen_coordinates"]) == 1
     assert direct.axes[0].role == "interval"
 
@@ -246,10 +240,10 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
     )
     assert _dict(grouped, "sum") == {"east": 140, "south": 7}
     assert _dict(grouped, "count") == {"east": 2, "south": 1}
-    merged = grouped[("value", "sum")].sum() / grouped[("value", "count")].sum()
+    merged = grouped["sum"].sum() / grouped["count"].sum()
     assert merged == 49
     assert values.reduce({"mean": values["value"].mean()}).compute().to_pandas()[
-        ("value", "mean")
+        "mean"
     ].tolist() == [49]
 
 
@@ -295,12 +289,12 @@ before = len(terminal_runs(session))
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 axes = [axis for axis in frame.attrs['axes'] if axis['role'] != 'interval']
 assert len(axes) == 1
-coordinate = ('coordinate', axes[0]['token'])
-assert set(frame.columns) == {coordinate, ('value','sum'), ('value','count')}
+coordinate = axes[0]['name']
+assert set(frame.columns) == {coordinate, 'sum', 'count'}
 groups = frame[coordinate].tolist()
-assert dict(zip(groups, frame[('value','sum')], strict=True)) == {'east': 140, 'south': 7}
-assert dict(zip(groups, frame[('value','count')], strict=True)) == {'east': 2, 'south': 1}
-assert frame[('value','sum')].sum() / frame[('value','count')].sum() == 49
+assert dict(zip(groups, frame['sum'], strict=True)) == {'east': 140, 'south': 7}
+assert dict(zip(groups, frame['count'], strict=True)) == {'east': 2, 'south': 1}
+assert frame['sum'].sum() / frame['count'].sum() == 49
 assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
@@ -337,13 +331,13 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         grouped = _source(case, expression, by=(channel, status))
         saved = grouped.persist()
         rows = saved.to_pandas()
-        assert rows.set_index(list(rows.columns[1:3]))[("value", "value")].to_dict() == {
+        assert rows.set_index(["sales.order.channel", "sales.order.status"])["value"].to_dict() == {
             ("mobile", "paid"): 0,
             ("web", "paid"): 1 if kind == "ratio" else 0,
         }
-        assert _source(case, expression).compute().to_pandas()[
-            ("value", "value")
-        ].tolist() == pytest.approx([2 / 3] if kind == "ratio" else [0])
+        assert _source(case, expression).compute().to_pandas()["value"].tolist() == pytest.approx(
+            [2 / 3] if kind == "ratio" else [0]
+        )
         assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
 
 
@@ -351,7 +345,7 @@ def test_required_terminal_data_damage_revokes_reads(retained_coordinates_case: 
     case = retained_coordinates_case
     regions = _region(case)
     statistic = regions.reduce({"count": mv.row_count()}).persist()
-    assert statistic.to_pandas()[("value", "count")].tolist() == [3]
+    assert statistic.to_pandas()["count"].tolist() == [3]
     path = receipt_paths(case.root, statistic)[0]
     original = path.read_bytes()
     for violation in ("missing", "corrupt"):
@@ -366,9 +360,7 @@ def test_required_terminal_data_damage_revokes_reads(retained_coordinates_case: 
                     value.to_pandas()
         finally:
             path.write_bytes(original)
-    assert case.session.persisted_frame(statistic.artifact.id).to_pandas()[
-        ("value", "count")
-    ].tolist() == [3]
+    assert case.session.persisted_frame(statistic.artifact.id).to_pandas()["count"].tolist() == [3]
 
 
 def test_weighted_coordinates_merge_paired_components(
@@ -394,9 +386,9 @@ def test_weighted_coordinates_merge_paired_components(
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
     partial = _source(case, session.catalog.metrics.get("sales.weighted"), by=(channel,))
-    assert partial.compute().to_pandas()[("value", "value")].tolist() == [150, 425]
+    assert partial.compute().to_pandas()["value"].tolist() == [150, 425]
     assert _source(case, session.catalog.metrics.get("sales.weighted")).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == pytest.approx([1000 / 3])
 
 
@@ -422,8 +414,8 @@ def test_combined_member_classifications_do_not_expand_facts(
     )
     frame = grouped.compute().to_pandas()
     assert len(frame) == 4
-    assert frame[("value", "value")].tolist() == [450, 150, 400, 0]
-    assert _observe(case, overall=True).compute().to_pandas()[("value", "value")].tolist() == [1000]
+    assert frame["value"].tolist() == [450, 150, 400, 0]
+    assert _observe(case, overall=True).compute().to_pandas()["value"].tolist() == [1000]
 
 
 def test_numeric_read_grouping_creates_only_row_statistics(
@@ -438,7 +430,7 @@ def test_numeric_read_grouping_creates_only_row_statistics(
     )
     # Field values are explicit output; pandas owns post-export classification.
     frame = raw.compute().to_pandas()
-    stats = frame[("value", "amount")].groupby(frame[("value", "channel")]).mean()
+    stats = frame["amount"].groupby(frame["channel"]).mean()
     assert stats.to_dict() == {"app": 13.5, "web": 60.0}
     assert stats.mean() == 36.75
     assert not hasattr(raw, "rollup")
@@ -464,8 +456,10 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
         .compute()
         .to_pandas()
     )
-    assert grouped[("value", "value")].loc[grouped.iloc[:, 1] == "east"].tolist() == [140]
-    assert grouped[("value", "value")].loc[grouped.iloc[:, 1].isna()].tolist() == [7]
+    assert grouped["value"].loc[grouped[grouped.attrs["axes"][1]["name"]] == "east"].tolist() == [
+        140
+    ]
+    assert grouped["value"].loc[grouped[grouped.attrs["axes"][1]["name"]].isna()].tolist() == [7]
 
 
 def test_duplicate_classification_rejects_source_and_fixed(
@@ -533,7 +527,7 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
         ),
     )
     assert _dict(grouped.compute().to_pandas()) == {1: 120, 2: 27}
-    assert _observe(case, overall=True).compute().to_pandas()[("value", "value")].tolist() == [147]
+    assert _observe(case, overall=True).compute().to_pandas()["value"].tolist() == [147]
 
 
 def test_selected_entities_keep_complete_subject_mapping(
@@ -549,7 +543,7 @@ def test_selected_entities_keep_complete_subject_mapping(
     identities = case.session.frame(_selected_members(case, observed)).compute().to_pandas()
     assert identities.iloc[:, 0].tolist() == ["A", "B"]
     assert _observe(case, overall=True, members=selected).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [600]
 
 
@@ -562,7 +556,7 @@ def test_review_selected_category_retains_classification(
     current = selected.persist()
     assert _dict(current.to_pandas(), "region") == {"A": "east", "B": "east"}
     statistic = selected.reduce({"count": mv.row_count()}).compute()
-    assert statistic.to_pandas()[("value", "count")].tolist() == [2]
+    assert statistic.to_pandas()["count"].tolist() == [2]
     assert case.session.persisted_frame(current.artifact.id).to_pandas().equals(current.to_pandas())
 
 
@@ -588,7 +582,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     assert _dict(result.to_pandas()) == {"A": 0}
     assert _observe(
         case, overall=True, members=_selected_members(case, selected)
-    ).compute().to_pandas()[("value", "value")].tolist() == [0]
+    ).compute().to_pandas()["value"].tolist() == [0]
     assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
 
 
@@ -606,7 +600,7 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     assert _dict(frame, "mean") == {"east": 140, "south": 7}
     assert statistic.axes[0].name == grouped.axes[1].name
     assert session.persisted_frame(statistic.artifact.id).to_pandas().equals(frame)
-    assert _observe(case, overall=True).compute().to_pandas()[("value", "value")].tolist() == [147]
+    assert _observe(case, overall=True).compute().to_pandas()["value"].tolist() == [147]
 
 
 def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(

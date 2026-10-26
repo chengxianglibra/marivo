@@ -116,8 +116,8 @@ def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
         ("left", "fine", ("sum", "count")),
     ]
     assert rows.iloc[:, 0].tolist() == [row[0] for row in oracle]
-    assert rows[("value", "contribution.s")].tolist() == [row[1] for row in oracle]
-    assert rows[("value", "contribution.n")].tolist() == [row[2] for row in oracle]
+    assert rows["contribution.s"].tolist() == [row[1] for row in oracle]
+    assert rows["contribution.n"].tolist() == [row[2] for row in oracle]
 
 
 def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
@@ -166,11 +166,9 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
         ("right", "parent", ("count", "sum")),
         ("right", "fine", ("count", "sum")),
     ]
-    assert rows[("value", "contribution.level")].tolist() == [row[1] for row in oracle]
-    assert rows[("value", "contribution.baseline_level")].tolist() == [row[1] for row in oracle]
+    assert rows["contribution.level"].tolist() == [row[1] for row in oracle]
+    assert rows["contribution.baseline_level"].tolist() == [row[1] for row in oracle]
     for name, index in (("sumchange", 1), ("countchange", 2)):
-        assert rows[("value", f"contribution.{name}")].tolist() == [0] * len(oracle)
+        assert rows[f"contribution.{name}"].tolist() == [0] * len(oracle)
         for side in ("current", "baseline"):
-            assert rows[("value", f"detail.{side}.{name}")].tolist() == [
-                row[index] for row in oracle
-            ]
+            assert rows[f"detail.{side}.{name}"].tolist() == [row[index] for row in oracle]

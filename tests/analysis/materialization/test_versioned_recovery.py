@@ -167,7 +167,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
             for label, relation in relations.items():
                 attribute = relation.persist()
                 assert (
-                    attribute.to_pandas()[("value", "value")].tolist()
+                    attribute.to_pandas()["value"].tolist()
                     == {
                         "numeric": [10, 20, 30],
                         "category": ["a", "a", "b"],
@@ -198,7 +198,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                         (9007199254740993, "a"),
                         (9007199254740993, "b"),
                     ]
-                    assert frame[("value", "value")].tolist() == [10, 20, 30]
+                    assert frame["value"].tolist() == [10, 20, 30]
                     frame[("attribute_anchor", "instant")] = point
                     frames.append(frame)
                     outputs[f"snapshot:grid_read:{index}"] = product
@@ -261,9 +261,9 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
         value = session.persisted_frame(item['artifact'])
         assert snapshot(value) == item['snapshot']
         if name.endswith(':numeric'):
-            assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
+            assert value.to_pandas()['value'].tolist() == [10,20,30]
         if name.startswith('snapshot:grid_read:'):
-            assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
+            assert value.to_pandas()['value'].tolist() == [10,20,30]
     assert len(terminal_runs(session)) == before
 output.write_bytes(encode({'pid':os.getpid(), 'phase':phase}))
 """

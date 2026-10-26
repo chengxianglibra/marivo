@@ -35,7 +35,7 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     artifact = session.observe({"mean": metric}).persist()
     frame = artifact.to_pandas()
     expected = 333 if explicit else 1000
-    assert frame["value", "mean"].tolist() == [expected]
+    assert frame["mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
     reads = [
         dict(item.values)
@@ -63,7 +63,7 @@ def test_source_rollup_finishes_each_sample_ratio_before_mean(
     metric = (amount.sum() / amount.count()).per(customer).mean()
     trace = capture_source(monkeypatch)
     frame = session.observe({"mean": metric}).compute().to_pandas()
-    assert frame["value", "mean"].tolist() == [200.0]
+    assert frame["mean"].tolist() == [200.0]
 
 
 @pytest.mark.parametrize("ratio", [False, True])
@@ -85,7 +85,7 @@ def test_source_spatial_rollup_preserves_lookback_and_endpoint_occurrences(
     metric = (total / amount.count(time=ordered_at) if ratio else total).window(mv.all_history())
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}, by=(calendar,)).compute().to_pandas()
-    assert frame["value", "value"].tolist() == ([1.0, 1.0] if ratio else [1000, 1000])
+    assert frame["value"].tolist() == ([1.0, 1.0] if ratio else [1000, 1000])
 
 
 def test_source_sample_rollup_keeps_fine_formula_failure(
@@ -104,7 +104,7 @@ def test_source_sample_rollup_keeps_fine_formula_failure(
     metric = (amount.count() / amount.sum()).per(customer).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"mean": metric}, by=(channel,)).compute().to_pandas()
-    assert result[("value", "mean")].isna().any()
+    assert result["mean"].isna().any()
 
 
 def test_multi_root_read_evidence_keeps_each_contribution_scope(
@@ -134,7 +134,7 @@ def test_multi_root_read_evidence_keeps_each_contribution_scope(
         assert isinstance(predicate, str)
         filtered.append(bool(json.loads(predicate)))
     assert sorted(filtered) == [False, True]
-    assert artifact.to_pandas()["value", "ratio"].tolist() == [200 / 101]
+    assert artifact.to_pandas()["ratio"].tolist() == [200 / 101]
 
 
 @pytest.mark.parametrize("reducer", ["mean", "median"])
@@ -158,7 +158,7 @@ def test_sample_rollup_uses_original_integer_mean_and_quantile_finish(
     assert native == (4503599627370496.0, 4503599627370495.5)
     trace = capture_source(monkeypatch)
     frame = session.observe({"mean": metric}).compute().to_pandas()
-    assert frame["value", "mean"].tolist() == [native[0 if reducer == "mean" else 1]]
+    assert frame["mean"].tolist() == [native[0 if reducer == "mean" else 1]]
     fixed = session.values(
         by=(channel,),
         columns={"amount": None},
@@ -168,7 +168,7 @@ def test_sample_rollup_uses_original_integer_mean_and_quantile_finish(
     midpoint = float(Fraction(-1 + (2**53 + 1), 2))
     assert midpoint == 4503599627370496.0
     reduced = fixed.reduce({"finish": fixed["amount"].mean()}).compute().to_pandas()
-    assert reduced[("value", "finish")].tolist() == [midpoint]
+    assert reduced["finish"].tolist() == [midpoint]
 
 
 def test_collated_original_keeps_its_existing_fine_grouping_boundary(
@@ -197,4 +197,4 @@ def test_collated_original_keeps_its_existing_fine_grouping_boundary(
         .compute()
         .to_pandas()
     )
-    assert result["value", "total"].tolist() == [0]
+    assert result["total"].tolist() == [0]

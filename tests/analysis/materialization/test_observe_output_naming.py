@@ -44,10 +44,10 @@ def test_observe_named_metric_forms_preserve_names_order_and_formula_values(
 
     result = multiple.compute().to_pandas()
     pd.testing.assert_frame_equal(result, explicit.compute().to_pandas())
-    assert result[("value", "line_revenue")].tolist() == [160]
-    assert result[("value", "order_count")].tolist() == [4]
-    assert result[("value", "aov_from_lines")].tolist() == [40.0]
-    assert single.compute().to_pandas()[("value", "aov_from_lines")].tolist() == [40.0]
+    assert result["line_revenue"].tolist() == [160]
+    assert result["order_count"].tolist() == [4]
+    assert result["aov_from_lines"].tolist() == [40.0]
+    assert single.compute().to_pandas()["aov_from_lines"].tolist() == [40.0]
 
 
 def test_observe_duplicate_names_reject_with_positions_and_explicit_repair(
@@ -78,8 +78,8 @@ def test_observe_duplicate_names_reject_with_positions_and_explicit_repair(
     repaired = session.observe({"sales_revenue": sales, "finance_revenue": other})
     assert repaired.output_names == ("sales_revenue", "finance_revenue")
     repeated = session.observe({"first": sales, "second": sales}).compute().to_pandas()
-    assert repeated[("value", "first")].tolist() == [1176]
-    assert repeated[("value", "second")].tolist() == [1176]
+    assert repeated["first"].tolist() == [1176]
+    assert repeated["second"].tolist() == [1176]
 
 
 def test_observe_unnamed_recipes_require_mapping_even_with_one_metric_dependency(
@@ -185,7 +185,7 @@ def test_observe_naming_consumes_once_in_the_sessions_frozen_scope(
     frame = session.observe(changed)
     assert consumed == [frozen]
     assert frame.output_names == ("revenue",)
-    assert frame.compute().to_pandas()[("value", "revenue")].tolist() == [1176]
+    assert frame.compute().to_pandas()["revenue"].tolist() == [1176]
     assert consumed == [frozen]
 
 

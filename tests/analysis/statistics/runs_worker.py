@@ -25,23 +25,8 @@ def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive qualifying cells using the exported actual calendar bounds."""
     axes = frame.attrs["axes"]
     calendar = next(axis for axis in axes if axis["role"] == "calendar")
-    descriptor = calendar["descriptor"]
-    directory = next(
-        part["rows"]
-        for part in frame.attrs["frozen_coordinates"]
-        if part["name"] == descriptor["frozen"]["directory_name"]
-    )
-    key_name = descriptor["columns"][0]["slot_id"]
-    bounds = {row[key_name]: row for row in directory.to_dict(orient="records")}
-    calendar_column = ("coordinate", calendar["token"])
-    coordinate_columns: list[tuple[str, str]] = []
-    for column in frame.columns.tolist():
-        assert isinstance(column, tuple) and len(column) == 2
-        kind, name = column
-        assert isinstance(kind, str) and isinstance(name, str)
-        if kind == "coordinate":
-            coordinate_columns.append((kind, name))
-    group_columns = [column for column in coordinate_columns if column != calendar_column]
+    calendar_column = calendar["name"]
+    group_columns = [axis["name"] for axis in axes if axis["role"] in ("identity", "field")]
     partitions = (
         frame.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), frame),)
     )
@@ -49,8 +34,11 @@ def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     for group, values in partitions:
         active: dict[str, object] | None = None
         for _, row in values.sort_values(calendar_column).iterrows():
-            bound = bounds[row[calendar_column]]
-            value = row[("value", "value")]
+            bound = {
+                "actual_start": row[calendar_column + ".actual_start"],
+                "actual_end": row[calendar_column + ".actual_end"],
+            }
+            value = row["value"]
             qualifies = not pd.isna(value) and value > threshold
             if qualifies:
                 if active is None or active["end"] != bound["actual_start"]:
@@ -159,7 +147,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
         result = session.observe(
             {"value": catalog.metrics.get("sales.maximum")}, by=(scope.by(grain),)
         ).persist()
-        assert result.to_pandas()[("value", "value")].tolist() == [1, 2, 7]
+        assert result.to_pandas()["value"].tolist() == [1, 2, 7]
         manifest_path.write_text(
             json.dumps({"session": session.id, "artifact": result.artifact.id})
         )

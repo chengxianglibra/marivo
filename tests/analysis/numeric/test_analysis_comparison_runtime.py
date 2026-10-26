@@ -478,9 +478,9 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         left.align(right, on=((left.axes[0], left.axes[0]),))
     if calendar:
         assert result.time_0.nunique() == 3
-        assert ratio.reduce({"count": mv.row_count()}).compute().to_pandas()[
-            ("value", "count")
-        ].tolist() == [12]
+        assert ratio.reduce({"count": mv.row_count()}).compute().to_pandas()["count"].tolist() == [
+            12
+        ]
 
 
 @pytest.mark.release
@@ -732,7 +732,7 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
         member: float(Fraction(Decimal("0.000001") if member == "A" else Decimal("0.000003")) / 2)
         for member in "ABCD"
     }
-    assert pa.array(result.to_pandas()[("value", "value")]).type == pa.float64()
+    assert pa.array(result.to_pandas()["value"]).type == pa.float64()
     pd.testing.assert_frame_equal(
         result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
     )

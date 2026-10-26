@@ -221,8 +221,8 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
     assert isinstance(population, mv.Population)
     result = session.frame(population).persist()
     frame = result.to_pandas()
-    assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
-    assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
+    assert frame["calendar:day"].tolist() == ["2026-08-01"] * 4 + ["2026-08-02"] * 4
+    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["A", "B", "C", "D"] * 2
     directory = frame.attrs["frozen_coordinates"][0]["rows"]
     assert directory["nominal_start"].tolist() == [
         datetime(2026, 8, 1, tzinfo=timezone.utc),
@@ -245,16 +245,16 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     query = session.observe({"value": metric}, by=population)
     saved = query.persist()
     frame = saved.to_pandas()
-    assert frame[("value", "value")].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
-    assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
-    assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
+    assert frame["value"].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
+    assert frame["calendar:month"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
+    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["A", "B", "C", "D"] * 2
     original = session.observe({"value": metric}, by=(calendar.scope,)).compute()
-    assert original.to_pandas()[("value", "value")].tolist() == [1099]
+    assert original.to_pandas()["value"].tolist() == [1099]
     assert saved.reduce({"value": saved["value"].sum()}).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [1099]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assert saved.to_pandas()[("value", "value")].sum() == 1099
+    assert saved.to_pandas()["value"].sum() == 1099
     pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact.id).to_pandas(), frame)
 
 
@@ -265,7 +265,7 @@ def test_public_grid_observation_and_retained_axis(
     query = _observation(case, start="2026-08-01", end="2026-11-01", grain="month")
     calendar = query.axes[0]
     totals = query.reduce({"value": query["value"].sum()}, by=(calendar,)).compute().to_pandas()
-    assert totals[("value", "value")].tolist() == [1000, 99, 0]
+    assert totals["value"].tolist() == [1000, 99, 0]
     assert totals.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
 
 
@@ -278,9 +278,9 @@ def test_coarser_calendar_requires_explicit_source_observation(
     coarse = case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")}, by=(month,)
     )
-    assert coarse.compute().to_pandas()[("value", "value")].tolist() == [1000]
+    assert coarse.compute().to_pandas()["value"].tolist() == [1000]
     assert daily.reduce({"value": daily["value"].sum()}).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [1000]
 
 
@@ -299,7 +299,7 @@ def test_identity_observation_has_no_inferred_relationship(
         by=population,
     )
     assert observed.reduce({"value": observed["value"].sum()}).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [1000]
 
 
@@ -322,7 +322,7 @@ session = mv.session.get_or_create('temporal-grid-recovery', timezone='UTC')
 calendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))
 metric = session.catalog.metrics.get('sales.revenue').window(mv.all_history())
 result = session.observe({'value':metric}, by=(calendar,)).persist()
-assert result.to_pandas()[('value','value')].tolist() == [1077,1176,1176]
+assert result.to_pandas()['value'].tolist() == [1077,1176,1176]
 print(json.dumps({'session':session.id,'artifact':result.artifact.id}))
 """
     completed = subprocess.run(
@@ -352,10 +352,10 @@ ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
 result = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
 frame = result.to_pandas()
-assert frame[('value','value')].tolist() == [1077,1176,1176]
+assert frame['value'].tolist() == [1077,1176,1176]
 assert frame.attrs['axes'][0]['descriptor']['timezone'] == 'UTC'
 assert len(frame.attrs['frozen_coordinates'][0]['rows']) == 3
-print(json.dumps({'value':[str(value) for value in frame[('value','value')].tolist()]}))
+print(json.dumps({'value':[str(value) for value in frame['value'].tolist()]}))
 """
     recovered = subprocess.run(
         [sys.executable, "-c", reader, produced["session"], produced["artifact"]],
@@ -411,22 +411,19 @@ def test_cumulative_anchors_ignore_display_start(analysis_dsl_case_factory: DslC
     for rule, expected in rules:
         metric = session.catalog.metrics.get("sales.revenue").window(rule)
         result = session.observe({"value": metric}, by=(calendar,)).persist()
-        assert result.to_pandas()[("value", "value")].tolist() == expected
+        assert result.to_pandas()["value"].tolist() == expected
         # This current-row sum consumes both completed endpoints; it never reopens history.
         assert result.reduce({"value": result["value"].sum()}).compute().to_pandas()[
-            ("value", "value")
+            "value"
         ].tolist() == [sum(expected)]
         scalar = session.observe(
             {"value": metric}, by=(session.time_scope(start="2026-09-30", end="2026-10-01"),)
         )
-        assert scalar.compute().to_pandas()[("value", "value")].tolist() == [expected[-1]]
+        assert scalar.compute().to_pandas()["value"].tolist() == [expected[-1]]
         saved.append((result, expected))
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     for result, expected in saved:
-        assert (
-            session.persisted_frame(result.artifact.id).to_pandas()[("value", "value")].tolist()
-            == expected
-        )
+        assert session.persisted_frame(result.artifact.id).to_pandas()["value"].tolist() == expected
 
 
 def _seed_two_sample_amounts(case: DslCase, *, overflow: bool = False) -> None:
@@ -480,10 +477,10 @@ def test_fold_reaggregates_aligned_samples_before_time(
     assert isinstance(population, mv.Population)
     observed = session.observe(metrics, by=population).compute().to_pandas()
     for kind, values in expected.items():
-        assert observed[("value", kind)].tolist() == values
+        assert observed[kind].tolist() == values
     overall = session.observe(metrics, by=(calendar.scope,)).compute().to_pandas()
     for kind in expected:
-        assert overall[("value", kind)].tolist() == [10]
+        assert overall[kind].tolist() == [10]
     region = session.catalog.fields.get("sales.customer.region")
     regional_population = mv.product(calendar.scope, members.classify(by=(region,)))
     assert isinstance(regional_population, mv.Population)
@@ -492,8 +489,8 @@ def test_fold_reaggregates_aligned_samples_before_time(
         by=regional_population,
     )
     frame = regional.compute().to_pandas()
-    assert frame.iloc[:, 1].tolist() == ["east"]
-    assert frame[("value", "value")].tolist() == [10]
+    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["east"]
+    assert frame["value"].tolist() == [10]
 
 
 def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
@@ -518,7 +515,7 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
         {"value": metric},
         by=population,
     )
-    assert query.compute().to_pandas()[("value", "value")].tolist() == [1e308, 1e308]
+    assert query.compute().to_pandas()["value"].tolist() == [1e308, 1e308]
     with pytest.raises(AnalysisError) as failure:
         session.observe({"value": metric}, by=(calendar.scope,)).compute()
     from marivo.semantic.errors import SemanticExpressionError
@@ -556,7 +553,7 @@ def test_source_wall_clock_gap_and_fold_follow_native_interpretation(
         case, start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
     )
     result = query.compute().to_pandas()
-    assert result[("value", "value")].sum() == 10
+    assert result["value"].sum() == 10
 
 
 def test_cumulative_ratio_binds_every_component_to_the_endpoint(
@@ -577,7 +574,7 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
         by=population,
     )
     result = session.observe({"value": ratio.window(mv.all_history())}, by=(calendar,)).persist()
-    assert result.to_pandas()[("value", "value")].tolist() == [269.25, 235.2]
+    assert result.to_pandas()["value"].tolist() == [269.25, 235.2]
     pd.testing.assert_frame_equal(
         session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
     )
@@ -639,8 +636,7 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     trace = capture_source(monkeypatch)
     result = _observation(case, start="2026-08-01", end="2026-09-01").compute().to_pandas()
     assert (
-        list(zip(result[("coordinate", "axis.1")], result[("value", "value")], strict=True))
-        == expected
+        list(zip(result[result.attrs["axes"][1]["name"]], result["value"], strict=True)) == expected
     )
     assert calls and set(calls) == {"UTC"}
     # Native disagreement must not trigger a standalone timezone-rule audit.
@@ -685,7 +681,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
         .compute()
         .to_pandas()
     )
-    assert frame[("value", "value")].tolist() == [10, 20]
+    assert frame["value"].tolist() == [10, 20]
     assert frame.attrs["axes"][0]["descriptor"]["timezone"] == "America/New_York"
 
 
@@ -721,7 +717,7 @@ def test_empty_fold_keeps_typed_terminal_output(
         .compute()
         .to_pandas()
     )
-    assert total[("value", "value")].tolist() == [0]
+    assert total["value"].tolist() == [0]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     pd.testing.assert_frame_equal(
         session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
@@ -755,8 +751,8 @@ def test_selected_groups_keep_sample_selection_before_execution(
     result = query.persist()
     frame = result.to_pandas()
     assert tuple(axis.role for axis in result.axes) == ("field",)
-    assert frame[("coordinate", result.axes[0].token)].tolist() == ["east"]
-    assert frame[("value", "value")].tolist() == [450]
+    assert frame[result.axes[0].name].tolist() == ["east"]
+    assert frame["value"].tolist() == [450]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     pd.testing.assert_frame_equal(session.persisted_frame(result.artifact.id).to_pandas(), frame)
 
@@ -788,12 +784,12 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     observed = result.compute()
     assert observed.output_names == ("revenue",)
     assert observed.axes == ()
-    assert observed.to_pandas()[("value", "revenue")].tolist() == [1176]
-    assert direct[("value", "amount")].tolist() == [1000]
-    assert direct[("value", "count")].tolist() == [3]
-    assert direct[("value", "average")].tolist() == pytest.approx([1000 / 3])
+    assert observed.to_pandas()["revenue"].tolist() == [1176]
+    assert direct["amount"].tolist() == [1000]
+    assert direct["count"].tolist() == [3]
+    assert direct["average"].tolist() == pytest.approx([1000 / 3])
     grouped = detail.compute().to_pandas()
-    assert grouped[("value", "average")].mean() == 350
+    assert grouped["average"].mean() == 350
 
 
 @pytest.mark.slow
@@ -839,8 +835,8 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     )
     left = current.top(2, by=current["value"]).compute()
     right = baseline.top(2, by=baseline["value"]).compute()
-    assert left.to_pandas().iloc[:, 1].tolist() == ["c", "a"]
-    assert right.to_pandas().iloc[:, 1].tolist() == ["b", "c"]
+    assert left.to_pandas()[left.axes[1].name].tolist() == ["c", "a"]
+    assert right.to_pandas()[right.axes[1].name].tolist() == ["b", "c"]
     outer = left.compare(
         {"reference": right},
         on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
@@ -849,14 +845,14 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     top = outer.top(2, by=outer["value"]).compute()
     assert terminal_runs(session) == ()
     outer_rows, top_rows = outer.to_pandas(), top.to_pandas()
-    assert outer_rows.iloc[:, 1].tolist() == ["c", "a", "b"]
-    assert top_rows.iloc[:, 1].tolist() == ["c", "a"]
-    assert outer_rows[("presence", "current.present")].tolist() == [True, True, False]
-    assert outer_rows[("presence", "reference.present")].tolist() == [True, False, True]
-    assert outer_rows[("value", "value")].isna().tolist() == [False, False, True]
-    assert outer_rows[("value", "reference.baseline.value")].isna().tolist() == [False, True, False]
-    assert outer_rows[("value", "reference.absolute.value")].iloc[0] == 20
-    assert outer_rows[("value", "reference.absolute.value")].isna().tolist() == [False, True, True]
+    assert outer_rows[outer_rows.attrs["axes"][1]["name"]].tolist() == ["c", "a", "b"]
+    assert top_rows[top_rows.attrs["axes"][1]["name"]].tolist() == ["c", "a"]
+    assert outer_rows["current.present"].tolist() == [True, True, False]
+    assert outer_rows["reference.present"].tolist() == [True, False, True]
+    assert outer_rows["value"].isna().tolist() == [False, False, True]
+    assert outer_rows["reference.baseline.value"].isna().tolist() == [False, True, False]
+    assert outer_rows["reference.absolute.value"].iloc[0] == 20
+    assert outer_rows["reference.absolute.value"].isna().tolist() == [False, True, True]
     assert outer_rows.attrs["units"] == (
         ("value", "CNY"),
         ("reference.baseline.value", "CNY"),
@@ -940,12 +936,12 @@ with ExitStack() as guards:
         filtered=outer.where(outer['current.present']).compute()
         rows=filtered.to_pandas()
         assert rows.iloc[:,1].tolist()==['c','a']
-        assert rows[('presence','reference.present')].tolist()==[True,False]
-        assert rows[('value','reference.absolute.value')].iloc[0]==20
-        assert rows[('value','reference.absolute.value')].isna().tolist()==[False,True]
+        assert rows['reference.present'].tolist()==[True,False]
+        assert rows['reference.absolute.value'].iloc[0]==20
+        assert rows['reference.absolute.value'].isna().tolist()==[False,True]
         reduced=filtered.reduce({'total':filtered['reference.absolute.value'].sum()},by=(filtered.axes[0],)).compute()
         totals=reduced.to_pandas()
-        assert totals[('value','total')].tolist()==[30-10]
+        assert totals['total'].tolist()==[30-10]
         assert reduced.presence_names==()
         assert totals.attrs['units']==(('total','CNY'),)
         assert len(totals.attrs['frozen_coordinates'])==1
@@ -970,7 +966,7 @@ with ExitStack() as guards:
             if name=='filtered':
                 assert rows.iloc[:,1].tolist()==['c','a']
             else:
-                assert rows[('value','total')].tolist()==[20]
+                assert rows['total'].tolist()==[20]
         assert run_ids(session)==before
     print(encode(checked({'pid':os.getpid(),'runs':sorted(run_ids(session))})).decode())
 """
@@ -1037,21 +1033,21 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         actual = combined.to_pandas()
         for field in ("baseline.value", "absolute.value", "relative.value"):
             pd.testing.assert_series_equal(
-                actual[("value", f"inferred.{field}")],
-                actual[("value", f"explicit.{field}")],
+                actual[f"inferred.{field}"],
+                actual[f"explicit.{field}"],
                 check_names=False,
             )
         pd.testing.assert_series_equal(
-            actual[("presence", "inferred.present")],
-            actual[("presence", "explicit.present")],
+            actual["inferred.present"],
+            actual["explicit.present"],
             check_names=False,
         )
-        assert actual[("value", "value")].tolist() == [1000]
-        assert actual[("value", "inferred.baseline.value")].tolist() == [expected_right]
-        assert actual[("value", "inferred.absolute.value")].tolist() == [1000 - expected_right]
-        assert actual[("presence", "current.present")].tolist() == [True]
-        assert actual[("presence", "inferred.present")].tolist() == [True]
-        assert actual[("presence", "explicit.present")].tolist() == [True]
+        assert actual["value"].tolist() == [1000]
+        assert actual["inferred.baseline.value"].tolist() == [expected_right]
+        assert actual["inferred.absolute.value"].tolist() == [1000 - expected_right]
+        assert actual["current.present"].tolist() == [True]
+        assert actual["inferred.present"].tolist() == [True]
+        assert actual["explicit.present"].tolist() == [True]
         assert len(actual.attrs["frozen_coordinates"]) == 5
         assert actual.attrs["axes"][0]["role"] == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
@@ -1105,9 +1101,9 @@ with ExitStack() as guards:
     rule=mv.offset(years=-1) if state['rule']=='years' else mv.offset(periods=-1) if state['rule']=='periods' else mv.ordinal()
     output=left.compare({'reference': right},match={'reference': rule}).compute()
     rows=output.to_pandas()
-    assert rows[('value','value')].tolist()==[1000]
-    assert rows[('value','reference.baseline.value')].tolist()==[state['right_value']]
-    assert rows[('value','reference.absolute.value')].tolist()==[1000-state['right_value']]
+    assert rows['value'].tolist()==[1000]
+    assert rows['reference.baseline.value'].tolist()==[state['right_value']]
+    assert rows['reference.absolute.value'].tolist()==[1000-state['right_value']]
     assert len(rows.attrs['frozen_coordinates'])==3
     assert run_ids(session)==before
     print(os.getpid())

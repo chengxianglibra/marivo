@@ -281,8 +281,11 @@ def test_members_consumes_resolved_entity_without_original_version_gate(
     assert isinstance(population._definition, PopulationProgram)
     assert isinstance(population._definition.root, SourceIdentities)
     assert population._definition.root.entity == entity_exact(older)
-    assert case.session.frame(population).compute().to_pandas()[
-        ("coordinate", "axis.0")
-    ].tolist() == ["A", "B", "C", "D"]
+    assert case.session.frame(population).compute().to_pandas()["sales.customer"].tolist() == [
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
     with pytest.raises(mv.errors.AnalysisError, match="complete primary key"):
         case.session.members(replace(entity, primary_key=("wrong",)))

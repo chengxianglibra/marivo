@@ -115,7 +115,7 @@ def test_public_sql_owner_audit(
             if backend == "duckdb":
                 facts = session.catalog.entities.get("sales.facts")
                 result = session.observe({"rows": facts.count()}).compute()
-                assert result.to_pandas()[("value", "rows")].tolist() == [len(ROWS)]
+                assert result.to_pandas()["rows"].tolist() == [len(ROWS)]
             else:
                 # Remote Query qualification belongs to later acceptance; retain
                 # the SQL-owner witness through its governed datasource owner.

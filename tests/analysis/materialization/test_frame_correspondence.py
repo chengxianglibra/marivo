@@ -115,7 +115,7 @@ def test_self_compare_reads_shared_input_and_records_binary_operation(
     ).compute()
     assert len(_memory_backing(output).metadata.audit.evaluation.inputs) == 1
     assert _memory_backing(output).metadata.audit.evaluation.operations == ("compare",)
-    assert output.to_pandas()[("value", "reference.absolute.amount")].tolist() == [0, 0]
+    assert output.to_pandas()["reference.absolute.amount"].tolist() == [0, 0]
 
 
 def test_fixed_comparison_policies_reject_retired_arguments(local: LocalFrameServices) -> None:
@@ -146,7 +146,7 @@ def _data_frame(
 
 
 def _values(frame: AnalysisFrame, name: str) -> list[object]:
-    return frame.to_pandas()[("value", name)].tolist()
+    return frame.to_pandas()[name].tolist()
 
 
 def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameServices) -> None:
@@ -310,8 +310,8 @@ def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFram
         "second.presence.reference.present",
     )
     table = nested.to_pandas()
-    assert table[("presence", "second.presence.current.present")].tolist() == [True, True, False]
-    assert table[("presence", "second.presence.reference.present")].tolist() == [True, False, False]
+    assert table["second.presence.current.present"].tolist() == [True, True, False]
+    assert table["second.presence.reference.present"].tolist() == [True, False, False]
     selected = nested.select({"copied": nested["amount"]}).compute()
     assert selected.output_names == ("copied",) and selected.presence_names == nested.presence_names
     assert len(selected._schema.values) == 1
@@ -353,7 +353,7 @@ def test_na_precedes_zero_error(local: LocalFrameServices) -> None:
     ).compute()
     assert _values(output, "reference.absolute.amount") == [pd.NA] * 3
     assert _values(output, "reference.relative.amount") == [pd.NA] * 3
-    assert output.to_pandas()[("presence", "reference.present")].tolist() == [True] * 3
+    assert output.to_pandas()["reference.present"].tolist() == [True] * 3
 
 
 @pytest.mark.parametrize(
@@ -565,7 +565,7 @@ def test_nullable_field_union_and_null_is_not_a_string_sentinel(local: LocalFram
     result = left.align(right, on=((left.axes[0], right.axes[0]),)).compute()
     assert result._schema.axes[0].columns[0].nullable is True
     assert _memory_backing(result).data.copy_rows()["key"].tolist() == ["null", pd.NA]
-    assert result.to_pandas()[("presence", "left_present")].tolist() == [True, False]
+    assert result.to_pandas()["left_present"].tolist() == [True, False]
 
 
 @pytest.mark.parametrize("invalid", ["duration_overflow", "decimal_overflow", "duration_unit"])
@@ -637,8 +637,8 @@ def test_different_name_align_and_explicit_attainment(local: LocalFrameServices)
         {"attainment": aligned["left.actual"] / aligned["right.budget"]}
     ).compute()
     table = ratio.to_pandas()
-    assert table[("value", "attainment")].tolist() == [4.0, 3.0]
-    assert table[("coordinate", "axis.0")].tolist() == ["B", "A"]
+    assert table["attainment"].tolist() == [4.0, 3.0]
+    assert table[table.attrs["axes"][0]["name"]].tolist() == ["B", "A"]
 
 
 def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> None:
@@ -830,7 +830,7 @@ def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) ->
     assert left.axes[0].role == "interval"
     same = left.compare({"reference": equal}).compute()
     assert _values(same, "reference.absolute.amount") == [pd.NA]
-    assert same.to_pandas()[("presence", "reference.present")].tolist() == [True]
+    assert same.to_pandas()["reference.present"].tolist() == [True]
     assert len(left.align(other).compute().to_pandas()) == 2
     with pytest.raises(AnalysisError, match="actual baseline time row"):
         left.compare({"reference": other}).compute()
@@ -889,7 +889,7 @@ def test_named_baselines_share_current_values_and_preserve_ordered_union(
     assert _values(combined, "mom.relative.amount") == [1.0, pd.NA, pd.NA, pd.NA, pd.NA]
     assert combined.presence_names == ("current.present", "yoy.present", "mom.present")
     table = combined.to_pandas()
-    assert table[("presence", "mom.present")].tolist() == [True, False, False, False, True]
+    assert table["mom.present"].tolist() == [True, False, False, False, True]
     independent = current.compare({"yoy": yoy}, on={"yoy": on["yoy"]}).compute()
     assert _values(combined, "yoy.relative.amount")[:4] == _values(
         independent, "yoy.relative.amount"
@@ -1032,19 +1032,19 @@ def test_bare_compare_preserves_outer_values_presence_and_reference_order(
     assert tuple(terminal_runs(local)) == before
     result = pending.compute()
     table = result.to_pandas()
-    assert table[("coordinate", "axis.0")].tolist() == ["A", "B", "C", "E", "D"]
-    assert table[("value", "amount")].tolist() == [12, pd.NA, 3, 8, pd.NA]
-    assert table[("value", "reference.baseline.amount")].tolist() == [-4, 2, 0, pd.NA, 7]
-    assert table[("value", "reference.absolute.amount")].tolist() == [16, pd.NA, 3, pd.NA, pd.NA]
-    assert table[("value", "reference.relative.amount")].tolist() == [
+    assert table["region"].tolist() == ["A", "B", "C", "E", "D"]
+    assert table["amount"].tolist() == [12, pd.NA, 3, 8, pd.NA]
+    assert table["reference.baseline.amount"].tolist() == [-4, 2, 0, pd.NA, 7]
+    assert table["reference.absolute.amount"].tolist() == [16, pd.NA, 3, pd.NA, pd.NA]
+    assert table["reference.relative.amount"].tolist() == [
         4.0,
         pd.NA,
         pd.NA,
         pd.NA,
         pd.NA,
     ]
-    assert table[("presence", "current.present")].tolist() == [True, True, True, True, False]
-    assert table[("presence", "reference.present")].tolist() == [True, True, True, False, True]
+    assert table["current.present"].tolist() == [True, True, True, True, False]
+    assert table["reference.present"].tolist() == [True, True, True, False, True]
     explicit = current.compare({"reference": baseline}, on={"reference": on}).compute()
     assert result._schema == explicit._schema
     pd.testing.assert_frame_equal(table, explicit.to_pandas())
@@ -1066,8 +1066,8 @@ def test_bare_compare_scalar_and_explicit_time_matching(local: LocalFrameService
     timed = left.compare(right, match=ordinal()).compute()
     assert timed._schema.axes == left._schema.axes
     timed_table = timed.to_pandas()
-    assert timed_table[("value", "reference.absolute.amount")].tolist() == [6]
-    assert timed_table[("value", "reference.relative.amount")].tolist() == [3.0]
+    assert timed_table["reference.absolute.amount"].tolist() == [6]
+    assert timed_table["reference.relative.amount"].tolist() == [3.0]
     explicit = left.compare({"reference": right}, match={"reference": ordinal()}).compute()
     pd.testing.assert_frame_equal(timed_table, explicit.to_pandas())
 

@@ -66,7 +66,7 @@ def test_native_rollup_returns_one_original_result(
         )
         expected = connection.execute(f"SELECT {aggregate} FROM orders").fetchone()
     assert expected is not None
-    assert result["value", "metric"].tolist() == pytest.approx([expected[0]])
+    assert result["metric"].tolist() == pytest.approx([expected[0]])
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
     assert not any("__original_value" in columns for columns in trace.returned_columns)
@@ -93,7 +93,7 @@ def test_native_rollup_keeps_selected_parent_fibers(
             "SELECT avg(amount) FROM orders WHERE bucket=(SELECT bucket FROM orders GROUP BY bucket HAVING avg(amount)>=3 ORDER BY avg(amount) DESC,bucket LIMIT 1)"
         ).fetchone()
     assert expected is not None
-    assert result["value", "metric"].tolist() == pytest.approx([expected[0]])
+    assert result["metric"].tolist() == pytest.approx([expected[0]])
     assert trace.returned_rows
 
 
@@ -111,7 +111,7 @@ def test_native_weighted_mean_and_ratio_recompute_source_formula(
         with monkeypatch.context() as scoped:
             trace = capture_source(scoped)
             result = session.observe({"metric": metric}).compute().to_pandas()
-            assert result["value", "metric"].tolist() == pytest.approx([expected])
+            assert result["metric"].tolist() == pytest.approx([expected])
             assert trace.returned_rows == [1]
             assert trace.uploaded_key_rows == []
 
@@ -135,7 +135,7 @@ def test_native_top_drill_returns_only_selected_group_values(
         .to_pandas()
     )
     assert len(result) == 1
-    assert result["value", "metric"].tolist() == pytest.approx([3.04])
+    assert result["metric"].tolist() == pytest.approx([3.04])
     assert trace.returned_rows
 
 
@@ -163,7 +163,7 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
     fine = session.observe({"metric": metric}, by=(bucket,))
     trace = capture_source(monkeypatch)
     if failure == "overflow":
-        assert fine.compute().to_pandas()["value", "metric"].max() == 2**63
+        assert fine.compute().to_pandas()["metric"].max() == 2**63
         assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
     elif failure == "null":
         with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
@@ -174,7 +174,7 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
         key = rows.columns[0]
         rows = rows.sort_values(key)
         assert rows[key].tolist() == [key for key, _ in expected]
-        assert rows["value", "metric"].tolist() == pytest.approx([value for _, value in expected])
+        assert rows["metric"].tolist() == pytest.approx([value for _, value in expected])
         assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
     else:
         with pytest.raises(AnalysisError):
@@ -223,7 +223,7 @@ def test_float_original_reduction_uses_qualified_native_precision(
     )
     trace = capture_source(monkeypatch)
     result = session.observe({"metric": metric}).compute().to_pandas()
-    assert result["value", "metric"].tolist() == [0.0]
+    assert result["metric"].tolist() == [0.0]
     assert trace.returned_rows == [1]
 
 
@@ -265,7 +265,7 @@ def test_fractional_original_values_are_not_integer_truncated(
     )
     trace = capture_source(monkeypatch)
     result = session.observe({"metric": metric}).compute().to_pandas()
-    assert result["value", "metric"].tolist() == [expected]
+    assert result["metric"].tolist() == [expected]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
 
@@ -287,9 +287,7 @@ def test_fractional_weighted_target_masks_cancelled_weight_sum(
     bucket = session.catalog.fields.get("sales.orders.bucket")
     metric = amount.weighted_mean(weight=weight)
     trace = capture_source(monkeypatch)
-    assert (
-        session.observe({"metric": metric}).compute().to_pandas()[("value", "metric")].isna().all()
-    )
+    assert session.observe({"metric": metric}).compute().to_pandas()["metric"].isna().all()
     assert trace.returned_rows == [1]
 
 
@@ -312,7 +310,7 @@ def test_compact_integer_mean_keeps_exact_large_numerator_division(
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
         native = connection.execute("SELECT avg(amount) FROM orders").fetchone()
     assert native is not None
-    assert result["value", "metric"].tolist() == [native[0]]
+    assert result["metric"].tolist() == [native[0]]
     assert native[0] == 3002399751580330.5
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
@@ -352,12 +350,12 @@ def test_source_share_finishes_exact_integer_division_on_host(
             "SELECT sum(amount) FILTER (WHERE bucket=0) / sum(amount) FROM orders"
         ).fetchone()
     assert native is not None
-    assert result["value", "ratio"].tolist() == [native[0]]
+    assert result["ratio"].tolist() == [native[0]]
     exact = session.values(
         by=(), columns={"n": None, "d": None}, rows=(((), {"n": 2**53 + 1, "d": 3}),)
     )
     divided = exact.select({"ratio": exact["n"] / exact["d"]}).compute()
-    assert divided.to_pandas()[("value", "ratio")].tolist() == [(2**53 + 1) / 3]
+    assert divided.to_pandas()["ratio"].tolist() == [(2**53 + 1) / 3]
 
 
 def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
@@ -399,7 +397,7 @@ def test_compact_original_prefix_keeps_outer_local_consumer(
         expected = 29994 / 10000
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "metric"].tolist() == [expected]
+    assert result["metric"].tolist() == [expected]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
 
@@ -419,7 +417,7 @@ def test_source_original_keeps_widened_fused_intermediates(
     fine = session.observe({"metric": amount.sum()}, by=(bucket,))
     trace = capture_source(monkeypatch)
     before = publication_counts(session)
-    assert fine.compute().to_pandas()["value", "metric"].tolist() == [2**63, -(2**63)]
+    assert fine.compute().to_pandas()["metric"].tolist() == [2**63, -(2**63)]
     assert publication_counts(session) == before
 
 
@@ -433,7 +431,7 @@ def test_compact_drill_prefix_leaves_top_on_finished_values(
     detail = session.observe({"metric": amount.mean()}, by=(bucket, channel))
     trace = capture_source(monkeypatch)
     result = detail.top(1, by=detail["metric"]).compute().to_pandas()
-    assert result["value", "metric"].tolist() == [3.04]
+    assert result["metric"].tolist() == [3.04]
     assert trace.returned_rows == [100]
     assert trace.uploaded_key_rows == []
 
@@ -448,7 +446,7 @@ def test_compact_original_prefix_keeps_compare_completion_local(
     baseline = session.values(by=(), columns={"metric": None}, rows=(((), {"metric": 1}),))
     trace = capture_source(monkeypatch)
     result = coarse.compare({"reference": baseline}).compute().to_pandas()
-    assert result["value", "reference.absolute.metric"].tolist() == [29994 / 10000 - 1]
+    assert result["reference.absolute.metric"].tolist() == [29994 / 10000 - 1]
     assert trace.returned_rows == [1]
 
 
@@ -467,6 +465,4 @@ def test_nested_float_formula_checks_its_native_denominator(
     metric = amount.count() / denominator
     trace = capture_source(monkeypatch)
 
-    assert (
-        session.observe({"metric": metric}).compute().to_pandas()[("value", "metric")].isna().all()
-    )
+    assert session.observe({"metric": metric}).compute().to_pandas()["metric"].isna().all()

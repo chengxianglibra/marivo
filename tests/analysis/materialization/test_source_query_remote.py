@@ -87,12 +87,12 @@ def test_remote_terminal_string_relations(
             1 if operation in ("where", "row_count") else 2 if operation == "top" else 4
         )
         if operation == "row_count":
-            assert result["value", "n"].tolist() == [4]
+            assert result["n"].tolist() == [4]
         elif operation == "where":
-            assert result["value", "category"].tolist() == ["a"]
+            assert result["category"].tolist() == ["a"]
             assert result.iloc[:, 0].tolist() == [("t3", 3)]
         elif operation == "top":
-            assert result["value", "category"].tolist() == ["ä", "z"]
+            assert result["category"].tolist() == ["ä", "z"]
             assert result.iloc[:, 0].tolist() == [("t2", 2), ("t1", 1)]
 
 
@@ -119,7 +119,7 @@ def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
         query = session.observe({"n": amount.count()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame[("value", "n")].tolist() == [1]
+        assert frame["n"].tolist() == [1]
         assert trace.uploaded_key_rows == [1]
 
 
@@ -158,9 +158,9 @@ def test_remote_fixed_strings_keep_reader_bytes(
                 continue
             rows = query.compute().to_pandas()
             if index == 0:
-                assert rows["value", "category"].tolist() == ([] if backend == "trino" else ["a"])
+                assert rows["category"].tolist() == ([] if backend == "trino" else ["a"])
             elif index == 1:
-                assert rows["value", "category"].tolist() == (
+                assert rows["category"].tolist() == (
                     ["ä   ", "z   "] if backend == "trino" else ["ä", "z"]
                 )
             else:
@@ -183,11 +183,11 @@ def test_mysql_native_collated_groups_keep_the_existing_source_membership(
         fixed = selected.compute()
         keys = session.population_from(fixed, on=((fixed.axes[0], category),))
         query = session.observe({"n": amount.count()}, where=mv.in_population(keys))
-        assert fixed.to_pandas()["value", "n"].tolist() == [2]
+        assert fixed.to_pandas()["n"].tolist() == [2]
         table = case.session.bind(case.source, source_identity="collation-oracle").relation
         key = fixed.to_pandas().iloc[0, 0]
         filtered = table.filter(table.category.identical_to(key))
         expected = case.session._backend.execute(filtered.aggregate(n=filtered.amount.count()))
         assert isinstance(expected, pd.DataFrame)
         rows = query.compute().to_pandas()
-        assert rows["value", "n"].tolist() == expected.n.tolist()
+        assert rows["n"].tolist() == expected.n.tolist()

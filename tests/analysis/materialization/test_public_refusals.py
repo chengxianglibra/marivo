@@ -151,9 +151,9 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
         ).persist()
         frame = previous.to_pandas()
         assert len(frame) == 6
-        assert frame[("value", "value")].sum() == 6
-        assert frame[("value", "base.baseline.value")].sum() == 0
-        assert frame["presence"].all().all()
+        assert frame["value"].sum() == 6
+        assert frame["base.baseline.value"].sum() == 0
+        assert frame[["current.present", "base.present"]].all().all()
         data = previous.artifact._manifest.data
         assert any(item.name.startswith("calendar.") for item in data.attachments)
         saved = snapshot(previous, frame=frame)

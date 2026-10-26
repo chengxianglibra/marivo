@@ -51,11 +51,11 @@ def test_public_j1_scope_uses_persisted_report_timezone(
     case = analysis_dsl_case_factory("j1")
     session = mv.session.get_or_create("j1-report-zone", timezone="Asia/Shanghai")
     local = _observe(case, "2026-08-01", "2026-09-01", session=session, scalar=True).persist()
-    assert local.to_pandas()[("value", "value")].tolist() == [677]
+    assert local.to_pandas()["value"].tolist() == [677]
     absolute = _observe(
         case, "2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00", session=session, scalar=True
     ).persist()
-    assert absolute.to_pandas()[("value", "value")].tolist() == [1000]
+    assert absolute.to_pandas()["value"].tolist() == [1000]
 
 
 def test_public_contract_actions_and_result_card(
@@ -113,7 +113,7 @@ def test_public_empty_and_undefined_cards(
     assert "rows: 0" in capsys.readouterr().out
     case = analysis_dsl_case_factory("zero_denominator")
     ratio = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov, scalar=True).persist()
-    assert ratio.to_pandas()[("value", "value")].isna().all()
+    assert ratio.to_pandas()["value"].isna().all()
     ratio.show()
     assert "rows: 1" in capsys.readouterr().out
 
@@ -128,12 +128,12 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
     grouped = session.observe({"value": metric}, by=(window, channel))
     frame = grouped.persist().to_pandas()
-    assert dict(zip(frame.iloc[:, 1], frame[("value", "value")], strict=True)) == {
+    assert dict(zip(frame["sales.order.channel"], frame["value"], strict=True)) == {
         "web": 850,
         "mobile": 150,
     }
     assert session.observe({"value": metric}, by=(window,)).persist().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [1000]
 
 
@@ -153,7 +153,7 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     )
     assert terminal_runs(session) == before
     frame = query.persist().to_pandas()
-    assert dict(zip(frame.iloc[:, 1], frame[("value", "value")], strict=True)) == {
+    assert dict(zip(frame["sales.customer.region"], frame["value"], strict=True)) == {
         "east": 600,
         "south": 400,
         "west": 0,
@@ -216,7 +216,7 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
         .to_pandas()
     )
     assert len(compared) == 4
-    assert not compared[("value", "reference.absolute.value")].isna().any()
+    assert not compared["reference.absolute.value"].isna().any()
     count = _observe(case, "2026-07-01", "2026-08-01", metric=case.names.order_count)
     before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
@@ -267,8 +267,8 @@ def test_public_j2_selected_members_and_next_month_mean(
         .persist()
         .to_pandas()
     )
-    assert summary[("value", "mean")].tolist() == [15]
-    assert summary[("value", "value")].tolist() == [30]
+    assert summary["mean"].tolist() == [15]
+    assert summary["value"].tolist() == [30]
 
 
 def test_public_j3_ratio_rollup_uses_original_components(
@@ -276,7 +276,7 @@ def test_public_j3_ratio_rollup_uses_original_components(
 ) -> None:
     case = analysis_dsl_case_factory("j3")
     query = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov, scalar=True)
-    assert query.compute().to_pandas()[("value", "value")].tolist() == [40]
+    assert query.compute().to_pandas()["value"].tolist() == [40]
     assert not hasattr(query, "rollup")
 
 
@@ -318,10 +318,8 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     saved = query.persist()
     frame = saved.to_pandas()
     assert len(frame) == 4
-    assert frame[("value", "signal")].corr(
-        frame[("value", "readings")], method="spearman"
-    ) == pytest.approx(-0.4)
-    assert frame[("value", "signal")].count() == 4
+    assert frame["signal"].corr(frame["readings"], method="spearman") == pytest.approx(-0.4)
+    assert frame["signal"].count() == 4
     assert saved._schema.values[0].unit == "kWh"
 
 

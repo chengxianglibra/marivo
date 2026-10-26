@@ -382,7 +382,7 @@ def test_period_buckets_and_retained_coarsened_partition(
     assert (
         compared["value"].tolist() == compared["reference.baseline.value"].tolist() == [1, 1, 1, 1]
     )
-    assert compared.time_0.tolist() == [0] * 4
+    assert compared.time_0.tolist() == ["2026-08-01"] * 4
     assert compared.key_0.tolist() == ["A", "B", "C", "D"]
     assert compared.key_1.tolist() == ["web"] * 4
     directories = [

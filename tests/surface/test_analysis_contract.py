@@ -95,7 +95,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     output = saved.to_pandas()
     # Complete output coordinates retain the two groups without selected facts;
     # their fixed sum is additive zero.
-    assert output[("value", "revenue")].tolist() == [180, 0, 0]
+    assert output["revenue"].tolist() == [180, 0, 0]
     reads = tuple(item for item in artifact.evidence_digest().items if item.kind == "read")
     assert reads
     scoped_reads = tuple(

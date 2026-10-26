@@ -90,15 +90,15 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     artifact = drilled.persist()
     actual = artifact.to_pandas()
     assert actual.equals(direct)
-    assert actual[("coordinate", "axis.0")].tolist() == ["A", "A", "B"]
-    assert actual[("coordinate", "axis.1")].dropna().tolist() == [9007199254740993, 2]
-    assert actual[("coordinate", "axis.1")].isna().tolist() == [False, True, False]
-    assert actual[("value", "total")].tolist() == [70, 30, 60]
+    assert actual[actual.attrs["axes"][0]["name"]].tolist() == ["A", "A", "B"]
+    assert actual[actual.attrs["axes"][1]["name"]].dropna().tolist() == [9007199254740993, 2]
+    assert actual[actual.attrs["axes"][1]["name"]].isna().tolist() == [False, True, False]
+    assert actual["total"].tolist() == [70, 30, 60]
     if small_first is not None:
-        assert actual[("value", "small")].tolist() == [10, 0, 0]
-    assert str(actual[("coordinate", "axis.1")].dtype) == "int64[pyarrow]"
+        assert actual["small"].tolist() == [10, 0, 0]
+    assert str(actual[actual.attrs["axes"][1]["name"]].dtype) == "int64[pyarrow]"
     rolled = core_session.observe(metrics, by=(region,)).compute().to_pandas()
-    assert rolled[("value", "total")].tolist() == [100, 60]
+    assert rolled["total"].tolist() == [100, 60]
     assert artifact.to_pandas().equals(
         core_session.persisted_frame(artifact.artifact.id).to_pandas()
     )
@@ -155,9 +155,9 @@ def test_decimal38_negation_preserves_every_digit_under_caller_context(
         result = (
             query.select({"negative": -query["x"], "original": query["x"]}).compute().to_pandas()
         )
-    assert result[("value", "negative")].tolist() == [source.copy_negate()]
-    assert result[("value", "original")].tolist() == [source]
-    assert str(result[("value", "negative")].dtype) == "decimal128(38, 0)[pyarrow]"
+    assert result["negative"].tolist() == [source.copy_negate()]
+    assert result["original"].tolist() == [source]
+    assert str(result["negative"].dtype) == "decimal128(38, 0)[pyarrow]"
 
 
 def test_column_na_and_zero_division_remain_nullable(
@@ -166,12 +166,10 @@ def test_column_na_and_zero_division_remain_nullable(
     base = core_session.values(by=(), columns={"zero": None}, rows=(((), {"zero": 0}),))
     nullable = base.select({"x": base["zero"] / base["zero"], "zero": base["zero"]})
     result = nullable.select({"v": nullable["x"] / nullable["zero"]}).compute().to_pandas()
-    assert len(result) == 1 and result[("value", "v")].isna().all()
+    assert len(result) == 1 and result["v"].isna().all()
     for numerator in (0, 1):
         query = core_session.values(by=(), columns={"x": None}, rows=(((), {"x": numerator}),))
-        assert (
-            query.select({"v": query["x"] / 0}).compute().to_pandas()[("value", "v")].isna().all()
-        )
+        assert query.select({"v": query["x"] / 0}).compute().to_pandas()["v"].isna().all()
 
 
 def test_literal_duration_sum_and_mean_keep_declared_microseconds(core_session: Session) -> None:
@@ -182,8 +180,8 @@ def test_literal_duration_sum_and_mean_keep_declared_microseconds(core_session: 
         query.reduce({"sum": query["x"].sum(), "mean": query["x"].mean()}).compute().to_pandas()
     )
     for name in ("sum", "mean"):
-        assert result[("value", name)].tolist() == [timedelta(microseconds=3)]
-        assert pa.array(result[("value", name)]).type == pa.duration("us")
+        assert result[name].tolist() == [timedelta(microseconds=3)]
+        assert pa.array(result[name]).type == pa.duration("us")
 
 
 @pytest.mark.parametrize("ticks", ((0, 1), (1, 2), (-1, -2), (2**53 + 1, 2**53 + 3)))
@@ -208,8 +206,8 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
     )
     expected = {"sum": sum(ticks), "mean": round(Fraction(sum(ticks), len(ticks)))}
     for name, value in expected.items():
-        assert pa.array(result[("value", name)]).type == pa.duration("ns")
-        assert pa.array(result[("value", name)]).cast(pa.int64()).to_pylist() == [value]
+        assert pa.array(result[name]).type == pa.duration("ns")
+        assert pa.array(result[name]).cast(pa.int64()).to_pylist() == [value]
 
 
 def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: Session) -> None:
@@ -225,14 +223,14 @@ def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: S
             .compute()
             .to_pandas()
         )
-        assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [expected_sum]
-        assert result[("value", "mean")].isna().all()
+        assert pa.array(result["sum"]).cast(pa.int64()).to_pylist() == [expected_sum]
+        assert result["mean"].isna().all()
     path = core_session.catalog.workspace_dir / "durations.parquet"
     pq.write_table(
         pa.table({"id": [1, 2], "elapsed": pa.array([2**63 - 1, 1], type=pa.duration("ns"))}), path
     )
     mean = query.reduce({"mean": query["elapsed"].mean()}).compute().to_pandas()
-    assert pa.array(mean[("value", "mean")]).cast(pa.int64()).to_pylist() == [2**62]
+    assert pa.array(mean["mean"]).cast(pa.int64()).to_pylist() == [2**62]
     middle = query.reduce({"sum": query["elapsed"].sum()})
     with pytest.raises(AnalysisError) as error:
         middle.select({"cancelled": middle["sum"] - middle["sum"]}).compute()
@@ -259,8 +257,8 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         .compute()
         .to_pandas()
     )
-    assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [ticks, None]
-    assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == [ticks, None]
+    assert pa.array(result["sum"]).cast(pa.int64()).to_pylist() == [ticks, None]
+    assert pa.array(result["mean"]).cast(pa.int64()).to_pylist() == [ticks, None]
 
 
 def test_explicit_source_monthly_values(core_session: Session) -> None:
@@ -268,14 +266,14 @@ def test_explicit_source_monthly_values(core_session: Session) -> None:
     day = core_session.catalog.fields.get("sales.orders.day")
     months = core_session.time_scope(start="2026-01-01", end="2026-03-01").by(mv.grain("month"))
     current = core_session.observe({"sales": amount.sum(time=day)}, by=(months,)).compute()
-    assert current.to_pandas()[("value", "sales")].tolist() == [60, 100]
+    assert current.to_pandas()["sales"].tolist() == [60, 100]
     with duckdb.connect(str(core_session.project_root / "core.duckdb")) as connection:
         connection.execute(
             "INSERT INTO orders SELECT id+10, region, day-INTERVAL '1 year', amount*2 FROM orders"
         )
     previous = core_session.time_scope(start="2025-01-01", end="2025-03-01").by(mv.grain("month"))
     baseline = core_session.observe({"sales": amount.sum(time=day)}, by=(previous,)).compute()
-    assert baseline.to_pandas()[("value", "sales")].tolist() == [120, 200]
+    assert baseline.to_pandas()["sales"].tolist() == [120, 200]
 
 
 @pytest.mark.parametrize("operation", ("add", "sub", "mul", "div"))
@@ -298,8 +296,8 @@ def test_duration_binary_expression_keeps_type_before_sum_and_mean(
         query.reduce({"sum": expression.sum(), "mean": expression.mean()}).compute().to_pandas()
     )
     for name in ("sum", "mean"):
-        assert pa.array(result[("value", name)]).type == pa.duration("us")
-        assert pa.array(result[("value", name)]).cast(pa.int64()).to_pylist() == [expected]
+        assert pa.array(result[name]).type == pa.duration("us")
+        assert pa.array(result[name]).cast(pa.int64()).to_pylist() == [expected]
 
 
 def test_duration_nested_unary_and_current_frame_arithmetic_retains_ticks(
@@ -317,23 +315,23 @@ def test_duration_nested_unary_and_current_frame_arithmetic_retains_ticks(
     expression = -(query["d"] + timedelta(microseconds=3)) / 3
     selected = query.select({"d": expression})
     frame = selected.compute().to_pandas()
-    assert pa.array(frame[("value", "d")]).cast(pa.int64()).to_pylist() == [-2, -3, -1]
+    assert pa.array(frame["d"]).cast(pa.int64()).to_pylist() == [-2, -3, -1]
     reduced = (
         selected.reduce({"sum": selected["d"].sum(), "mean": selected["d"].mean()})
         .compute()
         .to_pandas()
     )
-    assert pa.array(reduced[("value", "sum")]).cast(pa.int64()).to_pylist() == [-6]
-    assert pa.array(reduced[("value", "mean")]).cast(pa.int64()).to_pylist() == [-2]
+    assert pa.array(reduced["sum"]).cast(pa.int64()).to_pylist() == [-6]
+    assert pa.array(reduced["mean"]).cast(pa.int64()).to_pylist() == [-2]
     ratio = (
         query.reduce({"ratio": (query["d"] / timedelta(microseconds=3)).mean()})
         .compute()
         .to_pandas()
     )
-    assert ratio[("value", "ratio")].tolist() == [1.0]
-    assert pa.array(ratio[("value", "ratio")]).type == pa.float64()
+    assert ratio["ratio"].tolist() == [1.0]
+    assert pa.array(ratio["ratio"]).type == pa.float64()
     reverse = query.select({"d": 2 * query["d"]}).compute().to_pandas()
-    assert pa.array(reverse[("value", "d")]).cast(pa.int64()).to_pylist() == [6, 12, 0]
+    assert pa.array(reverse["d"]).cast(pa.int64()).to_pylist() == [6, 12, 0]
 
 
 @pytest.mark.parametrize(
@@ -357,7 +355,7 @@ def test_zero_duration_literal_retains_nonzero_unit_and_refuses_missing_values(
         rows=tuple(((key,), {"d": value}) for key, value in zip("ABC", values, strict=True)),
     )
     result = query.compute().to_pandas()
-    physical = pa.array(result[("value", "d")])
+    physical = pa.array(result["d"])
     assert str(physical.type) == f"duration[{unit}]"
     assert physical.cast(pa.int64()).to_pylist() == ticks
     with pytest.raises(AnalysisError, match="non-null literal values"):
@@ -381,25 +379,25 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
     )
     result = selected.compute().to_pandas()
     halves = [round(Fraction(represented_tick, 2)), None, round(Fraction(3, 2))]
-    assert pa.array(result[("value", "half")]).cast(pa.int64()).to_pylist() == halves
-    assert pa.array(result[("value", "decimal_half")]).cast(pa.int64()).to_pylist() == halves
-    assert pa.array(result[("value", "twice")]).cast(pa.int64()).to_pylist() == [
+    assert pa.array(result["half"]).cast(pa.int64()).to_pylist() == halves
+    assert pa.array(result["decimal_half"]).cast(pa.int64()).to_pylist() == halves
+    assert pa.array(result["twice"]).cast(pa.int64()).to_pylist() == [
         represented_tick * 2,
         None,
         6,
     ]
     # A Duration-valued binary node finishes in its existing unit before its parent.
     nested = query.select({"d": (query["d"] / 2) * 2}).compute().to_pandas()
-    assert pa.array(nested[("value", "d")]).cast(pa.int64()).to_pylist() == [
+    assert pa.array(nested["d"]).cast(pa.int64()).to_pylist() == [
         2 * round(Fraction(represented_tick, 2)),
         None,
         4,
     ]
     missing = query.select({"d": query["d"] / 0})
     finished = missing.reduce({"sum": (missing["d"] / 0).sum()}).compute().to_pandas()
-    assert pa.array(finished[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
+    assert pa.array(finished["sum"]).cast(pa.int64()).to_pylist() == [None]
     zero = query.reduce({"d": (query["d"] / 0).sum()}).compute().to_pandas()
-    assert zero[("value", "d")].isna().all()
+    assert zero["d"].isna().all()
     pq.write_table(
         pa.table({"id": [1], "elapsed": pa.array([2**62], type=pa.duration("ns"))}), path
     )

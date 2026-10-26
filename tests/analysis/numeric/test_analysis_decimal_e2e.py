@@ -79,11 +79,11 @@ def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame
 def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) -> None:
     result = _observed(decimal_session, overall=True).compute()
     rows = result.to_pandas()
-    assert isinstance(rows[("value", "gmv")].iloc[0], Decimal)
-    assert rows[("value", "gmv")].iloc[0] == Decimal("20.00")
+    assert isinstance(rows["gmv"].iloc[0], Decimal)
+    assert rows["gmv"].iloc[0] == Decimal("20.00")
     assert isinstance(result._schema, DataSchema)
     assert result._schema.values[0].dtype == DecimalDataType(38, 2)
-    assert Decimal("100.00") - rows[("value", "gmv")].iloc[0] == Decimal("80.00")
+    assert Decimal("100.00") - rows["gmv"].iloc[0] == Decimal("80.00")
 
 
 def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Session) -> None:
@@ -98,11 +98,11 @@ def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Sessio
         )
         result = observed.compute()
         assert isinstance(result._schema, DataSchema)
-        assert result.to_pandas()[("value", "rate")].tolist() == [0.25]
+        assert result.to_pandas()["rate"].tolist() == [0.25]
         assert isinstance(result._schema, DataSchema)
         assert result._schema.values[0].dtype == ScalarDataType("float64")
     components = _observed(session).compute().to_pandas()
-    assert components[("value", "fee")].sum() / float(components[("value", "gmv")].sum()) == 0.25
+    assert components["fee"].sum() / float(components["gmv"].sum()) == 0.25
 
 
 @pytest.mark.parametrize("exported", [False, True])
@@ -110,9 +110,9 @@ def test_mixed_linear_retains_each_component(decimal_session: mv.Session, export
     observed = _observed(decimal_session)
     if exported:
         frame = observed.compute().to_pandas()
-        net = frame[("value", "gmv")].map(float) - frame[("value", "fee")]
+        net = frame["gmv"].map(float) - frame["fee"]
         assert net.sum() == 15.0
     else:
         totals = _observed(decimal_session, overall=True)
         result = totals.select({"net": totals["gmv"] - totals["fee"]}).compute()
-        assert result.to_pandas()[("value", "net")].tolist() == [15.0]
+        assert result.to_pandas()["net"].tolist() == [15.0]

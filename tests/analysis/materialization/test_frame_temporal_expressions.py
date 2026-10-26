@@ -137,7 +137,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
             ("gt", False),
             ("ge", True),
         ):
-            array = pa.array(result["value", name])
+            array = pa.array(result[name])
             assert array.to_pylist() == [
                 expected,
                 expected,
@@ -145,7 +145,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
                 *([None] if nullable else []),
             ]
         for name in ("value_null", "coordinate_null"):
-            assert result["value", name].tolist() == [
+            assert result[name].tolist() == [
                 False,
                 False,
                 False,
@@ -153,7 +153,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
             ]
         filtered = frame.where(value == coordinate).compute().to_pandas()
         integer = pa.int32() if physical == pa.date32() else pa.int64()
-        assert pa.array(filtered["coordinate", "time"]).cast(integer).to_pylist() == [
+        assert pa.array(filtered["time"]).cast(integer).to_pylist() == [
             minimum,
             0,
             maximum,
@@ -174,8 +174,8 @@ def test_duration_negation_checks_original_unit_overflow_and_preserves_nulls(
         assert terminal_runs(session) == before
     safe = _frame(session, DurationDataType(unit), physical, [-(2**63) + 1, 0, None])
     negated = safe.select({"negative": -safe["value"]}).compute().to_pandas()
-    assert pa.array(negated["value", "negative"]).type == physical
-    assert pa.array(negated["value", "negative"]).cast(pa.int64()).to_pylist() == [
+    assert pa.array(negated["negative"]).type == physical
+    assert pa.array(negated["negative"]).cast(pa.int64()).to_pylist() == [
         2**63 - 1,
         0,
         None,
@@ -253,7 +253,7 @@ def test_timestamp_comparison_scales_units_without_int64_common_unit_cast(sessio
             "gt": [False, False, True, None],
             "ge": [False, True, True, None],
         }.items():
-            assert pa.array(result["value", name]).to_pylist() == expected
+            assert pa.array(result[name]).to_pylist() == expected
 
 
 def test_timestamp_comparison_retains_pandas_literal_nanoseconds(session: Session) -> None:
@@ -267,7 +267,7 @@ def test_timestamp_comparison_retains_pandas_literal_nanoseconds(session: Sessio
             .compute()
             .to_pandas()
         )
-    assert pa.array(result["value", "one"]).to_pylist() == [False, True, False, None]
+    assert pa.array(result["one"]).to_pylist() == [False, True, False, None]
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
@@ -292,7 +292,7 @@ def test_temporal_comparison_keeps_native_pandas_literal_extrema(
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         output = frame.select({"maximum": frame["value"] == literal}).compute().to_pandas()
-    assert pa.array(output["value", "maximum"]).to_pylist() == [False, False, True, None]
+    assert pa.array(output["maximum"]).to_pylist() == [False, False, True, None]
 
 
 @pytest.mark.parametrize("all_null", [False, True])
@@ -330,19 +330,17 @@ def test_timestamp_comparison_preserves_timezone_awareness_distinction(
     for current in (frame, session.persisted_frame(frame.persist().artifact.id)):
         naive, aware = current["naive"], current["aware"]
         output = current.select({"eq": naive == aware, "ne": naive != aware}).compute().to_pandas()
-        assert pa.array(output["value", "eq"]).to_pylist() == (
+        assert pa.array(output["eq"]).to_pylist() == (
             [None] * 4 if all_null else [False, False, False, None]
         )
-        assert pa.array(output["value", "ne"]).to_pylist() == (
+        assert pa.array(output["ne"]).to_pylist() == (
             [None] * 4 if all_null else [True, True, True, None]
         )
         for expression in (naive < aware, naive <= aware, naive > aware, naive >= aware):
             if all_null:
                 assert (
                     pa.array(
-                        current.select({"ordered": expression})
-                        .compute()
-                        .to_pandas()["value", "ordered"]
+                        current.select({"ordered": expression}).compute().to_pandas()["ordered"]
                     ).to_pylist()
                     == [None] * 4
                 )
@@ -382,8 +380,8 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
         frame = session.persisted_frame(artifact)
         value = frame['value']
         output = frame.select({'same': value == value, 'null': value.is_null()}).compute().to_pandas()
-        assert pa.array(output['value', 'same']).to_pylist() == [True, True, None]
-        assert output['value', 'null'].tolist() == [False, False, True]
+        assert pa.array(output['same']).to_pylist() == [True, True, None]
+        assert output['null'].tolist() == [False, False, True]
         assert len(frame.where(value == value).compute().to_pandas()) == 2
     assert terminal_runs(session) == before
 print('cold-temporal-expressions-exact')

@@ -107,11 +107,11 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
             )
             frame = query.compute().to_pandas()
             if selected is source:
-                assert frame[("value", "total")].iloc[0] == 1.0
-                assert frame[("value", "decimal")].iloc[0] == Decimal("0.30")
+                assert frame["total"].iloc[0] == 1.0
+                assert frame["decimal"].iloc[0] == Decimal("0.30")
             else:
                 for name in ("total", "decimal"):
-                    value = frame[("value", name)].iloc[0]
+                    value = frame[name].iloc[0]
                     assert value == 0 if is_empty else pd.isna(value)
         assert trace.returned_rows == []
         assert trace.uploaded_key_rows == []
@@ -151,7 +151,7 @@ def test_local_cell_sum_retains_numeric_errors_before_top_zero(
         query = total.top(0, by=total["total"])
         trace = capture_source(monkeypatch)
         if boundary == "decimal_overflow":
-            assert total.compute().to_pandas()["value", "total"].tolist() == [
+            assert total.compute().to_pandas()["total"].tolist() == [
                 Decimal("10000000000000000.00")
             ]
             assert query.compute().to_pandas().empty

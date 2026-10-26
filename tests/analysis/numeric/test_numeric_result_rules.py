@@ -134,15 +134,15 @@ def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(
     )
     selected = frame.select({"product": frame["x"] * frame["x"]})
     saved = selected.persist()
-    assert saved.to_pandas()["value", "product"].tolist() == [Decimal("1.5129"), Decimal("1.5376")]
-    assert pa.array(saved.to_pandas()["value", "product"]).type == pa.decimal128(6, 4)
+    assert saved.to_pandas()["product"].tolist() == [Decimal("1.5129"), Decimal("1.5376")]
+    assert pa.array(saved.to_pandas()["product"]).type == pa.decimal128(6, 4)
     assert selected.where(selected["product"] > Decimal("1.52")).compute().to_pandas().iloc[
         :, 0
     ].tolist() == ["B"]
     total = frame.reduce({"total": frame["big"].sum()})
     result = total.persist()
-    assert result.to_pandas()["value", "total"].tolist() == [Decimal(2**63)]
-    assert pa.array(result.to_pandas()["value", "total"]).type == pa.decimal128(38, 0)
+    assert result.to_pandas()["total"].tolist() == [Decimal(2**63)]
+    assert pa.array(result.to_pandas()["total"]).type == pa.decimal128(38, 0)
     assert case.session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
 
@@ -173,8 +173,8 @@ import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 with patch.object(SourceSession, 'execute', side_effect=AssertionError('source read')):
     session = mv.session.resume(sys.argv[1])
-    product = session.persisted_frame(sys.argv[2]).to_pandas()['value', 'product']
-    total = session.persisted_frame(sys.argv[3]).to_pandas()['value', 'sum']
+    product = session.persisted_frame(sys.argv[2]).to_pandas()['product']
+    total = session.persisted_frame(sys.argv[3]).to_pandas()['sum']
     assert product.tolist() == [Decimal('1.5129')]
     assert pa.array(product).type == pa.decimal128(6, 4)
     assert total.tolist() == [Decimal(2**62 + 1)]
@@ -202,5 +202,5 @@ def test_comparison_uses_bound_decimal_difference_for_relative_value(
 
     current, baseline = total("1.05"), total("1.00")
     result = current.compare({"base": baseline}).compute().to_pandas()
-    assert result["value", "base.absolute.x"].tolist() == [Decimal("0.1")]
-    assert result["value", "base.relative.x"].tolist() == [0.1]
+    assert result["base.absolute.x"].tolist() == [Decimal("0.1")]
+    assert result["base.relative.x"].tolist() == [0.1]

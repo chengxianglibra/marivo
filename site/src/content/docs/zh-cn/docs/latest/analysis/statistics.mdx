@@ -33,9 +33,9 @@ summary = current.reduce(
 ).compute()
 assert summary.output_names == ("revenue_sum", "revenue_mean", "row_count")
 summary_rows = summary.to_pandas()
-assert summary_rows[("value", "revenue_sum")].tolist() == [800]
-assert summary_rows[("value", "revenue_mean")].tolist() == [400]
-assert summary_rows[("value", "row_count")].tolist() == [2]
+assert summary_rows["revenue_sum"].tolist() == [800]
+assert summary_rows["revenue_mean"].tolist() == [400]
+assert summary_rows["row_count"].tolist() == [2]
 summary.show()
 ```
 
@@ -57,8 +57,7 @@ normalized.show()
 {/* example: pandas-descriptive-statistics */}
 
 ```python
-values = current.to_pandas()["value"].astype("float64")
-revenue_values = values["revenue"]
+revenue_values = current.to_pandas()["revenue"].astype("float64")
 statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
 print(statistics)
 rank = revenue_values.rank(method="dense", ascending=False)
@@ -72,11 +71,11 @@ if standard_deviation > 0:
 ```python
 comparison = saved.to_pandas()
 present = (
-    comparison[("presence", "current.present")]
-    & comparison[("presence", "reference.present")]
+    comparison["current.present"]
+    & comparison["reference.present"]
 )
 pairs = (
-    comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]]
+    comparison.loc[present][["revenue", "reference.baseline.revenue"]]
     .dropna()
     .astype("float64")
 )
@@ -114,6 +113,6 @@ sample = session.values(
 ).compute()
 correlation = sample.correlate(sample["x"], sample["y"], method="pearson").compute()
 paired = correlation.to_pandas()
-assert paired[("value", "n_pairs")].tolist() == [5]
-assert abs(paired[("value", "coefficient")].iloc[0] - 1.0) < 1e-12
+assert paired["n_pairs"].tolist() == [5]
+assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
 ```

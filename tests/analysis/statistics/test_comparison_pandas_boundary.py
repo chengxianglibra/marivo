@@ -39,10 +39,10 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
         {"reference": baseline}, on={"reference": ((current.axes[0], baseline.axes[0]),)}
     ).persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
-    assert frame[("value", "reference.absolute.sales")].iloc[:2].tolist() == [8.0, 0.0]
-    assert frame[("value", "reference.relative.sales")].iloc[0] == 4.0
-    assert frame[("value", "reference.relative.sales")].iloc[1:].isna().all()
-    assert frame[("value", "reference.absolute.sales")].iloc[2:].isna().all()
-    assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
-    assert frame[("presence", "reference.present")].tolist() == [True, True, False, True]
+    assert frame["reference.absolute.sales"].iloc[:2].tolist() == [8.0, 0.0]
+    assert frame["reference.relative.sales"].iloc[0] == 4.0
+    assert frame["reference.relative.sales"].iloc[1:].isna().all()
+    assert frame["reference.absolute.sales"].iloc[2:].isna().all()
+    assert frame["current.present"].tolist() == [True, True, True, False]
+    assert frame["reference.present"].tolist() == [True, True, False, True]
     assert terminal_runs(session, status="succeeded")

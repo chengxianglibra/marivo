@@ -28,21 +28,21 @@ def verify(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
         ("b", 9007199254740992),
         ("c", 9007199254740992),
     ]
-    assert components[("value", "left")].tolist() == [30, 90, 0, 0]
-    assert components[("value", "right")].tolist() == [5, 20, 4, 0]
+    assert components["left"].tolist() == [30, 90, 0, 0]
+    assert components["right"].tolist() == [5, 20, 4, 0]
     linear = outputs["linear"].to_pandas()
     ratio = outputs["ratio"].to_pandas()
     assert linear.iloc[:, 0].tolist() == ratio.iloc[:, 0].tolist() == components.iloc[:, 0].tolist()
-    assert linear[("value", "value")].tolist() == [35, 110, 4, 0]
-    values = ratio[("value", "value")].tolist()
+    assert linear["value"].tolist() == [35, 110, 4, 0]
+    values = ratio["value"].tolist()
     assert values[:3] == [6, 4.5, 0] and pd.isna(values[3])
     assert outputs["auto_read"].to_pandas().equals(outputs["explicit_read"].to_pandas())
-    assert outputs["auto_read"].to_pandas()[("value", "value")].tolist() == ["a"] * 4
-    left = int(components[("value", "left")].sum())
-    right = int(components[("value", "right")].sum())
+    assert outputs["auto_read"].to_pandas()["value"].tolist() == ["a"] * 4
+    left = int(components["left"].sum())
+    right = int(components["right"].sum())
     assert left == 120 and right == 29
-    assert outputs["linear_total"].to_pandas()[("value", "value")].tolist() == [149]
-    assert math.isclose(outputs["ratio_total"].to_pandas()[("value", "value")].iloc[0], 120 / 29)
+    assert outputs["linear_total"].to_pandas()["value"].tolist() == [149]
+    assert math.isclose(outputs["ratio_total"].to_pandas()["value"].iloc[0], 120 / 29)
     return {"left": left, "right": right, "sum": left + right, "ratio": left / right}
 
 

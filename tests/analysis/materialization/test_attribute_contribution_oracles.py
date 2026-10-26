@@ -79,8 +79,8 @@ def _columns(frame: AnalysisFrame) -> dict[str, DataColumn]:
 
 
 def _present(rows: pd.DataFrame) -> None:
-    assert rows[("presence", "detail.current.present.q")].tolist() == [True] * len(rows)
-    assert rows[("presence", "detail.baseline.present.q")].tolist() == [True] * len(rows)
+    assert rows["detail.current.present.q"].tolist() == [True] * len(rows)
+    assert rows["detail.baseline.present.q"].tolist() == [True] * len(rows)
 
 
 @pytest.fixture
@@ -142,14 +142,14 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
         ("B", "B2"),
     ]
     assert local_rows.iloc[:, 0].tolist() == ["B1", "B2"]
-    assert global_rows[("value", "contribution.q")].tolist() == pytest.approx(
+    assert global_rows["contribution.q"].tolist() == pytest.approx(
         [0, float(Fraction(-1, 40)), float(Fraction(-1, 40))]
     )
-    assert global_rows[("value", "contribution_share.q")].tolist() == [0, 0.5, 0.5]
-    assert local_rows[("value", "contribution.q")].tolist() == pytest.approx(
+    assert global_rows["contribution_share.q"].tolist() == [0, 0.5, 0.5]
+    assert local_rows["contribution.q"].tolist() == pytest.approx(
         [float(Fraction(-49, 1710)), float(Fraction(-5, 171))]
     )
-    assert local_rows[("value", "contribution_share.q")].tolist() == pytest.approx(
+    assert local_rows["contribution_share.q"].tolist() == pytest.approx(
         [float(Fraction(49, 99)), float(Fraction(50, 99))]
     )
     original_left = [Fraction(2, 10), Fraction(3, 90), Fraction(5, 100)]
@@ -158,13 +158,13 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
         (global_result, global_rows, 0),
         (local_result, local_rows, 1),
     ):
-        assert rows[("value", "detail.current.q")].tolist() == pytest.approx(
+        assert rows["detail.current.q"].tolist() == pytest.approx(
             [float(value) for value in original_left[start:]]
         )
-        assert rows[("value", "detail.baseline.q")].tolist() == pytest.approx(
+        assert rows["detail.baseline.q"].tolist() == pytest.approx(
             [float(value) for value in original_right[start:]]
         )
-        assert rows[("value", "detail.absolute.q")].tolist() == pytest.approx(
+        assert rows["detail.absolute.q"].tolist() == pytest.approx(
             [
                 float(left - right)
                 for left, right in zip(original_left[start:], original_right[start:], strict=True)
@@ -190,7 +190,7 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
             ("component.current.denominator.q", [10, 90, 100], "1"),
             ("component.baseline.denominator.q", [10, 40, 50], "1"),
         ):
-            assert rows[("value", path)].tolist() == expected[start:]
+            assert rows[path].tolist() == expected[start:]
             assert columns[path].dtype == DecimalDataType(38, 0)
             assert columns[path].unit == unit
         assert columns["contribution.q"].unit == "USD"
@@ -198,8 +198,8 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
         _present(rows)
     # The local root is 8/190, compared with 9/90; it differs from the global root.
     assert Fraction(8, 190) - Fraction(9, 90) == Fraction(-11, 190)
-    assert sum(local_rows[("value", "contribution.q")]) == pytest.approx(float(Fraction(-11, 190)))
-    assert sum(global_rows[("value", "contribution.q")]) == pytest.approx(float(Fraction(-1, 20)))
+    assert sum(local_rows["contribution.q"]) == pytest.approx(float(Fraction(-11, 190)))
+    assert sum(global_rows["contribution.q"]) == pytest.approx(float(Fraction(-1, 20)))
     assert len(productions) == 2
     for production, left, right, denominator_left, denominator_right, change in (
         (productions[0], Fraction(1, 20), Fraction(1, 10), 200, 100, Fraction(-1, 20)),
@@ -248,16 +248,16 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
     rows = result.to_pandas()
     columns = _columns(result)
     assert rows.iloc[:, 0].tolist() == ["G1", "G2"]
-    assert rows[("value", "detail.current.q")].tolist() == [value for _, value in native]
-    assert rows[("value", "detail.baseline.q")].tolist() == [Decimal("0.00"), Decimal("0.00")]
+    assert rows["detail.current.q"].tolist() == [value for _, value in native]
+    assert rows["detail.baseline.q"].tolist() == [Decimal("0.00"), Decimal("0.00")]
     for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
-        assert all(type(value) is Decimal for value in rows[("value", path)])
+        assert all(type(value) is Decimal for value in rows[path])
         assert isinstance(columns[path].dtype, DecimalDataType)
         assert columns[path].unit == "USD"
-    assert rows[("value", "detail.absolute.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
-    assert rows[("value", "contribution.q")].tolist() == [Decimal("8.00"), Decimal("10.00")]
-    assert sum(rows[("value", "contribution.q")]) == root_change[0]
-    assert rows[("value", "contribution_share.q")].tolist() == pytest.approx(
+    assert rows["detail.absolute.q"].tolist() == [Decimal("8.00"), Decimal("10.00")]
+    assert rows["contribution.q"].tolist() == [Decimal("8.00"), Decimal("10.00")]
+    assert sum(rows["contribution.q"]) == root_change[0]
+    assert rows["contribution_share.q"].tolist() == pytest.approx(
         [float(Fraction(4, 9)), float(Fraction(5, 9))]
     )
     assert columns["contribution_share.q"].unit == "1"
@@ -303,12 +303,12 @@ def test_disjoint_counted_identities_allow_exact_contributions(
     ).compute()
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "B"]
-    assert rows[("value", "detail.current.q")].tolist() == ([3, 1] if distinct else [3, 3])
-    assert rows[("value", "detail.baseline.q")].tolist() == ([1, 2] if distinct else [2, 2])
+    assert rows["detail.current.q"].tolist() == ([3, 1] if distinct else [3, 3])
+    assert rows["detail.baseline.q"].tolist() == ([1, 2] if distinct else [2, 2])
     expected = [2, -1] if distinct else [1, 1]
-    assert rows[("value", "detail.absolute.q")].tolist() == expected
-    assert rows[("value", "contribution.q")].tolist() == expected
-    assert rows[("value", "contribution_share.q")].tolist() == ([2, -1] if distinct else [0.5, 0.5])
+    assert rows["detail.absolute.q"].tolist() == expected
+    assert rows["contribution.q"].tolist() == expected
+    assert rows["contribution_share.q"].tolist() == ([2, -1] if distinct else [0.5, 0.5])
     for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
         assert _columns(result)[path].dtype == ScalarDataType("int64")
         assert _columns(result)[path].unit == "1"
@@ -343,11 +343,11 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
     ).compute()
     rows = result.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["G"]
-    assert rows[("value", "detail.current.q")].tolist() == [10.0]
-    assert rows[("value", "detail.baseline.q")].tolist() == [5.0]
-    assert rows[("value", "detail.absolute.q")].tolist() == [5.0]
-    assert rows[("value", "contribution.q")].tolist() == [5.0]
-    assert rows[("value", "contribution_share.q")].tolist() == [1.0]
+    assert rows["detail.current.q"].tolist() == [10.0]
+    assert rows["detail.baseline.q"].tolist() == [5.0]
+    assert rows["detail.absolute.q"].tolist() == [5.0]
+    assert rows["contribution.q"].tolist() == [5.0]
+    assert rows["contribution_share.q"].tolist() == [1.0]
     columns = _columns(result)
     for path, expected, unit in (
         ("component.current.numerator.q", 10, "USD"),
@@ -355,7 +355,7 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
         ("component.current.denominator.q", 1, "1"),
         ("component.baseline.denominator.q", 1, "1"),
     ):
-        assert rows[("value", path)].tolist() == [expected]
+        assert rows[path].tolist() == [expected]
         assert columns[path].dtype == DecimalDataType(38, 2)
         assert columns[path].unit == unit
     assert columns["detail.current.q"].dtype == ScalarDataType("float64")

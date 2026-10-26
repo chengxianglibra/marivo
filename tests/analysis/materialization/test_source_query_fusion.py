@@ -214,7 +214,7 @@ def test_native_collated_group_membership_keeps_every_original_contribution(
     region = session.catalog.fields.get("sales.orders.region")
     grouped = session.observe({"count": amount.count()}, by=(region,))
     fixed = grouped.top(1, by=grouped["count"]).compute()
-    assert fixed.to_pandas()["value", "count"].tolist() == [2]
+    assert fixed.to_pandas()["count"].tolist() == [2]
     selected = _regions(session, fixed)
     key = fixed.to_pandas().iloc[0, 0]
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
@@ -224,7 +224,7 @@ def test_native_collated_group_membership_keeps_every_original_contribution(
     assert expected is not None
     trace = capture_source(monkeypatch)
     result = session.observe({"count": amount.count()}, where=mv.in_population(selected)).compute()
-    assert result.to_pandas()["value", "count"].tolist() == [expected[0]]
+    assert result.to_pandas()["count"].tolist() == [expected[0]]
     assert trace.uploaded_key_rows == [1]
 
 
@@ -254,19 +254,19 @@ def test_terminal_relation_returns_only_selected_rows(
     )
     if operation in ("where", "top"):
         assert rows.iloc[:, 0].tolist() == [2, 3]
-        assert rows["value", "amount"].tolist() == [30, 20]
+        assert rows["amount"].tolist() == [30, 20]
     elif operation == "sum":
-        assert rows["value", "total"].tolist() == [60]
+        assert rows["total"].tolist() == [60]
     elif operation == "rows":
-        assert rows["value", "rows"].tolist() == [4]
+        assert rows["rows"].tolist() == [4]
     else:
         assert rows.iloc[:, 0].tolist() == [1, 2, 3, 4]
         name = "kept" if operation == "select" else "region"
-        assert rows["value", name].iloc[:3].tolist() == ["A", "A", "B"]
-        assert pd.isna(rows["value", name].iloc[3])
+        assert rows[name].iloc[:3].tolist() == ["A", "A", "B"]
+        assert pd.isna(rows[name].iloc[3])
         if operation == "read":
-            assert rows["value", "amount"].iloc[:3].tolist() == [10, 30, 20]
-            assert pd.isna(rows["value", "amount"].iloc[3])
+            assert rows["amount"].iloc[:3].tolist() == [10, 30, 20]
+            assert pd.isna(rows["amount"].iloc[3])
     assert trace.returned_rows == [2 if operation == "top" else 4]
     assert len(trace.native_sql) == len(reads) == len(outputs) == 1
     assert isinstance(reads[0][0].program, NativeRead)
@@ -361,9 +361,7 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert tuple(outputs[0].table.columns) == ("key.0",)
     assert outputs[0].layout is None
     assert outputs[0].key_groups == ()
-    assert rows.columns.equals(
-        pd.MultiIndex.from_tuples([("coordinate", "axis.0")], names=("kind", "name"))
-    )
+    assert rows.columns.equals(pd.Index([result.axes[0].name]))
     assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
     assert all(column.nullable for column in outputs[0].columns)
     assert len(request.numeric_checks) == 2
@@ -511,7 +509,7 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
         .to_pandas()
     )
     assert fixed.to_pandas().iloc[:, 0].tolist() == [2]
-    assert rows["value", "total"].tolist() == [30]
+    assert rows["total"].tolist() == [30]
     assert trace.uploaded_key_rows == [1]
 
 
@@ -550,7 +548,7 @@ def test_cell_sum_widens_before_empty_filter(
         db.execute("UPDATE orders SET amount=9223372036854775807 WHERE id IN (1,2)")
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    assert total.compute().to_pandas()["value", "total"].tolist() == [2 * (2**63 - 1) + 20]
+    assert total.compute().to_pandas()["total"].tolist() == [2 * (2**63 - 1) + 20]
     assert total.where(total["total"] < 0).compute().to_pandas().empty
     assert len(reads) == len(outputs) == len(trace.native_sql) == 2
     assert trace.returned_rows == [4, 4]
@@ -572,7 +570,7 @@ def test_fixed_aggregate_axis_bridge_reads_explicit_source(
         {"total": amount.sum()}, where=mv.in_population(_regions(session, fixed))
     ).compute()
     assert fixed.to_pandas().iloc[:, 0].tolist() == ["A"]
-    assert result.to_pandas()["value", "total"].tolist() == [40]
+    assert result.to_pandas()["total"].tolist() == [40]
     assert trace.uploaded_key_rows == [1]
 
 
@@ -596,8 +594,8 @@ def test_shared_frame_key_constraint_keeps_complement_masks(
         .compute()
         .to_pandas()
     )
-    assert result["value", "selected"].tolist() == [40 if selected_region == "A" else 0]
-    assert result["value", "other"].tolist() == [20 if selected_region == "A" else 60]
+    assert result["selected"].tolist() == [40 if selected_region == "A" else 0]
+    assert result["other"].tolist() == [20 if selected_region == "A" else 60]
     assert trace.uploaded_key_rows == [2 if selected_region == "A" else 0]
 
 
@@ -619,7 +617,7 @@ def test_aggregate_selection_keeps_reducer_owned_null_policy(
     reads, outputs, locals_ = _capture_stages(monkeypatch)
     if method == "mean":
         result = query.compute().to_pandas()
-        assert result["value", "total"].tolist() == [0]
+        assert result["total"].tolist() == [0]
         assert not any(
             check.received == "mean(nulls='error')"
             for _, request in reads
@@ -660,7 +658,7 @@ def test_aggregate_top_population_keeps_original_parent_ranking(
         .to_pandas()
     )
     assert fixed.to_pandas().iloc[:, 0].tolist() == ["A"]
-    assert rows["value", "total"].tolist() == [40]
+    assert rows["total"].tolist() == [40]
     assert trace.uploaded_key_rows == [1]
 
 
@@ -683,7 +681,7 @@ def test_cell_sum_empty_input_returns_zero(source_query_session: Session) -> Non
     selected = source.where(source["amount"] > 100)
     rows = selected.reduce({"sum": selected["amount"].sum()}).compute().to_pandas()
     assert len(rows) == 1
-    assert rows["value", "sum"].tolist() == [0]
+    assert rows["sum"].tolist() == [0]
 
 
 @pytest.mark.parametrize("operation", ("align", "compare"))
@@ -706,9 +704,9 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
     current_presence = "left_present" if operation == "align" else "current.present"
     baseline_presence = "right_present" if operation == "align" else "base.present"
     current_value = "left.value" if operation == "align" else "value"
-    assert rows["presence", current_presence].tolist() == [True, True, True, False]
-    assert rows["presence", baseline_presence].tolist() == [False, True, True, True]
-    assert rows["value", current_value].dropna().tolist() == [10, 20]
+    assert rows[current_presence].tolist() == [True, True, True, False]
+    assert rows[baseline_presence].tolist() == [False, True, True, True]
+    assert rows[current_value].dropna().tolist() == [10, 20]
 
 
 def test_same_source_outer_alignment_allows_top_zero(
@@ -744,8 +742,8 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
         .compute()
         .to_pandas()
     )
-    assert rows["value", "value"].tolist() == [9007199254740993] * 4
-    assert rows["value", "base.absolute.value"].tolist() == [1] * 4
+    assert rows["value"].tolist() == [9007199254740993] * 4
+    assert rows["base.absolute.value"].tolist() == [1] * 4
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=NULL, baseline=0 WHERE id=4")
     nullable = source.where(source["amount"].is_null())
@@ -756,7 +754,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
         .compute()
         .to_pandas()
     )
-    assert rows["value", "base.absolute.value"].isna().all()
+    assert rows["base.absolute.value"].isna().all()
 
 
 def _sets(session: Session, operation: str) -> mv.Population:
@@ -789,7 +787,7 @@ def test_population_set_algebra_keeps_complete_frame_keys(
         .compute()
         .to_pandas()
     )
-    assert rows["value", "total"].tolist() == [
+    assert rows["total"].tolist() == [
         {"union": 60, "intersection": 20, "difference": 30}[operation]
     ]
 
@@ -816,12 +814,12 @@ def test_grouped_shared_population_consumers_keep_independent_grids(
         .to_pandas()
     )
     assert rows.iloc[:, 0].tolist()[:2] == ["A", "B"]
-    assert rows["value", "selected"].iloc[0] == 30
-    assert rows["value", "other"].iloc[1] == 20
-    assert rows["value", "nullable"].iloc[:2].tolist() == [10, 20]
-    assert pd.isna(rows["value", "nullable"].iloc[2])
+    assert rows["selected"].iloc[0] == 30
+    assert rows["other"].iloc[1] == 20
+    assert rows["nullable"].iloc[:2].tolist() == [10, 20]
+    assert pd.isna(rows["nullable"].iloc[2])
     for name, index in (("selected", 1), ("other", 0)):
-        value = rows["value", name].iloc[index]
+        value = rows[name].iloc[index]
         assert value == 0
 
 
@@ -836,9 +834,7 @@ def test_population_set_terminal_uses_complete_frame_keys(
         rows.iloc[:, 0].tolist()
         == {"union": [2, 3, 1], "intersection": [3], "difference": [2]}[operation]
     )
-    assert rows.columns.equals(
-        pd.MultiIndex.from_tuples([("coordinate", "axis.0")], names=("kind", "name"))
-    )
+    assert rows.columns.equals(pd.Index(["sales.orders"]))
     assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
     assert trace.native_sql == []
     assert trace.uploaded_key_rows == []

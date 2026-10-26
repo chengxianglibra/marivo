@@ -126,7 +126,9 @@ def test_drill_after_original_operations_prepares_related_fields(
         metric = entity.count()
         members = None
     result = session.observe({name: metric}, by=(channel, added), where=where).compute().to_pandas()
-    actual = list(zip(result.iloc[:, 0], result.iloc[:, 1], result["value", name], strict=True))
+    actual = list(
+        zip(result.iloc[:, 0], result[result.attrs["axes"][1]["name"]], result[name], strict=True)
+    )
     if operation == "direct":
         expected = [
             ("Other", "West", 1 if member_count else 5),
@@ -152,4 +154,4 @@ def test_drill_projection_does_not_require_paths_for_removed_metric_roots(
     region = session.catalog.fields.get("sales.customers.region")
     result = session.observe({"retained": amount.sum()}, by=(region,)).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == ["North", "South", "West"]
-    assert result["value", "retained"].tolist() == [30, 30, 5]
+    assert result["retained"].tolist() == [30, 30, 5]

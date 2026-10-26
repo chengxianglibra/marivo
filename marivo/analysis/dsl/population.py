@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, overload
 
 from ibis.common.deferred import Deferred, Just
 
@@ -527,6 +527,16 @@ def coordinates(
     return Population(
         _closed(lambda: build.coordinates(_axes(captured_by), captured_keys), "coordinates")
     )
+
+
+@overload
+def product(*factors: Population | CalendarAxis | TimeScope) -> Population: ...
+
+
+@overload
+def product(
+    *factors: Population | Deferred | CalendarAxis | TimeScope,
+) -> Population | Deferred: ...
 
 
 def product(*factors: Population | Deferred | CalendarAxis | TimeScope) -> Population | Deferred:

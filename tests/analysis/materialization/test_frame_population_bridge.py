@@ -347,7 +347,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
         .to_pandas()
     )
     assert exact.iloc[:, :2].values.tolist() == [["east", "A"], ["west", "B"]]
-    assert exact[("value", "amount")].tolist() == [101, 50]
+    assert exact["amount"].tolist() == [101, 50]
 
 
 def test_producer_checks_survive_top_zero_before_dependent_source_read(

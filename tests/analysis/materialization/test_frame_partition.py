@@ -79,16 +79,16 @@ def test_nested_over_keeps_repeated_values_and_sample_masks(local: LocalFrameSer
         .compute()
         .to_pandas()
     )
-    assert rows[("coordinate", "sample")].tolist() == [0, 1, 2]
-    assert rows[("value", "total")].tolist() == [4, 4, 4]
-    assert rows[("value", "repeated_sum")].tolist() == [12, 12, 12]
-    assert rows[("value", "repeated_mean")].tolist() == [4, 4, 4]
-    assert rows[("value", "row_count")].tolist() == [3, 3, 3]
-    assert rows[("value", "pair_count")].tolist() == [2, 2, 2]
-    assert rows[("value", "corr")].tolist() == pytest.approx([1, 1, 1])
+    assert rows["sample"].tolist() == [0, 1, 2]
+    assert rows["total"].tolist() == [4, 4, 4]
+    assert rows["repeated_sum"].tolist() == [12, 12, 12]
+    assert rows["repeated_mean"].tolist() == [4, 4, 4]
+    assert rows["row_count"].tolist() == [3, 3, 3]
+    assert rows["pair_count"].tolist() == [2, 2, 2]
+    assert rows["corr"].tolist() == pytest.approx([1, 1, 1])
     all_axes = frame.select({"total": frame.over(x.sum(), by=frame.axes)}).compute().to_pandas()
-    assert all_axes[("value", "total")].iloc[:2].tolist() == [1, 3]
-    assert pd.isna(all_axes[("value", "total")].iloc[2])
+    assert all_axes["total"].iloc[:2].tolist() == [1, 3]
+    assert pd.isna(all_axes["total"].iloc[2])
 
 
 def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServices) -> None:
@@ -115,8 +115,8 @@ def test_over_uses_complete_null_safe_large_integer_keys(local: LocalFrameServic
     frame = _memory(local, schema, rows)
     result = frame.select({"total": frame.over(frame["x"].sum(), by=(frame.axes[0],))})
     output = result.compute().to_pandas()
-    assert output[("coordinate", "sample")].tolist() == [5, 4, 3, 2, 1, 0]
-    assert output[("value", "total")].tolist() == [7, 2, 8, 4, 8, 7]
+    assert output["sample"].tolist() == [5, 4, 3, 2, 1, 0]
+    assert output["total"].tolist() == [7, 2, 8, 4, 8, 7]
 
 
 @pytest.mark.parametrize("carrier", ("memory", "pending", "stored"))
@@ -138,8 +138,8 @@ def test_share_uses_current_fixed_data_on_all_carriers(
     share = frame["x"].share(along=frame.axes)
     result = frame.select({"share": share}).compute()
     rows = result.to_pandas()
-    assert rows[("value", "share")].iloc[:2].tolist() == [Decimal("0.25"), Decimal("0.75")]
-    assert pd.isna(rows[("value", "share")].iloc[2])
+    assert rows["share"].iloc[:2].tolist() == [Decimal("0.25"), Decimal("0.75")]
+    assert pd.isna(rows["share"].iloc[2])
     assert result._schema.values[0].unit == "1"
 
 
@@ -147,16 +147,16 @@ def test_share_filter_stage_and_signed_zero_total(local: LocalFrameServices) -> 
     frame = _frame(local, (1, 3))
     selected = frame.select({"share": frame["x"].share(along=frame.axes)})
     after = selected.where(selected["share"] > Decimal("0.5")).compute().to_pandas()
-    assert after[("value", "share")].tolist() == [Decimal("0.75")]
+    assert after["share"].tolist() == [Decimal("0.75")]
     filtered = frame.where(frame["x"] > 1)
     before = filtered.select({"share": filtered["x"].share(along=filtered.axes)})
-    assert before.compute().to_pandas()[("value", "share")].tolist() == [1]
+    assert before.compute().to_pandas()["share"].tolist() == [1]
     cancelled = _frame(local, (1, -1))
     output = cancelled.select({"share": cancelled["x"].share(along=cancelled.axes)})
-    assert output.compute().to_pandas()[("value", "share")].isna().all()
+    assert output.compute().to_pandas()["share"].isna().all()
     signed = _frame(local, (3, -1))
     output = signed.select({"share": signed["x"].share(along=signed.axes)})
-    assert output.compute().to_pandas()[("value", "share")].tolist() == [
+    assert output.compute().to_pandas()["share"].tolist() == [
         Decimal("1.5"),
         Decimal("-.5"),
     ]
@@ -175,11 +175,11 @@ def test_partition_division_masks_zeros_before_reduction(local: LocalFrameServic
     frame = _frame(local, (0, 2))
     divided = frame["x"] / frame["x"]
     output = frame.select({"total": frame.over(divided.sum())})
-    assert output.compute().to_pandas()[("value", "total")].tolist() == [1, 1]
+    assert output.compute().to_pandas()["total"].tolist() == [1, 1]
     assert output.top(0, by=output["total"]).compute().to_pandas().empty
     cancelled = _frame(local, (1, -1))
     output = cancelled.select({"share": cancelled["x"].share(along=cancelled.axes)})
-    assert output.compute().to_pandas()[("value", "share")].isna().all()
+    assert output.compute().to_pandas()["share"].isna().all()
 
 
 def test_over_rejects_different_exact_input_and_session(
@@ -207,8 +207,8 @@ def test_duration_share_and_unknown_unit_follow_existing_division(
     )
     share = frame["x"].share(along=frame.axes)
     output = frame.select({"share": share, "pairs": frame.over(share.pair_count(share))}).compute()
-    assert output.to_pandas()[("value", "share")].tolist() == [0.25, 0.75]
-    assert output.to_pandas()[("value", "pairs")].tolist() == [2, 2]
+    assert output.to_pandas()["share"].tolist() == [0.25, 0.75]
+    assert output.to_pandas()["pairs"].tolist() == [2, 2]
     assert output._schema.values[0].unit is None
     assert isinstance(output._schema, DataSchema)
     assert output._schema.values[0].dtype == ScalarDataType("float64")
@@ -230,7 +230,7 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
     assert selected._schema.values[0].dtype == DecimalDataType(38, 2)
     assert selected._schema.values[1].dtype == ScalarDataType("float64")
     assert selected._schema.values[1].unit is None
-    assert selected.to_pandas()[("value", "total")].tolist() == [Decimal("5.00"), Decimal("5.00")]
+    assert selected.to_pandas()["total"].tolist() == [Decimal("5.00"), Decimal("5.00")]
     saved = pending.persist()
     reopened = case.session.persisted_frame(saved.artifact.id)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
@@ -244,7 +244,7 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     result = reopened.select({"share": reopened["x"].share(along=reopened.axes)}).compute()
-    assert result.to_pandas()[("value", "share")].tolist() == [0.25, 0.75]
+    assert result.to_pandas()["share"].tolist() == [0.25, 0.75]
 
 
 def test_empty_scalar_over_and_all_null_statistic_keep_domains(
@@ -259,7 +259,7 @@ def test_empty_scalar_over_and_all_null_statistic_keep_domains(
     selected = scalar.select(
         {"count": scalar.over(mv.row_count()), "total": scalar.over(scalar["x"].sum())}
     )
-    assert selected.compute().to_pandas()[("value", "total")].tolist() == [2]
+    assert selected.compute().to_pandas()["total"].tolist() == [2]
     empty = scalar.top(0, by=scalar["x"])
     assert empty.select({"total": empty.over(empty["x"].sum())}).compute().to_pandas().empty
     nulls = _frame(local, (None, None))
@@ -268,8 +268,8 @@ def test_empty_scalar_over_and_all_null_statistic_keep_domains(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "total")].isna().all()
-    assert result[("value", "mean")].isna().all()
+    assert result["total"].isna().all()
+    assert result["mean"].isna().all()
 
 
 def test_over_keeps_interval_and_paired_current_axis_facts(
@@ -284,7 +284,7 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert isinstance(interval._schema.axes[0], IntervalDataAxis)
     grouped = interval.select({"rows": interval.over(mv.row_count(), by=interval.axes)})
     assert grouped._schema.axes == interval._schema.axes
-    assert grouped.compute().to_pandas()[("value", "rows")].tolist() == [1]
+    assert grouped.compute().to_pandas()["rows"].tolist() == [1]
     daily = case.session.observe(
         {"x": case.catalog.metrics.get("sales.revenue")}, by=(scope.by(mv.grain("day")),)
     )
@@ -297,7 +297,7 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert output.presence_names == paired.presence_names
     result = output.compute()
     assert result._schema.axes == paired._schema.axes
-    assert result.to_pandas()[("value", "rows")].tolist() == [1, 1]
+    assert result.to_pandas()["rows"].tolist() == [1, 1]
 
 
 def test_over_preserves_wide_integer_sum_type(local: LocalFrameServices) -> None:
@@ -306,7 +306,7 @@ def test_over_preserves_wide_integer_sum_type(local: LocalFrameServices) -> None
     assert isinstance(result._schema, DataSchema)
     assert result._schema.values[0].dtype == DecimalDataType(38, 0)
     assert result._schema.values[0].unit == "USD"
-    assert result.to_pandas()[("value", "total")].tolist() == [Decimal(2**63), Decimal(2**63)]
+    assert result.to_pandas()["total"].tolist() == [Decimal(2**63), Decimal(2**63)]
 
 
 def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order(
@@ -349,8 +349,8 @@ def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order
         .compute()
         .to_pandas()
     )
-    assert result[("coordinate", "month")].tolist() == ["Jan"] * 5 + ["Feb"]
-    assert result[("coordinate", "region")].isna().tolist() == [
+    assert result["month"].tolist() == ["Jan"] * 5 + ["Feb"]
+    assert result["region"].isna().tolist() == [
         False,
         False,
         True,
@@ -358,9 +358,9 @@ def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order
         False,
         False,
     ]
-    assert result[("value", "region_share")].tolist() == [0.125, 0.375, 0.5, 0.25, 0.75, 1]
-    assert result[("value", "month_share")].tolist() == [0.0625, 0.1875, 0.25, 0.125, 0.375, 1]
-    assert result[("value", "reversed")].tolist() == result[("value", "month_share")].tolist()
+    assert result["region_share"].tolist() == [0.125, 0.375, 0.5, 0.25, 0.75, 1]
+    assert result["month_share"].tolist() == [0.0625, 0.1875, 0.25, 0.125, 0.375, 1]
+    assert result["reversed"].tolist() == result["month_share"].tolist()
 
 
 def test_public_month_region_share_journey_stays_fixed_after_source_offline(
@@ -378,9 +378,9 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     month = next(axis for axis in observed.axes if axis.role == "calendar")
     region = next(axis for axis in observed.axes if axis.name == "sales.customer.region")
     original = observed.to_pandas()
-    east = original.loc[original[("coordinate", region.token)] == "east"]
-    assert east[("value", "revenue")].tolist() == [200, 180, 230]
-    east_months = east[("coordinate", month.token)].tolist()
+    east = original.loc[original[region.name] == "east"]
+    assert east["revenue"].tolist() == [200, 180, 230]
+    east_months = east[month.name].tolist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
 
@@ -400,15 +400,15 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
         }
     )
     selected_rows = selected.compute().to_pandas()
-    selected_east = selected_rows.loc[selected_rows[("coordinate", region.token)] == "east"]
-    assert selected_east[("value", "total")].tolist() == [250, 180, 230]
-    assert selected_east[("value", "share")].tolist() == [0.8, 1, 1]
+    selected_east = selected_rows.loc[selected_rows[region.name] == "east"]
+    assert selected_east["total"].tolist() == [250, 180, 230]
+    assert selected_east["share"].tolist() == [0.8, 1, 1]
     filtered = selected.where(selected["share"] > 0.8)
     fixed = filtered.compute().to_pandas()
-    assert fixed[("coordinate", month.token)].tolist() == east_months[1:]
-    assert fixed[("coordinate", region.token)].tolist() == ["east", "east"]
-    assert fixed[("value", "total")].tolist() == [180, 230]
-    assert fixed[("value", "share")].tolist() == [1, 1]
+    assert fixed[month.name].tolist() == east_months[1:]
+    assert fixed[region.name].tolist() == ["east", "east"]
+    assert fixed["total"].tolist() == [180, 230]
+    assert fixed["share"].tolist() == [1, 1]
     saved = filtered.persist()
     reopened = session.persisted_frame(saved.artifact.id)
     assert saved.to_pandas().equals(fixed)
@@ -427,10 +427,10 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
         .compute()
         .to_pandas()
     )
-    assert continued[("value", "original_total")].tolist() == [180, 230]
-    assert continued[("value", "original_share")].tolist() == [1, 1]
-    assert continued[("value", "total")].tolist() == [180, 230]
-    assert continued[("value", "share")].tolist() == [1, 1]
+    assert continued["original_total"].tolist() == [180, 230]
+    assert continued["original_share"].tolist() == [1, 1]
+    assert continued["total"].tolist() == [180, 230]
+    assert continued["share"].tolist() == [1, 1]
 
 
 def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
@@ -501,11 +501,11 @@ def test_partition_cache_distinguishes_literal_carriers(local: LocalFrameService
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "integer")].tolist() == [Decimal(6), Decimal(6)]
-    assert rows[("value", "float")].tolist() == [6.0, 6.0]
-    assert "decimal" in str(rows[("value", "integer")].dtype)
-    assert "double" in str(rows[("value", "float")].dtype)
-    assert "decimal" in str(rows[("value", "decimal")].dtype)
+    assert rows["integer"].tolist() == [Decimal(6), Decimal(6)]
+    assert rows["float"].tolist() == [6.0, 6.0]
+    assert "decimal" in str(rows["integer"].dtype)
+    assert "double" in str(rows["float"].dtype)
+    assert "decimal" in str(rows["decimal"].dtype)
 
 
 def test_top_zero_checks_score_without_sorting(local: LocalFrameServices) -> None:
@@ -515,4 +515,4 @@ def test_top_zero_checks_score_without_sorting(local: LocalFrameServices) -> Non
     with patch.object(pd.DataFrame, "sort_values", side_effect=AssertionError("empty Top sorted")):
         result = frame.top(0, by=frame["x"]).compute().to_pandas()
     assert result.empty
-    assert str(result[("value", "x")].dtype) == "int64[pyarrow]"
+    assert str(result["x"].dtype) == "int64[pyarrow]"

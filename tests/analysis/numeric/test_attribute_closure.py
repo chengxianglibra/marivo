@@ -569,17 +569,17 @@ def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_o
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": baseline})
     selected = comparison.select({"q": comparison["base.relative.q"]}).compute()
-    assert selected.to_pandas()[("value", "q")].tolist() == [10 / 90]
+    assert selected.to_pandas()["q"].tolist() == [10 / 90]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN -50 WHEN 2 THEN -50 WHEN 3 THEN -35 ELSE -40 END"
         )
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "B"]
-    assert rows[("value", "contribution.q")].tolist() == [0.15, 0.1]
-    assert rows[("value", "total.q")].tolist() == [0.25, 0.25]
-    assert rows[("value", "observed_total.q")].tolist() == [10 / 90, 10 / 90]
-    assert rows[("value", "contribution_share.q")].tolist() == [0.6, 0.4]
+    assert rows["contribution.q"].tolist() == [0.15, 0.1]
+    assert rows["total.q"].tolist() == [0.25, 0.25]
+    assert rows["observed_total.q"].tolist() == [10 / 90, 10 / 90]
+    assert rows["contribution_share.q"].tolist() == [0.6, 0.4]
 
 
 @pytest.mark.parametrize("drift", [0.5, 1.0])
@@ -614,9 +614,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
         assert context.witness.tolerance == 0.8
     else:
         rows = selected.attribute(by=(channel,)).compute().to_pandas()
-        assert rows[("value", "contribution.q")].tolist() == [-39.5, -40.0]
-        assert rows[("value", "total.q")].tolist() == [-80.0, -80.0]
-        assert rows[("value", "observed_total.q")].tolist() == [-80.0, -80.0]
+        assert rows["contribution.q"].tolist() == [-39.5, -40.0]
+        assert rows["total.q"].tolist() == [-80.0, -80.0]
+        assert rows["observed_total.q"].tolist() == [-80.0, -80.0]
 
 
 def test_relative_zero_fresh_baseline_is_rejected_before_closure(
@@ -678,26 +678,26 @@ def test_report_preserves_historical_values_with_finer_parent_carrier_and_reorde
         ("current", "A"),
         ("current", "B"),
     ]
-    assert rows[("value", "contribution.q")].tolist() == [
+    assert rows["contribution.q"].tolist() == [
         Decimal("-25"),
         Decimal("-25"),
         Decimal("-17.5"),
         Decimal("-20"),
     ]
-    assert rows[("value", "total.q")].tolist() == [
+    assert rows["total.q"].tolist() == [
         Decimal("-50"),
         Decimal("-50"),
         Decimal("-37.5"),
         Decimal("-37.5"),
     ]
-    assert rows[("value", "observed_total.q")].tolist() == [
+    assert rows["observed_total.q"].tolist() == [
         Decimal("-45"),
         Decimal("-45"),
         Decimal("-40"),
         Decimal("-40"),
     ]
     for name in ("contribution.q", "total.q", "observed_total.q"):
-        assert pa.array(rows[("value", name)]).type == pa.decimal128(38, 4)
+        assert pa.array(rows[name]).type == pa.decimal128(38, 4)
 
 
 def test_report_rejects_float_carrier_for_exact_large_historical_value(
@@ -710,7 +710,7 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
     amount = numeric_session.catalog.fields.get("sales.facts.amount")
     channel = numeric_session.catalog.fields.get("sales.facts.channel")
     selected = numeric_session.observe({"q": amount.sum()}).compute()
-    assert selected.to_pandas()[("value", "q")].tolist() == [Decimal("9007199254740993")]
+    assert selected.to_pandas()["q"].tolist() == [Decimal("9007199254740993")]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=1")
     execute = SourceSession.execute
@@ -750,6 +750,6 @@ def test_duration_linear_sum_retains_final_tick_carrier(
         ("total.q", [-340, -340]),
         ("observed_total.q", [-340, -340]),
     ):
-        values = pa.array(rows[("value", name)])
+        values = pa.array(rows[name])
         assert values.type == pa.duration("us")
         assert values.cast(pa.int64()).to_pylist() == expected

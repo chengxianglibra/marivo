@@ -250,7 +250,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
         keys = pa.array(frame._backing.data.copy_rows()["key"])
         assert keys.type == pa.timestamp("ns", "UTC")
         assert keys.cast(pa.int64()).to_pylist() == list(_TICKS)
-    assert continued.to_pandas()["value", "next"].tolist() == [2, 3, 4, 5]
+    assert continued.to_pandas()["next"].tolist() == [2, 3, 4, 5]
     assert isinstance(loaded._backing, MemoryFrameBacking)
     assert loaded._backing.metadata == metadata
     assert len(terminal_runs(session)) == 1

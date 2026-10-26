@@ -38,10 +38,10 @@ def run(root: Path, phase: str, output: Path) -> None:
             result = session.persisted_frame(artifact)
             frame = result.to_pandas()
             assert snapshot(result, frame=frame) == obj(saved)
-            values = frame[("value", "value")].tolist()
+            values = frame["value"].tolist()
             assert [None if pd.isna(value) else value for value in values] == [2, None, 4]
-            assert frame[("value", "value")].sum() == 6
-            assert frame.loc[frame[("value", "value")] > 0].shape[0] == 2
+            assert frame["value"].sum() == 6
+            assert frame.loc[frame["value"] > 0].shape[0] == 2
             result.show(n=1)
         assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()

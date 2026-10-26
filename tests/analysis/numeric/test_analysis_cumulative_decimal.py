@@ -4,7 +4,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import ibis
-import pandas as pd
 import pytest
 from ibis.backends.duckdb import Backend
 
@@ -114,16 +113,8 @@ def _schema(frame: mv.AnalysisFrame) -> DataSchema:
 def _by_day(frame: mv.AnalysisFrame) -> dict[str, Decimal | float | int]:
     rows = frame.to_pandas()
     if isinstance(_schema(frame).values[0].dtype, DecimalDataType):
-        assert all(isinstance(value, Decimal) for value in rows[("value", "value")])
-    parts = rows.attrs["frozen_coordinates"]
-    assert len(parts) == 1
-    directory = parts[0]["rows"]
-    assert isinstance(directory, pd.DataFrame)
-    labels = dict(zip(directory.iloc[:, 0], directory["nominal_label"], strict=True))
-    return {
-        str(labels[day])[:10]: value
-        for day, value in zip(rows.iloc[:, 0], rows[("value", "value")], strict=True)
-    }
+        assert all(isinstance(value, Decimal) for value in rows["value"])
+    return dict(zip(rows[frame.axes[0].name], rows["value"], strict=True))
 
 
 def _observe(

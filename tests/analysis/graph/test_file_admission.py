@@ -66,7 +66,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             assert calls == [] and source_trace.native_sql == []
             assert terminal_runs(session) == ()
             assert session._runtime.store.resources(session.id) == ()
-        result = query.persist().to_pandas()[("value", "value")].iloc[0]
+        result = query.persist().to_pandas()["value"].iloc[0]
         assert result == {"metadata": 6, "float-sum": 6.5, "integer-mean": 3.0}[case_kind]
         assert session._runtime.store.resources(session.id) == ()
         received = None

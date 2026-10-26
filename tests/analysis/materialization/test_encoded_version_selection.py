@@ -73,7 +73,7 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         members = session.members(profiles, at=anchor)
         assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == [1]
         values = session.read(members, {"label": label.at(anchor)}).compute().to_pandas()
-        assert values[("value", "label")].tolist() == ["new"]
+        assert values["label"].tolist() == ["new"]
         links = session.members(links_entity)
         selected = session.members(
             links_entity, where=label.via((scalar_relation,)).at(anchor) == "new"

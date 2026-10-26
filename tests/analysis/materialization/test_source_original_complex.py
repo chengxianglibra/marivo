@@ -17,7 +17,7 @@ def test_multi_root_original_ratio_recomputes_before_host_finish(
     metric = session.catalog.metrics.get("sales." + case.names.aov)
     trace = capture_source(monkeypatch)
     result = session.observe({"aov": metric}).compute().to_pandas()
-    assert result["value", "aov"].tolist() == [200 / 101]
+    assert result["aov"].tolist() == [200 / 101]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
     assert not any("__original_value" in columns for columns in trace.returned_columns)
@@ -40,8 +40,8 @@ def test_multi_root_selection_restricts_each_actual_fiber(
         .compute()
         .to_pandas()
     )
-    assert result["value", "revenue"].tolist() == [100]
-    assert result["value", "orders"].tolist() == [1]
+    assert result["revenue"].tolist() == [100]
+    assert result["orders"].tolist() == [1]
 
 
 def test_multi_root_missing_group_keeps_empty_zero_alignment(
@@ -63,8 +63,8 @@ def test_multi_root_missing_group_keeps_empty_zero_alignment(
         .compute()
         .to_pandas()
     )
-    assert result["value", "revenue"].tolist() == [0]
-    assert result["value", "orders"].tolist() == [1]
+    assert result["revenue"].tolist() == [0]
+    assert result["orders"].tolist() == [1]
 
 
 def test_multi_root_drill_recomputes_each_selected_contribution_root(
@@ -89,6 +89,6 @@ def test_multi_root_drill_recomputes_each_selected_contribution_root(
         .compute()
         .to_pandas()
     )
-    assert result["value", "revenue"].tolist() == [100]
-    assert result["value", "orders"].tolist() == [1]
+    assert result["revenue"].tolist() == [100]
+    assert result["orders"].tolist() == [1]
     assert result.iloc[:, 1].tolist() == ["web"]

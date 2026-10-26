@@ -110,8 +110,8 @@ def test_mixed_condition_public_consumers(
     assert isinstance(condition, Deferred)
     observed = session.observe({"amount": amount.sum()}, where=condition).compute().to_pandas()
     intrinsic = session.observe({"amount": amount.sum().where(condition)}).compute().to_pandas()
-    assert observed[("value", "amount")].tolist() == [total]
-    assert intrinsic[("value", "amount")].tolist() == [total]
+    assert observed["amount"].tolist() == [total]
+    assert intrinsic["amount"].tolist() == [total]
     selected = session.frame(session.members(entity, where=condition)).compute().to_pandas()
     assert selected.iloc[:, 0].tolist() == identities
 
@@ -145,7 +145,7 @@ def test_correlated_null_coordinates_and_composite_identity(predicate_session: m
     amount = session.catalog.fields.get("sales.order.amount")
     joint = mv.coordinates(by=(region, channel), keys=(("east", "web"), ("west", None)))
     selected = session.observe({"amount": amount.sum()}, where=mv.in_population(joint)).compute()
-    assert selected.to_pandas()[("value", "amount")].tolist() == [100]
+    assert selected.to_pandas()["amount"].tolist() == [100]
     all_keys = mv.coordinates(
         by=(region, channel),
         keys=(("east", "web"), ("east", None), ("west", "web"), ("west", None)),
@@ -158,7 +158,7 @@ def test_correlated_null_coordinates_and_composite_identity(predicate_session: m
     population = mv.coordinates(by=(mv.identity(tenant),), keys=((("A", "1"),),))
     tenant_amount = session.catalog.fields.get("sales.tenant_order.amount")
     result = session.observe({"amount": tenant_amount.sum()}, where=mv.in_population(population))
-    assert result.compute().to_pandas()[("value", "amount")].tolist() == [7]
+    assert result.compute().to_pandas()["amount"].tolist() == [7]
     with pytest.raises((AnalysisError, SemanticError), match="None"):
         mv.coordinates(by=(mv.identity(tenant),), keys=((("A", None),),))
 
@@ -184,7 +184,7 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
         .compute()
         .to_pandas()
     )
-    assert result[("value", "none")].tolist() == [0]
+    assert result["none"].tolist() == [0]
     assert result.iloc[0, 1:].tolist() == [0, 0, 165, 165]
     assert session.frame(empty.where(~mv.in_population(empty))).compute().to_pandas().empty
     output = mv.coordinates(by=(region,), keys=(("east",), ("missing",)))
@@ -193,8 +193,8 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
     )
     values = retained.compute().to_pandas()
     assert values.iloc[:, 0].tolist() == ["east", "missing"]
-    assert values[("value", "amount")].iloc[0] == 60
-    assert values[("value", "amount")].tolist() == [60, 0]
+    assert values["amount"].iloc[0] == 60
+    assert values["amount"].tolist() == [60, 0]
 
 
 @pytest.mark.parametrize("boolean_operator", ("and", "or"))
@@ -241,7 +241,7 @@ def test_population_count_is_not_reselected(predicate_session: mv.Session) -> No
     )
     assert result.iloc[0].tolist() == [4, 1, 60]
     unconditioned = session.observe({"facts": fact_count}).compute().to_pandas()
-    assert unconditioned[("value", "facts")].tolist() == [3]
+    assert unconditioned["facts"].tolist() == [3]
     with pytest.raises((AnalysisError, SemanticError)):
         session.observe({"population": population.count()}, where=condition)
 
@@ -258,7 +258,7 @@ def test_independent_roots_and_common_weighted_pairs(predicate_session: mv.Sessi
         .compute()
         .to_pandas()
     )
-    assert independent[("value", "net")].tolist() == [160]
+    assert independent["net"].tolist() == [160]
     paired = (
         session.observe(
             {"weighted": amount.weighted_mean(weight=weight)}, where=_condition(session, "or")
@@ -266,7 +266,7 @@ def test_independent_roots_and_common_weighted_pairs(predicate_session: mv.Sessi
         .compute()
         .to_pandas()
     )
-    assert paired[("value", "weighted")].tolist() == [40]
+    assert paired["weighted"].tolist() == [40]
 
 
 def test_pure_field_branch_demand_and_constant_producer_failure(
@@ -285,7 +285,7 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
         .compute()
         .to_pandas()
     )
-    assert result[("value", "amount")].tolist() == [100]
+    assert result["amount"].tolist() == [100]
     entity = session.catalog.entities.get("sales.order")
     source = session.read(session.members(entity), {"amount": amount})
     invalid = source.select({"invalid": source["amount"] * 1e308})

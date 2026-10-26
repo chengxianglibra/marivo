@@ -986,7 +986,7 @@ def test_original_scalar_lookup_trusts_declared_matches(
         ordinary_rows = (
             session.observe({"q": value.sum()}, by=(channel,), where=where).compute().to_pandas()
         )
-        assert ordinary_rows["value", "q"].tolist() == [10]
+        assert ordinary_rows["q"].tolist() == [10]
         output = evaluate_attribute_inputs(
             _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
         )
@@ -997,7 +997,7 @@ def test_original_scalar_lookup_trusts_declared_matches(
             assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
         return
     rows = session.observe({"q": value.sum()}, by=(channel,), where=where).compute().to_pandas()
-    assert rows[("value", "q")].sum() == (30 if case == "ambiguous_predicate" else 40)
+    assert rows["q"].sum() == (30 if case == "ambiguous_predicate" else 40)
     output = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.sum()}, where=where, by=()), by=(channel,))
     )
@@ -1178,9 +1178,9 @@ def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: S
     assert list(actual.iloc[:, :2].itertuples(index=False, name=None)) == list(
         expected.iloc[:, :2].itertuples(index=False, name=None)
     )
-    assert actual["value", "q"].tolist() == expected["value", "q"].tolist() == [1] * 4
-    assert actual["value", "reference.baseline.q"].tolist() == expected["value", "q"].tolist()
-    assert actual["value", "reference.absolute.q"].tolist() == [0] * 4
+    assert actual["q"].tolist() == expected["q"].tolist() == [1] * 4
+    assert actual["reference.baseline.q"].tolist() == expected["q"].tolist()
+    assert actual["reference.absolute.q"].tolist() == [0] * 4
 
 
 def test_source_capture_copies_metrics_without_business_reads(
@@ -1276,8 +1276,8 @@ def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
         ("east", "B"): Decimal("10.02"),
     }
     for name in ("total.q", "observed_total.q"):
-        assert rows[("value", name)].tolist() == [Decimal("15.03")] * 3
-        assert pa.array(rows[("value", name)]).type == pa.decimal128(38, 4)
+        assert rows[name].tolist() == [Decimal("15.03")] * 3
+        assert pa.array(rows[name]).type == pa.decimal128(38, 4)
     assert len(captured) == 2
     for root in captured:
         scale = 2 if root.layout.scope == "parent" else 4
@@ -1324,7 +1324,7 @@ def test_attribute_transport_depends_on_groups_not_source_rows(
     selected = session.observe({"q": value.sum()}).compute()
     trace = capture_source(monkeypatch)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert result[("value", "contribution.q")].tolist() == [source_rows // 2] * 2
+    assert result["contribution.q"].tolist() == [source_rows // 2] * 2
     assert trace.returned_rows == [1, 2]
     assert all(
         not any(c.startswith("__original_id.") for c in columns)

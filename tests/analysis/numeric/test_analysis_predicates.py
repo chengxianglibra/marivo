@@ -49,10 +49,10 @@ def test_numeric_string_category_persists_and_exports(
     saved = selected.persist()
     frame = saved.to_pandas()
     assert frame[ordinary_columns(frame)[0]].tolist() == ["A"]
-    assert frame[("value", "value")].tolist() == ["123"]
+    assert frame["value"].tolist() == ["123"]
     restored = case.session.persisted_frame(saved.artifact.id)
     assert restored.to_pandas().equals(frame)
-    assert frame.loc[frame[("value", "value")] == "123"].equals(frame)
+    assert frame.loc[frame["value"] == "123"].equals(frame)
     assert selected.compute().to_pandas().equals(frame)
 
 
@@ -83,11 +83,11 @@ def test_public_multi_input_source_and_exported_pandas(
     frame = completed.to_pandas()
     predicate = (completed["amount"] > 0) & (completed["amount"] < completed["twice"])
     selected = completed.where(predicate).compute().to_pandas()
-    matched = frame.loc[
-        (frame[("value", "amount")] > 0) & (frame[("value", "amount")] < frame[("value", "twice")])
-    ].reset_index(drop=True)
+    matched = frame.loc[(frame["amount"] > 0) & (frame["amount"] < frame["twice"])].reset_index(
+        drop=True
+    )
     assert selected.equals(matched)
-    assert set(selected.iloc[:, 1]) == expected
+    assert set(selected[selected.attrs["axes"][1]["name"]]) == expected
 
 
 @pytest.mark.release
@@ -110,11 +110,11 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
     values = _amounts(case)
     original = values.persist()
     frame = original.to_pandas()
-    assert frame[("value", "value")].isna().sum() == 1
+    assert frame["value"].isna().sum() == 1
     selected = values.where(~values["value"].is_null())
     positive = selected.where(selected["value"] > 0).persist()
-    assert positive.to_pandas().iloc[:, 1].tolist() == ["A", "B"]
-    assert positive.to_pandas()[("value", "value")].tolist() == [60, 120]
+    assert positive.to_pandas()[positive.axes[1].name].tolist() == ["A", "B"]
+    assert positive.to_pandas()["value"].tolist() == [60, 120]
     assert values.where(values["value"] > 0).compute().to_pandas().equals(positive.to_pandas())
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
@@ -132,7 +132,7 @@ ms.load = unavailable
 session = mv.session.resume(sys.argv[1])
 values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
-selected = frame.loc[frame[("value", "value")] > 0].reset_index(drop=True)
+selected = frame.loc[frame["value"] > 0].reset_index(drop=True)
 assert selected.equals(saved.to_pandas())
 assert len(terminal_runs(session)) == 2
 """
@@ -175,17 +175,17 @@ def test_public_decimal_field_comparison(
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + amount
     matched = values.where(values["value"] == values["value"]).compute()
-    assert set(matched.to_pandas().iloc[:, 1]) == set(totals)
+    assert set(matched.to_pandas()[matched.axes[1].name]) == set(totals)
     threshold = Decimal("0.00")
     saved = values.where(values["value"] > threshold).persist()
     frame = saved.to_pandas()
     assert set(frame[ordinary_columns(frame)[0]]) == {
         member for member, total in totals.items() if total > 0
     }
-    assert all(isinstance(value, Decimal) for value in frame[("value", "value")])
+    assert all(isinstance(value, Decimal) for value in frame["value"])
     restored = case.session.persisted_frame(saved.artifact.id)
     assert restored.to_pandas().equals(frame)
-    assert frame.loc[frame[("value", "value")] > threshold].equals(frame)
+    assert frame.loc[frame["value"] > threshold].equals(frame)
 
 
 def test_public_duration_field_comparison(
@@ -220,7 +220,7 @@ def test_public_duration_field_comparison(
     assert set(frame[ordinary_columns(frame)[0]]) == expected
     import pandas as pd
 
-    dtype = frame[("value", "value")].dtype
+    dtype = frame["value"].dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("ns")
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
     runs_before = terminal_runs(case.session)

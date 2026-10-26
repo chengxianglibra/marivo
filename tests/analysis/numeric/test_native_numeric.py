@@ -20,7 +20,7 @@ from tests.datasource.source_cases import SourceData, source_case
 
 
 def _value(result: mv.AnalysisFrame) -> pd.Series:
-    return result.to_pandas()[("value", "value")]
+    return result.to_pandas()["value"]
 
 
 @pytest.mark.parametrize(
@@ -75,8 +75,8 @@ def test_native_weighted_and_mean(
         where=mv.in_population(members),
     ).compute()
     total_values = total.to_pandas()
-    assert total_values[("value", "weighted")].tolist() == pytest.approx([expected])
-    assert float(total_values[("value", "mean")].iloc[0]) == pytest.approx(2.34, abs=0.01)
+    assert total_values["weighted"].tolist() == pytest.approx([expected])
+    assert float(total_values["mean"].iloc[0]) == pytest.approx(2.34, abs=0.01)
     saved = observed.persist()
     raw = (
         session.read(
@@ -89,10 +89,9 @@ def test_native_weighted_and_mean(
         .compute()
         .to_pandas()
     )
-    pair = raw[("value", "value")].notna() & raw[("value", "weight")].notna()
+    pair = raw["value"].notna() & raw["weight"].notna()
     assert float(
-        (raw[("value", "value")].loc[pair] * raw[("value", "weight")].loc[pair]).sum()
-        / raw[("value", "weight")].loc[pair].sum()
+        (raw["value"].loc[pair] * raw["weight"].loc[pair]).sum() / raw["weight"].loc[pair].sum()
     ) == pytest.approx(expected)
     assert saved.to_pandas().equals(session.persisted_frame(saved.artifact.id).to_pandas())
     coordinate = session.catalog.fields.get("sales.facts.category")
@@ -113,11 +112,11 @@ def test_native_weighted_and_mean(
         .compute()
         .to_pandas()
     )
-    assert grouped[("value", "weighted")].dropna().tolist() == pytest.approx([expected])
+    assert grouped["weighted"].dropna().tolist() == pytest.approx([expected])
     # Direct source means follow the independently executed native SQL carrier.
-    assert grouped[("value", "mean")].tolist() == [row[0] for row in expected_mean]
+    assert grouped["mean"].tolist() == [row[0] for row in expected_mean]
     if value_type.startswith("DECIMAL"):
-        assert all(isinstance(value, Decimal) for value in raw[("value", "value")].dropna())
+        assert all(isinstance(value, Decimal) for value in raw["value"].dropna())
         expected_a = ((Decimal("1.01") + Decimal("1.02")) / 2).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
@@ -236,7 +235,7 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
             weights = session.read(
                 members, {"weight": session.catalog.fields.get("sales.facts.weight")}
             ).compute()
-            assert weights.to_pandas()[("value", "weight")].tolist() == [2**63 - 1] * 2
+            assert weights.to_pandas()["weight"].tolist() == [2**63 - 1] * 2
         result = session.observe(
             {"value": session.catalog.metrics.get("sales.weighted")},
             by=(scope,),
@@ -388,9 +387,7 @@ def test_mixed_component_attribution_source_and_fixed(
     changed_rows = changed.to_pandas()
     for method in methods:
         expected = 1.0 if method == "weighted" else 1.0 / weight
-        assert changed_rows[("value", f"reference.absolute.{method}")].tolist() == pytest.approx(
-            [expected]
-        )
+        assert changed_rows[f"reference.absolute.{method}"].tolist() == pytest.approx([expected])
     assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed_rows)
 
 
@@ -488,7 +485,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         match={"reference": mv.ordinal()},
     ).persist()
     for result in (fixed, session.persisted_frame(fixed.artifact.id)):
-        values = result.to_pandas()[("value", "reference.absolute.value")]
+        values = result.to_pandas()["reference.absolute.value"]
         assert values.tolist() == [Decimal("1.01")]
         dtype = values.dtype
         precision = int(value_type.split("(")[1].split(",")[0])
@@ -575,7 +572,7 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         match={"reference": mv.ordinal()},
     ).persist()
-    assert result.to_pandas()[("value", "reference.relative.value")].tolist() == [1.0]
+    assert result.to_pandas()["reference.relative.value"].tolist() == [1.0]
     current_values, baseline_values = _value(current.compute()), _value(baseline.compute())
     assert ((current_values - baseline_values) / baseline_values.abs()).tolist() == [1.0]
     assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())

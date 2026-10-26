@@ -359,7 +359,7 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     assert transported[0].column(0).type == physical
     assert transported[0].column(0).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]
     assert transported[0].column(1).to_pylist() == ["A", "B", "C"]
-    assert computed.to_pandas()["value", "amount"].tolist() == [50]
+    assert computed.to_pandas()["amount"].tolist() == [50]
     assert terminal_runs(session) == ()
     assert isinstance(computed._backing, MemoryFrameBacking)
     facts = computed._backing.metadata.audit.source_facts

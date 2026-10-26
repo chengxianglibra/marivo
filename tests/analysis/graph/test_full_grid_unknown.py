@@ -85,18 +85,9 @@ def _mask(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep the original three dates and apply a separate business policy."""
     result = frame.copy(deep=True)
     calendar = next(axis for axis in frame.attrs["axes"] if axis["role"] == "calendar")
-    name = calendar["token"]
-    descriptor = calendar["descriptor"]
-    directory = next(
-        part["rows"]
-        for part in frame.attrs["frozen_coordinates"]
-        if part["name"] == descriptor["frozen"]["directory_name"]
-    )
-    key = descriptor["columns"][0]["slot_id"]
-    uncovered_keys = directory.loc[directory["actual_start"] == START + timedelta(days=1), key]
-    uncovered = result[("coordinate", name)].isin(uncovered_keys)
+    uncovered = result[calendar["name"] + ".actual_start"] == START + timedelta(days=1)
     assert uncovered.sum() == 3
-    result.loc[uncovered, ("value", "value")] = pd.NA
+    result.loc[uncovered, "value"] = pd.NA
     return result
 
 
@@ -109,11 +100,11 @@ def test_public_full_grid_unknown(
     session = mv.session.get_or_create("business-coverage", timezone="UTC")
     artifact = _query(session).persist()
     raw = artifact.to_pandas()
-    assert len(raw) == 9 and not raw[("value", "value")].isna().any()
-    assert sorted(raw[("value", "value")].tolist()) == [0] * 6 + [1, 2, 7]
+    assert len(raw) == 9 and not raw["value"].isna().any()
+    assert sorted(raw["value"].tolist()) == [0] * 6 + [1, 2, 7]
     frame = _mask(raw)
-    assert frame[("value", "value")].isna().sum() == 3
-    assert sorted(frame[("value", "value")].dropna().tolist()) == [0] * 4 + [1, 7]
+    assert frame["value"].isna().sum() == 3
+    assert sorted(frame["value"].dropna().tolist()) == [0] * 4 + [1, 7]
     artifact.show(n=0)
     text = capsys.readouterr().out
     assert "rows: 9" in text and ".to_pandas()" in text
@@ -136,8 +127,8 @@ def test_public_full_grid_unknown(
     )
     # A raw forecast recipe cannot silently consume a business-masked NA.
     with pytest.raises(ValueError):
-        forecast(frame[("value", "value")])
-    assert len(forecast(raw[("value", "value")])) == 2
+        forecast(frame["value"])
+    assert len(forecast(raw["value"])) == 2
     assert len(terminal_runs(session)) == before
     for path in receipt_paths(coverage_project, artifact):
         contents = path.read_bytes()
@@ -184,7 +175,7 @@ output = session.persisted_frame(state['artifact'])
 rows = output.to_pandas()
 assert snapshot(output, frame=rows) == state['snapshot']
 masked = _mask(rows)
-assert masked[('value','value')].isna().sum() == 3
+assert masked['value'].isna().sum() == 3
 assert segments(masked, threshold=-1)['count'].tolist() == [1]*6
 assert len(terminal_runs(session)) == before
 """
@@ -214,10 +205,10 @@ def test_public_duration_business_coverage(
     original = query.persist()
     ratio = query.select({"value": query["value"] / query["value"]}).persist()
     original_rows = original.to_pandas()
-    original_values = original_rows[("value", "value")]
+    original_values = original_rows["value"]
     dtype = original_values.dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("us")
-    assert _mask(original_rows)[("value", "value")].isna().sum() == 3
+    assert _mask(original_rows)["value"].isna().sum() == 3
     before = len(terminal_runs(session))
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -225,8 +216,8 @@ def test_public_duration_business_coverage(
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     frame = _mask(ratio.to_pandas())
-    assert frame[("value", "value")].isna().sum() == 7
-    assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
+    assert frame["value"].isna().sum() == 7
+    assert frame["value"].dropna().tolist() == [1.0, 1.0]
     assert len(terminal_runs(session)) == before
 
 
@@ -238,7 +229,7 @@ def test_business_coverage_source_selection_keeps_original_support(
     original = _query(session).persist()
     raw = original.to_pandas()
     masked = _mask(raw)
-    selected = masked.loc[masked[("value", "value")].notna()].copy()
+    selected = masked.loc[masked["value"].notna()].copy()
     assert len(selected) == 6
     # Selecting represented data keeps the original nominal and actual bounds;
     # a removed middle date must never make the two surviving dates adjacent.

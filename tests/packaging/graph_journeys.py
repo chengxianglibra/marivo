@@ -96,23 +96,14 @@ def _frame(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> pd
     if frame is None:
         return plain(result)
     exported = frame.copy()
-    labels: list[str] = []
-    key = 0
-    for label in exported.columns:
-        assert isinstance(label, tuple) and len(label) == 2
-        kind, name = label
-        if kind == "value":
-            assert isinstance(name, str)
-            labels.append(name)
-        elif kind == "presence":
-            assert isinstance(name, str)
-            labels.append("presence." + name)
-        else:
-            assert kind == "coordinate"
-            labels.append(f"key_{key}")
-            key += 1
-    exported.columns = labels
-    return exported
+    names: dict[str, str] = {}
+    for index, axis in enumerate(result.axes):
+        column = (
+            axis.name if axis.role in ("field", "identity", "calendar") else axis.name + ".start"
+        )
+        names[column] = f"key_{index}"
+    names.update((name, "presence." + name) for name in result.presence_names)
+    return exported.rename(columns=names)
 
 
 def _ordinary_keys(frame: pd.DataFrame) -> tuple[str, ...]:

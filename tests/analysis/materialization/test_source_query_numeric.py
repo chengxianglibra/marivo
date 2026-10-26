@@ -109,7 +109,7 @@ def test_native_numeric_field_filters_and_top_preserve_nulls(
         trace = capture_source(monkeypatch)
         for query, identities in queries:
             frame = query.compute().to_pandas()
-            assert [key[-1] for key in frame[("coordinate", "axis.0")]] == identities
+            assert [key[-1] for key in frame[frame.attrs["axes"][0]["name"]]] == identities
         assert trace.uploaded_key_rows == []
 
 
@@ -143,12 +143,12 @@ def test_source_numeric_aggregate_frame_selection_and_explicit_bridge(
         consumer = session.observe({"n": big.count()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
         frame = fixed.to_pandas()
-        assert frame[("coordinate", "axis.0")].tolist() == ["C"]
-        assert frame[("value", "value")].tolist() == [
+        assert frame[frame.attrs["axes"][0]["name"]].tolist() == ["C"]
+        assert frame["value"].tolist() == [
             {"sum": 110, "min": 50, "max": 60, "mean": 55, "weighted_mean": 55}[method]
         ]
         counts = consumer.compute().to_pandas()
-        assert counts[("value", "n")].tolist() == [2]
+        assert counts["n"].tolist() == [2]
         assert trace.uploaded_key_rows == [1]
 
 
@@ -176,7 +176,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         assert isinstance(native, pd.DataFrame)
         frame = source.compute().to_pandas()
         assert frame.iloc[:, 0].tolist() == [("t1", 1)]
-        assert frame["value", "big"].tolist() == native.big.tolist()
+        assert frame["big"].tolist() == native.big.tolist()
         # Fixed host integer data retains its exact current-row predicate.
         category = session.catalog.fields.get("sales.facts.category")
         fixed = session.values(
@@ -186,7 +186,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         ).compute()
         selected = fixed.where(fixed["big"] > 2**53).compute().to_pandas()
         assert selected.iloc[:, 0].tolist() == ["A"]
-        assert selected["value", "big"].tolist() == [2**53 + 1]
+        assert selected["big"].tolist() == [2**53 + 1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -217,7 +217,7 @@ def test_native_numeric_parent_failures_survive_top_zero(
         fine = session.observe({"value": metric}, by=(category,))
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
-            actual = fine.compute().to_pandas()["value", "value"]
+            actual = fine.compute().to_pandas()["value"]
             assert actual.iloc[0] == Decimal(2**63)
             assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
         else:
@@ -264,8 +264,8 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         )
         trace = capture_source(monkeypatch)
         frame = source.where(source["amount"] > Decimal("2.5")).compute().to_pandas()
-        assert frame[("coordinate", "axis.0")].tolist() == [("t3", 3)]
-        assert frame[("value", "amount")].tolist() == [Decimal("3.75")]
+        assert frame[frame.attrs["axes"][0]["name"]].tolist() == [("t3", 3)]
+        assert frame["amount"].tolist() == [Decimal("3.75")]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -325,7 +325,7 @@ def test_nonnullable_float_source_keeps_valid_nan_through_filter_and_top(
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
-        values = pa.array(source.compute().to_pandas()["value", "amount"])
+        values = pa.array(source.compute().to_pandas()["amount"])
         assert values.null_count == 0
         assert sum(value.as_py() != value.as_py() for value in values) == 1
         for frame in (source.where(source["amount"].is_null()), source.top(0, by=source["amount"])):
@@ -360,7 +360,7 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
             selected = source.where(source["value"] < 0)
             selected = selected.top(1, by=selected["value"])
             saved = selected.persist()
-            values = saved.to_pandas()["value", "value"]
+            values = saved.to_pandas()["value"]
             assert values.tolist() == [Decimal(-(2**63) + 3)]
             assert str(values.dtype) == "decimal128(38, 0)[pyarrow]"
             assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
@@ -443,5 +443,5 @@ def test_decimal_overflow_matches_native_result_or_failure(
             assert error.value.expected and error.value.received and error.value.repair
         else:
             saved = source.persist()
-            assert saved.to_pandas()["value", "value"].tolist() == [expected]
+            assert saved.to_pandas()["value"].tolist() == [expected]
             assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())

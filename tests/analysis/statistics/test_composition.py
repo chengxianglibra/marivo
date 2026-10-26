@@ -37,9 +37,9 @@ def test_direct_score_runs_and_next_business_round(
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe({"value": field.sum(time=time)}, by=(grid,)).compute()
     exported = artifact.to_pandas()
-    assert exported[("value", "value")].tolist() == [-2, 2, -2]
+    assert exported["value"].tolist() == [-2, 2, -2]
     absolute = exported.copy(deep=True)
-    absolute[("value", "value")] = exported[("value", "value")].abs()
+    absolute["value"] = exported["value"].abs()
     direct = segments(absolute, threshold=1)
     assert direct["count"].tolist() == [3]
     assert direct.duration.tolist() == [pd.Timedelta(days=3)]
@@ -49,15 +49,15 @@ def test_direct_score_runs_and_next_business_round(
     for method in ("mad", "zscore"):
         score = deviation(plain(artifact), method)
         scored = exported.copy(deep=True)
-        scored[("value", "value")] = score.score
+        scored["value"] = score.score
         intervals = segments(scored)
         assert intervals["count"].tolist() == [1]
         assert str(intervals.start.iloc[0]).startswith("2026-08-02")
         assert str(intervals.end.iloc[0]).startswith("2026-08-03")
     constant = exported.copy(deep=True)
-    constant[("value", "value")] = 1
+    constant["value"] = 1
     zero_scale = deviation(plain(artifact).assign(value=1), "zscore")
-    constant[("value", "value")] = zero_scale.score
+    constant["value"] = zero_scale.score
     assert segments(constant).empty
     assert run_ids(session) == before
     axis = session.catalog.fields.get("sales.order.channel")

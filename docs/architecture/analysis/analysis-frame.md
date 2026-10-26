@@ -43,22 +43,31 @@ compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢�
 `to_pandas()` 只接受完整内存或持久 Frame，返回隔离副本；表达式须先显式
 `compute()` 或 `persist()` 并使用返回对象。固定数据上的派生运算同样保持惰性。
 
-列为两级 MultiIndex，级名是 `kind` 和 `name`：
+导出只有一种可读平面表布局，列名为普通字符串。坐标在前，随后是完整值名称与独立
+presence 名称；presence 为非空布尔值，与值 NA 和合法零分开。
 
-| kind | name 与单元格含义 |
+| 轴 | 列与单元格含义 |
 | --- | --- |
-| `coordinate` | 当前轴 token；复合轴每个单元格保留完整键 tuple |
-| `value` | 完整输出名称，可通过 `frame.output_names` 查询 |
-| `presence` | 独立非空布尔值，与数值 NA 和合法零分开 |
+| 普通字段或身份 | 完整轴名；复合身份保持完整键 tuple |
+| 日历 | 轴名对应可读标签，另有 `.actual_start`、`.actual_end`、`.timezone` |
+| 区间 | `.start`、`.end`、`.timezone` |
+| 配对时间 | 分别以 `.left`、`.right` 为前缀应用对应端点布局 |
 
-零轴或没有 presence 的 Frame 可不含相应列组。`df.attrs["axes"]` 中的
-`token/name/role/key_names/at` 描述轴；使用 token 对应 coordinate 列，不依赖固定
-轴位置。`units`、`comparisons` 和 `frozen_coordinates` 保留单位、比较及冻结坐标说明。
-内部 descriptor 是静态说明数据，不承诺稳定的反序列化或重新导入协议。
+时间坐标按完整冻结键映射，保留当前行序；缺配对端点为 NA，不代表完整结果行缺侧。
+实际边界为精确 UTC 时间戳，时区取自冻结说明；内置标签保留 ISO 文本，命名日历标签
+解码为原有标量类型。标签不授予跨 Frame 身份或观察范围等价性。
 
-导出保留物理数值、缺失和时间载体；列名或角色不能证明应转成 float，不统一强制数值转换
-或以零填 NA。修改导出数据和 attrs 不改变 Frame，也不能恢复语义定义、执行图或新的计算
-权限。呈现可以命名、排序和格式化；后续 typed 运算仍从保留的 Frame 继续。
+`axis_names={frame_axis: "name"}` 可显式命名当前精确 Frame 输入上的轴；名称须为非空、
+无首尾空白的可打印字符串。生成列名必须唯一，冲突须通过 axis_names 或 select 重命名，
+不覆盖或自动编号。别名仅改变导出列名，不改写捕获的轴元数据；值和 presence 名不变。
+
+`df.attrs["axes"]` 保留 `token/name/role/key_names/at` 与内部 descriptor；`units`、
+`comparisons`、`frozen_coordinates` 保留冻结说明。它们均为隔离静态副本，不承诺稳定
+反序列化协议。普通表格使用无需解析这些 attrs，原始存储键由内部数据合同拥有。
+
+导出保留物理数值、缺失和时间载体，不统一转 float 或填零。修改数据和 attrs 不影响
+Frame，不恢复语义定义或计算权限；后续 typed 运算继续使用 Frame。
+show 的有界预览复用相同坐标解释，重名表头附加角色/token 标识，不调用全量导出。
 
 ## 值、轴与句柄
 

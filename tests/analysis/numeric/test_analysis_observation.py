@@ -53,7 +53,7 @@ def _source_binding(frame: mv.AnalysisFrame) -> SourceFrameBinding:
 
 
 def _by_member(frame: pd.DataFrame) -> pd.Series:
-    return frame.set_index(frame.columns[-2])[("value", "value")]
+    return frame.set_index(frame.columns[-2])["value"]
 
 
 def _extend(case: DslCase, *, physical: str = "", definitions: str = "") -> None:
@@ -86,7 +86,7 @@ session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 fixed = session.persisted_frame(sys.argv[2])
 assert isinstance(fixed, mv.AnalysisFrame)
-actual = fixed.to_pandas()[('value','value')].iloc[0]
+actual = fixed.to_pandas()['value'].iloc[0]
 assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
 assert run_ids(session) == before
 """
@@ -161,7 +161,7 @@ def test_sliced_weighted_mean_filters_pairs_before_reduction(
     assert rows.loc[["B", "D"]].isna().all()
     expected = (450**2 + 400**2) / (450 + 400)
     assert _observe(case, expression, overall=True).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == pytest.approx([expected])
 
 
@@ -315,9 +315,9 @@ def test_ratio_accepts_a_negative_sum_denominator(
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == pytest.approx([-1 / 450, -1 / 150, -1 / 400])
     assert pd.isna(rows.loc["D"])
-    assert _observe(case, expression, overall=True).compute().to_pandas()[
-        ("value", "value")
-    ].tolist() == [-3 / 1000]
+    assert _observe(case, expression, overall=True).compute().to_pandas()["value"].tolist() == [
+        -3 / 1000
+    ]
 
 
 def test_weighted_mean_preserves_pairs_and_original_rollup(
@@ -348,7 +348,7 @@ def test_weighted_mean_preserves_pairs_and_original_rollup(
     assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
     assert rows.loc["C"] == 400
     rolled = _observe(case, expression, overall=True).persist()
-    assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx([2600 / 7])
+    assert rolled.to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
     _assert_cold_value(case, rolled.artifact.id, 2600 / 7)
     path = receipt_paths(case.root, saved)[0]
     missing = path.with_name(path.name + ".missing")
@@ -394,9 +394,7 @@ def test_observation_preserves_full_member_identity(
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas()).to_dict()
     assert rows[("A", "x")] == 450 and rows[("A", "y")] == 700
-    assert _observe(case, expression, overall=True).compute().to_pandas()[
-        ("value", "value")
-    ].tolist() == [425]
+    assert _observe(case, expression, overall=True).compute().to_pandas()["value"].tolist() == [425]
 
 
 def test_nested_linear_keeps_each_original_component(
@@ -412,9 +410,7 @@ def test_nested_linear_keeps_each_original_component(
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [1, 1, 1]
     assert rows.loc["D"] == 0
-    assert _observe(case, expression, overall=True).compute().to_pandas()[
-        ("value", "value")
-    ].tolist() == [3]
+    assert _observe(case, expression, overall=True).compute().to_pandas()["value"].tolist() == [3]
 
 
 def test_observation_rejects_wrong_or_extra_root_routes(
@@ -477,7 +473,7 @@ def test_common_condition_reaches_each_leaf_before_reduction(
         },
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
         where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
-    ).compute().to_pandas()[("value", "value")].tolist() == [425]
+    ).compute().to_pandas()["value"].tolist() == [425]
 
 
 @pytest.mark.parametrize(
@@ -496,4 +492,4 @@ def test_literal_membership_predicate_executes_in_typed_flow(
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"amount": revenue}, by=(period,), where=channel.isin(choices))
     saved = query.compute()
-    assert saved.to_pandas()[("value", "amount")].tolist() == [expected]
+    assert saved.to_pandas()["amount"].tolist() == [expected]

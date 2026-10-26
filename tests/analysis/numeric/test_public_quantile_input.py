@@ -56,9 +56,9 @@ def test_defined_quantiles_survive_source_offline_recovery(
     exported = output.to_pandas()
     frame = exported.set_index(exported.columns[0])
     for name in ("median", "approximate_median"):
-        assert frame.loc["A", ("value", name)] == 187.875
-        assert frame.loc[["B", "C", "D"], ("value", name)].isna().all()
-    assert frame.loc["A", ("value", "approximate_p95")] == 250.5
+        assert frame.loc["A", name] == 187.875
+        assert frame.loc[["B", "C", "D"], name].isna().all()
+    assert frame.loc["A", "approximate_p95"] == 250.5
     # The algorithm belongs to the definition and actual source statement.
     submitted = [
         str(record["sql"]).upper()
@@ -80,8 +80,8 @@ def test_defined_quantiles_survive_source_offline_recovery(
         .compute()
         .to_pandas()
     )
-    assert total[("value", "median")].tolist() == [187.875]
-    assert total[("value", "approximate_median")].tolist() == [187.875]
+    assert total["median"].tolist() == [187.875]
+    assert total["approximate_median"].tolist() == [187.875]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     script = """
@@ -102,10 +102,10 @@ assert isinstance(fixed, mv.AnalysisFrame)
 frame = fixed.to_pandas()
 frame = frame.set_index(frame.columns[0])
 for name in ('median', 'approximate_median'):
-    assert frame.loc['A', ('value', name)] == 187.875
-    assert frame.loc[['B', 'C', 'D'], ('value', name)].isna().all()
+    assert frame.loc['A', name] == 187.875
+    assert frame.loc[['B', 'C', 'D'], name].isna().all()
 assert len(frame) == 4
-assert frame.loc['A', ('value', 'approximate_p95')] == 250.5
+assert frame.loc['A', 'approximate_p95'] == 250.5
 assert run_ids(session) == before
 """
     result = subprocess.run(

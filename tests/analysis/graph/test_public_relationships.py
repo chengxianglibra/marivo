@@ -59,9 +59,7 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
         .persist()
         .to_pandas()
     )
-    assert dict(
-        zip(metric[ordinary_columns(metric)[0]], metric[("value", "value")], strict=True)
-    ) == {
+    assert dict(zip(metric[ordinary_columns(metric)[0]], metric["value"], strict=True)) == {
         "east": 2,
         "west": 1,
     }

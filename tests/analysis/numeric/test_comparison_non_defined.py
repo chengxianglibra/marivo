@@ -83,16 +83,16 @@ def test_null_operand_propagates_in_time_comparison(
         ).compute()
         frame = result.to_pandas()
         frame = frame.set_index(ordinary_columns(frame)[0])
-        assert frame.loc["A", ("value", "reference.absolute.value")] == -30 * sign
-        assert frame.loc["B", ("value", "reference.absolute.value")] == 80 * sign
-        assert frame.loc["C", ("value", "reference.absolute.value")] == 0
-        assert pd.isna(frame.loc["D", ("value", "reference.absolute.value")])
-        assert pd.isna(frame.loc["D", ("value", "reference.relative.value")])
-        assert frame.loc["D", "presence"].all()
+        assert frame.loc["A", "reference.absolute.value"] == -30 * sign
+        assert frame.loc["B", "reference.absolute.value"] == 80 * sign
+        assert frame.loc["C", "reference.absolute.value"] == 0
+        assert pd.isna(frame.loc["D", "reference.absolute.value"])
+        assert pd.isna(frame.loc["D", "reference.relative.value"])
+        assert frame.loc["D", ["current.present", "reference.present"]].all()
         empty_endpoint = "value" if sign == 1 else "reference.baseline.value"
         populated_endpoint = "reference.baseline.value" if sign == 1 else "value"
-        assert pd.isna(frame.loc["D", ("value", empty_endpoint)])
-        assert frame.loc["D", ("value", populated_endpoint)] == 0
+        assert pd.isna(frame.loc["D", empty_endpoint])
+        assert frame.loc["D", populated_endpoint] == 0
     frame = (
         current.compare(
             {"reference": baseline},
@@ -102,9 +102,7 @@ def test_null_operand_propagates_in_time_comparison(
         .compute()
         .to_pandas()
     )
-    assert frame[("value", "reference.relative.value")].dropna().tolist() == pytest.approx(
-        [-0.5, 2 / 3]
-    )
+    assert frame["reference.relative.value"].dropna().tolist() == pytest.approx([-0.5, 2 / 3])
 
 
 def test_null_operands_propagate_in_period_comparison(
@@ -120,10 +118,10 @@ def test_null_operands_propagate_in_period_comparison(
     ).persist()
     frame = result.to_pandas()
     assert len(frame) == 12
-    absolute = frame[("value", "reference.absolute.value")]
+    absolute = frame["reference.absolute.value"]
     assert sorted(absolute.dropna().tolist()) == [-50, 0, 20]
     assert absolute.isna().sum() == 9
-    assert frame["presence"].all().all()
+    assert frame[["current.present", "reference.present"]].all().all()
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
 
@@ -147,10 +145,10 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})
     values = endpoints.compute().to_pandas()
     values = values.set_index(ordinary_columns(values)[0])
-    assert pd.isna(values.loc["D", ("value", "revenue")])
-    assert pd.isna(values.loc["D", ("value", "count_ratio")])
-    assert values.loc["A", ("value", "revenue")] == 30.0
-    assert values.loc["A", ("value", "count_ratio")] == 1.0
+    assert pd.isna(values.loc["D", "revenue"])
+    assert pd.isna(values.loc["D", "count_ratio"])
+    assert values.loc["A", "revenue"] == 30.0
+    assert values.loc["A", "count_ratio"] == 1.0
     for first, second, expected in (
         ("revenue", "count_ratio", 30.0),
         ("count_ratio", "revenue", 1 / 30),
@@ -159,8 +157,8 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
             endpoints.select({"value": endpoints[first] / endpoints[second]}).compute().to_pandas()
         )
         frame = frame.set_index(ordinary_columns(frame)[0])
-        assert frame.loc["A", ("value", "value")] == pytest.approx(expected)
-        assert pd.isna(frame.loc["D", ("value", "value")])
+        assert frame.loc["A", "value"] == pytest.approx(expected)
+        assert pd.isna(frame.loc["D", "value"])
 
 
 def test_native_nan_operand_is_retained_in_comparison_endpoints(
@@ -183,7 +181,7 @@ def test_native_nan_operand_is_retained_in_comparison_endpoints(
         .to_pandas()
     )
     rows = rows.set_index(ordinary_columns(rows)[0])
-    assert math.isnan(rows.loc["A", ("value", "value")])
-    assert rows.loc["A", "presence"].all()
-    assert rows.loc["B", ("value", "reference.absolute.value")] == 80
+    assert math.isnan(rows.loc["A", "value"])
+    assert rows.loc["A", ["current.present", "reference.present"]].all()
+    assert rows.loc["B", "reference.absolute.value"] == 80
     assert terminal_runs(case.session) == ()

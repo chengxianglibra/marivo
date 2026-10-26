@@ -102,7 +102,7 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         if target == "analysis_frame.compare":
             assert result._schema.values[-1].unit is None
             comparison_rows = result.compute().to_pandas()
-            assert comparison_rows[("value", "reference.relative.value")].tolist() == [2]
+            assert comparison_rows["reference.relative.value"].tolist() == [2]
     observation = render_help_text("analysis.session.observe")[0]
     for fact in ("nonempty tuple", "root DeclaredMetricRef", "business identity"):
         assert fact in observation
@@ -313,13 +313,13 @@ def test_partition_and_share_help_examples_return_composable_same_input_columns(
         column = namespace["result"]
         assert isinstance(column, mv.Column)
         result = frame.select({"result": column}).compute()
-        assert result.to_pandas()[("value", "result")].tolist() == expected
+        assert result.to_pandas()["result"].tolist() == expected
         if target == "analysis_frame.over":
             selected = namespace["selected"]
             assert isinstance(selected, mv.AnalysisFrame)
             rows = selected.to_pandas()
-            assert rows[("value", "value")].tolist() == [1, 3]
-            assert rows[("value", "total")].tolist() == expected
+            assert rows["value"].tolist() == [1, 3]
+            assert rows["total"].tolist() == expected
 
 
 @pytest.mark.parametrize("selection", ("where", "top"))
@@ -345,12 +345,10 @@ def test_selected_frame_statistics_reacquire_exact_input_handles(
     with pytest.raises(AnalysisError, match="exact Frame input"):
         selected.reduce({"total": frame["amount"].sum()})
     total = selected.reduce({"total": selected["amount"].sum()}).compute()
-    assert total.to_pandas()[("value", "total")].tolist() == [5 if selection == "where" else 4]
+    assert total.to_pandas()["total"].tolist() == [5 if selection == "where" else 4]
     column = selected.over(selected["amount"].sum(), by=selected.axes)
     broadcast = selected.select({"total": column}).compute()
-    assert broadcast.to_pandas()[("value", "total")].tolist() == (
-        [1, 4] if selection == "where" else [4]
-    )
+    assert broadcast.to_pandas()["total"].tolist() == ([1, 4] if selection == "where" else [4])
 
 
 @pytest.mark.parametrize("method", ("compute", "reduce", "over", "to_pandas"))
@@ -446,11 +444,11 @@ def test_correlation_help_contract_and_executable_examples(
         assert isinstance(result, mv.AnalysisFrame)
         assert result.output_names == expected
         data = result.to_pandas()
-        assert data[("value", "n_pairs")].tolist() == [3]
+        assert data["n_pairs"].tolist() == [3]
         if "coefficient" in expected:
-            assert data[("value", "coefficient")].tolist() == pytest.approx([0.5], abs=1e-12)
+            assert data["coefficient"].tolist() == pytest.approx([0.5], abs=1e-12)
         else:
-            assert data[("value", "n_values")].tolist() == [3]
+            assert data["n_values"].tolist() == [3]
     frame_help = render_help_text("analysis.analysis_frame")[0]
     column_help = render_help_text("analysis.column")[0]
     axis_help = render_help_text("analysis.frame_axis")[0]

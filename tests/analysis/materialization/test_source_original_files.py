@@ -20,7 +20,7 @@ def test_file_original_rollup_returns_compact_result(
         trace = capture_source(monkeypatch)
         frame = work.session.observe({"value": amount.sum()}).compute().to_pandas()
         expected = sum(row["amount"] for row in work.rows if isinstance(row["amount"], int))
-        assert frame["value", "value"].tolist() == [expected]
+        assert frame["value"].tolist() == [expected]
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         assert not any("__original_value" in names for names in trace.returned_columns)
@@ -44,7 +44,7 @@ def test_file_original_retains_default_collation_boundary(
         monkeypatch.setattr(SourceSession, "__enter__", entered)
         frame = work.session.observe({"value": amount.sum().per(owner).sum()}).compute().to_pandas()
         expected = sum(row["amount"] for row in work.rows if isinstance(row["amount"], int))
-        assert frame["value", "value"].tolist() == [expected]
+        assert frame["value"].tolist() == [expected]
         assert trace.returned_rows
         assert trace.qualifications
 
@@ -59,6 +59,6 @@ def test_view_original_retains_unknown_inherited_collation_boundary(
         trace = capture_source(monkeypatch)
         frame = work.session.observe({"value": amount.sum().per(owner).sum()}).compute().to_pandas()
         expected = sum(row["amount"] for row in work.rows if isinstance(row["amount"], int))
-        assert frame["value", "value"].tolist() == [expected]
+        assert frame["value"].tolist() == [expected]
         assert trace.returned_rows
         assert trace.qualifications

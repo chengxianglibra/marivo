@@ -72,10 +72,10 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         assert len(frame) == 16
         expected_keys = {("a", 2**53 + index, 1) for index in range(16)}
         assert set(frame[ordinary_columns(frame)[0]]) == expected_keys
-        assert frame[("value", "value")].isna().sum() == 1
+        assert frame["value"].isna().sum() == 1
         total = logical.reduce({"value": logical["value"].sum()}).persist()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)
-        assert total.to_pandas()[("value", "value")].tolist() == [expected]
+        assert total.to_pandas()["value"].tolist() == [expected]
         assert work.session.persisted_frame(captured.artifact.id).to_pandas().equals(frame)
         assert [
             column.dtype for column in captured.artifact._manifest.data.schema.axes[1].columns

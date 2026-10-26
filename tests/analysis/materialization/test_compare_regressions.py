@@ -62,8 +62,8 @@ def test_decimal_compare_ignores_caller_precision_and_masks_zero(
             .to_pandas()
         )
         delta, change = (
-            frame[("value", "base.absolute.v")].iloc[0],
-            frame[("value", "base.relative.v")].iloc[0],
+            frame["base.absolute.v"].iloc[0],
+            frame["base.relative.v"].iloc[0],
         )
         assert pd.isna(delta) if absolute is None else delta == Decimal(absolute)
         assert pd.isna(change) if relative is None else change == relative
@@ -135,11 +135,11 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
         selected = comparison.where(comparison[name] > timedelta(0))
         projected = selected.select({"duration": selected[name] + timedelta(0)})
         frame = projected.reduce({"duration": projected["duration"].sum()}).compute().to_pandas()
-        assert frame[("value", "duration")].tolist() == [
+        assert frame["duration"].tolist() == [
             pd.Timedelta(expected, unit="us" if endpoint == "literal" else "ns")
         ]
     positive = comparison.where(comparison["base.relative.v"] > 0)
-    assert positive.compute().to_pandas()[("value", "base.relative.v")].tolist() == [1.0]
+    assert positive.compute().to_pandas()["base.relative.v"].tolist() == [1.0]
 
 
 def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Session) -> None:
@@ -150,7 +150,7 @@ def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Sess
     with pytest.raises(AnalysisError, match="matching value kinds"):
         comparison.where(comparison["base.absolute.v"] > timedelta(0))
     assert comparison.where(comparison["v"] > 0).compute().to_pandas()[
-        ("value", "base.absolute.v")
+        "base.absolute.v"
     ].tolist() == [0]
 
 

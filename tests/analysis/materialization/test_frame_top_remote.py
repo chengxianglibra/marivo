@@ -74,8 +74,8 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
         pending = session.read(members, {"score": score})
         raw = pending.compute().to_pandas()
         assert raw.iloc[:, 0].tolist() == [("a", 1), ("a", 2), ("b", 1), ("b", 2)]
-        assert raw[("value", "score")].tolist() == [2**53 + 1, pd.NA, 2**53 + 1, 2**53]
-        assert str(raw[("value", "score")].dtype) == "int64[pyarrow]"
+        assert raw["score"].tolist() == [2**53 + 1, pd.NA, 2**53 + 1, 2**53]
+        assert str(raw["score"].dtype) == "int64[pyarrow]"
         trace = capture_source(monkeypatch, measure_cost=True)
         for descending, expected in (
             (True, [("a", 1), ("b", 1), ("b", 2), ("a", 2)]),
@@ -84,8 +84,8 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
             result = pending.top(4, by=pending["score"], descending=descending).compute()
             rows = result.to_pandas()
             assert rows.iloc[:, 0].tolist() == expected
-            assert pd.isna(rows[("value", "score")].iloc[-1])
-            assert str(rows[("value", "score")].dtype) == "int64[pyarrow]"
+            assert pd.isna(rows["score"].iloc[-1])
+            assert str(rows["score"].dtype) == "int64[pyarrow]"
         top = pending.top(1, by=pending["score"]).compute()
         assert top.to_pandas().iloc[0].tolist() == [("a", 1), 2**53 + 1]
         assert pending.top(0, by=pending["score"]).compute().to_pandas().empty
@@ -139,7 +139,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
             for n in (0, 1):
                 empty = pending.top(n, by=pending["score"]).compute().to_pandas()
                 assert empty.empty
-                assert str(empty[("value", "score")].dtype) == "int64[pyarrow]"
+                assert str(empty["score"].dtype) == "int64[pyarrow]"
             assert trace.returned_rows == [1, 1] and trace.uploaded_key_rows == []
 
 
@@ -162,7 +162,7 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
         selected = session.read(session.members(entity, where=weight >= 1), {"score": score})
         rows = selected.top(4, by=selected["score"]).compute().to_pandas()
         assert rows.iloc[:, 0].tolist() == [("a", 1), ("a", 2)]
-        assert rows[("value", "score")].tolist() == [2**53 + 1, pd.NA]
+        assert rows["score"].tolist() == [2**53 + 1, pd.NA]
         assert selected.top(0, by=selected["score"]).compute().to_pandas().empty
         empty = session.read(session.members(entity, where=weight < 0), {"score": score})
         assert empty.top(1, by=empty["score"]).compute().to_pandas().empty
@@ -258,8 +258,8 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
         result = pending.top(n, by=pending["score"]).compute().to_pandas()
         assert len(result) == n
         if n:
-            assert result["value", "score"].tolist() == [1]
-            assert result["value", "invalid"].tolist() == [1.0]
+            assert result["score"].tolist() == [1]
+            assert result["invalid"].tolist() == [1.0]
         if backend == "postgres":
             # Float payloads keep PostgreSQL's existing complete-read boundary.
             assert trace.returned_rows and all(count == 2 for count in trace.returned_rows)
@@ -297,7 +297,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         trace = capture_source(monkeypatch)
         rows = pending.top(2, by=pending["score"]).compute().to_pandas()
         assert rows.iloc[:, 0].tolist() == [("A", 1), ("a", 1)]
-        assert rows[("value", "score")].tolist() == [2**53 + 1, 2**53 + 1]
+        assert rows["score"].tolist() == [2**53 + 1, 2**53 + 1]
         top = pending.top(1, by=pending["score"]).compute().to_pandas()
         assert top.iloc[0].tolist() == [("A", 1), 2**53 + 1]
         assert trace.returned_rows == [2, 1] and trace.uploaded_key_rows == []
@@ -311,7 +311,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
             .to_pandas()
         )
         assert selected.iloc[:, 0].tolist() == [("a", 1), ("missing", 99)]
-        assert selected[("value", "score")].tolist() == [2**53 + 1, pd.NA]
+        assert selected["score"].tolist() == [2**53 + 1, pd.NA]
         entity = session.catalog.entities.get("sales.facts")
         total = session.catalog.metrics.get("sales.total")
         for domain, expected in (
@@ -320,7 +320,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
             (mv.coordinates(by=(mv.identity(entity),), keys=((("a", 1),),)), 20),
         ):
             result = session.observe({"total": total}, where=mv.in_population(domain))
-            assert result.compute().to_pandas()[("value", "total")].tolist() == [expected]
+            assert result.compute().to_pandas()["total"].tolist() == [expected]
         category = session.catalog.fields.get("sales.facts.category")
         all_members = session.members(entity)
         mixed = all_members.classify(by=(all_members.axes[0], category))
@@ -330,7 +330,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
             (mv.coordinates(by=(mv.identity(entity), category), keys=((("a", 1), None),)), 20),
         ):
             result = session.observe({"total": total}, where=mv.in_population(domain))
-            assert result.compute().to_pandas()[("value", "total")].tolist() == [expected]
+            assert result.compute().to_pandas()["total"].tolist() == [expected]
         from tests.datasource.environment import mysql_analysis as mysql
 
         assert isinstance(case.source, TableSourceIR)
@@ -341,5 +341,5 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
             keys=((("A", 1), "x"), (("A", 1), "X"), (("a", 1), "x"), (("a", 1), "X")),
         )
         result = session.observe({"total": total}, where=mv.in_population(native_categories))
-        assert result.compute().to_pandas()[("value", "total")].tolist() == [30]
+        assert result.compute().to_pandas()["total"].tolist() == [30]
         assert trace.uploaded_key_rows == []

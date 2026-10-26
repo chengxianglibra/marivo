@@ -175,8 +175,8 @@ def test_same_owner_roots_reduce_separately_before_formula_alignment(
             )
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame["value", "combined"].tolist() == [558 if operation == "rollup" else 240]
-        assert frame["value", "amount"].tolist() == [478 if operation == "rollup" else 160]
+        assert frame["combined"].tolist() == [558 if operation == "rollup" else 240]
+        assert frame["amount"].tolist() == [478 if operation == "rollup" else 160]
         assert trace.returned_rows
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
@@ -201,7 +201,7 @@ def test_row_recipes_recompute_at_source_with_both_physical_operands(
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
-        assert frame["value", "value"].tolist() == [718 if name == "adjusted_total" else 299.0]
+        assert frame["value"].tolist() == [718 if name == "adjusted_total" else 299.0]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -228,7 +228,7 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
         )
         trace = capture_source(monkeypatch)
         if boundary == "formula_overflow":
-            assert fine.compute().to_pandas()["value", "value"].max() == 2**63 + 78
+            assert fine.compute().to_pandas()["value"].max() == 2**63 + 78
             assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
         else:
             with pytest.raises(AnalysisError):

@@ -117,10 +117,10 @@ def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFr
 def _values(query: mv.AnalysisFrame) -> dict[str, object]:
     frame = query.compute().to_pandas()
     member = next(axis for axis in frame.attrs["axes"] if axis["role"] == "identity")
-    identities = frame[("coordinate", member["token"])].tolist()
+    identities = frame[member["name"]].tolist()
     assert identities == sorted(identities)
     assert len(identities) == len(set(identities))
-    return dict(zip(identities, frame[("value", "value")], strict=True))
+    return dict(zip(identities, frame["value"], strict=True))
 
 
 def test_report_mean_members_and_next_window_have_independent_oracles(
@@ -383,7 +383,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     )
     source = logical.persist()
     expected = source.to_pandas()
-    assert expected[("value", "value")].tolist() == [20, 60]
+    assert expected["value"].tolist() == [20, 60]
     shutil.rmtree(tmp_path / "models")
     database.rename(database.with_suffix(".offline"))
     for file in tmp_path.glob("*.parquet"):
@@ -404,14 +404,14 @@ ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
-assert frame[('value','value')].tolist() == [20,60]
+assert frame['value'].tolist() == [20,60]
 calendar = frame.attrs['axes'][0]['descriptor']
 bounds = frame.attrs['frozen_coordinates'][0]['rows']
 assert frame.attrs['axes'][0]['role'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
 assert bounds['actual_start'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
 assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'
 assert frame.attrs['axes'][1]['role'] == 'identity'
-print(json.dumps({'pid': __import__('os').getpid(), 'values': frame[('value','value')].tolist()}))
+print(json.dumps({'pid': __import__('os').getpid(), 'values': frame['value'].tolist()}))
 """
     process = subprocess.run(
         [sys.executable, "-c", worker, session.id, source.artifact.id],
@@ -458,12 +458,12 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
                 by=(period,),
                 where=mv.in_population(members),
             )
-            assert query.compute().to_pandas()[("value", "value")].tolist() == [expected_total]
+            assert query.compute().to_pandas()["value"].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
     buyer = session.catalog.relationships.get("sales.buyer")
     assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
     assert case_members(session, members.intersection(members)) == expected_ids
     assert case_members(session, members.difference(members)) == []
     assert session.observe({"value": metric}, by=(scope,)).compute().to_pandas()[
-        ("value", "value")
+        "value"
     ].tolist() == [expected_total]
