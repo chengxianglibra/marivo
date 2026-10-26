@@ -220,7 +220,7 @@ def provider() -> DisclosureProvider:
                 P("descending", "Boolean; largest first by default."),
             ),
             "AnalysisFrame",
-            "Rank the whole current input, with NA last and stable input order for ties.",
+            "Rank the whole current input, with NA last in either direction and canonical complete-key order for ties.",
             "result = frame.top(10, by=frame['value'])",
             ("frame",),
             "frame.rows",

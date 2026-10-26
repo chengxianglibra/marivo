@@ -821,9 +821,9 @@ class AnalysisFrame:
             )
         ):
             reject(
-                "closed binary policies and a tuple of FrameAxis pairs",
+                "a tuple of complete FrameAxis pairs and an optional CalendarCorrespondence",
                 repr((on, match)),
-                "Use complete FrameAxis pairs and exact/outer, null/error policies.",
+                "Pass on as a tuple pairing every complete axis exactly once; pass match as a CalendarCorrespondence or omit it.",
                 location,
                 canonical_id=canonical_id,
             )
@@ -863,7 +863,7 @@ class AnalysisFrame:
                 reject(
                     "a complete explicit axis bijection",
                     repr((left_axes, right_axes)),
-                    "Pass on with every complete axis exactly once; only zero axes or a sole calendar axis on each side can be inferred.",
+                    "Pass on with every complete axis exactly once; inference requires zero axes on both sides or one same-kind calendar/interval axis per side.",
                     location,
                     canonical_id=canonical_id,
                 )
@@ -909,8 +909,9 @@ class AnalysisFrame:
         Example:
             ``paired = a.align(b, on=((a.axes[0], b.axes[0]),))``.
 
-        Constraints: Only zero axes or a sole calendar axis per side infer on; ordinary axes
-        require explicit mapping. This declares caller business correspondence; validation
+        Constraints: Infer on only for zero axes on both sides or one same-kind
+        calendar/interval axis per side; ordinary axes require explicit mapping.
+        This declares caller business correspondence; validation
         does not check original Entity/Field equality. Paired inputs reject. No Catalog or row reads.
         """
         pairs = self._axis_pairs(
