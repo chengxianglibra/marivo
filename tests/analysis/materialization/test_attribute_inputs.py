@@ -360,7 +360,6 @@ def test_unknown_physical_leaf_fails_before_business_read(
         reader: DatasourceEngineTimezone,
         *,
         root_table: ir.Table | None = None,
-        sample_coverage: bool = True,
     ) -> query_preparation.PreparedFields:
         result = original(
             contribution,
@@ -368,7 +367,6 @@ def test_unknown_physical_leaf_fails_before_business_read(
             state,
             reader,
             root_table=root_table,
-            sample_coverage=sample_coverage,
         )
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))

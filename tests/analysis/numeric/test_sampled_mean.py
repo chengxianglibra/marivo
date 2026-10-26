@@ -15,7 +15,6 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.compiler import sampled_mean
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -60,9 +59,13 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
         provider=backend,
         preserve_sample_presence=True,
         coverage=(
-            SampleCoverage(
-                "key.1", (datetime(2026, 10, 1, tzinfo=timezone.utc),), wall_timezone="UTC"
-            ),
+            (
+                SampleCoverage(
+                    "key.1", (datetime(2026, 10, 1, tzinfo=timezone.utc),), wall_timezone="UTC"
+                ),
+            )
+            if reducer != "mean"
+            else ()
         ),
         mean_fold=("key.1", "error", reducer),
     )
@@ -234,7 +237,7 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
         assert all("__quantile_count" in columns for columns in trace.returned_columns)
-        assert trace.returned_rows == ([3, 3] if aware else [5, 5])
+        assert trace.returned_rows == [3, 3]
         if backend == "trino":
             assert all("ROW_NUMBER()" in sql.upper() for sql in trace.native_sql)
             assert all("APPROX_PERCENTILE" not in sql.upper() for sql in trace.native_sql)
@@ -245,8 +248,10 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             with pytest.raises(MaterializationError, match="non-NA"):
                 session.observe({"v": metric}, by=(scope,)).compute()
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
-        with pytest.raises(MaterializationError, match="missing state sample"):
-            session.observe({"v": quantile.per(point).mean()}, by=(missing,)).compute()
+        rows = (
+            session.observe({"v": quantile.per(point).mean()}, by=(missing,)).compute().to_pandas()
+        )
+        assert rows["v"].tolist() == [Decimal("4.75") if amount_type != "DOUBLE" else 4.75]
         empty = (
             session.observe({"v": quantile.where(amount < 0).per(point).mean()}, by=(scope,))
             .compute()
@@ -305,7 +310,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             legacy.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
             old = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
         assert old["v"].tolist() == pytest.approx([100 / 3])
-        assert trace.returned_rows[-1] == (3 if aware else 5)
+        assert trace.returned_rows[-1] == 3
         assert not trace.uploaded_key_rows
         stored = result.persist()
 
@@ -845,23 +850,20 @@ def test_trino_four_day_mean_transport_and_cost(
         metric = session.catalog.metrics.get("sales.average")
         scope = session.time_scope(start="2026-10-01", end="2026-10-05")
         measurements: list[dict[str, object]] = []
-        # Toggle both optimizations over the same source and numeric kernels.
-        # Presence aggregation remains shared in both measurements.
+        # Toggle native folding without changing the captured sample policy.
+        # Local means transport represented samples only, never coverage rows.
         for route, days in (("legacy", 4), ("compact", 4), ("legacy", 1), ("compact", 1)):
             scope = session.time_scope(start="2026-10-01", end=f"2026-10-{1 + days:02}")
             with monkeypatch.context() as config:
                 if route == "legacy":
                     config.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
-                    config.setattr(
-                        sampled_mean, "coverage_selection", lambda *args: ibis.literal(True)
-                    )
                 started = perf_counter()
                 frame = session.observe({"v": metric}, by=(scope,)).compute()
                 rows = frame.to_pandas()
                 elapsed = perf_counter() - started
             # 86400 is divisible by 100, so each day averages 0..99 equally.
             assert rows["v"].tolist() == [49.5]
-            assert trace.returned_rows[-1] == (1 if route == "compact" else days * 172800)
+            assert trace.returned_rows[-1] == (1 if route == "compact" else days * 86400)
             measurements.append(
                 {
                     "route": route,
@@ -973,7 +975,7 @@ def test_native_mean_owns_null_policy_and_does_not_require_clock_coverage(
 @pytest.mark.parametrize(
     "excluded,bounded", [("wrong_clock", True), ("wrong_clock", False), ("population", True)]
 )
-def test_local_sample_mean_keeps_coverage_for_excluded_shapes(
+def test_local_sample_mean_uses_observed_samples_for_excluded_native_shapes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1006,10 +1008,217 @@ def test_local_sample_mean_keeps_coverage_for_excluded_shapes(
         )
         assert isinstance(by, (mv.Population, tuple))
         trace = capture_source(monkeypatch)
-        with pytest.raises(
-            MaterializationError if bounded else AnalysisError,
-            match="missing state sample" if bounded else "explicit observation period",
-        ):
-            session.observe({"v": amount.mean(time=point).per(sample).mean()}, by=by).compute()
-        assert bool(trace.returned_rows) is bounded
+        result = (
+            session.observe({"v": amount.mean(time=point).per(sample).mean()}, by=by)
+            .compute()
+            .to_pandas()
+        )
+        assert sorted(result["v"].tolist()) == (
+            [0.0, 100.0, 100.0, 100.0] if excluded == "population" else [50.0]
+        )
+        assert trace.returned_rows
         assert all("__mean_folded" not in columns for columns in trace.returned_columns)
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_time_means_share_observed_sample_policy_across_formulas(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with mean_session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, values=(10, 20, 20, 20)
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        category = session.catalog.fields.get("sales.facts.category")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
+        native = amount.mean(time=point).per(point).mean()
+        for by in ((scope, category), (category,)):
+            frame = (
+                session.observe(
+                    {
+                        "native": native,
+                        "wrapped": native + 0,
+                        "sum_mean": amount.sum(time=point).per(point).mean(),
+                        "quantile_mean": amount.quantile(0.95, time=point).per(point).mean(),
+                        "weighted": amount.mean(time=point)
+                        .per(point)
+                        .weighted_mean(weight=amount.sum(time=point)),
+                    },
+                    by=by,
+                )
+                .compute()
+                .to_pandas()
+            )
+            assert frame["native"].tolist() == [15.0]
+            assert frame["wrapped"].tolist() == [15.0]
+            assert frame["sum_mean"].tolist() == [35.0]
+            assert frame["quantile_mean"].tolist() == [15.0]
+            assert frame["weighted"].tolist() == pytest.approx([1300 / 70])
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+@pytest.mark.parametrize("native", [False, True])
+def test_sample_coverage_failure_has_exact_bounded_same_read_witnesses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    native: bool,
+) -> None:
+    with mean_session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, values=(None, 20, 20, 20)
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        category = session.catalog.fields.get("sales.facts.category")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T05:00:00")
+        samples = amount.mean(time=point).per(point)
+        metric = samples.max() if native else samples.quantile(0.95)
+        trace = capture_source(monkeypatch)
+        with pytest.raises(MaterializationError, match="missing state sample") as captured:
+            session.observe({"latency": metric}, by=(scope, category)).compute()
+        context = captured.value.sampling_context
+        assert context is not None, str(captured.value)
+        assert context.metric == "latency"
+        assert context.field == "sales.facts.point"
+        assert context.reducer == ("max" if native else "quantile")
+        assert context.period.start == datetime(2026, 10, 1, tzinfo=timezone.utc)
+        assert len(context.groups) == 1 and not context.groups_truncated
+        group = context.groups[0]
+        assert group.coordinates == (("sales.facts.category", "A"),)
+        assert group.expected_count == 5 and group.observed_count == 1
+        assert group.missing_points == tuple(
+            datetime(2026, 10, 1, hour, tzinfo=timezone.utc) for hour in (1, 2, 3)
+        )
+        assert group.missing_truncated
+        assert "not hourly buckets" in str(captured.value)
+        assert len(trace.returned_rows) == 1
+        if native:
+            assert trace.returned_rows == [1]
+        assert not trace.uploaded_key_rows
+
+
+@pytest.mark.parametrize(
+    "backend,profile,aware",
+    source_params(
+        [
+            ("duckdb", "table", False),
+            ("duckdb", "table", True),
+            ("postgres", "table", True),
+            ("mysql", "table", False),
+            ("trino", "iceberg", True),
+            ("clickhouse", "table", True),
+        ]
+    ),
+)
+@pytest.mark.parametrize("native", [False, True])
+def test_sampling_witnesses_exclude_filtered_clocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    aware: bool,
+    native: bool,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(10, 20, 20, 20, 30),
+        aware=aware,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
+        samples = amount.mean(time=point).where(amount > 10).per(point)
+        trace = capture_source(monkeypatch)
+        with pytest.raises(MaterializationError) as captured:
+            session.observe(
+                {"filtered": samples.max() if native else samples.quantile(0.95)}, by=(scope,)
+            ).compute()
+        context = captured.value.sampling_context
+        assert context is not None and context.metric == "filtered"
+        assert (context.groups[0].expected_count, context.groups[0].observed_count) == (3, 1)
+        assert context.groups[0].missing_points == tuple(
+            datetime(2026, 10, 1, hour, tzinfo=timezone.utc) for hour in (0, 2)
+        )
+        assert len(trace.returned_rows) == 1
+        if native:
+            assert trace.returned_rows == [1]
+        assert not trace.uploaded_key_rows
+
+
+def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(10, 20, 20, 20),
+        aware=True,
+    ) as (session, _):
+        amount = session.catalog.fields.get("sales.facts.amount")
+        point = session.catalog.fields.get("sales.facts.point")
+        samples = mv.coordinates(
+            by=(point,),
+            keys=tuple((datetime(2026, 10, 1, hour, tzinfo=timezone.utc),) for hour in (0, 1)),
+        )
+        # A declared domain still includes its absent 01:00 sample: sum -> 0,
+        # mean -> NULL. The separate field sample at 00:30 is not selected.
+        frame = (
+            session.observe(
+                {
+                    "sum_samples": amount.sum(time=point).per(samples).mean(),
+                    "mean_samples": amount.mean(time=point).per(samples).mean(),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert frame["sum_samples"].tolist() == [5.0]
+        assert frame["mean_samples"].tolist() == [10.0]
+        with pytest.raises(MaterializationError, match="non-NA"):
+            session.observe(
+                {"strict": amount.mean(time=point).per(samples).mean(nulls="error")}
+            ).compute()
+        observed = (
+            session.observe({"strict": amount.sum(time=point).per(point).mean(nulls="error")})
+            .compute()
+            .to_pandas()
+        )
+        assert observed["strict"].tolist() == [35.0]

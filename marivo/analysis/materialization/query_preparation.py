@@ -173,7 +173,6 @@ def prepare_fields(
     reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
-    sample_coverage: bool = True,
 ) -> PreparedFields:
     """Prepare expressions and declared many-to-one joins without reading values."""
     registry = state.registry
@@ -486,10 +485,16 @@ def prepare_fields(
     from marivo.analysis.compiler.observation import calendar_field, coverage_field, reduction_input
 
     physical_axes = reduction_input(contribution, "", None).axes
+    sample_rules = tuple(
+        layer
+        for layer in contribution.sample_layers
+        for axis in layer.axes
+        if not isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+    )
     sampled_reads = {
         field_read_key(read): slot
-        for read in contribution.coordinates[contribution.output_axis_count :]
-        if sample_coverage
+        for index, read in enumerate(contribution.coordinates[contribution.output_axis_count :])
+        if (not sample_rules or sample_rules[index].requires_coverage)
         and isinstance(read, FieldRead)
         and registry.dimensions[read.field.ref.path].sample_interval is not None
         for slot, path in physical_axes
@@ -725,8 +730,7 @@ def prepare_fields(
         sampling_coverage(
             contribution, state, calendar=None, authorities=authorities, wall_paths=wall_paths
         )
-        if sample_coverage
-        and not any(
+        if not any(
             isinstance(axis, CalendarCoordinate) and not axis.cells
             for _, axis in contribution.calendars
         )

@@ -27,9 +27,9 @@ compositions at mv inherit their input owner when needed; cross-Session inputs f
 
 `session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
 not supply an observation time range. A time-related Metric does not universally
-require a scope. Time-sample reductions generally require a finite TimeScope or
-CalendarAxis in `by`, while qualified native mean reductions can evaluate without
-one. Metric-specific sample coverage requirements still apply. Some checks run
+require a scope. Time-sample mean and weighted_mean can use represented samples without a
+TimeScope or CalendarAxis in `by`. Other time-sample reductions retain their
+period requirements. Metric-specific sample coverage requirements still apply. Some checks run
 only during `compute()` or `persist()`, so successful capture alone does not prove
 that an unbounded observation is supported. When a period is required, pass
 `by=(session.time_scope(start=..., end=...),)`.

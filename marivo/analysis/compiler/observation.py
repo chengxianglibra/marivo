@@ -229,7 +229,7 @@ def lower_observation(
     """Emit grouped nullable values and ephemeral check columns in one read."""
     if prepared.mean_fold is not None and prepared.mean_fold[2] == "mean":
         # Native AVG owns NULL and absent-clock handling for this completed mean.
-        prepared = replace(prepared, coverage=(), preserve_sample_presence=False)
+        prepared = replace(prepared, preserve_sample_presence=False)
     window_slot: str | None = None
     if prepared.window_key is not None:
         window_slot = "__marivo_window_key"

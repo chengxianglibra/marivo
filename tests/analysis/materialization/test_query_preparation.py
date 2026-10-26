@@ -318,7 +318,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
     "shape,bounded",
     [("direct", True), ("formula", True), ("direct", False), ("formula", False), ("source", False)],
 )
-def test_local_duration_sample_mean_retains_coverage_and_period_requirements(
+def test_local_duration_sample_mean_uses_observed_samples_without_required_period(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -369,16 +369,9 @@ def test_local_duration_sample_mean_retains_coverage_and_period_requirements(
     )
     scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
     trace = capture_source(monkeypatch)
-    with pytest.raises(
-        AnalysisError,
-        match="missing state sample"
-        if bounded
-        else "explicit period for sampled time"
-        if shape == "source"
-        else "explicit observation period",
-    ):
-        session.observe({"v": metric}, by=(scope,) if bounded else ()).compute()
-    assert bool(trace.returned_rows) is bounded
+    frame = session.observe({"v": metric}, by=(scope,) if bounded else ()).compute().to_pandas()
+    assert pa.array(frame["v"]).cast(pa.int64()).to_pylist() == [40 if shape == "formula" else 20]
+    assert trace.returned_rows
     assert all("__mean_folded" not in columns for columns in trace.returned_columns)
 
 

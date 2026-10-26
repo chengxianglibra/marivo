@@ -186,7 +186,14 @@ temporal reduction, for example bandwidth.sum(time=sample_at).per(sample_at).qua
 Per-device P95 values cannot reconstruct the P95 of the combined time series.
 
 Field `sample_interval` supplies optional source coverage, independently of parse,
-for sample reducers that require it. Native AVG does not check scheduled coverage.
+for sample reducers that require it. Each time-sample `mean` or `weighted_mean`
+uses represented samples without scheduled coverage or implicit clock completion,
+regardless of arithmetic, conditionals, Duration, windows or native optimization.
+Explicit Population sample domains still retain their declared tuples and empty
+sample policy. Existing NULL policies and weighted valid-pair masks are unchanged.
+Other sample reducers retain their own coverage checks, including inside an outer
+mean. A time mean alone does not require a finite interval; windows and strict
+sample layers retain their endpoint and bounded-coverage requirements.
 Preparation freezes the sampling clock: naive values use parser timezone or
 reader authority; aware values use UTC. Output timezone only clips these points
 to the actual contribution intervals. The clock is never inferred from the first
@@ -210,10 +217,17 @@ Integer and floating AVG has a declared Float64 output; Decimal AVG retains its
 declared precision and scale. Explicit result casts enforce these carriers after
 native AVG arithmetic.
 Original-input consumers, Duration, windows, explicit sample populations
-and unsupported nested or conditional formulas retain their existing execution
-routes, including explicit local sample reduction where qualified. Other sample
-reducers retain their own coverage and NULL policies. Native floating order remains
-backend-dependent.
+and nested or conditional formulas retain their existing execution routes,
+including explicit local sample reduction where qualified. These choices do not
+change the time-mean coverage policy. Native floating order remains backend-dependent.
+
+A demanded coverage failure retains its Metric output name, sample layer, semantic
+time field, actual interval/timezone and complete group coordinates. Local and
+native compressed routes report up to six failed groups and three real missing
+instants per group, with expected/covered counts and truncation flags. NULL values
+at represented clocks are not missing clocks. Native witnesses come from the same
+statement, without a diagnostic reread. `sample_interval` declares clock points;
+it never truncates timestamps into hourly buckets.
 
 Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated
 member fields stay in one tuple descriptor. [Observation](../analysis/populations-and-observation.md)

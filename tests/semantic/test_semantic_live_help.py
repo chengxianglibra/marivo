@@ -689,7 +689,10 @@ def test_mean_help_discloses_backend_null_and_sampling_rules(
     marivo.help(target)
     page = capsys.readouterr().out
     assert "Native AVG owns NULL and empty-input behavior" in page
-    assert "without cadence coverage checks or local fallback" in page
+    assert "Native time-sample AVG has no local fallback" in page
+    if target == "semantic.metric_samples.mean":
+        assert "without scheduled coverage or implicit fill" in page
+        assert "independently of formula shape or execution route" in page
 
 
 def test_entity_help_preserves_the_supported_table_decorator(

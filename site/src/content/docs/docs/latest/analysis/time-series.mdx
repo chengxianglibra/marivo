@@ -84,3 +84,17 @@ Summing result rows is a statistic on those rows. For a monthly ratio or distinc
 Raw local timestamps use the declared source timezone or its resolved reader default for constant-bound membership. Repeated clocks select the later occurrence; skipped clocks select the transition instant. Filtering and calendar buckets share this wall order, so the first repeated hour can be empty. Projected values retain backend-native conversion. Expressions without raw lineage retain native filtering. Use aware timestamps when the exact occurrence matters. Session boundaries and sample completeness retain their own validation.
 
 `ms.hour_prefix(date_field)` inherits the prefix's source timezone context and reader default when combining a civil date with an hour. It has no separate timezone parameter; changing the report timezone does not reinterpret the source.
+
+## Time means and sample coverage
+
+`sample_interval=(1, "hour")` declares expected clock points; it does not round event timestamps to hours. Time-sample `mean` and `weighted_mean` aggregate represented samples without filling missing clocks. Explicit Population sample domains and existing NULL/weight policies remain unchanged.
+
+```python
+# elapsed, created_at and cluster are closed fields from this Session's Catalog.
+samples = elapsed.mean(time=created_at).per(created_at)
+frame = session.observe({"average": samples.mean()}, by=(scope, cluster))
+# Arithmetic does not add a clock-coverage requirement.
+adjusted = session.observe({"average": samples.mean() + 0}, by=(scope, cluster))
+```
+
+A strict sample reducer such as `samples.quantile(0.95)` still requires declared clock coverage. Its error identifies the Metric, time field, actual interval and up to six groups with three missing instants each. Existing NULL samples are not missing clocks. A mean of per-timestamp values is not a query-weighted mean or an hourly bucket mean.

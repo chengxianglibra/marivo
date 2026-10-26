@@ -737,7 +737,7 @@ def _plan_query(
         if qualified is not None:
             reduction = replace(reduction, mean_fold=qualified)
             if qualified[2] == "mean":
-                reduction = replace(reduction, coverage=(), preserve_sample_presence=False)
+                reduction = replace(reduction, preserve_sample_presence=False)
         if reduction.mean_fold is None:
             folded_mean = None
         expression, numeric_checks = lower_observation(
@@ -829,6 +829,11 @@ def _plan_query(
                         DataColumn(name, name, data_type(expression[name].type()), True)
                         for name in expression.columns
                         if name.startswith("__coverage_")
+                    ),
+                    *(
+                        DataColumn(name, name, data_type(expression[name].type()), True)
+                        for name in expression.columns
+                        if name.startswith("__sampling_")
                     ),
                 ),
                 keys=(

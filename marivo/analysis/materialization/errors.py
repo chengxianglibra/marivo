@@ -8,6 +8,7 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFailureContext
+    from marivo.analysis.core.sampling import SamplingFailureContext
 
 
 class MaterializationError(DatasetConstructionError):
@@ -22,9 +23,11 @@ class MaterializationError(DatasetConstructionError):
         stage: str = "materialization",
         help_target: str = "analysis_frame.compute",
         attribute_context: AttributeFailureContext | None = None,
+        sampling_context: SamplingFailureContext | None = None,
     ) -> None:
         self.stage = stage
         self.attribute_context = attribute_context
+        self.sampling_context = sampling_context
         super().__init__(
             expected=expected,
             received=received,
@@ -33,6 +36,14 @@ class MaterializationError(DatasetConstructionError):
             message="Dataset materialization contract failed.",
             help_target=help_target,
         )
+
+    def __str__(self) -> str:
+        from marivo.analysis.core.sampling import render_sampling_failure
+
+        text = super().__str__()
+        if self.sampling_context is not None:
+            text += "\n\n" + render_sampling_failure(self.sampling_context)
+        return text
 
 
 def _execution_error(stage: str) -> MaterializationError:

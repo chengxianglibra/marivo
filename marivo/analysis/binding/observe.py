@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Literal, TypeAlias
+from typing import Literal
 
 from marivo._definition.correspondence import coordinate_matches
 from marivo._definition.expressions import (
@@ -27,6 +27,7 @@ from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observations import ContributionBinding as ContributionBinding
 from marivo._definition.observations import ObservationBinding as ObservationBinding
 from marivo._definition.observations import ObservationPeriod as ObservationPeriod
+from marivo._definition.observations import SampleLayer
 from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.relations import (
     MembershipBinding,
@@ -55,11 +56,6 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.expressions import _Resolver
-
-_SampleLayer: TypeAlias = tuple[
-    tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...],
-    tuple[MembershipBinding, ...],
-]
 
 
 def _row_fields(node: DefinitionNode) -> tuple[RowField, ...]:
@@ -163,7 +159,7 @@ def bind_observation(
         occurrence: tuple[int, ...],
         filters: tuple[PredicateExpression, ...],
         sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...] = (),
-        sample_layers: tuple[_SampleLayer, ...] = (),
+        sample_layers: tuple[SampleLayer, ...] = (),
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*occurrence, 0), filters, sample_axes, sample_layers)
@@ -177,31 +173,11 @@ def bind_observation(
                 sample_layers,
             )
             return
-        sample_operand = (
-            node.operand
-            if isinstance(node, PerReduce)
-            and node.reducer == "mean"
-            and isinstance(node.samples, tuple)
-            and len(node.samples) == 1
-            else None
-        )
-        while isinstance(sample_operand, (DeclaredMetricRef, ContributionFilter)):
-            sample_operand = (
-                declared[sample_operand.ref]
-                if isinstance(sample_operand, DeclaredMetricRef)
-                else sample_operand.operand
-            )
-        native_sample_mean = (
-            isinstance(sample_operand, SourceAggregate)
-            and sample_operand.reducer == "mean"
-            and sample_operand.time is not None
-        )
-        # Physical preparation verifies this candidate before allowing an
-        # unbounded period; a local route retains the ordinary period rule.
         if isinstance(node, (PerReduce, PerWeightedMean)) and (
             period is None
             and time_axis is None
-            and not native_sample_mean
+            and isinstance(node, PerReduce)
+            and node.reducer != "mean"
             and isinstance(node.samples, tuple)
             and any(
                 axis.field is not None and axis.field.ref.kind.value == "time_dimension"
@@ -254,7 +230,15 @@ def bind_observation(
                         (*occurrence, edge.index),
                         filters,
                         (*sample_axes, *inner_axes),
-                        (*sample_layers, (inner_axes, inner_memberships)),
+                        (
+                            *sample_layers,
+                            SampleLayer(
+                                inner_axes,
+                                inner_memberships,
+                                occurrence,
+                                node.reducer if isinstance(node, PerReduce) else "weighted_mean",
+                            ),
+                        ),
                     )
             if inner_memberships and len(contributions) == contribution_count:
                 reject(
@@ -324,6 +308,7 @@ def bind_observation(
                     and not coordinate_calendar_axes
                     and dimension.sample_interval is not None
                     and not (isinstance(node, SourceAggregate) and node.reducer == "mean")
+                    and not sample_layers
                 ):
                     reject(
                         "an explicit period for sampled time",
@@ -391,7 +376,7 @@ def bind_observation(
                 dict.fromkeys(
                     (
                         *memberships,
-                        *(binding for _, rules in sample_layers for binding in rules),
+                        *(binding for layer in sample_layers for binding in layer.memberships),
                     )
                 )
             )
@@ -404,12 +389,12 @@ def bind_observation(
                             FieldRead(axis.field, axis.entity, axis.path, axis.at)
                             if axis.field is not None
                             else IdentityRead(axis.entity, axis.path, axis.at)
-                            for axis in layer_axes
+                            for axis in layer.axes
                             if isinstance(axis, AxisBinding)
                         ),
-                        rules,
+                        layer.memberships,
                     )
-                    for layer_axes, rules in sample_layers
+                    for layer in sample_layers
                 ),
             )
             for layer_reads, layer_memberships in coordinate_layers:
@@ -507,6 +492,8 @@ def bind_observation(
                     time,
                     contribution_period,
                     sample_axes=sample_axes,
+                    sample_layers=sample_layers,
+                    metric=metrics[occurrence[0]][0],
                     memberships=all_memberships,
                     output_axis_count=sum(
                         not isinstance(axis, (CalendarCoordinate, IntervalCoordinate))

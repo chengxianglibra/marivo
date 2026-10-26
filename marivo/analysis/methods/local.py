@@ -14,6 +14,12 @@ from marivo._definition.observations import SampleCoverage
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.methods._sample_coverage import (
+    SamplingWitness,
+    record_witness,
+    sampling_context,
+    sampling_error,
+)
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFormulaContext
@@ -73,12 +79,20 @@ def query_combine(
 
     program = stage.program
     assert isinstance(program, FormulaProgram)
+    sampling: dict[str, SamplingWitness] = {}
     frame, checks = _combine_program(
-        program, inputs, stage.keys, stage.columns[len(stage.keys) :], attribute=attribute
+        program,
+        inputs,
+        stage.keys,
+        stage.columns[len(stage.keys) :],
+        attribute=attribute,
+        sampling=sampling,
     )
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
+            if received in sampling and not sampling[received].rows.empty:
+                raise sampling_error(sampling_context(sampling[received]))
             coordinates = frame.loc[violation, list(stage.keys)].head(6).to_dict(orient="records")
             numeric_failure(expected, f"{received}; coordinates={coordinates}")
     return frame.loc[:, [column.slot_id for column in stage.columns]]
@@ -91,6 +105,7 @@ def _combine_program(
     outputs: tuple[DataColumn, ...],
     forced_domain: pd.DataFrame | None = None,
     attribute: AttributeFormulaContext | None = None,
+    sampling: dict[str, SamplingWitness] | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -143,8 +158,27 @@ def _combine_program(
             and "__mean_folded" in frame
             and bool(frame["__mean_folded"].all())
         ):
+            if sampling is not None and "sample_check.coverage" in frame:
+                from marivo.analysis.methods._sample_coverage import native_sampling_witness
+
+                witness = native_sampling_witness(binding.coverage, frame)
+                if witness is not None:
+                    received = f"missing state sample; metric={witness.coverage.metric}; occurrence={binding.occurrence}"
+                    sampling[received] = witness
+                    binding = replace(
+                        binding,
+                        checks=tuple(
+                            (
+                                name,
+                                expected,
+                                received if name == "sample_check.coverage" else original,
+                            )
+                            for name, expected, original in binding.checks
+                        ),
+                    )
             # The native source read completed the entire sample reducer.
             # Retain the original graph; this occurrence supplies its value.
+            assert binding.folded_mean is not None
             binding = replace(
                 binding,
                 occurrence=binding.folded_mean,
@@ -542,6 +576,7 @@ def _combine_program(
                 complete_keys,
                 child_outputs,
                 complete_domain,
+                sampling=sampling,
             )
             for child_column in child_outputs:
                 if isinstance(child_column.dtype, DurationDataType):
@@ -665,6 +700,14 @@ def _combine_program(
             physical[key] = aligned[column_name].astype("boolean").fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))
         for key, coverage in zip(coverage_names, active_coverage, strict=True):
+            received = (
+                (
+                    f"missing state sample on {coverage.field}; metric={coverage.metric}; "
+                    f"layer={coverage.occurrence}; period={coverage.period}; key={coverage.key}; source={binding.stage_id}"
+                )
+                if coverage.field
+                else f"missing state sample on {coverage.key}"
+            )
             if coverage.wall_timezone is not None:
                 requirements = wall_requirements[(binding.occurrence, coverage)]
                 wall_missing = (
@@ -675,11 +718,13 @@ def _combine_program(
                     .fillna(False)
                 )
                 physical[key] = wall_missing.astype(object)
+                if sampling is not None and coverage.field and wall_missing.any():
+                    sampling[received] = record_witness(coverage, domain, wall_missing, tuple(keys))
                 checks.append(
                     NumericCheck(
                         table[key],
                         "complete fixed-cadence state samples",
-                        f"missing state sample on {coverage.key}",
+                        received,
                     )
                 )
                 continue
@@ -692,11 +737,15 @@ def _combine_program(
                 else aligned["__present"].astype("boolean").fillna(False)
             )
             physical[key] = (required & ~present).astype(object)
+            if sampling is not None and coverage.field and (required & ~present).any():
+                sampling[received] = record_witness(
+                    coverage, domain, required & ~present, tuple(keys)
+                )
             checks.append(
                 NumericCheck(
                     table[key],
                     "complete fixed-cadence state samples",
-                    f"missing state sample on {coverage.key}",
+                    received,
                 )
             )
         values[binding.occurrence] = NumericValue(table[name], tuple(checks))
@@ -717,6 +766,8 @@ def _combine_program(
             check_name = f"formula.check.{len(retained)}"
             result[check_name] = violation
             retained.append((check_name, check.expected, check.received))
+            if sampling is not None and check.received in sampling:
+                sampling[check.received].demand(domain.loc[violation], tuple(keys))
             if attribute is not None and violation.any():
                 coordinates = domain.loc[violation, keys].head(6)
                 _attribute_formula_failure(

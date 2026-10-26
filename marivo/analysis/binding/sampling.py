@@ -43,11 +43,30 @@ def sampling_coverage(
         for axis in contribution.sample_axes
     )
     outer_calendar = contribution.calendars[0] if outer_calendar_count else None
+    sample_rules = tuple(
+        layer
+        for layer in contribution.sample_layers
+        for axis in layer.axes
+        if not isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+    )
+    names: list[tuple[str, str]] = []
+    name_slot = 0
+    for read in contribution.coordinates:
+        while f"key.{name_slot}" in calendar_slots:
+            names.append((f"key.{name_slot}", "period"))
+            name_slot += 1
+        for field in coordinate_read_keys(read):
+            names.append((f"key.{name_slot}", field))
+            name_slot += 1
     for i, read in enumerate(contribution.coordinates):
         while f"key.{offset}" in calendar_slots:
             offset += 1
         width = len(coordinate_read_keys(read))
         if i < contribution.output_axis_count or not isinstance(read, FieldRead):
+            offset += width
+            continue
+        layer = sample_rules[i - contribution.output_axis_count] if sample_rules else None
+        if layer is not None and not layer.requires_coverage:
             offset += width
             continue
         dimension = state.registry.dimensions.get(read.field.ref.path)
@@ -108,6 +127,12 @@ def sampling_coverage(
                         index,
                         output_slot,
                         wall_timezone,
+                        contribution.metric,
+                        read.field.ref.path,
+                        layer.reducer if layer is not None else "",
+                        layer.occurrence if layer is not None else (),
+                        type(period)(cell[2], cell[3], period.timezone),
+                        tuple(names),
                     )
                     for index, cell in enumerate(
                         output_calendar.cells
@@ -130,6 +155,12 @@ def sampling_coverage(
                         contribution.window_key,
                         outer_calendar[0] if outer_calendar is not None else "key.0",
                         wall_timezone,
+                        contribution.metric,
+                        read.field.ref.path,
+                        layer.reducer if layer is not None else "",
+                        layer.occurrence if layer is not None else (),
+                        period,
+                        tuple(names),
                     )
                 )
         offset += width

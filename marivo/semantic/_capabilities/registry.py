@@ -2611,7 +2611,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Membership fields expand in order; explicit non-first fields locate interleaved axes. "
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
-                    "Each nested layer keeps its own domain and complete allocation rules."
+                    "Each nested layer keeps its own domain and complete allocation rules. "
+                    "Time mean/weighted_mean use represented samples without scheduled coverage or implicit fill; "
+                    "other reducers retain coverage checks. sample_interval does not bucket timestamps. "
+                    "Coverage errors identify the Metric, time field, interval, groups and bounded missing instants."
                 )
             elif prefix == "Metric" and method == "where":
                 summary += (
@@ -2657,7 +2660,13 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 if method == "mean":
                     summary += (
                         " Native AVG owns NULL and empty-input behavior, including when nulls='error' is supplied. "
-                        "Qualified time-sample AVG uses represented completed samples without cadence coverage checks or local fallback."
+                        "Native time-sample AVG has no local fallback."
+                    )
+                if prefix == "MetricSamples" and method in {"mean", "weighted_mean"}:
+                    summary += (
+                        " Time samples use represented values without scheduled coverage or implicit fill, "
+                        "independently of formula shape or execution route. Explicit Population domains and existing "
+                        "NULL/weight policies remain unchanged; other nested reducers keep their own checks."
                     )
                 if method == "sum":
                     summary += " MySQL retains widened SUM until safe Decimal carrier conversion; out-of-range source results fail."

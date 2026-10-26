@@ -66,6 +66,12 @@ policies remain operator-local strings; declaration-wide
 empty/null/zero-denominator policies, old factories and default folds are
 rejected with a concrete reauthoring action.
 
+Time-sample ``mean`` and ``weighted_mean`` use represented samples without
+scheduled-clock coverage checks or implicit zero/NULL completion. This policy is
+independent of formula shape and execution route; explicit Population domains
+and existing NULL/weight policies remain authoritative. Other sample reducers
+retain coverage checks. ``sample_interval`` never buckets timestamps.
+
 ``ms.rescale(expr, divisor=..., unit=...)`` explicitly divides a numeric Row or
 completed Metric by a finite positive constant and declares its target unit.
 The source unit must be known after binding; stage, source roots, time restrictions

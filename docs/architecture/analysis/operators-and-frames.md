@@ -147,7 +147,8 @@ Qualified direct min/max of Float64 time-sample means completes each child mean
 before the outer source aggregate on DuckDB, PostgreSQL, MySQL, Trino and
 ClickHouse. Strict outer NULL and scheduled-clock coverage checks remain
 attached to their original domains; only bounded output summaries cross the
-boundary. This does not admit arbitrary nested samples, Decimal/Duration or
+boundary. Failed coverage includes same-statement witnesses for at most six
+groups and three missing instants per group, without a source reread. This does not admit arbitrary nested samples, Decimal/Duration or
 ordered first/last to the same optimization.
 
 Qualified direct mean of numeric time-sample means also executes on those five
@@ -161,7 +162,10 @@ Explicit result casts enforce these carriers after native AVG arithmetic.
 Duration, windows,
 explicit sample populations and unsupported nested or conditional formulas retain
 their existing qualified routes, including explicit local sample reduction where
-applicable.
+applicable. Every time-sample mean/weighted_mean uses represented samples without
+implicit scheduled-clock completion or coverage requirements. The policy belongs
+to each logical sample layer, not the optimizer. Explicit Population domains,
+NULL/weight policies and stricter nested reducers remain authoritative.
 
 ## Current cells, original Metrics and windows
 

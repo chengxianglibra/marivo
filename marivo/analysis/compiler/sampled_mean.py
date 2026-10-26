@@ -150,7 +150,11 @@ def compact_extrema(
             if coverage.output_key is not None
             else ibis.literal(True)
         )
-        observed = (selected & in_output).ifelse(result[clock], _null_like(result[clock]))
+        # Predicate summaries retain rejected keys; they cannot prove coverage.
+        represented = coverage_row if coverage.wall_timezone else demanded
+        observed = (selected & in_output & represented).ifelse(
+            result[clock], _null_like(result[clock])
+        )
         missing |= (observed.nunique() != len(set(points))) & (
             demanded & in_output
         ).any().fill_null(False)
@@ -172,6 +176,7 @@ def compact_extrema(
     )
     metrics["sample_check.coverage"] = missing
     folded = result.group_by(*outer).aggregate(**metrics) if outer else result.aggregate(**metrics)
+    folded = _coverage_diagnostics(prepared, result, folded, outer, demanded)
     return folded.select(
         **{
             name: folded[name]
@@ -182,5 +187,86 @@ def compact_extrema(
             for name in result.columns
         },
         **{name: folded[name] for name in ("sample_check.null", "sample_check.coverage")},
+        **{name: folded[name] for name in folded.columns if name.startswith("__sampling_")},
         __mean_folded=ibis.literal(True),
     )
+
+
+def _coverage_diagnostics(
+    prepared: ReductionInput,
+    samples: ir.Table,
+    folded: ir.Table,
+    outer: tuple[str, ...],
+    demanded: ir.BooleanValue,
+) -> ir.Table:
+    """Find bounded missing clocks inside the same native aggregate statement.
+
+    Literal clocks are SQL constants, not uploaded business keys. Only the first
+    six failed groups join the expected clock domain; successful reads keep one
+    aggregate row per output coordinate.
+    """
+    if not prepared.coverage:
+        return folded
+    failure_count = folded["sample_check.coverage"].ifelse(1, 0).sum().over()
+    folded = folded.mutate(__sampling_group_count=failure_count)
+    failed = folded.filter(folded["sample_check.coverage"])
+    if outer:
+        failed = failed.order_by(*(failed[key].asc(nulls_first=True) for key in outer))
+    failed = failed.limit(6)
+    result = folded
+    for index, coverage in enumerate(prepared.coverage):
+        if not coverage.points:
+            continue
+        clock = "__coverage_" + coverage.key if coverage.wall_timezone else coverage.key
+        points = (
+            expected_wall_points(coverage.points, coverage.wall_timezone)
+            if coverage.wall_timezone
+            else coverage.points
+        )
+        constants = [
+            ibis.literal(point, type=samples[clock].type()).name("__missing_clock").as_table()
+            for point in points
+        ]
+        expected = constants[0].union(*constants[1:]) if len(constants) > 1 else constants[0]
+        selected = failed
+        if coverage.output_key is not None:
+            selected = selected.filter(selected[coverage.output_slot] == coverage.output_key)
+        requested = selected.select(*outer).cross_join(expected)
+        represented = samples.filter(
+            samples["__coverage_row"] if coverage.wall_timezone else demanded
+        )
+        observed = represented.select(
+            *outer, represented[clock].name("__observed_clock")
+        ).distinct()
+        missing = requested.anti_join(
+            observed,
+            [
+                *(requested[key].identical_to(observed[key]) for key in outer),
+                requested["__missing_clock"] == observed["__observed_clock"],
+            ],
+        )
+        missing = missing.mutate(
+            __missing_rank=ibis.row_number().over(
+                group_by=[missing[key] for key in outer],
+                order_by=missing["__missing_clock"],
+            )
+        )
+        prefix = f"__sampling_{index}_"
+        metrics = {prefix + "count": missing.count()}
+        for position in range(3):
+            selected_point = missing["__missing_rank"] == position
+            metrics[prefix + str(position)] = selected_point.any().ifelse(
+                missing["__missing_clock"].max(where=selected_point),
+                _null_like(missing["__missing_clock"]),
+            )
+        witnesses = (
+            missing.group_by(*outer).aggregate(**metrics) if outer else missing.aggregate(**metrics)
+        )
+        joined = result.left_join(
+            witnesses,
+            [result[key].identical_to(witnesses[key]) for key in outer]
+            if outer
+            else ibis.literal(True),
+        )
+        result = joined.select(*result.columns, *(witnesses[name] for name in metrics))
+    return result

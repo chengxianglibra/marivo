@@ -415,3 +415,15 @@ a shifted axis may have None, which is never filled from a grid envelope.
 facts where applicable. Publication failures expose their phase and concrete
 repair directly through structured errors.
 These read-only paths do not open constructors for nested implementation types.
+
+Sampling coverage failures
+--------------------------
+
+A demanded fixed-clock coverage failure remains a ``MaterializationError`` with
+an immutable ``sampling_context``. It identifies the output Metric, sample layer
+and reducer, semantic time field, actual interval/timezone, and bounded complete
+group coordinates. Each group reports expected/covered counts and up to three
+missing instants; at most six groups are shown, with explicit truncation flags.
+The rendered error includes the same facts and a concrete repair. Represented
+NULL samples are distinct from missing clocks. Native diagnostics use the same
+business statement, without a follow-up query.

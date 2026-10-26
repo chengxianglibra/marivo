@@ -279,7 +279,9 @@ def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
     session = bound_catalog()
     revenue = session.catalog.metrics.get("sales.revenue")
     field = session.catalog.fields.get("sales.orders.ordered_at")
-    nested = revenue.per((field,)).mean() * 0
+    mean = revenue.per((field,)).mean() * 0
+    assert _captured_observation(session.observe({"zero": mean})).period is None
+    nested = revenue.per((field,)).median() * 0
     with pytest.raises(CoreRuleError, match="explicit observation period"):
         session.observe({"zero": nested})
     # A where time range is a contribution filter, not a substitute for sampling scope.
