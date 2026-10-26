@@ -17,6 +17,7 @@ def test_missing_manifest_uses_defaults_without_writing(tmp_path: Path) -> None:
     assert config == ProjectConfig(name=tmp_path.name)
     assert config.semantic_layer_paths == ()
     assert config.telemetry_enabled is True
+    assert config.telemetry_mode == "on"
     assert not (tmp_path / "marivo.toml").exists()
 
 
@@ -61,11 +62,11 @@ def test_explicit_project_configuration_overrides_defaults(tmp_path: Path) -> No
     assert config.telemetry_mode == "off"
 
 
-def test_full_telemetry_mode_is_explicit(tmp_path: Path) -> None:
-    (tmp_path / "marivo.toml").write_text('[telemetry]\nenabled = "full"\n', encoding="utf-8")
+def test_on_telemetry_mode_is_explicit(tmp_path: Path) -> None:
+    (tmp_path / "marivo.toml").write_text('[telemetry]\nenabled = "on"\n', encoding="utf-8")
     config = load_project_config(tmp_path)
     assert config.telemetry_enabled is True
-    assert config.telemetry_mode == "full"
+    assert config.telemetry_mode == "on"
 
 
 @pytest.mark.parametrize(
@@ -81,7 +82,11 @@ def test_full_telemetry_mode_is_explicit(tmp_path: Path) -> None:
         ('telemetry = "on"\n', r"\[telemetry\] must be a table"),
         (
             "[telemetry]\nenabled = true\n",
-            r"\[telemetry\]\.enabled must be 'on', 'off', or 'full'",
+            r"\[telemetry\]\.enabled must be 'on' or 'off'",
+        ),
+        (
+            '[telemetry]\nenabled = "full"\n',
+            r"\[telemetry\]\.enabled must be 'on' or 'off'",
         ),
     ],
 )

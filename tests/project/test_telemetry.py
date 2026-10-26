@@ -73,11 +73,11 @@ def _capability_records(path: Path, capability_id: str) -> list[dict[str, object
 def telemetry_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n', encoding="utf-8")
-    monkeypatch.setenv("MARIVO_TELEMETRY", "full")
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
     yield tmp_path
 
 
-def test_full_mode_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> None:
+def test_track_operation_writes_correlated_v3_pair(telemetry_project: Path) -> None:
     from marivo.telemetry import track_operation
 
     session = SimpleNamespace(
@@ -246,30 +246,35 @@ def test_nested_operations_link_parent_and_suppress_same_capability_delegate(
     from marivo.telemetry import tracked_capability
 
     @tracked_capability(surface="analysis", capability_id="child", capability_kind="read")
-    def child(*, project_root: Path) -> str:
+    def child(*, project_root: Path, fail: bool = False) -> str:
+        if fail:
+            raise ValueError("nested failure")
         return "ok"
 
     @tracked_capability(surface="analysis", capability_id="parent", capability_kind="operator")
-    def parent(*, project_root: Path) -> str:
-        return child(project_root=project_root)
+    def parent(*, project_root: Path, fail: bool = False) -> str:
+        return child(project_root=project_root, fail=fail)
 
-    @tracked_capability(surface="analysis", capability_id="same", capability_kind="read")
+    @tracked_capability(surface="analysis", capability_id="same", capability_kind="operator")
     def delegated(*, project_root: Path) -> None:
         return None
 
     same_outer = tracked_capability(
-        surface="analysis", capability_id="same", capability_kind="read"
+        surface="analysis", capability_id="same", capability_kind="operator"
     )(delegated)
 
     assert parent(project_root=telemetry_project) == "ok"
+    with pytest.raises(ValueError, match="nested failure"):
+        parent(project_root=telemetry_project, fail=True)
     same_outer(project_root=telemetry_project)
 
     path = _event_path(telemetry_project)
     parent_attrs = [_attrs(record) for record in _capability_records(path, "parent")]
     child_attrs = [_attrs(record) for record in _capability_records(path, "child")]
-    assert len(parent_attrs) == len(child_attrs) == 2
+    assert len(parent_attrs) == 4
+    assert len(child_attrs) == 1
     assert all(
-        attrs["marivo.operation.parent_id"] == parent_attrs[0]["marivo.operation.id"]
+        attrs["marivo.operation.parent_id"] == parent_attrs[-1]["marivo.operation.id"]
         for attrs in child_attrs
     )
     assert parent_attrs[0]["marivo.operation.origin"] == "explicit"
@@ -294,7 +299,7 @@ def test_load_tracks_project_root_without_internal_ref_events(
     assert native_symbol_ref(loaded) == native_symbol_ref(expected)
     path = _event_path(telemetry_project)
     assert len(_capability_records(path, "load")) == 2
-    assert len(_capability_records(path, "ref.entity")) == 2
+    assert _capability_records(path, "ref.entity") == []
 
 
 def test_explicitly_disabled_telemetry_skips_wrapped_capabilities(
@@ -383,13 +388,13 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     )
 
     path = _event_path(telemetry_project)
-    assert len(_capability_records(path, "session.get_or_create")) == 2
+    assert len(_capability_records(path, "session.get_or_create")) == 1
     assert _capability_records(path, "load") == []
     assert _capability_records(path, "measure_column") == []
     assert _capability_records(path, "trino") == []
 
     assert resume_by_id(session_id="sess_existing", project_root=telemetry_project) == "declared"
-    assert len(_capability_records(path, "session.resume")) == 2
+    assert len(_capability_records(path, "session.resume")) == 1
     assert _capability_records(path, "measure_column") == []
     assert _capability_records(path, "trino") == []
 
@@ -403,16 +408,14 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     )
     fresh_declarations = [_attrs(record) for record in _capability_records(path, "measure_column")]
     fresh_datasources = [_attrs(record) for record in _capability_records(path, "trino")]
-    assert len(fresh_declarations) == len(fresh_datasources) == 2
-    assert fresh_declarations[0]["marivo.operation.origin"] == "internal_load"
-    assert fresh_datasources[0]["marivo.operation.origin"] == "internal_load"
+    assert fresh_declarations == fresh_datasources == []
 
     assert load(project_root=telemetry_project) == "declared"
     load_attrs = [_attrs(record) for record in _capability_records(path, "load")]
     declaration_attrs = [_attrs(record) for record in _capability_records(path, "measure_column")]
     assert len(load_attrs) == 2
     assert load_attrs[0]["marivo.operation.origin"] == "explicit"
-    assert declaration_attrs[-2]["marivo.operation.origin"] == "internal_load"
+    assert declaration_attrs == []
 
     with pytest.raises(ValueError, match="private internal load detail"):
         resume(
@@ -479,7 +482,12 @@ def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
 ) -> None:
     from marivo.telemetry import tracked_capability
 
-    @tracked_capability(surface="datasource", capability_id="raw_sql", capability_kind="boundary")
+    @tracked_capability(
+        surface="datasource",
+        capability_id="raw_sql",
+        capability_kind="boundary",
+        default_stage="execute",
+    )
     def diagnostic(
         datasource: object,
         sql: str,
@@ -536,16 +544,17 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
         granularity: str,
         project_root: Path,
     ) -> None:
-        return None
+        raise ValueError("private authoring failure")
 
-    author(
-        guardrails=("Never expose the private customer cohort.",),
-        client_tags=("tenant=secret-account",),
-        dimensions=("orders.created_at",),
-        additivity="semi_additive",
-        granularity="daily",
-        project_root=telemetry_project,
-    )
+    with pytest.raises(ValueError, match="private authoring failure"):
+        author(
+            guardrails=("Never expose the private customer cohort.",),
+            client_tags=("tenant=secret-account",),
+            dimensions=("orders.created_at",),
+            additivity="semi_additive",
+            granularity="daily",
+            project_root=telemetry_project,
+        )
 
     path = _event_path(telemetry_project)
     text = path.read_text(encoding="utf-8")
@@ -572,12 +581,12 @@ def test_session_creation_description_and_explicit_resume_semantics(
     assert resumed.id == first.id and resumed.question == "Original question"
     path = _event_path(telemetry_project)
     calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert calls[0]["marivo.session.created"] is True
-    assert calls[1]["marivo.session.question"] == "Original question"
+    assert calls[0]["marivo.session.question"] == "Original question"
     assert calls[-1]["marivo.operation.status"] == "error"
     resume_calls = [_attrs(record) for record in _capability_records(path, "session.resume")]
-    assert len(resume_calls) == 2
+    assert len(resume_calls) == 1
     assert all(
         "marivo.input.by" not in item and "marivo.input.session_id" not in item
         for item in resume_calls
@@ -597,8 +606,8 @@ def test_named_session_recovery_does_not_report_question_rewrite(
         _attrs(record)
         for record in _capability_records(_event_path(telemetry_project), "session.get_or_create")
     ]
-    assert len(calls) == 4
-    assert calls[1]["marivo.session.question_applied"] is True
+    assert len(calls) == 2
+    assert calls[0]["marivo.session.question_applied"] is True
     assert calls[-1]["marivo.session.created"] is False
     assert calls[-1]["marivo.session.question_applied"] is False
 
@@ -618,7 +627,7 @@ def test_failed_session_resume_does_not_disclose_identity(
         _attrs(record)
         for record in _capability_records(_event_path(telemetry_project), "session.resume")
     ]
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert identity not in json.dumps(calls)
     assert all("marivo.input.session_id" not in attrs for attrs in calls)
     assert all(attrs["marivo.input.session_id.type"] == "str" for attrs in calls)
@@ -641,7 +650,7 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
         _attrs(record)
         for record in _capability_records(_event_path(telemetry_project), "session.resume")
     ]
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert selector not in json.dumps(calls)
     assert all("marivo.input.by" not in attrs for attrs in calls)
     assert all(attrs["marivo.input.by.type"] == "str" for attrs in calls)
@@ -666,8 +675,8 @@ def test_failed_session_question_update_reports_not_applied(
 
     path = _event_path(telemetry_project)
     calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
-    assert len(calls) == 4
-    assert "marivo.session.question_applied" not in calls[-2]
+    assert len(calls) == 2
+    assert calls[0]["marivo.session.question_applied"] is True
     assert calls[-1]["marivo.operation.status"] == "error"
     assert calls[-1]["marivo.session.question_applied"] is False
     session_id = mv.session.recent().items[0].id
@@ -745,7 +754,7 @@ def test_unified_help_surface_failure_is_tracked_separately(
     assert completed["marivo.help.resolved_owner"] == "global"
 
 
-def test_surface_root_help_tracks_exact_owner_and_canonical_id(
+def test_successful_surface_root_help_does_not_write_events(
     telemetry_project: Path,
 ) -> None:
     import marivo
@@ -754,11 +763,7 @@ def test_surface_root_help_tracks_exact_owner_and_canonical_id(
     assert callable(help_call)
     help_call("analysis")
 
-    path = _event_path(telemetry_project)
-    completed = _attrs(_capability_records(path, "help")[-1])
-    assert completed["marivo.help.outcome"] == "success"
-    assert completed["marivo.help.resolved_owner"] == "analysis"
-    assert completed["marivo.help.canonical_id"] == "analysis"
+    assert not (telemetry_project / ".marivo" / "telemetry").exists()
 
 
 def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) -> None:
@@ -782,7 +787,7 @@ def test_result_summary_links_artifact_and_consumption(telemetry_project: Path) 
     def produce(*, project_root: Path) -> object:
         return frame
 
-    @tracked_capability(surface="analysis", capability_id="consume", capability_kind="read")
+    @tracked_capability(surface="analysis", capability_id="consume", capability_kind="operator")
     def consume(source: object, *, project_root: Path) -> None:
         return None
 
@@ -883,7 +888,7 @@ def test_failed_default_stage_is_recorded_without_exception_message(
     assert "private invalid declaration" not in path.read_text(encoding="utf-8")
 
 
-def test_cli_init_system_exit_writes_deferred_correlated_pair(telemetry_project: Path) -> None:
+def test_cli_init_system_exit_writes_failure_completion(telemetry_project: Path) -> None:
     from marivo.cli import init_project
 
     (telemetry_project / "marivo.toml").write_text("this is not valid [[toml", encoding="utf-8")
@@ -893,14 +898,12 @@ def test_cli_init_system_exit_writes_deferred_correlated_pair(telemetry_project:
     assert exc_info.value.code == 1
     path = _event_path(telemetry_project)
     calls = [_attrs(record) for record in _capability_records(path, "init")]
-    assert len(calls) == 2
-    assert calls[0]["marivo.operation.status"] == "started"
-    assert calls[1]["marivo.operation.status"] == "error"
-    assert calls[1]["marivo.error.class"] == "SystemExit"
-    assert calls[0]["marivo.operation.id"] == calls[1]["marivo.operation.id"]
+    assert len(calls) == 1
+    assert calls[0]["marivo.operation.status"] == "error"
+    assert calls[0]["marivo.error.class"] == "SystemExit"
 
 
-def test_cli_help_is_tracked_but_read_only_doctor_is_not(
+def test_successful_cli_help_and_read_only_doctor_do_not_write_events(
     telemetry_project: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -922,14 +925,7 @@ def test_cli_help_is_tracked_but_read_only_doctor_is_not(
     main(["doctor", "--project-root", str(telemetry_project), "--format", "json"])
     capsys.readouterr()
 
-    path = _event_path(telemetry_project)
-    cli_help = [
-        record
-        for record in _capability_records(path, "help")
-        if _attrs(record)["marivo.surface"] == "cli"
-    ]
-    assert len(cli_help) == 2
-    assert _capability_records(path, "doctor") == []
+    assert not (telemetry_project / ".marivo" / "telemetry").exists()
 
 
 def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
@@ -938,7 +934,7 @@ def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
     def emit(index: int) -> None:
         with track_operation(
             surface="analysis",
-            capability_kind="read",
+            capability_kind="operator",
             capability_id=f"concurrent_{index}",
             project_root=telemetry_project,
         ):
@@ -1147,9 +1143,9 @@ def test_writer_failure_is_isolated_and_reported_on_next_success(
     [
         (
             '[project]\nname="test"\n\n[telemetry]\nenabled="off"\n',
-            ((None, False), ("on", True)),
+            ((None, False), ("on", True), ("full", False)),
         ),
-        ('[project]\nname="test"\n', (("off", False), ("0", True))),
+        ('[project]\nname="test"\n', (("off", False), ("0", True), ("full", True))),
     ],
     ids=("project_off", "project_default"),
 )
@@ -1235,21 +1231,22 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
     telemetry_project: Path,
 ) -> None:
     from marivo import _execution_log
-    from marivo.telemetry import track_operation
+    from marivo.telemetry import tracked_capability
     from tests.support.execution_logs import execution_records
 
-    with (
-        track_operation(
-            surface="datasource",
-            capability_kind="boundary",
-            capability_id="raw_sql",
-            project_root=telemetry_project,
-        ),
-        _execution_log.QueryLog(
+    @tracked_capability(
+        surface="datasource",
+        capability_kind="boundary",
+        capability_id="raw_sql",
+        default_stage="execute",
+    )
+    def diagnostic(*, project_root: Path) -> None:
+        with _execution_log.QueryLog(
             "SELECT 'query-canary'", backend="duckdb", purpose="datasource.raw_sql"
-        ),
-    ):
-        pass
+        ):
+            pass
+
+    diagnostic(project_root=telemetry_project)
     operation = _attrs(_capability_records(_event_path(telemetry_project), "raw_sql")[0])
     records = execution_records(telemetry_project)
     assert {record["operation_id"] for record in records} == {operation["marivo.operation.id"]}

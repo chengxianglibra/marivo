@@ -23,12 +23,11 @@ New execution records use `schema_version: 2`. Each event carries a `runtime` ob
 This identity describes the environment that emitted the event. It does not prove package contents or a data snapshot; equal development versions and paths can contain different code. Doctor reports the current environment. Older records are unchanged, and missing runtime means the historical identity is unknown. One file can contain multiple schema versions; interpret each line separately. Usage telemetry has its own schema and is unchanged.
 
 
-## Choose capture mode
+## Enable or disable telemetry
 
 | Mode | Behavior |
 | --- | --- |
-| `on` | Default; records execution, failures, saving, and reuse |
-| `full` | Records a broader set of public operations |
+| `on` | Default; records execution, session creation and reuse, datasource changes, and failures |
 | `off` | Disables usage telemetry; execution logs remain enabled |
 
 Set the project default in `marivo.toml`:
@@ -38,7 +37,9 @@ Set the project default in `marivo.toml`:
 enabled = "off"
 ```
 
-The `MARIVO_TELEMETRY` environment variable accepts `on`, `off`, or `full` and overrides project configuration.
+The `MARIVO_TELEMETRY` environment variable accepts `on` or `off` and overrides project configuration. Invalid environment values are ignored; invalid project values raise a configuration error.
+
+With telemetry enabled, explicit long operations such as analysis execution, semantic loading, and datasource queries record start and completion events. Short operations such as session creation or reuse record completion only. Lightweight reads record failures only; analysis constructors and semantic references do not record events. Nested calls omit successful events while retaining eligible failures and their parent operation identity.
 
 ## Understand retention and sharing
 

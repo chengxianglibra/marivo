@@ -284,6 +284,19 @@ credential values, returned rows and exception locals are excluded from these
 logs. Credential failures retain error type without a potentially sensitive
 message; other errors use the bounded redacted backend summary.
 
+Usage telemetry accepts only `on` and `off`, defaulting to `on`. The
+`MARIVO_TELEMETRY` environment variable overrides `[telemetry].enabled` in
+`marivo.toml`; invalid environment values are ignored, while invalid project
+values fail configuration validation. `ProjectConfig.telemetry_enabled` and
+`ProjectConfig.telemetry_mode` retain the parsed boolean and on/off setting.
+When enabled, explicit long operations emit start and completion events, while
+short operations emit completion only. Lightweight reads emit failures only.
+Analysis constructors and semantic references emit no events. Delegated and
+internal-load calls omit success events but retain eligible failures with their
+parent operation identity. Same-capability wrappers do not duplicate events.
+Disabling telemetry preserves execution-log operation context and skips telemetry
+attribute preparation in public capability wrappers.
+
 The sinks share private append/rolling primitives while retaining separate content,
 directories and enablement. Execution logs roll by UTC day and approximately
 128 MiB; individual records are not truncated. Cleanup preserves the current day

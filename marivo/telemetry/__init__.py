@@ -44,7 +44,7 @@ _WRITE_LOCK = threading.Lock()
 _DROPPED_EVENTS = 0
 _LAST_PRUNED_DATE: dict[Path, date] = {}
 
-TelemetryMode = Literal["off", "on", "full"]
+TelemetryMode = Literal["off", "on"]
 CapturePolicy = Literal["none", "failure", "short", "long"]
 _LOAD_POLICY: ContextVar[tuple[Path, TelemetryMode] | None] = ContextVar(
     "marivo_load_telemetry_policy", default=None
@@ -144,7 +144,6 @@ class _ActiveOperation:
     capability_id: str
     operation_id: str
     emitted: bool = True
-    suppress_internal_load_success: bool = False
 
 
 _ACTIVE_OPERATIONS: ContextVar[tuple[_ActiveOperation, ...]] = ContextVar(
@@ -163,8 +162,6 @@ def _setting_mode(raw: object) -> TelemetryMode | None:
         return "on"
     if value == "off":
         return "off"
-    if value == "full":
-        return "full"
     return None
 
 
@@ -188,10 +185,6 @@ def _mode(root: Path) -> TelemetryMode:
     if project_value is not None:
         return project_value
     return "on"
-
-
-def _enabled(root: Path) -> bool:
-    return _mode(root) != "off"
 
 
 def _output_dir(root: Path) -> Path:
@@ -711,38 +704,6 @@ def _capture_policy(
     return "failure"
 
 
-@dataclass(frozen=True)
-class _EmissionDecision:
-    started: bool
-    defer_start: bool
-    success: bool
-    parent: bool
-
-
-def _resolve_emission(
-    mode: TelemetryMode,
-    capture: CapturePolicy,
-    origin: Literal["explicit", "delegated", "internal_load"],
-    *,
-    suppress_internal_success: bool,
-    defer_start_write: bool,
-) -> _EmissionDecision:
-    if mode == "full":
-        return _EmissionDecision(
-            started=True,
-            defer_start=defer_start_write or suppress_internal_success,
-            success=not suppress_internal_success,
-            parent=True,
-        )
-    success = origin == "explicit" and capture in {"short", "long"}
-    return _EmissionDecision(
-        started=success and capture == "long",
-        defer_start=False,
-        success=success,
-        parent=success,
-    )
-
-
 @dataclass
 class _Operation:
     surface: str
@@ -753,7 +714,6 @@ class _Operation:
     capture: CapturePolicy = "long"
     mode: TelemetryMode | None = None
     question_requested: bool | None = None
-    defer_start_write: bool = False
     operation_id: str = field(default_factory=lambda: f"op_{uuid.uuid4().hex}")
     started: float = field(default_factory=monotonic)
     phase_durations_ms: dict[str, int] = field(default_factory=dict)
@@ -761,8 +721,7 @@ class _Operation:
     _log_scope: AbstractContextManager[_execution_log.ExecutionContext] | None = None
     _stack_token: Token[tuple[_ActiveOperation, ...]] | None = None
     _current_token: Token[object | None] | None = None
-    _start_entry: dict[str, object] | None = None
-    _decision: _EmissionDecision | None = None
+    _record_success: bool = False
     parent_id: str | None = None
     origin: Literal["explicit", "delegated", "internal_load"] = "explicit"
     failure_stage: str | None = None
@@ -784,7 +743,7 @@ class _Operation:
         )
         self._log_scope.__enter__()
         self.mode = _mode(self.root) if self.mode is None else self.mode
-        self.enabled = self.mode != "off" and (self.mode == "full" or self.capture != "none")
+        self.enabled = self.mode != "off" and self.capture != "none"
         if not self.enabled:
             self._current_token = _CURRENT_OPERATION.set(self)
             return self
@@ -793,36 +752,15 @@ class _Operation:
             (active.operation_id for active in reversed(stack) if active.emitted), None
         )
         self.origin = _operation_origin(self.surface, self.capability_id, stack)
-        suppress_internal_load_success = any(
-            active.suppress_internal_load_success for active in stack
-        )
-        self._decision = _resolve_emission(
-            self.mode,
-            self.capture,
-            self.origin,
-            suppress_internal_success=(
-                self.origin == "internal_load" and suppress_internal_load_success
-            ),
-            defer_start_write=self.defer_start_write,
-        )
-        if self._decision.started:
+        self._record_success = self.origin == "explicit" and self.capture in {"short", "long"}
+        if self._record_success and self.capture == "long":
             common = self._common_attributes(status="started")
-            self._start_entry = _log_entry(_STARTED_EVENT, status="started", attributes=common)
-            if not self._decision.defer_start:
-                _write_entry(self.root, self._start_entry)
-        suppress_descendants = suppress_internal_load_success or (
-            self.capability_id == "session.resume"
-            or (
-                self.capability_id == "session.get_or_create"
-                and self.attributes.get("marivo.session.created") is False
-            )
-        )
+            _write_entry(self.root, _log_entry(_STARTED_EVENT, status="started", attributes=common))
         active = _ActiveOperation(
             self.surface,
             self.capability_id,
             self.operation_id,
-            emitted=self._decision.parent,
-            suppress_internal_load_success=suppress_descendants,
+            emitted=self._record_success,
         )
         self._stack_token = _ACTIVE_OPERATIONS.set((*stack, active))
         self._current_token = _CURRENT_OPERATION.set(self)
@@ -857,8 +795,7 @@ class _Operation:
             return False
         if self._stack_token is not None:
             _ACTIVE_OPERATIONS.reset(self._stack_token)
-        decision = self._decision
-        if decision is None or (exc is None and not decision.success):
+        if exc is None and not self._record_success:
             return False
         status = "error" if exc is not None else "ok"
         attrs = self._common_attributes(status=status)
@@ -874,8 +811,6 @@ class _Operation:
         else:
             attrs.update(_result_attributes(self.result))
         completed = _log_entry(_COMPLETED_EVENT, status=status, attributes=attrs)
-        if decision.defer_start and self._start_entry is not None:
-            _write_entry(self.root, self._start_entry)
         _write_entry(self.root, completed)
         return False
 
@@ -1020,7 +955,6 @@ def tracked_capability(
                     if capability_id == "session.get_or_create"
                     else None
                 ),
-                defer_start_write=surface == "cli" and capability_id == "init",
             )
             with operation:
                 if default_stage is None:

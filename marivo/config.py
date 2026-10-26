@@ -44,7 +44,7 @@ class ProjectConfig:
         name: Project name.
         semantic_layer_paths: External authored ``models/`` roots.
         telemetry_enabled: Whether local telemetry is enabled by default.
-        telemetry_mode: Local telemetry detail level.
+        telemetry_mode: Local telemetry setting, either on or off.
 
     Returns:
         ProjectConfig with project identity metadata.
@@ -62,7 +62,7 @@ class ProjectConfig:
     name: str
     semantic_layer_paths: tuple[Path, ...] = ()
     telemetry_enabled: bool = True
-    telemetry_mode: Literal["off", "on", "full"] = "on"
+    telemetry_mode: Literal["off", "on"] = "on"
 
 
 def load_project_config(project_root: Path) -> ProjectConfig:
@@ -136,19 +136,17 @@ def load_project_config(project_root: Path) -> ProjectConfig:
 
     telemetry_table = data.get("telemetry")
     if telemetry_table is None:
-        telemetry_mode: Literal["off", "on", "full"] = "on"
+        telemetry_mode: Literal["off", "on"] = "on"
     elif not isinstance(telemetry_table, dict):
         raise ValueError("marivo.toml [telemetry] must be a table.")
     else:
         raw_enabled = telemetry_table.get("enabled")
         if raw_enabled is None:
             telemetry_mode = "on"
-        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off", "full"}:
-            raise ValueError("marivo.toml [telemetry].enabled must be 'on', 'off', or 'full'.")
+        elif not isinstance(raw_enabled, str) or raw_enabled not in {"on", "off"}:
+            raise ValueError("marivo.toml [telemetry].enabled must be 'on' or 'off'.")
         elif raw_enabled == "off":
             telemetry_mode = "off"
-        elif raw_enabled == "full":
-            telemetry_mode = "full"
         else:
             telemetry_mode = "on"
 
