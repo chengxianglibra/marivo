@@ -204,7 +204,8 @@ _PAGES = (
         (),
         "decision_hub",
         guidance=(
-            "Continue with the returned Frame. compute fixes complete data in memory; subsequent derivations remain lazy and need explicit compute/persist. persist saves a committed Frame whose Artifact is audit.",
+            "Choose retention before executing: compute fixes data in this Python process; retain the returned Frame for data operations. A one-shot answer needs no save. Derivations remain lazy and need compute/persist.",
+            "If another process needs these values, persist and output or save the Session and Artifact IDs before this process exits. Session recovery alone does not recover unsaved data. An existing exact saved reference needs no new publication.",
         ),
         route_summaries=(
             ("analysis_frame.compute", "Obtain complete fixed memory data."),

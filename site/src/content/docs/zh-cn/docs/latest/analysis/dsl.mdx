@@ -51,6 +51,24 @@ TimeScope 或 CalendarAxis；其他时间样本规约保留各自的范围要求
 因此成功构造 Frame 并不能证明支持无范围观测。需要范围时，传入
 `by=(session.time_scope(start=..., end=...),)`。
 
+## 执行前选择结果保留方式
+
+`compute()` 将数值固定在当前 Python 进程内。运行脚本前先选择保留方式；
+命名 Session 不会让未保存的数据跨进程存活。
+
+| 执行环境 | 结果保留方式 |
+| --- | --- |
+| 一个脚本即可完成答案 | 在同一脚本内计算和交付，无须保存。 |
+| 持续 Python 进程中还会继续操作 | 保留返回的 Frame，后续数据操作使用它。 |
+| 另一进程需要同一次观测 | 在生产进程退出前 persist，并输出或保存 Session 与 Artifact ID。 |
+| 已有精确保存引用 | 直接恢复，无须再次发布。 |
+| 问题需要来源当前值 | 显式构造新的来源观测。 |
+
+不同 shell 调用通常启动不同 Python 进程。已结束脚本打印的内存卡片不能保留数据。
+[结果指南](/zh-cn/docs/latest/analysis/results/)演示在生产脚本中记录身份，随后恢复时
+不再导入生产脚本。Help：`analysis.execution`、`analysis.analysis_frame.compute`、
+`analysis.analysis_frame.persist`。
+
 ## 完整示例与后续输入
 
 保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。此示例每次执行都会在 Session 名称中使用新的 UUID；需要恢复已有 Session 时，向 `get_or_create` 传入稳定名称。

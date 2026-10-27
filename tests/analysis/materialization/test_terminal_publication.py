@@ -1147,18 +1147,35 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
     produced = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "tests.analysis.materialization.terminal_reading_worker",
+            "-c",
+            """
+import os, sys
+import marivo.analysis as mv
+from marivo.analysis._capabilities.dataset_model import CallableInput
+from marivo.analysis._capabilities.dataset_registry import prepare
+from tests.shared_fixtures import catalog_value
+
+os.chdir(sys.argv[1])
+session = mv.session.get_or_create('public-cold', timezone='UTC')
+amount = catalog_value(session.catalog, 'sales.orders.amount', kind='field')
+region = catalog_value(session.catalog, 'sales.orders.region', kind='field')
+frame = session.observe({'total': amount.sum(), 'mean': amount.mean()}, by=(region,))
+def forbidden(*args, **kwargs):
+    raise AssertionError('The producer must retain identities without a show call')
+mv.AnalysisFrame.show = forbidden
+example = prepare().by_canonical_id('analysis_frame.persist')
+assert isinstance(example, CallableInput)
+exec(compile(example.example.code, '<persist-help>', 'exec'))
+""",
             str(root),
-            "public-cold",
-            "produce",
         ],
         cwd=worktree,
         text=True,
         capture_output=True,
     )
     assert produced.returncode == 0, produced.stdout + produced.stderr
-    session_id, artifact_id = produced.stdout.strip().splitlines()[-1].split()
+    identities = json.loads(produced.stdout.strip().splitlines()[-1])
+    session_id, artifact_id = identities["session_id"], identities["artifact_id"]
     (root / "warehouse.duckdb").unlink()
     shutil.rmtree(root / "models")
     reopened = subprocess.run(

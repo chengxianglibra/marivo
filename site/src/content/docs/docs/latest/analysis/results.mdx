@@ -7,22 +7,30 @@ Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-
 
 ## Keep exact identifiers
 
-Save this as `save_ids.py` and run it in the demo root. It imports `analysis.py`, creating a new Session, then records its Session and result IDs.
+Append this to `analysis.py` **before** running the producing script. It records
+the returned result's identities before the process exits; no `show()` is required.
+Do not import or rerun `analysis.py` in a later process just to discover IDs:
+that would execute its source observations again.
 
 ```python
-from analysis import saved_session_id, saved_artifact_id
 from pathlib import Path
 import json
 
+artifact = saved.artifact
 Path("saved-result.json").write_text(
     json.dumps(
         {
-            "session": saved_session_id,
-            "result": saved_artifact_id,
+            "session": artifact.session_id,
+            "result": artifact.id,
         }
     )
 )
 ```
+
+You can output the same small JSON object instead of writing a file. Retain it
+outside the producer's variables. Include the data needed for the current
+decision in that first script too, so saving does not add a separate inspection round.
+An already retained exact reference needs no new publication.
 
 ## Reopen in another process
 

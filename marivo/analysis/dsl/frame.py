@@ -1079,7 +1079,9 @@ class AnalysisFrame:
             ``fixed = frame.compute()``.
 
         Constraints: Reads only explicit inputs, closes sources before success, and creates no
-        Artifact or result files. Stored loading preserves result facts.
+        Artifact or result files. Stored loading preserves result facts. Retain the returned
+        Frame in this Python process. If another process needs these values, persist and
+        output/save Session and Artifact IDs before exit. One-shot work needs no save.
         """
         if isinstance(self._backing, MemoryFrameBacking):
             return self
@@ -1134,10 +1136,13 @@ class AnalysisFrame:
 
         Args: None.
         Returns: A stored AnalysisFrame owned by the same original local service.
-        Example: ``saved = frame.compute().persist()``.
+        Example: ``saved = frame.persist(); artifact = saved.artifact``;
+        ``print({'session_id': artifact.session_id, 'artifact_id': artifact.id})``.
         Constraints: Pending evaluation completes before publication admission;
         memory publication does not reevaluate, and stored idempotence reads metadata only.
-        Retain the returned Session and Artifact IDs. Lost return references require explicit
+        For another process, output/save the returned Session and Artifact IDs before exit;
+        no show call is required. An existing saved reference needs no new publication.
+        Lost return references require explicit
         resubmission, which may duplicate saved outputs or read changed sources.
         """
         if isinstance(self._backing, StoredFrameBacking):
@@ -1219,6 +1224,8 @@ class AnalysisFrame:
             presence and row order are preserved; no float coercion or zero filling.
             Exported data and attrs grant no typed computation authority or stable
             deserialization protocol. Continue typed analysis from the Frame.
+            Retain that Frame for typed operations; a DataFrame does not retain it.
+            For another process, persist and retain exact IDs before the producer exits.
         """
         from marivo.analysis.materialization.pandas_export import export_frame, export_names
 

@@ -32,6 +32,15 @@ Memory persist never rereads sources. Stored persist checks commit metadata and
 returns itself without another Run. Reusing a pending source expression can
 read changed data; use the returned fixed root when exact prior values matter.
 
+Choose retention before execution according to the caller's Python process lifetime.
+Keep the returned memory Frame in a persistent process, or complete one-shot work
+in the same script without publication. If a later process needs the same values,
+persist and output/save the Session and Artifact IDs before the producer exits.
+Printing a memory card after computation cannot recover that data once the process
+has exited. Session acquisition alone does not recover unsaved results. An existing
+exact saved reference needs no new publication; explicit new source evaluation
+remains the way to obtain fresh values.
+
 ## Explicit lifecycle and frozen context
 
 Use `mv.session.get_or_create(name, *, question=None, timezone=None, domains=None)` to

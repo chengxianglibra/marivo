@@ -439,7 +439,8 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "execution",
             (
-                "Example needs numeric frame['value']. No Artifact is created. Load/validate all stored data/method facts; use returned handles. Fixed derivations: lazy, no source reread. Explicit sources may change.",
+                "Example needs numeric frame['value']. No Artifact is created. Validate stored data/method facts; use returned handles. Fixed derivations: lazy, no source reread. Sources may change.",
+                "For another process, persist and output Session/Artifact IDs before exit.",
             ),
         ),
         (
@@ -449,11 +450,15 @@ def provider() -> DisclosureProvider:
             (),
             "AnalysisFrame",
             "Commit evaluated data and return its stored Frame without recomputing a completed memory input.",
-            "result = frame.persist()",
+            "import json\nimport sys\n"
+            "result = frame.persist()\n"
+            "artifact = result.artifact\n"
+            "sys.stdout.write(json.dumps({'session_id': artifact.session_id, 'artifact_id': artifact.id}) + '\\n')",
             ("frame",),
             "execution",
             (
                 "A stored root checks commit metadata and returns itself. Evaluation finishes before publication admission; failures and unknown publication outcomes require their structured repair, never an automatic recomputation. Retain Session and Artifact IDs; lost return references require explicit resubmission, which may duplicate saved outputs or read changed sources.",
+                "For a short script that needs later continuation, persist and output/save IDs before exit; no show call is required. An existing saved reference needs no new publication.",
             ),
         ),
         (
@@ -482,11 +487,12 @@ def provider() -> DisclosureProvider:
             ),
             "pandas.DataFrame",
             "Export complete fixed data as an isolated readable flat table.",
-            "result = frame.compute().to_pandas()\nvalues = result['value']",
+            "fixed = frame.compute()\nresult = fixed.to_pandas()\nvalues = result['value']",
             ("frame",),
             "results.inspect",
             (
                 "Example needs frame['value']. compute/persist first. No Catalog/source/method reads.",
+                "Keep fixed for typed work; for another process, persist it and retain exact IDs before exit.",
                 "Flat axis/value/presence names; composite tuples. Calendar: label, .actual_start/.actual_end/.timezone; interval: .start/.end/.timezone; paired: .left/.right. UTC bounds; typed named labels.",
                 "Resolve collisions with axis_names={axis: 'name'} or select(). Preserve order, physical types and NA; boolean presence differs from NA/zero.",
                 "Isolated attrs: axes, units, comparisons, frozen_coordinates; no stable import or typed authority.",

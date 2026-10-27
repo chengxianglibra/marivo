@@ -7,22 +7,28 @@ description: 保存结果标识，恢复数据并导出数值和分析依据。
 
 ## 保留确切标识
 
-将下面保存为 `save_ids.py`，从演示根目录运行。它导入 `analysis.py`，创建新会话，然后记录会话与结果 ID。
+在运行生产脚本**之前**，将下面代码追加到 `analysis.py`。它在进程退出前记录
+返回结果的身份，无须调用 `show()`。不要在后续进程中为了取得 ID 而导入或重跑
+`analysis.py`，因为那会重新执行脚本中的来源观测。
 
 ```python
-from analysis import saved_session_id, saved_artifact_id
 from pathlib import Path
 import json
 
+artifact = saved.artifact
 Path("saved-result.json").write_text(
     json.dumps(
         {
-            "session": saved_session_id,
-            "result": saved_artifact_id,
+            "session": artifact.session_id,
+            "result": artifact.id,
         }
     )
 )
 ```
+
+也可以直接输出同样的小型 JSON 对象。身份必须保留到生产进程的变量之外。
+首次脚本同时输出当前决策所需数据，避免为了保存而增加一轮单独查看。
+已有精确保存引用时，无须再次发布。
 
 ## 在另一进程中恢复
 

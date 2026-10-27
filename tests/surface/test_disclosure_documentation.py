@@ -107,6 +107,13 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
         namespace: dict[str, object] = {"frame": frame}
         exec(compile(descriptor.example.code, "<" + method + "-help-example>", "exec"), namespace)
         result = namespace["result"]
+        if method == "to_pandas":
+            fixed = namespace["fixed"]
+            assert isinstance(fixed, mv.AnalysisFrame)
+            assert fixed.compute() is fixed
+            assert fixed.reduce({"total": fixed["value"].sum()}).compute().to_pandas()[
+                "total"
+            ].tolist() == [2]
         if method == "compute":
             derived = namespace["derived"]
             assert isinstance(derived, mv.AnalysisFrame)
@@ -394,6 +401,9 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
     for filename, source in zip(
         ("save_ids.py", "reopen.py"), snippets("analysis/results.mdx"), strict=True
     ):
+        if filename == "save_ids.py":
+            # The identity block belongs in the producer, before that process exits.
+            source = (tmp_path / "analysis.py").read_text() + "\n" + source
         write(tmp_path, filename, source)
     run(tmp_path, "save_ids.py")
     (tmp_path / "models/semantic/sales/_domain.py").unlink()

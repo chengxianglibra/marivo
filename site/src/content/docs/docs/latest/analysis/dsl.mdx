@@ -53,6 +53,26 @@ only during `compute()` or `persist()`, so successful capture alone does not pro
 that an unbounded observation is supported. When a period is required, pass
 `by=(session.time_scope(start=..., end=...),)`.
 
+## Choose retention before execution
+
+`compute()` fixes values in the current Python process. Choose how to keep them
+before running the script; a named Session does not keep unsaved data alive.
+
+| Execution context | Keep the result |
+| --- | --- |
+| One script completes the answer | Compute and finish in that script; no save is needed. |
+| A persistent Python process will continue | Keep the returned Frame for later data operations. |
+| Another process will need the same observation | Persist and output/save Session and Artifact IDs before the producer exits. |
+| An exact saved reference is already available | Reopen it; no new publication is needed. |
+| The question needs current source values | Explicitly construct a new source observation. |
+
+Separate shell invocations normally start separate Python processes. A memory
+card printed by a finished script cannot retain its data. The
+[results guide](/docs/latest/analysis/results/) shows how to save identifiers in
+the producing script and reopen them without importing that script again.
+Help: `analysis.execution`, `analysis.analysis_frame.compute`,
+`analysis.analysis_frame.persist`.
+
 ## Complete example and shared inputs
 
 Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. This example uses a fresh UUID in the Session name on each execution. Use a stable name with `get_or_create` to recover an existing Session instead.
