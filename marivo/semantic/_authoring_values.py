@@ -38,30 +38,64 @@ from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
 
 
-def additive(*, over: tuple[Deferred, ...]) -> AdditiveOverV1:
+def additive_over(*axes: Deferred) -> AdditiveOverV1:
     """Declare the existing field coordinates on which a Measure may be summed.
 
-    Args: over: Non-empty tuple of constructed fields or explicit field lookup refs.
-    Returns: A closed additive-over policy.
-    Example: ``ms.additive(over=(region,))``.
-    Constraints: Every axis must exist on the declared contribution root. Axes resolve by kind/path in the complete physical closure or frozen row scope; original definition versions are not required.
+    Args:
+        axes: One or more constructed Dimension or TimeDimension fields or lookup refs,
+            passed as positional arguments. Unpack an existing collection with ``*axes``.
+
+    Returns:
+        A closed additive-over policy.
+
+    Example:
+        ``ms.additive_over(region, product)``.
+
+    Constraints: Every axis must exist on the declared contribution root. Axes resolve
+    by kind/path in the complete physical closure or frozen row scope; original
+    definition versions are not required.
     """
-    from marivo.semantic._dsl_authoring import additive as build
+    from marivo.semantic._dsl_authoring import additive_over as build
 
-    return build(over=over)
+    return build(*axes)
 
 
-def additive_all(*, except_: tuple[Deferred, ...] = ()) -> AdditiveAllV1:
-    """Grant summing across native coordinates except explicitly fixed axes.
+def additive_all() -> AdditiveAllV1:
+    """Grant summing across all native coordinates.
 
-    Args: ``except_``: Existing fields or lookup refs that must remain fixed.
-    Returns: A closed additive-all policy.
-    Example: ``ms.additive_all(except_=(sample_at,))``.
-    Constraints: Retain source status-time constraints; this does not prove coverage. Exceptions select the actual consumer coordinates, without original-version matching.
+    Returns:
+        A closed additive-all policy.
+
+    Example:
+        ``ms.additive_all()``.
+
+    Constraints: Accepts no arguments and does not prove coverage. Use
+    ``ms.additive_except(...)`` for fixed axes, including source status time.
     """
     from marivo.semantic._dsl_authoring import additive_all as build
 
-    return build(except_=except_)
+    return build()
+
+
+def additive_except(*axes: Deferred) -> AdditiveAllV1:
+    """Grant summing across native coordinates except explicitly fixed axes.
+
+    Args:
+        axes: One or more constructed Dimension or TimeDimension fields or lookup refs
+            that must remain fixed, passed positionally. Unpack a collection with ``*axes``.
+
+    Returns:
+        A closed additive-all policy with fixed axes.
+
+    Example:
+        ``ms.additive_except(sample_at)``.
+
+    Constraints: Retain source status-time constraints; this does not prove coverage.
+    Exceptions select the actual consumer coordinates, without original-version matching.
+    """
+    from marivo.semantic._dsl_authoring import additive_except as build
+
+    return build(*axes)
 
 
 def bind(field: Deferred, entity_alias: ibis_ir.Table) -> ibis_ir.Value:

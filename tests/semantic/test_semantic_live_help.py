@@ -847,6 +847,9 @@ def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
         ("domain", "ai_context"),
         ("entity", "snapshot"),
         ("measure", "additive_all"),
+        ("measure", "additive_except"),
+        ("measure", "additive_over"),
+        ("measure", "non_additive"),
         ("relationship", "join_on"),
     ):
         assert f'marivo.help("semantic.{target}")' in render_help_text("semantic." + owner)[0]
@@ -887,6 +890,7 @@ def test_expression_navigation_serves_closed_question_scoped_composition() -> No
 
 def test_retired_semantic_topics_have_no_alias() -> None:
     for target in (
+        "additive",
         "authoring",
         "objects",
         "builders",

@@ -83,7 +83,7 @@ def _create(project: Path, source: str) -> tuple[mv.Session, DslCase]:
             content = content.replace(
                 "# Named expressions",
                 "status_energy = ms.measure_column(name='status_energy', entity=orders, column='energy', "
-                "additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='kWh')\n"
+                "additivity=ms.additive_except(ordered_at), status_time_dimension=ordered_at, unit='kWh')\n"
                 "# Named expressions",
                 1,
             )

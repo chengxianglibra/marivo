@@ -314,7 +314,7 @@ _CERTIFYING_PREVIEW = _effects(
 )
 
 _ADDITIVITY_HELP = (
-    "\n  additivity: ms.additive(over=...), ms.additive_all(except_=...), or ms.non_additive()."
+    "\n  additivity: ms.additive_all(), ms.additive_except(...), ms.additive_over(...), or ms.non_additive()."
     "\n  unit=None leaves the declared unit unspecified."
 )
 _FOLD_HELP = "\n  Temporal sample reduction is explicit in per(time_field).reducer(); leaf default folds are retired."
@@ -514,7 +514,7 @@ _SUPPORT_DISCOVERY_OWNERS: Mapping[SemanticKind, tuple[str, ...]] = MappingProxy
         SemanticKind.DOMAIN: ("ai_context",),
         SemanticKind.ENTITY: ("snapshot", "validity"),
         SemanticKind.DIMENSION: ("bind",),
-        SemanticKind.MEASURE: ("additive_all", "additive", "non_additive"),
+        SemanticKind.MEASURE: ("additive_all", "additive_except", "additive_over", "non_additive"),
         SemanticKind.RELATIONSHIP: ("join_on",),
     }
 )
@@ -831,7 +831,14 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "owned_by", "objects.entity", "The expression has one exact contribution root."
                 ),
             ),
-            supporting=("ai_context", "additive", "additive_all", "non_additive", "row.sum"),
+            supporting=(
+                "ai_context",
+                "additive_all",
+                "additive_except",
+                "additive_over",
+                "non_additive",
+                "row.sum",
+            ),
             checks=("readiness",),
             check_guidance=(
                 "Readiness accepts physical column-backed fields. For a declared row "
@@ -1378,7 +1385,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("Metric.per"),
             action=(
-                "Keep the sampled status_time_dimension in additive_all(except_=...) "
+                "Keep the sampled status_time_dimension in additive_except(...) "
                 "and express the temporal reduction with per(time_field).reducer()."
             ),
             preserves_evidence=True,
@@ -3135,32 +3142,49 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
         ),
         _capability(
-            "additive",
-            "marivo.semantic._authoring_values.additive",
-            "Declare exactly the native coordinates on which values may be added.",
+            "additive_over",
+            "marivo.semantic._authoring_values.additive_over",
+            "Declare exactly the native coordinates on which values may be added. Pass one or more Dimension or TimeDimension fields positionally; unpack a collection with *axes.",
             output="Additivity",
             inputs=(
-                _parameter_input("dependency", "DimensionSymbol | TimeDimensionSymbol", "over"),
+                AuthoringInputRequirement(
+                    role="dependency",
+                    family="DimensionSymbol | TimeDimensionSymbol",
+                    parameter_names=("axes",),
+                    max_count=None,
+                ),
             ),
             effects=_AUTHOR,
             constraints=("ref_shape",),
-            example="ms.additive(over=(region,))",
+            example="ms.additive_over(region, product)",
         ),
         _capability(
             "additive_all",
             "marivo.semantic._authoring_values.additive_all",
+            "Declare additivity on all native coordinates. Accepts no arguments. Use additive_except for fixed axes, or additive_over to permit only named axes. This does not prove coverage.",
+            output="Additivity",
+            effects=_AUTHOR,
+            example="ms.additive_all()",
+            see_also=(_target("additive_except"), _target("additive_over")),
+        ),
+        _capability(
+            "additive_except",
+            "marivo.semantic._authoring_values.additive_except",
             (
-                "Declare additivity on all native coordinates except fixed axes. except_ "
-                "alone declares fixed coordinates, not a time fold. For a status fact, the "
-                "Measure or Metric declares status_time_dimension as a time axis in except_. "
-                "Temporal reduction is explicit in per(time_field).reducer(); "
-                "while non-sampled status time may omit it."
+                "Declare additivity on all native coordinates except one or more fixed axes, "
+                "passed positionally. Unpack a collection with *axes. Fixed axes do not "
+                "select a temporal reduction or declare a status-time role. A physical Measure "
+                "declares status_time_dimension separately and includes it among these axes. "
+                "Temporal sample reduction is explicit in per(time_field).reducer()."
             ),
             output="Additivity",
             constraints=("ref_shape",),
             inputs=(
-                _parameter_input(
-                    "dependency", "DimensionSymbol | TimeDimensionSymbol", "except_", optional=True
+                AuthoringInputRequirement(
+                    role="dependency",
+                    family="DimensionSymbol | TimeDimensionSymbol",
+                    parameter_names=("axes",),
+                    max_count=None,
                 ),
             ),
             effects=_AUTHOR,
@@ -3171,7 +3195,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ")\n"
                 "quantity = ms.measure_column(\n"
                 "    name='quantity', entity=inventory, column='quantity',\n"
-                "    additivity=ms.additive_all(except_=(sample_time,)),\n"
+                "    additivity=ms.additive_except(sample_time),\n"
                 "    status_time_dimension=sample_time,\n"
                 ")"
             ),

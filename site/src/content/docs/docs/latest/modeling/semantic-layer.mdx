@@ -120,8 +120,8 @@ A Measure describes a numeric quantity per source row, such as order amount or c
 | `name` | Yes | — | Semantic name, unique in its owning scope. |
 | `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
 | `column` | Yes | — | Physical column name exposed by the Entity source; may differ from the semantic name. |
-| `additivity` | Yes | — | Summation permission: `ms.additive_all(except_=...)`, `ms.additive(over=...)`, or `ms.non_additive()`. |
-| `status_time_dimension` | No | `None` | Optional status-time field; exclude the same field using `ms.additive_all(except_=(...))`. `None` declares no status-time role. |
+| `additivity` | Yes | — | Summation permission: `ms.additive_all()`, `ms.additive_except(...)`, `ms.additive_over(...)`, or `ms.non_additive()`. |
+| `status_time_dimension` | No | `None` | Optional status-time field; exclude the same field using `ms.additive_except(...)`. `None` declares no status-time role. |
 | `unit` | No | `None` | Unit such as `"CNY"`; `None` means unspecified, while `"1"` explicitly means dimensionless. |
 | `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
@@ -143,6 +143,15 @@ def margin():
 ```
 
 This cost example uses the extra column created in the complete model below. Derived Measure bodies take zero arguments and compose typed row quantities. Units describe dimension; additivity says where summing is meaningful. A product is not automatically summable, and inventory is not automatically additive over time. Help: `semantic.measure.from_column` and `semantic.measure.define`.
+
+| Declaration | Summation permission |
+| --- | --- |
+| `ms.additive_all()` | All native axes. Accepts no arguments. |
+| `ms.additive_except(snapshot_at)` | All native axes except the named fixed axes. |
+| `ms.additive_over(region, product)` | Only the named native axes. |
+| `ms.non_additive()` | No summation across native axes. |
+
+`additive_except` and `additive_over` take one or more unique Dimension or TimeDimension fields as positional arguments. Unpack an existing collection with `*axes`. Fixed axes must remain fixed during summation; they do not select a temporal reducer. Declare a status-time role separately with `status_time_dimension` and include that field in `additive_except`. Help: `semantic.additive_all`, `semantic.additive_except`, `semantic.additive_over`, and `semantic.non_additive`.
 
 ### Derived Measure: `ms.measure`
 

@@ -353,7 +353,7 @@ def test_local_duration_sample_mean_uses_observed_samples_without_required_perio
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"
             + "point=ms.time_dimension_column(name='point',entity=facts,column='point',sample_interval=(1,'hour'))\n"
-            + "elapsed=ms.measure_column(name='elapsed',entity=facts,column='elapsed',additivity=ms.additive_all(except_=(point,)),status_time_dimension=point)\n",
+            + "elapsed=ms.measure_column(name='elapsed',entity=facts,column='elapsed',additivity=ms.additive_except(point),status_time_dimension=point)\n",
         },
         load=False,
     )

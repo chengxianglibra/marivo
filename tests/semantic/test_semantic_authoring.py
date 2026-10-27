@@ -1318,7 +1318,7 @@ def test_metric_accepts_semi_additive() -> None:
             name="value",
             entity=orders,
             column="value",
-            additivity=ms.additive_all(except_=(sample_ts_ref,)),
+            additivity=ms.additive_except(sample_ts_ref),
             status_time_dimension=sample_ts_ref,
         )
 
@@ -1338,14 +1338,14 @@ def test_metric_accepts_semi_additive() -> None:
 
 def test_semi_additive_rejects_string_over() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.additive_all(except_=("sales.orders.order_date",))  # type: ignore[arg-type]
+        ms.additive_except("sales.orders.order_date")  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
     assert "Dimension or TimeDimension refs" in str(exc_info.value)
 
 
 def test_closed_additivity_and_value_policies_reject_invalid_values() -> None:
-    assert ms.additive(over=(ms.ref.dimension("sales.orders.region"),)).version == 1
+    assert ms.additive_over(ms.ref.dimension("sales.orders.region")).version == 1
     assert ms.additive_all().version == 1
     assert ms.non_additive().version == 1
     for policy in (ms.nulls.ignore, ms.empty.null):
@@ -1409,7 +1409,7 @@ def test_status_time_can_be_declared_without_fold() -> None:
             name="quantity",
             entity=inventory,
             column="quantity",
-            additivity=ms.additive_all(except_=(axis,)),
+            additivity=ms.additive_except(axis),
             status_time_dimension=axis,
         )
         ir, _ = _pending_objects(ctx)[-1]

@@ -354,7 +354,7 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
     orders_backend: Backend,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    example = _example("semantic.additive_all", capsys)
+    example = _example("semantic.additive_except", capsys)
     source = (
         _IMPORTS
         + "inventory = ms.entity(name='inventory', datasource=ms.ref.datasource('warehouse'), source=md.table('inventory'))\n"
@@ -373,8 +373,8 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
     (
         ("status_time_dimension=sample_time,", "", True, ""),
         (
-            "sample_interval=(5, 'minute'), parse=ms.timestamp(timezone='UTC')",
-            "parse=ms.timestamp(timezone='UTC')",
+            "sample_interval=(5, 'minute'),",
+            "",
             True,
             "",
         ),
@@ -384,7 +384,12 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
             False,
             "retired declaration parameters",
         ),
-        ("except_=(sample_time,)", "", False, "status time must be fixed"),
+        (
+            "ms.additive_except(sample_time)",
+            "ms.additive_all()",
+            False,
+            "status time must be fixed",
+        ),
         (
             "status_time_dimension=sample_time,",
             "status_time_dimension=sample_time, status_time_fold=None,",
@@ -401,9 +406,9 @@ def test_additivity_help_rules_distinguish_fixed_coordinates_and_status_roles(
     ready: bool,
     diagnostic: str,
 ) -> None:
-    example = _example("semantic.additive_all", capsys).replace(change, replacement)
-    if "sample_interval" not in example:
-        example = example.replace(", status_time_fold='last'", "")
+    example = _example("semantic.additive_except", capsys)
+    assert change in example
+    example = example.replace(change, replacement)
     source = (
         _IMPORTS
         + "inventory = ms.entity(name='inventory', datasource=ms.ref.datasource('warehouse'), source=md.table('inventory'))\n"
@@ -422,9 +427,9 @@ def test_sampled_metric_status_axis_requires_its_own_fold(
         _IMPORTS
         + "inventory = ms.entity(name='inventory', datasource=ms.ref.datasource('warehouse'), source=md.table('inventory'))\n"
     )
-    source += _example("semantic.additive_all", capsys)
+    source += _example("semantic.additive_except", capsys)
     source += (
-        "@ms.metric(entities=[inventory], additivity=ms.additive_all(except_=(sample_time,)), "
+        "@ms.metric(entities=[inventory], additivity=ms.additive_except(sample_time), "
         "status_time_dimension=sample_time)\n"
         "def latest(rows):\n    return ms.bind(quantity, rows).sum()\n"
     )
@@ -445,6 +450,9 @@ def test_sampled_metric_status_axis_requires_its_own_fold(
         "metric",
         "bind",
         "additive_all",
+        "additive_except",
+        "additive_over",
+        "non_additive",
         "Metric.where",
         "Entity.count",
         "row.sum",

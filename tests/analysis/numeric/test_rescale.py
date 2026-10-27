@@ -20,7 +20,7 @@ day = ms.time_dimension_column(name="day", entity=flows, column="day", is_defaul
 total_in_flow_value = ms.measure_column(name="total_in_flow_value", entity=flows, column="bytes", unit="By", additivity=ms.additive_all())
 total_in_p95_flow_value = ms.measure_column(name="total_in_p95_flow_value", entity=flows, column="p95_bytes", unit="By", additivity=ms.additive_all())
 amount = ms.measure_column(name="amount", entity=flows, column="amount", unit="CNY", additivity=ms.additive_all())
-fixed = ms.measure_column(name="fixed", entity=flows, column="bytes", unit="By", additivity=ms.additive_all(except_=(day,)), status_time_dimension=day)
+fixed = ms.measure_column(name="fixed", entity=flows, column="bytes", unit="By", additivity=ms.additive_except(day), status_time_dimension=day)
 @ms.metric()
 def daily_bandwidth():
     return ms.rescale(total_in_flow_value.sum(), divisor=86400 * 1024**3, unit="GiB/s")

@@ -63,7 +63,7 @@ from tests.support.refs import as_ref
 _DOMAIN_PY = (
     'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
 )
-_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive(over=(status,))\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_all(except_=(paid_at,)),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
+_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive_over(status)\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_except(paid_at),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 
@@ -313,7 +313,7 @@ def test_constructor_snapshots_accept_later_declared_permission_axis(
         amount = resolve(state, amount_ref)
         region = resolve(state, region_ref)
 
-        @ms.measure(additivity=ms.additive(over=(region,)))
+        @ms.measure(additivity=ms.additive_over(region))
         def regional() -> Deferred:
             return amount
 
@@ -416,7 +416,7 @@ def test_physical_capture_uses_updated_consumer_definitions(catalog: SemanticCat
                 name="probe",
                 entity=old_entity if input_kind == "entity" else ms.ref.entity("sales.orders"),
                 column="amount",
-                additivity=ms.additive(over=(old_status,))
+                additivity=ms.additive_over(old_status)
                 if input_kind == "coordinate"
                 else ms.additive_all(),
             )
@@ -446,7 +446,7 @@ def test_pure_measure_uses_its_row_coordinate_definitions(catalog: SemanticCatal
         state = captured_catalog()
         amount = resolve(state, ms.ref.measure("sales.orders.amount"))
 
-    @ms.measure(additivity=ms.additive(over=(old_status,)))
+    @ms.measure(additivity=ms.additive_over(old_status))
     def granted() -> Deferred:
         return amount
 
@@ -883,7 +883,7 @@ def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
 
-    @ms.measure(additivity=ms.additive(over=(ms.ref.dimension("sales.orders.status"),)))
+    @ms.measure(additivity=ms.additive_over(ms.ref.dimension("sales.orders.status")))
     def by_status() -> Deferred:
         return amount
 
@@ -895,7 +895,7 @@ def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
 
     for axis in (ms.ref.dimension("sales.orders.missing"), ms.ref.dimension("sales.customers.id")):
         with pytest.raises(SemanticExpressionError) as caught:
-            _consume_value(ms.measure(additivity=ms.additive(over=(axis,)))(current_amount))
+            _consume_value(ms.measure(additivity=ms.additive_over(axis))(current_amount))
         assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
         assert as_ref(axis).path in str(caught.value.received)
 
@@ -903,9 +903,7 @@ def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
     def balance_product() -> Deferred:
         return balance * amount
 
-    @ms.measure(
-        additivity=ms.additive_all(except_=(ms.ref.time_dimension("sales.orders.paid_at"),))
-    )
+    @ms.measure(additivity=ms.additive_except(ms.ref.time_dimension("sales.orders.paid_at")))
     def fixed_product() -> Deferred:
         return -balance_product * 2
 
@@ -930,18 +928,16 @@ def test_additivity_rejects_routed_time_coordinates(catalog: SemanticCatalog) ->
         assert consume_field(routed).field_read.path
         with pytest.raises(SemanticError) as caught:
             if policy == "over":
-                ms.additive(over=(routed,))
+                ms.additive_over(routed)
             else:
-                ms.additive_all(except_=(routed,))
+                ms.additive_except(routed)
         assert caught.value.kind == ErrorKind.INVALID_TIME_PATH
         assert caught.value.expected and caught.value.received and caught.value.repair
         assert caught.value.repair.action
-        assert _facts(ms.additive(over=(paid_at,))).coordinates == (
+        assert _facts(ms.additive_over(paid_at)).coordinates == (
             _reference(_reference(paid_at)).path,
         )
-        assert ms.additive_all(except_=(paid_at,)).exceptions == (
-            _reference(_reference(paid_at)).path,
-        )
+        assert ms.additive_except(paid_at).exceptions == (_reference(_reference(paid_at)).path,)
 
 
 def test_measure_inherits_unknown_unit_and_normalizes_redundant_assertions(

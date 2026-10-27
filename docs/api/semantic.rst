@@ -85,8 +85,9 @@ change with the analysis window. See ``marivo.help("semantic.rescale")``.
    :toctree: api/
    :nosignatures:
 
-   additive
    additive_all
+   additive_except
+   additive_over
    non_additive
    rescale
    snapshot

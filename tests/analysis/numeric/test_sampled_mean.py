@@ -183,7 +183,7 @@ def mean_session(
                     else ""
                 )
                 + "category=ms.dimension_column(name='category',entity=facts,column='category')\n"
-                + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all(except_=(point,)),status_time_dimension=point)\n"
+                + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_except(point),status_time_dimension=point)\n"
                 + "@ms.metric()\ndef average():\n    return amount.mean(time=point).per(point).mean()\n",
             }
         )

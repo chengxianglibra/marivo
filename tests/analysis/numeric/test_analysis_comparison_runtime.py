@@ -827,7 +827,7 @@ def test_float_status_fold_comparison_uses_native_values(
     path.write_text(
         path.read_text().replace(
             "# Named expressions",
-            "status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount', additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='CNY')\n# Named expressions",
+            "status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount', additivity=ms.additive_except(ordered_at), status_time_dimension=ordered_at, unit='CNY')\n# Named expressions",
             1,
         )
     )

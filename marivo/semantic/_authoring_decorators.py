@@ -491,7 +491,7 @@ def measure_column(
         entity: Entity symbol returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        additivity: Closed policy from ``ms.additive``, ``ms.additive_all`` or ``ms.non_additive``.
+        additivity: Closed policy from ``ms.additive_over``, ``ms.additive_except``, ``ms.additive_all`` or ``ms.non_additive``.
         status_time_dimension: Optional business status-time dimension.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned

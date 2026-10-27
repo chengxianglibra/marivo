@@ -124,7 +124,7 @@ def test_additivity_coordinate_must_be_dimension() -> None:
     entity = ref_factory.entity("test.snap")
 
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        authoring.additive_all(except_=(entity,))
+        authoring.additive_except(entity)
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
 

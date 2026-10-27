@@ -443,9 +443,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "missing_metric_additivity",
         "assembly",
         ("metric",),
-        "Base metrics must declare additivity.",
-        "Additivity determines how metric values aggregate across dataset rows.",
-        "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive() on @ms.metric().",
+        "Sum permission belongs to source Measures.",
+        "Completed Metric expressions derive permissions from their source Measures.",
+        "Set additivity on source Measures with ms.additive_all(), ms.additive_except(...), ms.additive_over(...), or ms.non_additive().",
     ),
     ConstraintId.MEASURE_ADDITIVITY_REQUIRED: _constraint(
         ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
@@ -454,7 +454,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "A measure used by a tier-1 metric must declare additivity.",
         "Add additivity= to the @ms.measure(...) declaration.",
-        "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive().",
+        "Set additivity with ms.additive_over(...), ms.additive_except(...), ms.additive_all(), or ms.non_additive().",
     ),
     ConstraintId.MEASURE_AGGREGATION_VALID: _constraint(
         ConstraintId.MEASURE_AGGREGATION_VALID,

@@ -425,7 +425,7 @@ def declare_measure(
         _fail(
             ErrorKind.INVALID_EXPRESSION_VALUE,
             "Measure additivity requires a closed additivity policy.",
-            expected="ms.additive(...), ms.additive_all(...), or ms.non_additive()",
+            expected="ms.additive_over(...), ms.additive_except(...), ms.additive_all(), or ms.non_additive()",
             received=type(additivity).__name__,
             action="Call the public policy helper, or omit additivity to inherit the expression's permission.",
         )
@@ -491,7 +491,7 @@ def declare_measure(
             _fail(
                 ErrorKind.INVALID_EXPRESSION_VALUE,
                 "Measure additivity requires a closed additivity policy.",
-                expected="ms.additive(...), ms.additive_all(...), or ms.non_additive()",
+                expected="ms.additive_over(...), ms.additive_except(...), ms.additive_all(), or ms.non_additive()",
                 received=type(additivity).__name__,
                 action="Construct additivity with the public policy helper before declaring the Measure.",
             )
@@ -526,7 +526,7 @@ def declare_measure(
                 f"Measure {name!r} cannot erase fixed time constraints.",
                 expected="sum permission that keeps the dependency's time axes fixed",
                 received=", ".join(axis.ref.path for axis in erased),
-                action="Keep these time axes in additive_all(except_=...), or use non_additive().",
+                action="Keep these time axes in additive_except(...), or use non_additive().",
             )
     asserted_unit = declared_unit if declared_unit != value.unit else None
     if (

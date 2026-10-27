@@ -52,7 +52,7 @@ def test_time_kind_and_additivity_coordinates_are_checked_in_their_owner(
             **context.registry.measures,
             "sales.order.amount": replace(
                 measure,
-                dsl_additivity=ms.additive(over=(ms.ref.dimension("sales.customer.region"),)),
+                dsl_additivity=ms.additive_over(ms.ref.dimension("sales.customer.region")),
             ),
         },
     )

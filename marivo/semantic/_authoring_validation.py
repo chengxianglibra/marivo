@@ -150,8 +150,8 @@ def _normalize_additivity(
     if type(additivity) not in (AdditiveOverV1, AdditiveAllV1, NonAdditiveV1):
         _raise(
             ErrorKind.INVALID_REF,
-            f"{semantic_id!r}: additivity requires ms.additive(...), "
-            "ms.additive_all(...), or ms.non_additive().",
+            f"{semantic_id!r}: additivity requires ms.additive_over(...), ms.additive_except(...), "
+            "ms.additive_all(), or ms.non_additive().",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
@@ -161,7 +161,7 @@ def _normalize_additivity(
         ):
             _raise(
                 ErrorKind.INVALID_REF,
-                f"{semantic_id!r}: status time must be fixed by ms.additive_all(except_=(...)).",
+                f"{semantic_id!r}: status time must be fixed by ms.additive_except(...).",
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.REF_SHAPE,
             )

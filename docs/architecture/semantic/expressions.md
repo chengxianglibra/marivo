@@ -112,6 +112,25 @@ An assertion cannot erase fixed status-time constraints or refer to foreign axes
 Metric decorators accept domain/context metadata, without unit, time, fold or
 numeric-policy overrides.
 
+### Sum permission declarations
+
+| Declaration | Permission across native coordinates |
+| --- | --- |
+| `ms.additive_all()` | All axes may be merged. Takes no arguments. |
+| `ms.additive_except(snapshot_at)` | All axes except the named fixed axes may be merged. |
+| `ms.additive_over(region, product)` | Only the named axes may be merged. |
+| `ms.non_additive()` | No axes may be merged by summing displayed values. |
+
+`additive_except` and `additive_over` require one or more unique Dimension or
+TimeDimension fields as positional arguments. Unpack a collection with `*axes`.
+The axes must belong to the native contribution root. Fixed axes preserve their
+coordinate; they do not remove rows, select a temporal reducer, or declare a
+status-time role. A physical Measure's `status_time_dimension` must also be
+included in `ms.additive_except(...)`. Explicit internal sample reduction owns
+temporal aggregation; these policies do not establish contribution coverage.
+Help: `semantic.additive_all`, `semantic.additive_except`,
+`semantic.additive_over`, and `semantic.non_additive`.
+
 ### Explicit scaling and target units
 
 `ms.rescale(expr, *, divisor, unit)` divides a numeric Row or completed Metric

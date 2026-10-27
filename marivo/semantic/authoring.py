@@ -56,8 +56,9 @@ from marivo.semantic._authoring_temporal import (
     temporal_set,
 )
 from marivo.semantic._authoring_values import (
-    additive,
     additive_all,
+    additive_except,
+    additive_over,
     ai_context,
     bind,
     hour_prefix,
@@ -107,8 +108,9 @@ empty = _RetiredPolicy("empty")
 nulls = _RetiredPolicy("nulls")
 
 __all__ = [
-    "additive",
     "additive_all",
+    "additive_except",
+    "additive_over",
     "ai_context",
     "bind",
     "calendar_grain",

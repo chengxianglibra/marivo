@@ -178,8 +178,9 @@ def bind_recipe(
             from marivo._symbolic import symbol_factory
             from marivo.semantic._dsl_authoring import (
                 AdditivityPolicy,
-                additive,
                 additive_all,
+                additive_except,
+                additive_over,
                 non_additive,
             )
             from marivo.semantic.ir import SourceLocation
@@ -201,9 +202,9 @@ def bind_recipe(
                     for path in paths
                 )
                 if mode == "over":
-                    additivity = additive(over=coordinates)
+                    additivity = additive_over(*coordinates)
                 elif mode == "all":
-                    additivity = additive_all(except_=coordinates)
+                    additivity = additive_except(*coordinates) if coordinates else additive_all()
                 else:
                     additivity = non_additive()
             location = declaration.location

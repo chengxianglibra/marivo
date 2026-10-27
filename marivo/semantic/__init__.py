@@ -34,8 +34,9 @@ from marivo.refs import (
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    additive,
     additive_all,
+    additive_except,
+    additive_over,
     ai_context,
     bind,
     calendar_grain,
@@ -170,8 +171,9 @@ __all__ = [
     "TemporalSetEntry",
     "TemporalSetKind",
     "TimeDimensionEntry",
-    "additive",
     "additive_all",
+    "additive_except",
+    "additive_over",
     "ai_context",
     "bind",
     "calendar_grain",

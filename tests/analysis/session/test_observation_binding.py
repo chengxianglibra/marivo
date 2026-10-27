@@ -250,7 +250,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(
     with pytest.raises(SemanticError):
         consume_metric(routed.count())
     with pytest.raises(SemanticError):
-        ms.additive(over=(routed,))
+        ms.additive_over(routed)
     query = session.observe(
         {"revenue": catalog.get("metric:sales.revenue").value}, by=(routed,), where=routed == "APAC"
     )

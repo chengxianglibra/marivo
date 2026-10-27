@@ -116,8 +116,8 @@ Measure 描述来源每行的数值量，例如订单金额或成本。它拥有
 | `name` | 是 | — | 语义名称，在所属范围内唯一。 |
 | `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
 | `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
-| `additivity` | 是 | — | 求和许可：`ms.additive_all(except_=...)`、`ms.additive(over=...)` 或 `ms.non_additive()`。 |
-| `status_time_dimension` | 否 | `None` | 可选状态时间字段；须用 `ms.additive_all(except_=(...))` 排除同一字段。`None` 不声明状态时间角色。 |
+| `additivity` | 是 | — | 求和许可：`ms.additive_all()`、`ms.additive_except(...)`、`ms.additive_over(...)` 或 `ms.non_additive()`。 |
+| `status_time_dimension` | 否 | `None` | 可选状态时间字段；须用 `ms.additive_except(...)` 排除同一字段。`None` 不声明状态时间角色。 |
 | `unit` | 否 | `None` | 单位如 `"CNY"`；`None` 表示未指定，`"1"` 才明确表示无量纲。 |
 | `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
@@ -139,6 +139,15 @@ def margin():
 ```
 
 成本示例使用下方完整模型新增的列。派生 Measure 的函数体不接收参数，组合类型化行级量。单位描述量纲，可加性描述在哪些轴上求和有意义；乘积不会自动变得可加，库存也不会自动沿时间可加。Help：`semantic.measure.from_column`、`semantic.measure.define`。
+
+| 声明 | 求和许可 |
+| --- | --- |
+| `ms.additive_all()` | 所有原生轴。无参数。 |
+| `ms.additive_except(snapshot_at)` | 除指定固定轴以外的所有原生轴。 |
+| `ms.additive_over(region, product)` | 仅指定的原生轴。 |
+| `ms.non_additive()` | 不允许跨原生轴求和。 |
+
+`additive_except` 和 `additive_over` 接受一个或多个不重复的 Dimension 或 TimeDimension 字段位置参数。已有集合可用 `*axes` 展开。固定轴在求和时必须保持固定，不会自动选择时间归约方式。状态时间角色通过 `status_time_dimension` 单独声明，并须将该字段包含在 `additive_except` 中。Help：`semantic.additive_all`、`semantic.additive_except`、`semantic.additive_over`、`semantic.non_additive`。
 
 ### 派生度量：`ms.measure`
 

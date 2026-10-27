@@ -376,7 +376,7 @@ def test_retired_status_fold_requires_explicit_sample_reduction(
                     name="value",
                     entity=snapshots,
                     column="value",
-                    additivity=ms.additive_all(except_=(snapshot_date,)),
+                    additivity=ms.additive_except(snapshot_date),
                     status_time_dimension=snapshot_date,
                     status_time_fold=("percentile", 0.95),
                 )

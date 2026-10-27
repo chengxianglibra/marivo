@@ -46,7 +46,7 @@ _CASES = (
     ("join_from", "sales.orders.customer_id"),
     ("join_to", "sales.customers.id"),
     ("status_time", "sales.orders.sample_at"),
-    ("additive", "sales.orders.region"),
+    ("additive_over", "sales.orders.region"),
     ("additive_except", "sales.orders.region"),
     ("hour_prefix", "sales.orders.day"),
     ("snapshot", "sales.snapshot_orders.day"),
@@ -178,14 +178,14 @@ def _consume(
             to_entity=entity("sales.customers"),
             keys=[_copy_helper(key, helper_copy)],
         )
-    if family in {"measure_column", "status_time", "additive", "additive_except"}:
+    if family in {"measure_column", "status_time", "additive_over", "additive_except"}:
         status = time("sales.orders.sample_at") if family == "status_time" else None
         policy = (
-            ms.additive(over=(dimension("sales.orders.region"),))
-            if family == "additive"
-            else ms.additive_all(except_=(dimension("sales.orders.region"),))
+            ms.additive_over(dimension("sales.orders.region"))
+            if family == "additive_over"
+            else ms.additive_except(dimension("sales.orders.region"))
             if family == "additive_except"
-            else ms.additive_all(except_=(status,))
+            else ms.additive_except(status)
             if status is not None
             else ms.additive_all()
         )
@@ -303,7 +303,7 @@ def test_capture_helpers_are_frozen_computational_records() -> None:
         _dependencies()
         state = captured_catalog()
     region = resolve(state, ms.ref.dimension("sales.orders.region"))
-    policy = ms.additive(over=(region,))
+    policy = ms.additive_over(region)
     assert asdict(policy) == {"coordinates": ("sales.orders.region",), "version": 1}
     with pytest.raises((AttributeError, TypeError)):
         policy.coordinates = ("replacement",)  # type: ignore[misc]  # intentional frozen-value mutation
@@ -329,9 +329,7 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind: str, mod
         region = resolve(state, ms.ref.dimension("sales.orders.region"))
     axis = ms.ref.dimension("sales.orders.region") if mode == "lookup" else old
     for helper_copy in (None, "copy", "deepcopy"):
-        policy = (
-            ms.additive(over=(axis,)) if policy_kind == "over" else ms.additive_all(except_=(axis,))
-        )
+        policy = ms.additive_over(axis) if policy_kind == "over" else ms.additive_except(axis)
         policy = _copy_helper(policy, helper_copy)
 
         @ms.measure(additivity=policy)

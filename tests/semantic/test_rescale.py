@@ -26,7 +26,7 @@ total_in_flow_value = ms.measure_column(name="total_in_flow_value", entity=flows
 total_in_p95_flow_value = ms.measure_column(name="total_in_p95_flow_value", entity=flows, column="p95_bytes", unit="By", additivity=ms.additive_all())
 duration = ms.measure_column(name="duration", entity=flows, column="duration", unit="s", additivity=ms.additive_all())
 blocked = ms.measure_column(name="blocked", entity=flows, column="bytes", unit="By", additivity=ms.non_additive())
-fixed = ms.measure_column(name="fixed", entity=flows, column="bytes", unit="By", additivity=ms.additive_all(except_=(day,)), status_time_dimension=day)
+fixed = ms.measure_column(name="fixed", entity=flows, column="bytes", unit="By", additivity=ms.additive_except(day), status_time_dimension=day)
 unknown = ms.measure_column(name="unknown", entity=flows, column="bytes", additivity=ms.additive_all())
 other = ms.entity(name="other", datasource=ms.ref.datasource("warehouse"), source=md.table("other"))
 other_bytes = ms.measure_column(name="bytes", entity=other, column="bytes", unit="By", additivity=ms.additive_all())

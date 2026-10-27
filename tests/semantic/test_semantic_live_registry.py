@@ -862,6 +862,19 @@ def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
     assert not hasattr(SemanticCatalog, "describe")
 
 
+@pytest.mark.parametrize("target", ("additive_over", "additive_except"))
+def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: str) -> None:
+    import marivo.semantic as ms
+
+    capability = REGISTRY.by_canonical_id(target)
+    (requirement,) = capability.input_requirements
+    assert requirement.parameter_names == ("axes",)
+    assert requirement.min_count == 1
+    assert requirement.max_count is None
+    signature = inspect.signature(getattr(ms, target))
+    assert signature.parameters["axes"].kind is inspect.Parameter.VAR_POSITIONAL
+
+
 def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     import marivo.semantic as ms
 

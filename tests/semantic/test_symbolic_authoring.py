@@ -348,7 +348,13 @@ def test_malformed_measure_additivity_rejects_equally_for_symbols_and_closed_row
 
         assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value, case
         assert "closed additivity policy" in failure.value.message, case
-        assert "ms.additive_all(...)" in failure.value.expected, case
+        for policy in (
+            "ms.additive_all()",
+            "ms.additive_except(...)",
+            "ms.additive_over(...)",
+            "ms.non_additive()",
+        ):
+            assert policy in failure.value.expected, case
         assert failure.value.received == type(bad).__name__, case
         assert failure.value.repair is not None, case
 

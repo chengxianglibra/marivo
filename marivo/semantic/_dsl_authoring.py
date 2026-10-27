@@ -15,17 +15,31 @@ CoordinateRef: TypeAlias = DimensionSymbol | TimeDimensionSymbol
 CoordinateInput: TypeAlias = CoordinateRef | Deferred
 
 
-def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tuple[str, ...]:
+def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
+    from marivo._authoring.model import AuthoringRepair
+    from marivo.introspection.live.model import LiveHelpTarget
     from marivo.semantic._authoring_context import _value_ref
     from marivo.semantic.constraints import ConstraintId
     from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 
-    if type(values) is not tuple or (nonempty and not values):
+    if not values:
         _raise(
             ErrorKind.INVALID_REF,
-            "additivity coordinates require a tuple of Dimension refs; over= cannot be empty.",
+            "additive_over() and additive_except() require at least one Dimension or "
+            "TimeDimension ref as a positional argument; use additive_all() for all axes "
+            "or non_additive() for none.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
+            expected="one or more Dimension or TimeDimension refs as positional arguments",
+            received="no axes",
+            hint="Pass one or more native axes; use additive_all() for all axes "
+            "or non_additive() for none.",
+            repair_value=AuthoringRepair(
+                kind="reauthor",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="measure"),
+                action="Pass one or more native axes to additive_over() or additive_except(); "
+                "use additive_all() for all axes or non_additive() for none.",
+            ),
         )
     paths: list[str] = []
     for coordinate in values:
@@ -39,6 +53,16 @@ def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tupl
                 "additivity coordinates require Dimension or TimeDimension refs.",
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.REF_SHAPE,
+                expected="a Dimension or TimeDimension ref for each positional axis",
+                received=type(coordinate).__name__,
+                hint="Pass fields individually, for example ms.additive_over(region, product) "
+                "or ms.additive_except(snapshot_at); unpack a collection with *axes.",
+                repair_value=AuthoringRepair(
+                    kind="reauthor",
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="measure"),
+                    action="Pass Dimension or TimeDimension fields as positional arguments; "
+                    "unpack an existing collection with *axes.",
+                ),
             )
         paths.append(value.path)
     if len(set(paths)) != len(paths):
@@ -47,6 +71,14 @@ def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tupl
             "additivity coordinates must be unique.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
+            expected="unique Dimension or TimeDimension refs",
+            received=tuple(paths),
+            hint="Pass each native axis only once to additive_over() or additive_except().",
+            repair_value=AuthoringRepair(
+                kind="reauthor",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="measure"),
+                action="Remove repeated axes from the positional arguments.",
+            ),
         )
     return tuple(paths)
 
@@ -59,7 +91,7 @@ class AdditiveOverV1:
 
     def __post_init__(self, _token: object) -> None:
         if _token is not _TOKEN:
-            raise TypeError("Use ms.additive(over=...) to construct an additivity policy")
+            raise TypeError("Use ms.additive_over(...) to construct an additivity policy")
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +102,7 @@ class AdditiveAllV1:
 
     def __post_init__(self, _token: object) -> None:
         if _token is not _TOKEN:
-            raise TypeError("Use ms.additive_all(except_=...) to construct an additivity policy")
+            raise TypeError("Use ms.additive_all() or ms.additive_except(...)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,30 +118,41 @@ class NonAdditiveV1:
 AdditivityPolicy: TypeAlias = AdditiveOverV1 | AdditiveAllV1 | NonAdditiveV1
 
 
-def additive(*, over: tuple[CoordinateInput, ...]) -> AdditiveOverV1:
+def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     """Declare exactly which native coordinates may be merged.
 
-    Args: over: Non-empty tuple of governed Dimension refs.
+    Args: axes: One or more native Dimension or TimeDimension refs, passed positionally.
     Returns: A versioned additive policy.
-    Example: ``ms.additive(over=(Region,))``.
+    Example: ``ms.additive_over(Region, Product)``.
     Constraints: Each coordinate must belong to the declared native support.
     """
-    return AdditiveOverV1(_coordinates(over, nonempty=True), _token=_TOKEN)
+    return AdditiveOverV1(_coordinates(axes), _token=_TOKEN)
 
 
-def additive_all(*, except_: tuple[CoordinateInput, ...] = ()) -> AdditiveAllV1:
+def additive_all() -> AdditiveAllV1:
+    """Declare additivity over all native coordinates.
+
+    Returns: A versioned additive-all policy.
+    Example: ``ms.additive_all()``.
+    Constraints: Accepts no arguments and does not prove contribution partition
+    or coverage. Use additive_except() to retain fixed axes.
+    """
+    return AdditiveAllV1((), _token=_TOKEN)
+
+
+def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     """Declare additivity over native coordinates except named fixed axes.
 
-    Args: ``except_`` names native coordinates that must remain fixed.
+    Args: axes: One or more native Dimension or TimeDimension refs that must remain fixed.
     Returns: A versioned additive policy.
-    Example: ``ms.additive_all(except_=(SnapshotAt,))``.
+    Example: ``ms.additive_except(SnapshotAt)``.
     Constraints: It does not prove contribution partition or coverage. A
-    physical Measure status-time axis must occur in ``except_`` and be declared
+    physical Measure status-time axis must occur in ``axes`` and be declared
     as ``status_time_dimension``. Sampling stays on the time field; explicit
     internal sample reduction owns temporal aggregation. Fixed coordinates
     alone do not require a status declaration.
     """
-    return AdditiveAllV1(_coordinates(except_, nonempty=False), _token=_TOKEN)
+    return AdditiveAllV1(_coordinates(axes), _token=_TOKEN)
 
 
 def non_additive() -> NonAdditiveV1:
