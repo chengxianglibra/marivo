@@ -346,6 +346,8 @@ amount = amount_entry.value
 catalog.readiness(refs=[amount]).show()
 ```
 
+Catalog 搜索返回一页结果。卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。后续页须通过 `next_cursor` 获取，取消展示预算不会自动翻页。
+
 {/* example: readiness-1 */}
 
 ```python

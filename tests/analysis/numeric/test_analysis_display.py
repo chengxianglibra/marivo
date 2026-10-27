@@ -143,7 +143,8 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
             assert len(text.encode()) <= 8192
     category.show()
     text = capsys.readouterr().out
-    assert len(text.encode()) <= 8192 and "retained" * 200 not in text
+    assert len(text.encode()) <= 8192 and "retained" * 200 in text
+    assert "output truncated" in text and "omitted=" in text
     ratio.show(n=0)
     assert "rows: 11" in capsys.readouterr().out
     assert len(terminal_runs(session)) == runs

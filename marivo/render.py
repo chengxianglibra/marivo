@@ -36,6 +36,7 @@ class TableSection:
     rows_provider: Callable[[], Iterable[Sequence[str]]] | None
     row_count: int | None = None
     show_omission_counts: bool = False
+    report_rows: bool = False
     bounded_row_limit: int | None = None
     bounded_rows_provider: Callable[[], Iterable[Sequence[str]]] | None = None
     bounded_row_count: int | None = None
@@ -145,6 +146,7 @@ class Card:
         row_count: int | None = None,
         label: str = "preview",
         show_omission_counts: bool = False,
+        report_rows: bool = False,
         bounded_row_limit: int | None = None,
         recovery: str | None = None,
     ) -> Card:
@@ -157,6 +159,7 @@ class Card:
                 rows_provider=None,
                 row_count=row_count,
                 show_omission_counts=show_omission_counts,
+                report_rows=report_rows,
                 bounded_row_limit=bounded_row_limit,
                 recovery=recovery,
             )
@@ -206,17 +209,36 @@ class Card:
         self._sections.append(section)
         return self
 
-    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def render(
+        self,
+        *,
+        max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
+        _include_newline: bool = False,
+    ) -> str:
         if max_output_bytes is None:
+            body = list(self._section_line_items(bounded=False))
             return _join_lines(
-                self._head_lines() + list(self._section_lines_full()) + self._tail_lines()
+                self._head_lines(_rows_shown_by_section(body))
+                + _line_texts(body)
+                + self._tail_lines()
             )
-        return self._render_bounded(max_output_bytes)
+        return self._render_bounded(max_output_bytes, include_newline=_include_newline)
 
-    def _head_lines(self) -> list[str]:
+    def _head_lines(self, rows_shown: dict[int, int] | None = None) -> list[str]:
         lines = [self._identity]
         if self._status is not None:
             lines.append(f"status: {self._status}")
+        for index, section in enumerate(self._sections):
+            if (
+                isinstance(section, TableSection)
+                and section.report_rows
+                and section.row_count is not None
+            ):
+                shown = (rows_shown or {}).get(index, 0)
+                lines.append(
+                    f"{section.label} rows: total={section.row_count} displayed={shown} "
+                    f"omitted={max(section.row_count - shown, 0)}"
+                )
         return lines
 
     def _tail_lines(self) -> list[str]:
@@ -228,19 +250,20 @@ class Card:
         for section in self._sections:
             yield from _section_text_lines(section)
 
-    def _section_line_items(self) -> Iterator[_Line]:
+    def _section_line_items(self, *, bounded: bool = True) -> Iterator[_Line]:
         for index, section in enumerate(self._sections):
-            for text, is_table_row in _section_text_line_items(section, bounded=True):
+            for text, is_table_row in _section_text_line_items(section, bounded=bounded):
                 yield _Line(text=text, section_index=index, is_table_row=is_table_row)
 
-    def _render_bounded(self, max_output_bytes: int) -> str:
+    def _render_bounded(self, max_output_bytes: int, *, include_newline: bool = False) -> str:
+        extra = int(include_newline)
         head = self._head_lines()
         tail = self._tail_lines()
         if not self._sections:
             rendered = _join_lines([*head, *tail])
-            if _encoded_len(rendered) <= max_output_bytes:
+            if _encoded_len(rendered) + extra <= max_output_bytes:
                 return rendered
-            minimum = _encoded_len(rendered)
+            minimum = _encoded_len(rendered) + extra
             raise ValueError(
                 "max_output_bytes is too small to preserve identity and available output; "
                 f"minimum is {minimum} bytes; {self._omission_recovery}"
@@ -253,8 +276,9 @@ class Card:
         for line in self._section_line_items():
             current_line = line
             candidate = [*body, line]
-            candidate_text = _join_lines([*head, *_line_texts(candidate), *tail])
-            if _encoded_len(candidate_text) > max_output_bytes:
+            candidate_head = self._head_lines(_rows_shown_by_section(candidate))
+            candidate_text = _join_lines([*candidate_head, *_line_texts(candidate), *tail])
+            if _encoded_len(candidate_text) + extra > max_output_bytes:
                 truncated_at = line.section_index
                 break
             body.append(line)
@@ -263,50 +287,52 @@ class Card:
                 rows_shown_by_section=_rows_shown_by_section(body)
             )
             if row_limited_at is None:
-                return _join_lines([*head, *_line_texts(body), *tail])
+                return _join_lines(
+                    [*self._head_lines(_rows_shown_by_section(body)), *_line_texts(body), *tail]
+                )
             return self._render_with_marker(
                 max_output_bytes=max_output_bytes,
-                head=head,
                 body=body,
                 tail=tail,
                 truncated_at=row_limited_at,
                 current_line=None,
                 marker_kind="row_limit",
-            )
-
-        min_marker = _truncation_marker(
-            max_output_bytes=max_output_bytes, tokens=(), fallback_recovery=self._omission_recovery
-        )
-        minimum = _encoded_len(_join_lines([*head, min_marker, *tail]))
-        if max_output_bytes < minimum:
-            raise ValueError(
-                "max_output_bytes is too small to preserve identity, truncation marker, "
-                f"and available output; minimum is {minimum} bytes; {self._omission_recovery}"
+                include_newline=include_newline,
             )
 
         return self._render_with_marker(
             max_output_bytes=max_output_bytes,
-            head=head,
             body=body,
             tail=tail,
             truncated_at=truncated_at,
             current_line=current_line,
             marker_kind="byte_limit",
+            include_newline=include_newline,
         )
 
     def _render_with_marker(
         self,
         *,
         max_output_bytes: int,
-        head: list[str],
         body: list[_Line],
         tail: list[str],
         truncated_at: int,
         current_line: _Line | None,
         marker_kind: str,
+        include_newline: bool,
     ) -> str:
+        requested_budget = max_output_bytes
+        row_limits = "".join(
+            f"{section.label} limited to {section.bounded_row_limit} rows; "
+            for section in self._sections
+            if isinstance(section, TableSection)
+            and section.bounded_row_limit is not None
+            and (count := _bounded_table_row_count(section)) is not None
+            and count > section.bounded_row_limit
+        )
         while True:
             body_text = _line_texts(body)
+            head = self._head_lines(_rows_shown_by_section(body))
             omitted_tokens = self._omission_tokens(
                 truncated_at=truncated_at,
                 current_line=current_line,
@@ -329,22 +355,29 @@ class Card:
                     omitted_tokens=omitted_tokens,
                     recoveries=recoveries,
                     fallback_recovery=self._omission_recovery,
+                    prefix=row_limits,
                     require_all_tokens=any(
                         isinstance(section, TableSection) and section.show_omission_counts
                         for section in self._sections[truncated_at:]
                     ),
                 )
             rendered = _join_lines([*head, *body_text, marker, *tail])
-            if _encoded_len(rendered) <= max_output_bytes:
+            if _encoded_len(rendered) + int(include_newline) <= max_output_bytes:
+                if max_output_bytes != requested_budget:
+                    raise ValueError(
+                        "max_output_bytes is too small to preserve identity, truncation detail, "
+                        f"and available output; minimum is {max_output_bytes} bytes; "
+                        f"{self._omission_recovery}"
+                    )
                 return rendered
             if not body:
-                minimum = _encoded_len(_join_lines([*head, marker, *tail]))
-                raise ValueError(
-                    "max_output_bytes is too small to preserve identity, truncation detail, "
-                    f"and available output; minimum is {minimum} bytes; {self._omission_recovery}"
-                )
+                # Refit the mandatory marker until its own budget digits and full
+                # omission details fit too. The reported budget is directly usable.
+                max_output_bytes = _encoded_len(rendered) + int(include_newline)
+                continue
             removed = body.pop()
             truncated_at = min(truncated_at, removed.section_index)
+            marker_kind = "byte_limit"
 
     def _first_row_limited_section(
         self,
@@ -547,10 +580,11 @@ def _truncation_marker(
     tokens: Sequence[str],
     recoveries: Sequence[str] = (),
     fallback_recovery: str = _OMISSION_RECOVERY,
+    prefix: str = "",
 ) -> str:
     omitted = ", ".join(tokens) if tokens else "output"
     return (
-        f"output truncated at {max_output_bytes} bytes; omitted: {omitted}; "
+        f"{prefix}output truncated at {max_output_bytes} bytes; omitted: {omitted}; "
         f"{_recovery_text(recoveries, fallback_recovery)}"
     )
 
@@ -572,6 +606,7 @@ def _best_fit_marker(
     recoveries: Sequence[str],
     require_all_tokens: bool,
     fallback_recovery: str,
+    prefix: str = "",
 ) -> str:
     if require_all_tokens:
         return _truncation_marker(
@@ -579,6 +614,7 @@ def _best_fit_marker(
             tokens=omitted_tokens,
             recoveries=recoveries,
             fallback_recovery=fallback_recovery,
+            prefix=prefix,
         )
     accepted_tokens: list[str] = []
     for token in omitted_tokens:
@@ -588,6 +624,7 @@ def _best_fit_marker(
             tokens=candidate_tokens,
             recoveries=recoveries,
             fallback_recovery=fallback_recovery,
+            prefix=prefix,
         )
         if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
             accepted_tokens.append(token)
@@ -598,11 +635,15 @@ def _best_fit_marker(
         tokens=accepted_tokens,
         recoveries=recoveries,
         fallback_recovery=fallback_recovery,
+        prefix=prefix,
     )
     if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
         return marker
     return _truncation_marker(
-        max_output_bytes=max_output_bytes, tokens=(), fallback_recovery=fallback_recovery
+        max_output_bytes=max_output_bytes,
+        tokens=(),
+        fallback_recovery=fallback_recovery,
+        prefix=prefix,
     )
 
 

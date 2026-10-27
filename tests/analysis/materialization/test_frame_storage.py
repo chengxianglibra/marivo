@@ -1310,7 +1310,7 @@ def test_zero_column_preview_preserves_empty_vs_singleton(
         assert frame.to_pandas().shape == (count, 0)
         frame.show(n=1)
         output = capsys.readouterr().out
-        assert ("one row: ()" if count else "empty result") in output
+        assert ("\n()\n" if count else "empty result") in output
         frame.show(n=0)
         assert "omitted by n=0" in capsys.readouterr().out
 

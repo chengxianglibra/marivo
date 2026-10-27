@@ -2693,12 +2693,22 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
             "data = page.to_dict()",
         ),
         ("catalog_entries", "CatalogPage", "to_json", "Text", "text = page.to_json()"),
+        ("catalog_entries", "CatalogPage", "show", "None", "page.show(max_output_bytes=None)"),
+        (
+            "catalog_entries",
+            "CatalogPage",
+            "render",
+            "Text",
+            "text = page.render(max_output_bytes=None)",
+        ),
     ):
         rows.append(
             _capability(
                 f"{owner}.{name}",
                 f"marivo.semantic.{module}.{owner}.{name}",
-                "Read complete captured directory data or display a bounded projection. Related navigation stays within the loaded scope; no datasource or model calls.",
+                "Display the current page with exact shown/omitted counts. max_output_bytes=None removes the display budget, not pagination; items/to_json contain the page and next_cursor retrieves later pages. No datasource or model calls."
+                if owner == "CatalogPage" and name in ("show", "render")
+                else "Read complete captured directory data or display a bounded projection. Related navigation stays within the loaded scope; no datasource or model calls.",
                 kind="method",
                 output=output,
                 inputs=(AuthoringInputRequirement(role="receiver", family=owner),),
@@ -3753,6 +3763,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("to_dict", "to_json", "show", "render"),
         guidance=(
             "candidate_count is the fixed candidate pool size; next_cursor resumes API pages, independent of display truncation.",
+            "The card counts displayed and omitted current-page items. show(max_output_bytes=None), items and to_json() recover the current page; follow next_cursor for later pages.",
         ),
     )
     for entry_type in (

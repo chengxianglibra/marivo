@@ -275,10 +275,13 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         return f"CatalogPage items={len(self.items)} candidates={self.candidate_count}"
 
     def _card(self) -> Card:
+        from marivo._data_render import _text
+
         card = Card(
-            identity=self._repr_identity(),
+            identity=f"{self._repr_identity()} next_cursor={self.next_cursor or '(end)'}",
             available=(".items", ".to_dict()", ".to_json()", ".show()"),
         )
+        card.field("page_items", str(len(self.items)))
         card.field("next_cursor", self.next_cursor or "(end)")
         card.field("scope", json.dumps(_json_value(self.scope), ensure_ascii=False))
         card.field("filters", json.dumps(_json_value(self.filters), ensure_ascii=False))
@@ -287,22 +290,56 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             columns=("id", "business definition / formula", "match"),
             rows=(
                 (
-                    item.id,
-                    _page_summary(item),
-                    "; ".join(
-                        f"{label}: {snippet}" for label, snippet in self.matches[item.id].snippets
-                    )
-                    if item.id in self.matches
-                    else "",
+                    _text(item.id),
+                    _text(_page_summary(item)),
+                    _text(
+                        "; ".join(
+                            f"{label}: {snippet}"
+                            for label, snippet in self.matches[item.id].snippets
+                        )
+                        if item.id in self.matches
+                        else ""
+                    ),
                 )
                 for item in self.items
             ),
             row_count=len(self.items),
+            show_omission_counts=True,
+            report_rows=True,
             recovery=".items and .to_json() contain the complete page",
         )
         if self.outside_scope:
             card.listing("outside_scope", self.outside_scope)
         return card
+
+    def show(self, *, max_output_bytes: int | None = 8192) -> None:
+        """Print a current-page projection and its exact display counts.
+
+        Args:
+            max_output_bytes: UTF-8 budget including the newline, or None for no limit.
+        Returns: None; prints this page without retrieving the next page.
+        Example: ``page.show(max_output_bytes=None)``.
+        Constraints: Display limits do not alter items or next_cursor.
+        """
+        if max_output_bytes is not None and (
+            type(max_output_bytes) is not int or max_output_bytes < 1
+        ):
+            raise ValueError("max_output_bytes must be a positive integer or None")
+        print(self._card().render(max_output_bytes=max_output_bytes, _include_newline=True))
+
+    def render(self, *, max_output_bytes: int | None = 8192) -> str:
+        """Render this page without retrieving subsequent pages.
+
+        Args: max_output_bytes: UTF-8 budget, or None for no limit.
+        Returns: The current-page card as text without a trailing newline.
+        Example: ``text = page.render(max_output_bytes=None)``.
+        Constraints: Display limits do not alter items or next_cursor.
+        """
+        if max_output_bytes is not None and (
+            type(max_output_bytes) is not int or max_output_bytes < 1
+        ):
+            raise ValueError("max_output_bytes must be a positive integer or None")
+        return self._card().render(max_output_bytes=max_output_bytes)
 
     def to_dict(self) -> dict[str, JsonValue]:
         """Return the complete JSON-compatible page, independent of display limits.

@@ -65,6 +65,10 @@ An AnalysisFrame can describe a pending calculation, completed memory data, or e
 
 The saved Frame exposes `session_id` and `artifact_id` directly. `show()` combines metadata, audit summaries and a bounded data preview; `show(n=0)` omits data reads. Read committed Findings through `findings()` and full evidence through `evidence_digest()`. Plain observation does not necessarily produce Findings. Supported contribution methods retain complete explanations through `method_facts`.
 
+By default `show()` requests up to 20 rows within 8 KiB and reports how many rows were displayed and omitted. Use `show(n=26, max_output_bytes=None)` to display a complete 26-row prefix without a byte limit. The row limit still applies; use `to_pandas()` for the complete fixed data.
+
+If both limits remove rows, the display reports both reasons. Empty results and `n=0` retain their row counts even when other metadata is omitted. If the required summary cannot fit, retry with the minimum byte budget reported in the error.
+
 ### Keep time and meaning explicit
 
 Source read time, evaluation time and save time differ. Saving yesterday's data today does not make the values current. A later source query can return a different answer; exact saved data remains the record of what was committed.

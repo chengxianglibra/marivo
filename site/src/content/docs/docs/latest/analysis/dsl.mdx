@@ -199,8 +199,10 @@ Call `current.compare(baseline, ...)` for one baseline in the same Session; its 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `baselines` | Yes | — | One Frame (alias `reference`), or a nonempty ordered alias → `mv.baseline(frame, ...)` Mapping; `current` is reserved. |
-| `on` | No | `None` | Axis-pair tuple for a bare Frame only; named inputs put `on` in `mv.baseline(...)`. `None` infers only zero axes or one time axis per side; ordinary axes require complete explicit mapping. |
+| `on` | No | `None` | Axis-pair tuple for a bare Frame; named inputs put `on` in `mv.baseline(...)`. Omission pairs uniquely named ordinary axes with matching roles and ordered key names, plus at most one same-kind time axis per side. Otherwise provide all axis pairs. |
 | `match` | No | `None` | CalendarCorrespondence for a bare Frame only; named inputs put `match` in `mv.baseline(...)`. `None` uses compatible frozen direct relations or coordinate equality. |
+
+Default axis pairing does not depend on axis order. Same names do not prove business identity: omitting `on` accepts that correspondence. Duplicate or mismatched names and partial mappings require a complete explicit `on`. Compare supports at most one time-axis pair; align can use multiple time axes with explicit `on` and no `match`.
 
 Outputs retain current values and add `<alias>.baseline.<name>`, `<alias>.absolute.<name>` and `<alias>.relative.<name>`. `current.present` and `<alias>.present` report row presence independently of numeric NA.
 
@@ -251,7 +253,7 @@ Values, types, units, NA, presence and relative row order are preserved. Use a s
 for one component, or a complete tuple in `axis.key_names` order for a composite key.
 `None` selects nullable NULL; an absent member yields an empty Frame, including after
 removing the last axis. Time and paired axes cannot be fixed. Obtain handles again
-from the returned Frame. If ordinary axes remain, compare still needs complete `on`.
+from the returned Frame. Remaining axes use the default pairing rules or a complete `on`.
 Retained source declarations preserve fixed members for a later attribute request.
 Help: `analysis.analysis_frame.fix`.
 
@@ -381,7 +383,7 @@ The pairs are (200, 300) and (600, 700), so the example returns 1 with only two 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `other` | Yes | — | Other Frame in this Session; paired-axis inputs are rejected. |
-| `on` | No | `None` | Complete one-to-one mapping of compatible axes with equal axis counts. `None` infers only zero axes or one time axis per side. |
+| `on` | No | `None` | Complete one-to-one mapping of compatible axes with equal axis counts. Omission follows the same ordinary-axis and time-axis rules as compare. |
 | `match` | No | `None` | Explicit supported time rule; `None` uses frozen coordinate equality. |
 
 {/* example: aligned-absolute-only */}

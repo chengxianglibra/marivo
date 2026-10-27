@@ -321,12 +321,14 @@ def test_filter_cannot_remove_partial_month_admission(
 def test_calendar_region_joint_domain_and_mapping_are_separate(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (8, None), regions=("B", "A"))
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (3, 4), regions=("B", "A"))
-    with pytest.raises(AnalysisError, match="complete explicit"):
-        left.compare({"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))})
+    inferred = left.compare(
+        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
+    ).compute()
     pairs = tuple(zip(left.axes, right.axes, strict=True))
     output = left.compare(
         {"reference": mv.baseline(right, on=pairs, match=CalendarCorrespondence("ordinal"))}
     ).compute()
+    pd.testing.assert_frame_equal(inferred.to_pandas(), output.to_pandas())
     rows = _memory_backing(output).data.copy_rows()
     assert list(zip(rows[_complete_schema(output).key_fields[0]], rows["region"], strict=True)) == [
         (1, "B"),

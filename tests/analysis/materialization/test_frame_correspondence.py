@@ -187,6 +187,162 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
     assert output.presence_names == ("current.present", "reference.present")
 
 
+def test_infers_reordered_composite_axes_for_align_and_each_named_baseline(
+    local: LocalFrameServices,
+) -> None:
+    import subprocess
+    import sys
+
+    account = DataAxis(
+        "account",
+        (
+            DataColumn("tenant", "tenant", ScalarDataType("string"), False),
+            DataColumn("id", "id", ScalarDataType("int64"), False),
+        ),
+        kind="member",
+        name="account",
+    )
+    region = DataAxis(
+        "region", (DataColumn("region", "region", ScalarDataType("string"), False),), name="region"
+    )
+    value = DataColumn("v", "amount", ScalarDataType("int64"), False, "USD")
+    current = _data_frame(
+        local,
+        DataSchema((account, region), (value,), value_paths=(("amount",),)),
+        {"tenant": ["t2", "t1"], "id": [1, 1], "region": ["B", "A"], "v": [12, 20]},
+    )
+    baseline = _data_frame(
+        local,
+        DataSchema((region, account), (value,), value_paths=(("amount",),)),
+        {"tenant": ["t1", "t2"], "id": [1, 1], "region": ["A", "B"], "v": [3, 5]},
+    )
+    compared = current.compare(
+        {"prior": mv.baseline(baseline), "self": mv.baseline(current)}
+    ).compute()
+    table = compared.to_pandas()
+    assert table["account"].tolist() == [("t2", 1), ("t1", 1)]
+    assert table["prior.absolute.amount"].tolist() == [7, 17]
+    assert table["self.absolute.amount"].tolist() == [0, 0]
+    assert table["prior.present"].tolist() == [True, True]
+    aligned = current.align(baseline).compute().to_pandas()
+    assert aligned["right.amount"].tolist() == [5, 3]
+    assert aligned["left_present"].tolist() == aligned["right_present"].tolist() == [True, True]
+    current_saved, baseline_saved = current.persist(), baseline.persist()
+    script = """
+import os, sys
+from unittest.mock import patch
+import marivo.analysis as mv
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
+def forbidden(*args, **kwargs):
+    raise AssertionError('inferred fixed comparison attempted a source or catalog read')
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden):
+    session = mv.session.resume(sys.argv[2])
+    current, baseline = (session.persisted_frame(value) for value in sys.argv[3:])
+    assert current.compare(baselines=baseline).compute().to_pandas()['reference.absolute.amount'].tolist() == [7, 17]
+    assert current.align(baseline).compute().to_pandas()['right.amount'].tolist() == [5, 3]
+"""
+    cold = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            current_saved.artifact_id,
+            baseline_saved.artifact_id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
+@pytest.mark.parametrize("mismatch", ("name", "role", "key_name", "ambiguous"))
+def test_automatic_axis_mapping_requires_unique_complete_metadata(
+    local: LocalFrameServices, mismatch: str
+) -> None:
+    key = DataColumn("key", "region", ScalarDataType("string"), False)
+    value = DataColumn("amount", "amount", ScalarDataType("int64"), False)
+    axis = DataAxis("axis", (key,), name="region")
+    left = _data_frame(
+        local,
+        DataSchema((axis,), (value,), value_paths=(("amount",),)),
+        {"key": ["A"], "amount": [1]},
+    )
+    changed = (
+        replace(axis, name="other")
+        if mismatch == "name"
+        else replace(axis, kind="member")
+        if mismatch == "role"
+        else replace(axis, columns=(replace(key, name="other_key"),))
+    )
+    if mismatch == "ambiguous":
+        second = DataAxis("second", (replace(key, slot_id="other"),), name="region")
+        left = _data_frame(
+            local,
+            DataSchema((axis, second), (value,), value_paths=(("amount",),)),
+            {"key": ["A"], "other": ["B"], "amount": [1]},
+        )
+        right = left
+    else:
+        right = _data_frame(
+            local,
+            DataSchema((changed,), (value,), value_paths=(("amount",),)),
+            {"key": ["A"], "amount": [2]},
+        )
+    for operation in (lambda: left.compare(right), lambda: left.align(right)):
+        with pytest.raises(AnalysisError) as caught:
+            operation()
+        assert caught.value.expected == "a complete explicit axis bijection"
+        assert "region" in caught.value.received
+        assert "key" in caught.value.repair.action
+
+
+def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameServices) -> None:
+    from marivo._temporal import builtin_grain
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    period = exact_scope("2026-08-01", "2026-08-03", "UTC").by(builtin_grain("day"))
+    first, second = (
+        freeze_calendar(
+            period._binding,
+            token=f"axis{i}",
+            name=f"day{i}",
+            key=DataColumn(f"key{i}", f"day{i}", ScalarDataType("int64"), False),
+        )
+        for i in range(2)
+    )
+    value = DataColumn("amount", "amount", ScalarDataType("int64"), False)
+    schema = DataSchema((first.axis, second.axis), (value,), value_paths=(("amount",),))
+    data = CompletedFrameData(
+        schema,
+        pd.DataFrame({"key0": [0], "key1": [0], "amount": [1]}),
+        (*first.attachments, *second.attachments),
+    )
+    metadata = FrameResultMetadata(
+        "manual",
+        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+    )
+    frame = AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
+    with pytest.raises(AnalysisError) as comparison:
+        frame.compare(frame)
+    assert comparison.value.expected == "at most one compatible time axis pair"
+    assert "at most one" in comparison.value.repair.action
+    with pytest.raises(AnalysisError) as alignment:
+        frame.align(frame)
+    assert alignment.value.expected == "a complete explicit axis bijection"
+    assert "day0" in alignment.value.received and "day1" in alignment.value.received
+    pairs = tuple((axis, axis) for axis in frame.axes)
+    with pytest.raises(AnalysisError, match="at most one compatible time axis pair"):
+        frame.compare(frame, on=pairs)
+    assert frame.align(frame, on=pairs).compute().to_pandas()["left.amount"].tolist() == [1]
+
+
 def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices) -> None:
     schema = DataSchema(
         (), (DataColumn("v", "amount", ScalarDataType("int64"), True),), value_paths=(("amount",),)
@@ -211,13 +367,13 @@ def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices) -> Non
         )
 
 
-def test_no_ordinary_inference_and_complete_mapping_before_values(
+def test_ordinary_inference_and_complete_mapping_before_values(
     local: LocalFrameServices,
 ) -> None:
     left, right = _memory(local, ["A"], [1]), _memory(local, ["A"], [2])
-    for on in (None, ()):
-        with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
-            left.compare({"reference": mv.baseline(right, on=on)})
+    assert _values(left.compare(baselines=right).compute(), "reference.absolute.amount") == [-1]
+    with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
+        left.compare({"reference": mv.baseline(right, on=())})
     scalar = left.reduce({"different": row_count()})
     with pytest.raises(AnalysisError, match="equal complete axis counts"):
         left.compare({"reference": mv.baseline(scalar, on=())})
@@ -1133,8 +1289,9 @@ def test_compare_rejects_mixed_parameter_shapes_and_unnamed_multiple_inputs(
             current.compare(invalid)
         assert "one baseline Frame" in error.value.expected
         assert "mv.baseline" in error.value.repair.action
-    with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
-        current.compare(baseline)
+    assert _values(current.compare(baselines=baseline).compute(), "reference.absolute.amount") == [
+        2
+    ]
 
 
 def test_bare_compare_preserves_ownership_names_and_unit_checks(

@@ -54,8 +54,10 @@ must be a string. Every Frame exposes its captured ``session_id``. Stored roots
 expose ``artifact_id``, ``findings()`` and ``evidence_digest()`` directly.
 Pending and memory Frames require ``persist()`` for commit identity and audit reads.
 Identity attributes perform no Store reads. There is no public Artifact wrapper.
-``show(n=20)`` combines metadata, bounded audit summaries and a data preview;
-``show(n=0)`` reads metadata only. Full data export uses ``to_pandas()``.
+``show(n=20, max_output_bytes=8192)`` combines metadata, audit summaries and a
+whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
+``max_output_bytes=None`` removes the byte limit while preserving the row limit.
+Full data export uses ``to_pandas()``.
 
 Public classes describe returned values; they do not authorize direct construction
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,

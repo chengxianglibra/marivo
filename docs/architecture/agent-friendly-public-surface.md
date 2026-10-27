@@ -143,7 +143,7 @@ The full lifecycle and read integrity contract belongs to
 
 | Receiver | Display controls | Meaning |
 | --- | --- | --- |
-| AnalysisFrame | show(*, n=20) | Metadata or actual result-order prefix, according to carrier |
+| AnalysisFrame | show(*, n=20, max_output_bytes=8192) | Metadata or actual result-order prefix, according to carrier |
 | Artifact | show() | Submission and audit only |
 | PreviewResult / RawSqlResult | show(*, n=None, max_output_bytes=8192), corresponding render | Bounded source result display |
 | Entry/report/page | Owning type's show/render protocol | Definitions, check outcomes or bounded items |
@@ -151,8 +151,15 @@ The full lifecycle and read integrity contract belongs to
 Frame n is a nonnegative non-boolean integer. n=0 reads no row/coordinate payload;
 positive preview decodes the prefix and required frozen interpretation. Metadata
 success does not certify unread data. Preview is not full export followed by head.
-Frame cards have bounded text/column display; explicit complete export is
-frame.to_pandas() on a completed root. No common adapter erases these read boundaries.
+The byte limit is positive or None and includes the printed newline. Whole rows and
+complete cells are retained; exact displayed and omitted counts disclose the row
+limit and output budget. `show(n=26, max_output_bytes=None)` prints the selected
+26-row prefix without a byte limit. Empty results and n=0 retain their row summary
+even when other metadata is omitted. If both limits remove rows, both reasons are
+reported. A budget too small for the mandatory summary and omission notice reports
+a minimum that can be used directly, including the final notice and printed newline.
+Complete export remains frame.to_pandas() on a
+completed root. No common adapter erases these read boundaries.
 
 Preview/raw SQL controls use nonnegative n or None, and positive max_output_bytes
 or None; bool is rejected. The UTF-8 budget includes show's printed newline.

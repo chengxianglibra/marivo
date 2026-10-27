@@ -57,7 +57,7 @@ Population 按完整键去重，不用重复键表示多次贡献。表示贡献
 当前 AnalysisFrame 的数据轴与上述语义轴分工不同。数据轴保留局部 token、完整键分量及
 物理类型约束/nullability（来源待准备时可未解析）、identity/field 等角色和已捕获的时间解释，不保留原 Entity/Field 的名义绑定。
 显示名即使来自语义路径也不是绑定凭证；此边界对待执行、内存和持久载体一致。
-普通轴的跨 Frame 对应由调用方显式声明，系统验证其结构与实际键域，不证明业务身份相同。
+普通轴的跨 Frame 对应由调用方显式声明或接受同名默认约定，系统验证结构与实际键域，不证明业务身份相同。
 结果键重新进入 Population 时，由显式目标建立新的语义绑定；这不把 `U_Customer` 与 `U_Product`
 认作同一类型，也不把收货城市与开票城市认作同一维度。具体投影和重新绑定见 §3.3。
 
@@ -381,13 +381,13 @@ East:A100/West:A300 与 East:A100/West:B300 的地区客户均额摘要同为(10
 对齐只建立格子对应；比较还须声明输入约束、单位与参照哪些保持、哪些改变。
 共同固定身份域只证明全局名单相同，不证明每个地区等分组在两期包含相同身份。
 
-当前 Frame 的普通轴 `on` 是调用方对业务对应的显式声明。实现验证同 Session、完整轴双射、
+当前 Frame 的普通轴 `on` 是调用方对业务对应的显式声明；省略时调用方接受同名默认约定。实现验证同 Session、完整轴双射、
 角色、键宽、物理类型和时间解释；不验证原 Entity/Field 相同。
 当前 `align/compare` 固定采用 outer 对应，不提供 exact 策略，也不要求两侧实际完整联合键域相等。
 它们在合法对应下保留两侧实际键像的并集、缺侧和独立行 presence；时间对应仍须满足
 [Frame 合同](analysis-frame.md#correspondence-and-comparison)的有效域约束，不因 outer 放宽。
 显式配对的 Customer/Product 整数键可以通过这些检查；这只证明所声明的数据对应成立。
-省略 on 的有限时间/零轴推导仍由 [Frame 合同](analysis-frame.md#correspondence-and-comparison)拥有，不据同名普通轴推断对应。
+省略 on 的同名普通轴及有限时间轴推导由 [Frame 合同](analysis-frame.md#correspondence-and-comparison)拥有，同名不证明业务身份。
 
 对上述两侧结果及对应，定义 `Compare_{g,ℓ,r}(q₁,q₀)=Map(g,ℓ^*q₁,r^*q₀)`。
 两侧可以来自不同 Metric/上下文、字面量或合法 Frame 数据变换；须满足 g 的类型、单位及定义域要求，

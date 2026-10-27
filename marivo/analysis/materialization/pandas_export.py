@@ -18,7 +18,6 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
-from marivo.analysis.core.frame_method_facts import FrameMethodTarget
 from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.core.model import reject
@@ -198,24 +197,22 @@ def _cell(array: pa.Array, i: int, column: DataColumn) -> str:
     value = _coordinate_scalar(array, i, column)
     if isinstance(value, pa.Scalar) and pa.types.is_date32(array.type):
         return f"{array.cast(pa.int32())[i].as_py()} date32 day ticks"
-    return str(value)[:256]
+    return str(value)
 
 
-def preview_text(
+def preview_table(
     schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
-) -> str:
-    """Format only the supplied prefix and its frozen coordinate interpretation."""
-    if not len(rows):
-        return "empty result"
+) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    """Format the supplied prefix as complete, escaped rows and coordinates."""
+    from marivo._data_render import _text
+
     if not schema.columns:
-        return "one row: ()"
+        return ("row",), tuple(("()",) for _ in range(len(rows)))
     parts = {part.name: part for part in attachments}
     names: list[str] = []
     origins: list[str] = []
-    series: list[pd.Series] = []
+    data_columns: list[list[str]] = []
     for axis in schema.axes:
-        if len(series) >= 8:
-            break
         axis_names = _axis_names(axis, axis.name)
         names.extend(axis_names)
         origins.extend([f"coordinate {axis.token}"] * len(axis_names))
@@ -223,86 +220,41 @@ def preview_text(
             arrays = tuple(
                 pa.array(rows[column.slot_id], from_pandas=True) for column in axis.columns
             )
-            series.append(
-                pd.Series(
-                    [
-                        _cell(arrays[0], i, axis.columns[0])
-                        if len(arrays) == 1
-                        else "("
-                        + ", ".join(
-                            _cell(array, i, column)
-                            for array, column in zip(arrays, axis.columns, strict=True)
-                        )
-                        + ")"
-                        for i in range(len(rows))
-                    ]
-                )
+            data_columns.append(
+                [
+                    _cell(arrays[0], i, axis.columns[0])
+                    if len(arrays) == 1
+                    else "("
+                    + ", ".join(
+                        _cell(array, i, column)
+                        for array, column in zip(arrays, axis.columns, strict=True)
+                    )
+                    + ")"
+                    for i in range(len(rows))
+                ]
             )
         else:
-            series.extend(_coordinate_columns(axis, rows, parts))
-    # Expanded time coordinates must leave room for at least one represented value.
-    limit = 7 if schema.values else 8
-    names, origins, series = names[:limit], origins[:limit], series[:limit]
+            data_columns.extend(
+                [
+                    "NA" if value is None or value is pd.NA or value is pd.NaT else str(value)
+                    for value in series
+                ]
+                for series in _coordinate_columns(axis, rows, parts)
+            )
     for role, columns in (("value", schema.values), ("presence", schema.presence)):
         for column in columns:
-            if len(series) >= 8:
-                break
             array = pa.array(rows[column.slot_id], from_pandas=True)
             names.append(column.name)
             origins.append(role)
-            series.append(pd.Series([_cell(array, i, column) for i in range(len(rows))]))
+            # Keep the Arrow validity bit separate from valid NaN and temporal ticks.
+            data_columns.append([_cell(array, i, column) for i in range(len(rows))])
     counts = Counter(name for axis in schema.axes for name in _axis_names(axis, axis.name))
     counts.update(column.name for column in (*schema.values, *schema.presence))
-    display = pd.concat(series, axis=1)
-    display.columns = [
-        name if counts[name] == 1 else f"{name} [{origin}]"
+    display_names = tuple(
+        _text(name if counts[name] == 1 else f"{name} [{origin}]")
         for name, origin in zip(names, origins, strict=True)
-    ]
-    return display.to_string(index=False, max_colwidth=60)
-
-
-def attribute_preview_text(
-    schema: DataSchema,
-    rows: pd.DataFrame,
-    attachments: tuple[OutputAttachment, ...],
-    targets: tuple[FrameMethodTarget, ...],
-) -> str:
-    """Group actual report columns using captured output paths and one text budget."""
-    values = dict(zip(schema.value_paths, schema.values, strict=True))
-    selected = tuple(
-        (target, tuple(output for output in target.outputs if output.path in values))
-        for target in targets
     )
-    selected = tuple((target, outputs) for target, outputs in selected if outputs)
-    if not selected:
-        return preview_text(schema, rows, attachments)
-    text = preview_text(DataSchema(schema.axes, ()), rows, attachments)
-    seen: set[tuple[str, ...]] = set()
-    omitted = 0
-    for target, outputs in selected:
-        if target.target in seen:
-            continue
-        seen.add(target.target)
-        columns = tuple(values[output.path] for output in outputs[:4])
-        arrays = tuple(pa.array(rows[column.slot_id], from_pandas=True) for column in columns)
-        display = pd.DataFrame(
-            {
-                column.name: [_cell(array, i, column) for i in range(len(rows))]
-                for column, array in zip(columns, arrays, strict=True)
-            }
-        )
-        block = f"\nTarget {'.'.join(target.target)} ({target.kind})\n" + display.to_string(
-            index=False, max_colwidth=40
-        )
-        if len((text + block).encode("utf-8")) > 3400:
-            omitted += 1
-            continue
-        text += block
-        if len(outputs) > len(columns):
-            text += f"\n{len(outputs) - len(columns)} diagnostic columns: use frame.output_names and select the exact path."
-    if omitted:
-        text += f"\n{omitted} target blocks omitted by the shared preview budget."
-    return (
-        text
-        + "\nComplete values: frame.output_names; select exact diagnostic paths or use to_pandas()."
+    display_rows = tuple(
+        tuple(_text(column[i]) for column in data_columns) for i in range(len(rows))
     )
+    return display_names, display_rows

@@ -439,7 +439,7 @@ class AnalysisFrame:
         Example: ``bi1 = frame.fix(frame.axis('cluster'), 'bi1')``.
         Constraints: None selects a nullable NULL key. Absent members yield an empty Frame,
         including after removing the final axis. Time and paired axes cannot be fixed.
-        Remaining ordinary axes still require explicit on when comparing two Frames.
+        Remaining axes use the documented default pairing or a complete explicit on.
         """
         position = self._axis_index(axis, location="frame.fix", canonical_id="analysis_frame.fix")
         single = len(self._schema.axes[position].columns) == 1
@@ -887,22 +887,57 @@ class AnalysisFrame:
                 canonical_id=canonical_id,
             )
         if on is None:
-            if (
-                len(left_axes) == 1
-                and left_axes[0].role == right_axes[0].role
-                and left_axes[0].role in ("calendar", "interval")
-            ):
-                on = ((left_axes[0], right_axes[0]),)
-            elif left_axes:
+            time_roles = ("calendar", "interval")
+            left_time = tuple(axis for axis in left_axes if axis.role in time_roles)
+            right_time = tuple(axis for axis in right_axes if axis.role in time_roles)
+            if location == "frame.compare" and (len(left_time) > 1 or len(right_time) > 1):
                 reject(
-                    "a complete explicit axis bijection",
-                    repr((left_axes, right_axes)),
-                    "Pass on with every complete axis exactly once; inference requires zero axes on both sides or one same-kind calendar/interval axis per side.",
+                    "at most one compatible time axis pair",
+                    f"current={len(left_time)}, baseline={len(right_time)}",
+                    "Reduce or reconstruct each input with at most one time axis before compare.",
                     location,
                     canonical_id=canonical_id,
                 )
-            else:
-                on = ()
+            left_ordinary = tuple(axis for axis in left_axes if axis.role not in time_roles)
+            right_ordinary = tuple(axis for axis in right_axes if axis.role not in time_roles)
+            pairs: list[tuple[FrameAxis, FrameAxis]] = []
+            valid = (
+                len(left_time) == len(right_time)
+                and len(left_time) <= 1
+                and (not left_time or left_time[0].role == right_time[0].role)
+            )
+            for axis in left_axes:
+                if axis.role in time_roles:
+                    if valid:
+                        pairs.append((axis, right_time[0]))
+                    continue
+                left_matches = tuple(
+                    candidate for candidate in left_ordinary if candidate.name == axis.name
+                )
+                right_matches = tuple(
+                    candidate for candidate in right_ordinary if candidate.name == axis.name
+                )
+                if (
+                    not axis.name
+                    or len(left_matches) != 1
+                    or len(right_matches) != 1
+                    or axis.role != right_matches[0].role
+                    or axis.key_names != right_matches[0].key_names
+                ):
+                    valid = False
+                else:
+                    pairs.append((axis, right_matches[0]))
+            if not valid or len(pairs) != len(left_axes):
+                left_description = tuple((a.name, a.role, a.key_names) for a in left_axes)
+                right_description = tuple((a.name, a.role, a.key_names) for a in right_axes)
+                reject(
+                    "a complete explicit axis bijection",
+                    f"current={left_description!r}, other={right_description!r}",
+                    "Pass on with every complete axis exactly once. Automatic pairing requires unique same-name ordinary axes with matching roles and complete key names, and at most one same-kind time axis per side.",
+                    location,
+                    canonical_id=canonical_id,
+                )
+            on = tuple(pairs)
         if (
             len(on) != len(left_axes)
             or {a.token for a, _ in on} != {a.token for a in left_axes}
@@ -943,8 +978,8 @@ class AnalysisFrame:
         Example:
             ``paired = a.align(b, on=((a.axes[0], b.axes[0]),))``.
 
-        Constraints: Infer on only for zero axes on both sides or one same-kind
-        calendar/interval axis per side; ordinary axes require explicit mapping.
+        Constraints: Omitted on pairs unique same-name ordinary axes with equal roles
+        and key names, and at most one same-kind calendar/interval axis per side.
         This declares caller business correspondence; validation
         does not check original Entity/Field equality. Paired inputs reject. No Catalog or row reads.
         """
@@ -987,7 +1022,9 @@ class AnalysisFrame:
                 mv.baseline(...) declarations. A bare Frame uses alias reference;
                 current is reserved.
             on: Complete axis-pair tuple for a bare Frame only. For named inputs,
-                put on inside mv.baseline(...). Omission requires unique inference.
+                put on inside mv.baseline(...). Omission pairs unique same-name
+                ordinary axes with equal roles and ordered key names, plus at most
+                one same-kind time axis per side.
             match: Closed time rule for a bare Frame only. For named inputs, put
                 match inside mv.baseline(...). Must agree with a frozen direct relation.
 
@@ -1002,8 +1039,8 @@ class AnalysisFrame:
         Duration endpoints and matching units; no paired inputs. Relative change is
         (current-baseline)/abs(baseline). Missing rows and NA propagate; zero baselines
         return NA. Outer correspondence preserves missing-side rows. Ordinary-axis on
-        declares caller business correspondence without checking original Entity/Field
-        equality. Equal value names select pairs, not Metric identity or business
+        declares caller business correspondence; omitting on accepts that same-name
+        convention. Neither checks original Entity/Field equality. Equal value names select pairs, not Metric identity or business
         comparability. No source replay or date inference from alias names. Select,
         name and prepare inputs before compare. The reference alias retains full
         reference.baseline/absolute/relative paths.
@@ -1318,11 +1355,12 @@ class AnalysisFrame:
             data.schema, data.copy_rows(), data.copy_attachments(), axis_names=tuple(names)
         )
 
-    def show(self, *, n: int = 20) -> None:
+    def show(self, *, n: int = 20, max_output_bytes: int | None = 8192) -> None:
         """Display current metadata and a bounded fixed-data prefix without evaluation.
 
         Args:
             n: Nonnegative integer excluding bool, default 20; zero is metadata only.
+            max_output_bytes: Positive UTF-8 budget including the printed newline, or None.
 
         Returns:
             None; prints structure, bounded audit summaries and an available fixed-data preview.
@@ -1344,6 +1382,10 @@ class AnalysisFrame:
                 "frame.show",
                 canonical_id="analysis_frame.show",
             )
+        if max_output_bytes is not None and (
+            type(max_output_bytes) is not int or max_output_bytes < 1
+        ):
+            raise ValueError("max_output_bytes must be a positive integer or None")
         from marivo.render import Card
 
         available = (
@@ -1363,9 +1405,9 @@ class AnalysisFrame:
         card = Card(
             identity=repr(self),
             available=available,
-            omission_recovery="use .output_names and .axes for captured structure; compute() for data"
+            omission_recovery="pass max_output_bytes=None; use .output_names and .axes for structure; compute() for data"
             if isinstance(self._backing, ExpressionFrameBacking)
-            else "use .output_names for all names and .to_pandas() for complete fixed data",
+            else "pass max_output_bytes=None; use .output_names for names and .to_pandas() for complete fixed data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
         declaration = self._derivation
@@ -1391,15 +1433,12 @@ class AnalysisFrame:
         if isinstance(self._backing, ExpressionFrameBacking):
             root = self._backing.root
             if isinstance(root, OperationFrameBinding):
-                card.field("operation", _bounded(_operation_summary(root)))
+                card.field("operation", _operation_summary(root))
                 card.field(
                     "inputs",
-                    _bounded(
-                        repr(
-                            tuple(
-                                (child._input_id, _input_kind(child._backing))
-                                for child in root.inputs
-                            )
+                    repr(
+                        tuple(
+                            (child._input_id, _input_kind(child._backing)) for child in root.inputs
                         )
                     ),
                 )
@@ -1427,9 +1466,7 @@ class AnalysisFrame:
                 )
                 card.field(
                     "scope",
-                    _bounded("; ".join(scopes), 1800)
-                    if scopes
-                    else "no captured filter or member restriction",
+                    "; ".join(scopes) if scopes else "no captured filter or member restriction",
                 )
                 anchors = tuple(
                     (frame._input_id, axis.token, axis.at.isoformat())
@@ -1438,7 +1475,7 @@ class AnalysisFrame:
                     if axis.at is not None
                 )
                 if anchors:
-                    card.field("anchors", _bounded(repr(anchors)))
+                    card.field("anchors", repr(anchors))
             card.field("rows", "pending; no input rows read")
             card.field(
                 "types",
@@ -1447,7 +1484,7 @@ class AnalysisFrame:
                 else "captured concrete data types",
             )
         else:
-            from marivo.analysis.materialization.pandas_export import attribute_preview_text
+            from marivo.analysis.materialization.pandas_export import preview_table
 
             if isinstance(self._backing, MemoryFrameBacking):
                 total = self._backing.data.row_count
@@ -1466,9 +1503,7 @@ class AnalysisFrame:
             facts = self._backing.method_facts
             card.field("method_facts", str(len(facts)))
             if facts:
-                card.field(
-                    "method_origins", _bounded(repr(tuple(item.origin_result_id for item in facts)))
-                )
+                card.field("method_origins", repr(tuple(item.origin_result_id for item in facts)))
                 card.field(
                     "method_facts_read", "use .method_facts for complete original explanation facts"
                 )
@@ -1488,14 +1523,14 @@ class AnalysisFrame:
                 else "literal"
                 for item in audit.evaluation.inputs
             )
-            card.field("inputs", _bounded(repr(input_kinds), 600))
-            card.field("operations", _bounded(repr(audit.evaluation.operations), 600))
+            card.field("inputs", repr(input_kinds))
+            card.field("operations", repr(audit.evaluation.operations))
             card.field("source_facts", str(len(audit.source_facts)))
             card.field("checks", str(len(audit.evaluation.checks)))
             card.field("findings", str(len(self._backing.metadata.findings)))
             card.field("rows", str(total))
-            if n:
-                count = min(n, 20)
+            if n and total:
+                count = min(n, total)
                 if isinstance(self._backing, MemoryFrameBacking):
                     rows = self._backing.data.preview_rows(count)
                     attachments = self._backing.data.copy_attachments()
@@ -1503,18 +1538,25 @@ class AnalysisFrame:
                     prefix = self._local.preview(self._backing, count)
                     rows, attachments = prefix.rows, prefix.attachments
                 assert isinstance(self._schema, DataSchema)
-                targets = tuple(target for fact in facts for target in fact.targets)
-                card.field(
-                    "preview",
-                    _bounded(
-                        attribute_preview_text(self._schema, rows, attachments, targets), 4000
-                    ),
-                )
+                columns, display_rows = preview_table(self._schema, rows, attachments)
                 if total > count:
-                    card.field("omitted", f"{total - count} rows; preview/card budget")
+                    card.field("row_limit", f"n={n}; use .show(n={total}) to request all rows")
+                card.table(
+                    columns,
+                    display_rows,
+                    row_count=total,
+                    show_omission_counts=True,
+                    report_rows=True,
+                    bounded_row_limit=count,
+                    recovery=f".show(n={total}, max_output_bytes=None)",
+                )
+            elif n:
+                card.status("preview rows: total=0 displayed=0 omitted=0; empty result")
+                card.field("preview", "empty result")
             else:
-                card.field("preview", "omitted by n=0")
-        print(card.render())
+                card.status(f"preview rows: total={total} displayed=0 omitted={total}; n=0")
+                card.field("preview", f"omitted by n=0; shown=0; omitted={total}")
+        print(card.render(max_output_bytes=max_output_bytes, _include_newline=True))
 
 
 def _pending_source_inputs(
@@ -1538,14 +1580,6 @@ def _pending_source_inputs(
         elif isinstance(root, OperationFrameBinding):
             pending.extend(reversed(root.inputs))
     return tuple(sources)
-
-
-def _bounded(text: str, limit: int = 900) -> str:
-    encoded = text.encode("utf-8")
-    if len(encoded) <= limit:
-        return text
-    prefix = encoded[:limit].decode("utf-8", errors="ignore")
-    return f"{prefix}... omitted (display budget; {len(encoded)} total bytes)"
 
 
 def _input_kind(backing: FrameBacking) -> str:

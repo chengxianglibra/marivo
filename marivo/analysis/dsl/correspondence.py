@@ -45,7 +45,10 @@ def offset(
 
     Args:
         years: Non-boolean integer civil-year offset, mutually exclusive with periods.
-        periods: Non-boolean integer offset in the consuming axis's grain.
+        periods: Non-boolean integer steps in the consuming axis's grain, including
+            its grain step. Day -7 means seven days; week -1 means one week, week
+            -7 means seven weeks, and month -1 means one month. A negative offset
+            seeks an earlier baseline; it does not count rows or fixed days.
     Returns: An axis-free calendar correspondence.
     Example: ``baseline = periods.shift(mv.offset(years=-1))``.
     Constraints: Supply exactly one keyword. Missing civil dates are not clamped.

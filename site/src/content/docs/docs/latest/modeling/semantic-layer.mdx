@@ -347,6 +347,8 @@ amount = amount_entry.value
 catalog.readiness(refs=[amount]).show()
 ```
 
+Catalog search returns one page. Its card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Follow `next_cursor` to retrieve later pages: removing the display budget does not fetch them.
+
 {/* example: readiness-1 */}
 
 ```python

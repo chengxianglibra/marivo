@@ -454,14 +454,20 @@ def provider() -> DisclosureProvider:
             AnalysisFrame,
             "analysis_frame",
             "show",
-            (P("n", "Nonnegative integer, excluding bool; default 20, or 0 for metadata only."),),
+            (
+                P("n", "Nonnegative integer, excluding bool; default 20, or 0 for metadata only."),
+                P(
+                    "max_output_bytes",
+                    "Positive UTF-8 display budget including the newline, or None for no byte limit; n still applies.",
+                ),
+            ),
             "None",
             "Print captured structure, bounded audit summaries and an existing result prefix without evaluation.",
             "result = frame.show(n=0)",
             ("frame",),
             "results.inspect",
             (
-                "Validate n first. Pending cards never evaluate. n=0: metadata only. Completed cards summarize inputs/operations, source/check/Finding counts; stored cards add committed identity/time. No full audit or method payload reads; use .method_facts for explanations. Positive previews resolve shown coordinates; receipt hashing may read whole files. Unread data is not certified.",
+                "Validate controls before reads. Pending cards never evaluate. n=0: metadata only. Positive previews show complete rows and columns with exact omission counts; use show(n=26, max_output_bytes=None) for 26 untruncated rows. Completed cards summarize inputs/operations, source/check/Finding counts; stored cards add committed identity/time. No full audit or method payload reads. Positive previews resolve coordinates; receipt hashing may read whole files. Unread data is not certified.",
             ),
         ),
         (
@@ -504,7 +510,7 @@ def provider() -> DisclosureProvider:
             ("frame", "name"),
             "inputs.frame",
             (
-                "Missing or duplicate names report actual candidates; names do not match axes between inputs.",
+                "Missing or duplicate names report actual candidates. Axis handles are bound to this input; align/compare may pair unique names by their documented default convention.",
             ),
         ),
         (
@@ -606,6 +612,8 @@ def provider() -> DisclosureProvider:
                 failures=(
                     "ValueError: use a supported exact calendar domain and an offset rule; target civil clocks must be unique."
                     if owner is CalendarAxis and name == "shift"
+                    else "AnalysisError: repair an invalid n. ValueError: use a positive byte budget or None; a too-small budget reports the minimum."
+                    if owner is AnalysisFrame and name == "show"
                     else "AnalysisError: follow its repair."
                     if owner is AnalysisFrame and name in ("compute", "to_pandas")
                     else "AnalysisError: follow the concrete expected/received facts and repair.",

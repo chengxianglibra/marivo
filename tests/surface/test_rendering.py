@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -168,6 +169,34 @@ def test_exact_fit_card_renders_without_truncation_marker() -> None:
 def test_cap_below_minimum_raises_value_error_with_minimum() -> None:
     with pytest.raises(ValueError, match=r"minimum.*pass max_output_bytes=None for full output"):
         format_bounded_card(identity="X", available=(".render()",), max_output_bytes=1)
+
+
+@pytest.mark.parametrize("include_newline", (False, True))
+@pytest.mark.parametrize("exact_counts", (False, True))
+def test_reported_minimum_budget_can_be_used_without_another_error(
+    include_newline: bool, exact_counts: bool
+) -> None:
+    card = Card(identity="Result", available=(".show()",)).field("metadata", "界" * 1000)
+    card.table(
+        ("value",),
+        (("a",), ("b",)),
+        row_count=26,
+        bounded_row_limit=2,
+        show_omission_counts=exact_counts,
+        report_rows=exact_counts,
+        recovery=".show(n=26, max_output_bytes=None)",
+    )
+    with pytest.raises(ValueError, match="minimum") as caught:
+        card.render(max_output_bytes=1, _include_newline=include_newline)
+    match = re.search(r"minimum is (\d+) bytes", str(caught.value))
+    assert match is not None
+    minimum = int(match[1])
+    output = card.render(max_output_bytes=minimum, _include_newline=include_newline)
+    assert len(output.encode("utf-8")) + int(include_newline) <= minimum
+    assert "output truncated" in output
+    if exact_counts:
+        assert "total=26 displayed=0 omitted=26" in output
+        assert ".show(n=26, max_output_bytes=None)" in output
 
 
 def test_empty_list_section_renders_none() -> None:

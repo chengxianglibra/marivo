@@ -148,8 +148,12 @@ observe; current-row reduce is only a statistic of represented cells.
 ## Period shifts and fixed-data matching
 
 mv.offset requires exactly one non-boolean integer keyword: years or periods.
-Periods means nominal grain steps; years means the same civil period, with ISO
+Periods means nominal steps of the consuming axis's grain, including its step:
+day -7 is seven days, week -1 is one week, week -7 is seven weeks and month -1
+is one month. Negative offsets seek an earlier baseline; they do not count visible
+rows or fixed days. Years means the same civil period, with ISO
 week-year rules for weeks. Neither means a fixed 365-day/52-week duration.
+Public builtin calendar grains currently require count=1; subday offset is unsupported.
 
 CalendarAxis.shift supports unit-step builtin week/month/year domains consisting
 of full buckets or bucket-start prefixes. It freezes the exact target selection

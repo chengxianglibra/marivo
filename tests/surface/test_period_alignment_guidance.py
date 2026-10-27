@@ -1,5 +1,7 @@
 """Current period Help and terminal disclosure have one executable entry shape."""
 
+import subprocess
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -33,6 +35,40 @@ def test_native_help_discloses_alignment_constraints(
     assert marivo.help is help_coordinator
     help_coordinator(target)
     assert expected in capsys.readouterr().out.lower()
+
+
+@pytest.mark.parametrize(
+    ("target", "facts"),
+    [
+        ("analysis.offset", ("day -7", "week -1", "week -7", "month -1")),
+        (
+            "analysis.analysis_frame.compare",
+            ("unique same-name ordinary axes", "same-kind time axis"),
+        ),
+        (
+            "analysis.analysis_frame.align",
+            ("unique same-name ordinary axes", "same-kind time axis"),
+        ),
+        ("analysis.analysis_frame.show", ("max_output_bytes", "exact omission counts")),
+    ],
+)
+def test_new_disclosure_matches_cli_and_python_help(
+    target: str, facts: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(target)
+    python_help = capsys.readouterr().out.strip()
+    assert all(fact in python_help for fact in facts)
+    cli = subprocess.run(
+        [sys.executable, "-m", "marivo", "help", target],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert all(fact in cli.stdout for fact in facts)
+    for line in python_help.splitlines():
+        if line.startswith(("Target:", "Kind:", "Signature:", "Returns:", "Input ", "Constraint:")):
+            assert line in cli.stdout
 
 
 def test_named_comparison_and_terminal_rows_disclose_current_protocol(

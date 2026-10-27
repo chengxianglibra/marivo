@@ -190,14 +190,17 @@ Fix retains process-local source declarations with their fixed original coordina
 keys. Subsequent attribute uses those keys and the remaining selected parent domain;
 source grouping distinguishes different fixed members. Membership allocation paths
 remain owned by their original declarations. Independent reopen remains source-free.
-Fix does not change compare's explicit on requirement for remaining ordinary axes.
+Fix leaves the remaining axes subject to compare's default or explicit on mapping.
 
 ## Correspondence and comparison
 
 align 接收另一 Frame；compare 接收单个裸 Frame（固定别名 reference），或非空有序
 命名 ComparisonBaseline Mapping。每个声明通过 mv.baseline(frame, on=..., match=...) 获取。多个基期必须命名；单基期也可显式选择业务别名。
 每端先验证同 Session、无 paired 轴、相等轴数与相容的完整键/角色/时间解释。
-零轴或双方唯一同种 interval/calendar 轴可唯一推导；含普通轴时必须显式完整双射。
+省略 on 时，普通轴按两端唯一相同的完整名称配对，角色和有序完整键名必须相同；
+每端最多一个时间轴，且双方时间轴角色必须同为 interval 或同为 calendar。零轴也可推导。
+配对不依赖轴顺序、token、数据值或类型猜测；名称重复、不匹配或部分映射时须显式完整双射。
+多时间轴不能自动推导。compare 最多支持一对时间轴；align 可显式对齐多对时间轴，但不能为它们使用 match。
 裸 Frame 的 on 是完整轴对 tuple，match 是单个 CalendarCorrespondence；命名基期的
 Frame、on、match 集中在 mv.baseline(...) 中，外层 Mapping 只声明一次别名。
 命名形态不接受顶层 on/match，也不接受裸 Frame Mapping 或裸 ComparisonBaseline。
@@ -205,8 +208,8 @@ ComparisonBaseline 是不可变声明，公开只读 frame/on/match，repr/show 
 工厂只检查输入形状，compare 再绑定当前 Frame 的所有权、完整轴双射和时间相容性。
 部分 on 不自动补足。reference 路径冲突要求显式别名或先 select，不自动编号。
 省略别名不推断同比、环比、预算或时间对应，也不按唯一值列的位置配对。
-FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
-普通轴显式 on 声明本次业务对应；检查只保证结构相容以及所选政策下的实际键域，
+FrameAxis 的显示名、token、dtype 或相同值不证明跨输入业务身份。
+省略 on 表示调用者接受同名轴默认对应；显式 on 可声明不同名轴的业务对应。检查只保证结构相容以及所选政策下的实际键域，
 不验证原 Entity/Field 相同。Customer/Product 的同类型身份键可以显式配对；结构检查成功不证明业务身份等价。
 compare 的同名量配对同样是调用方组织输入的方式，兼容类型与单位不证明相同 Metric 或业务可比性。
 
@@ -233,7 +236,7 @@ compare 始终保留本期普通时间轴、当前值及命名说明；current.p
 TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区，不自动变成零轴。
 等值对应识别精确边界和时区。ordinal 要求每端完整声明目录恰有一条记录且边界时区相同，
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
-interval/calendar/零轴不互转或广播；time×普通分类仍须完整显式 on。
+interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
 Store 16 / marivo.frame_output/v5 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
 
@@ -259,7 +262,7 @@ yearly = current_series.compare({"yoy": mv.baseline(previous_series)}).compute()
 
 这里 revenue 为显式已解析来源 Metric。每个端点独立完整求值；同图可以共享合格依赖，
 但不承诺跨来源事务快照。保存端点恢复后，锚点一致时仍可省略 match，不恢复 Metric。
-手动准备的历史 Frame 使用显式 match={"yoy": mv.offset(years=-1)}；别名不推断规则。
+手动准备的历史 Frame 使用 `{"yoy": mv.baseline(previous_series, match=mv.offset(years=-1))}`；别名不推断规则。
 
 ## 闭合坐标目录
 

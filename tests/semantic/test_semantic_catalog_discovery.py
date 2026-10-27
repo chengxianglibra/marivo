@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -94,7 +95,9 @@ def test_search_filters_are_separate_from_loaded_scope_and_exact_get(tmp_path: P
     assert catalog.search("unrelated spaceship propulsion").items == ()
 
 
-def test_browse_pagination_is_complete_stable_and_snapshot_bound(tmp_path: Path) -> None:
+def test_browse_pagination_is_complete_stable_and_snapshot_bound(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     write_minimal_catalog_project(tmp_path)
     objects = tmp_path / "models/semantic/sales/objects.py"
     objects.write_text(
@@ -119,8 +122,43 @@ def test_browse_pagination_is_complete_stable_and_snapshot_bound(tmp_path: Path)
     assert len(payload["items"]) == 3
     assert payload["matches"] == {}
     assert len(first.render(max_output_bytes=1600).encode()) <= 1600
+    limited = first.render(max_output_bytes=700)
+    assert "preview rows: total=3" in limited
+    assert "displayed=" in limited and "omitted=" in limited
+    assert "next_cursor=" in limited and first.next_cursor in limited
+    assert first.show(max_output_bytes=700) is None
+    assert len(capsys.readouterr().out.encode("utf-8")) <= 700
+    for display in (first.show, first.render):
+        with pytest.raises(ValueError, match="minimum") as caught:
+            display(max_output_bytes=1)
+        match = re.search(r"minimum is (\d+) bytes", str(caught.value))
+        assert match is not None
+        minimum = int(match[1])
+        rendered = display(max_output_bytes=minimum)
+        output = capsys.readouterr().out if rendered is None else rendered
+        assert len(output.encode("utf-8")) <= minimum
+        assert "preview rows: total=3" in output
+        assert first.next_cursor in output
+    complete = first.render(max_output_bytes=None)
+    assert "preview rows: total=3 displayed=3 omitted=0" in complete
+    assert all(item.id in complete for item in first.items)
+    assert first.next_cursor in complete
     with pytest.raises(SemanticError):
         catalog.search(kind="entity", cursor=first.next_cursor)
+
+
+def test_catalog_page_escapes_embedded_row_delimiters(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text().replace(
+            "@ms.metric()",
+            '@ms.metric(ai_context=ms.ai_context(business_definition="first\\nsecond|third"))',
+        )
+    )
+    page = ms.load(workspace_dir=tmp_path).search(kind="metric")
+    assert page.items[0].summary == "first\nsecond|third"
+    assert r"first\nsecond\|third" in page.render(max_output_bytes=None)
 
 
 def test_related_and_readiness_expand_cross_domain_dependencies(tmp_path: Path) -> None:

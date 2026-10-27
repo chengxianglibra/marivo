@@ -139,8 +139,8 @@ paired_statistics.show()
 assert paired_statistics.to_pandas()["n_pairs"].tolist() == [2]
 ```
 
-Reducing the existing interval axis yields region-only current data. Align binds
-every ordinary axis explicitly; it does not broadcast a scalar budget.
+Reducing the existing interval axis yields region-only current data. This example
+binds the ordinary axis explicitly; align does not broadcast a scalar budget.
 Correlation uses group-local common non-NA pairs and retains zero/duplicate values.
 Presence does not implicitly filter those pairs. Constant endpoints or fewer
 than two pairs produce NA coefficient while preserving the count. Saved group

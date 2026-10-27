@@ -286,7 +286,7 @@ def test_fix_complete_identity_and_same_session_axis_ownership(local: LocalFrame
         other.fix(frame.axes[0], ("a", 1))
 
 
-def test_fix_preserves_explicit_compare_axis_requirement(local: LocalFrameServices) -> None:
+def test_fix_preserves_default_and_explicit_compare_axis_pairing(local: LocalFrameServices) -> None:
     frame = memory(
         local,
         (axis("region"), axis("cluster")),
@@ -294,7 +294,7 @@ def test_fix_preserves_explicit_compare_axis_requirement(local: LocalFrameServic
     )
     a = frame.fix(frame.axis("cluster"), "bi1")
     b = frame.fix(frame.axis("cluster"), "bi2")
-    with pytest.raises(AnalysisError):
-        a.compare({"reference": mv.baseline(b)})
+    inferred = a.compare({"reference": mv.baseline(b)}).compute()
     result = a.compare({"reference": mv.baseline(b, on=((a.axes[0], b.axes[0]),))}).compute()
+    assert inferred.to_pandas()["reference.absolute.value"].tolist() == [20]
     assert result.to_pandas()["reference.absolute.value"].tolist() == [20]

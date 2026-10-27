@@ -15,6 +15,7 @@ from marivo._temporal_grid import CivilShiftAbsent
 from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_schema import (
+    BuiltinCalendarData,
     CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
@@ -39,6 +40,7 @@ from marivo.analysis.core.frozen_calendar import (
     FrozenComparisonMatch,
     FrozenDirectMatch,
     FrozenIntervalDirectory,
+    FrozenKey,
     build_partial_calendar_map,
     build_partial_interval_map,
     calendar_directory_rows,
@@ -75,12 +77,14 @@ def _fail(
     received: str,
     *,
     repair: str = "Use unique complete keys and compatible complete axes.",
+    received_limit: int = 320,
 ) -> None:
     raise MaterializationError(
         expected=expected,
         received=received,
         repair=repair,
         stage="frame_combine",
+        received_limit=received_limit,
     )
 
 
@@ -484,6 +488,72 @@ def _matched_calendar_relation(
     )
 
 
+def _time_domain_summary(directory: FrozenCalendarDirectory | FrozenIntervalDirectory) -> str:
+    if not directory.buckets:
+        return "empty"
+    if isinstance(directory, FrozenCalendarDirectory):
+        start = min(bucket.actual_start for bucket in directory.buckets)
+        end = max(bucket.actual_end for bucket in directory.buckets)
+    else:
+        start = min(bucket.start for bucket in directory.buckets)
+        end = max(bucket.end for bucket in directory.buckets)
+    return f"[{start.isoformat().replace('+00:00', 'Z')},{end.isoformat().replace('+00:00', 'Z')})"
+
+
+def _unmapped_time_details(
+    alias: str,
+    current: FrozenCalendarDirectory | FrozenIntervalDirectory,
+    baseline: FrozenCalendarDirectory | FrozenIntervalDirectory,
+    rule: CalendarCorrespondence | None,
+    key: FrozenKey,
+) -> str:
+    effective = (
+        f"{rule.kind}={rule.by}"
+        if rule is not None and rule.kind != "ordinal"
+        else "ordinal"
+        if rule is not None
+        else "equality"
+    )
+    if isinstance(baseline, FrozenCalendarDirectory):
+        frozen = baseline.axis.frozen
+        assert frozen is not None
+        if rule is None and frozen.direct is not None:
+            effective = f"frozen_direct({frozen.direct.kind}={frozen.direct.by})"
+        definition = frozen.definition
+        grain = (
+            f"{definition.unit} step={definition.step}"
+            if isinstance(definition, BuiltinCalendarData)
+            else "named calendar"
+        )
+        timezone = baseline.axis.timezone
+        calendar_bucket = next((bucket for bucket in baseline.buckets if bucket.key == key), None)
+        bounds = (
+            (
+                calendar_bucket.actual_start.isoformat().replace("+00:00", "Z"),
+                calendar_bucket.actual_end.isoformat().replace("+00:00", "Z"),
+            )
+            if calendar_bucket
+            else None
+        )
+    else:
+        grain = "interval"
+        interval_bucket = next((bucket for bucket in baseline.buckets if bucket.key == key), None)
+        timezone = interval_bucket.timezone if interval_bucket else "unknown"
+        bounds = (
+            (
+                interval_bucket.start.isoformat().replace("+00:00", "Z"),
+                interval_bucket.end.isoformat().replace("+00:00", "Z"),
+            )
+            if interval_bucket
+            else None
+        )
+    return (
+        f"alias={alias!r}; rule={effective}; grain={grain}; tz={timezone!r}; "
+        f"current={_time_domain_summary(current)}; baseline={_time_domain_summary(baseline)}; "
+        f"key={tuple(value for _, value in key)!r}; bounds={bounds!r}"
+    )
+
+
 def compare_frame_data(
     program: FrameCompareProgram,
     inputs: tuple[pd.DataFrame, ...],
@@ -558,6 +628,8 @@ def compare_frame_data(
                 )
                 ldir = read_calendar_directory(left, a.schema, a.rows)
                 rdir = read_calendar_directory(right, b.schema, b.rows)
+                left_directory: FrozenCalendarDirectory | FrozenIntervalDirectory = ldir
+                right_directory: FrozenCalendarDirectory | FrozenIntervalDirectory = rdir
                 relation = _calendar_relation(ldir, rdir, right_tables, item.match)
                 copied = replace(rdir, axis=binding.baseline)
                 endpoint_rows = calendar_directory_rows(copied)
@@ -570,6 +642,7 @@ def compare_frame_data(
                     read_interval_directory(left, a.schema, a.rows),
                     read_interval_directory(right, b.schema, b.rows),
                 )
+                left_directory, right_directory = li, ri
                 if item.match is not None:
                     matches = build_partial_interval_map(li, ri, item.match)
                     relation = tuple(
@@ -629,11 +702,15 @@ def compare_frame_data(
                 if isinstance(entry, FrozenComparisonMatch)
             }
             actual = frozen_key_rows(rows, right.columns)
-            if any(key not in reverse for key in actual):
+            unmapped = next((key for key in actual if key not in reverse), None)
+            if unmapped is not None:
                 _fail(
                     "every actual baseline time row mapping into the declared current domain",
-                    item.alias,
-                    repair="Filter the baseline to the declared current time domain, or use align for a general endpoint time union.",
+                    _unmapped_time_details(
+                        item.alias, left_directory, right_directory, item.match, unmapped
+                    ),
+                    repair="Check the offset's grain unit and both time domains. Adjust the rule or inputs; filter the baseline only if intended, or use align for a general endpoint time union.",
+                    received_limit=2048,
                 )
             encoded = frozen_key_table(right.columns, tuple(reverse[key] for key in actual))
             for column in right.columns:

@@ -116,6 +116,107 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
     assert len(mapping) == len(left_directory) == len(right_directory) == 2
 
 
+@pytest.mark.parametrize(
+    ("grain", "current_start", "current_end", "baseline_start", "baseline_end", "offset"),
+    [
+        ("day", "2026-08-08", "2026-08-09", "2026-08-01", "2026-08-02", -7),
+        ("week", "2026-08-10", "2026-08-17", "2026-08-03", "2026-08-10", -1),
+    ],
+)
+def test_multi_axis_offset_inference_uses_the_consuming_grain(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    grain: str,
+    current_start: str,
+    current_end: str,
+    baseline_start: str,
+    baseline_end: str,
+    offset: int,
+) -> None:
+    from marivo.analysis.materialization import frame_source_preparation
+
+    case = analysis_dsl_case_factory("j2")
+    session = case.session
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+        connection.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                ("current", "A", "web", "paid", f"{current_start}T12:00:00Z", 50),
+                ("baseline", "A", "web", "paid", f"{baseline_start}T12:00:00Z", 20),
+            ],
+        )
+    metric = session.catalog.get("metric:sales.revenue").value
+    members = session.members(session.catalog.get("entity:sales.customer").value)
+    current_axis = session.time_scope(start=current_start, end=current_end).by(mv.grain(grain))
+    baseline_axis = session.time_scope(start=baseline_start, end=baseline_end).by(mv.grain(grain))
+    current = session.observe({"value": metric}, by=mv.product(current_axis, members))
+    baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("constructing inferred correspondence must not read sources")
+
+    with monkeypatch.context() as context:
+        context.setattr(frame_source_preparation, "open_query_sources", forbidden)
+        comparison = current.compare(baselines=baseline, match=mv.offset(periods=offset))
+        aligned = current.align(baseline, match=mv.offset(periods=offset))
+    table = comparison.compute().to_pandas()
+    assert table["reference.absolute.value"].tolist() == [30, 0, 0, 0]
+    assert table["reference.present"].tolist() == [True] * 4
+    assert aligned.compute().to_pandas()["right_present"].tolist() == [True] * 4
+    if grain == "week":
+        with pytest.raises(AnalysisError) as caught:
+            current.compare(baseline, match=mv.offset(periods=-7)).compute()
+        error = caught.value
+        assert "actual baseline time row" in error.expected
+        for part in (
+            "reference",
+            "periods",
+            "-7",
+            "week",
+            "step=1",
+            "tz=",
+            "current=",
+            "baseline=",
+            "key=",
+            "bounds=",
+        ):
+            assert part in error.received
+        assert "grain" in error.repair.action and "domain" in error.repair.action
+        long_alias = "previous_week_" + "x" * 400
+        with pytest.raises(AnalysisError) as long_error:
+            current.compare(
+                {long_alias: mv.baseline(baseline, match=mv.offset(periods=-7))}
+            ).compute()
+        assert long_alias in long_error.value.received
+        assert "key=" in long_error.value.received and "bounds=" in long_error.value.received
+        assert len(long_error.value.received) <= 2048
+        from marivo.analysis.core.data_schema import CalendarDataAxis
+        from marivo.analysis.core.frame_data import MemoryFrameBacking
+        from marivo.analysis.core.frozen_calendar import read_calendar_directory
+        from marivo.analysis.methods.frame_comparison import _unmapped_time_details
+
+        shifted = session.observe(
+            {"value": metric}, by=mv.product(current_axis.shift(mv.offset(periods=-1)), members)
+        ).compute()
+        fixed = current.compute()
+        directories = []
+        for frame in (fixed, shifted):
+            assert isinstance(frame._backing, MemoryFrameBacking)
+            axis = frame._schema.axes[0]
+            assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+            part = next(
+                item
+                for item in frame._backing.data.copy_attachments()
+                if item.name == axis.frozen.directory_name
+            )
+            directories.append(read_calendar_directory(axis, part.schema, part.rows))
+        details = _unmapped_time_details(
+            "reference", directories[0], directories[1], None, directories[1].buckets[0].key
+        )
+        assert "frozen_direct(periods=-1)" in details
+
+
 def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

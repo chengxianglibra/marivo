@@ -1,5 +1,6 @@
 """Private Frame data operations and lifecycle use the current fixed input."""
 
+import re
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,9 +166,136 @@ def test_show_is_metadata_only_for_pending_and_n_zero(
     for count in (-1, True):
         with pytest.raises(CoreRuleError, match="nonnegative integer"):
             pending.show(n=count)
+    for budget in (0, -1, True):
+        with pytest.raises(ValueError, match="max_output_bytes"):
+            root.show(n=10, max_output_bytes=budget)
+    assert calls == []
     root.show(n=1)
     assert calls == [1]
     assert "pending" in capsys.readouterr().out
+
+
+def test_show_respects_row_and_byte_limits_with_exact_counts(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = DataColumn("key", "cluster", ScalarDataType("string"), False)
+    value = DataColumn("value", "value", ScalarDataType("int64"), False)
+    schema = DataSchema(
+        (DataAxis("cluster", (key,), name="cluster"),), (value,), value_paths=(("value",),)
+    )
+    data = CompletedFrameData(
+        schema,
+        pd.DataFrame({"key": [f"cluster-{i:02d}" for i in range(26)], "value": list(range(26))}),
+    )
+    frame = AnalysisFrame._from_memory(
+        local, CompletedFrameResult(data, _memory(local)._backing.metadata)
+    )
+    frame.show()
+    default = capsys.readouterr().out
+    assert "total=26 displayed=20 omitted=6" in default
+    assert "cluster-19" in default and "cluster-20" not in default
+    assert "preview limited to 20 rows" in default
+    frame.show(max_output_bytes=None)
+    row_limited = capsys.readouterr().out
+    combined_budget = len(row_limited.encode("utf-8"))
+    frame.show(max_output_bytes=combined_budget)
+    combined = capsys.readouterr().out
+    assert len(combined.encode("utf-8")) <= combined_budget
+    assert "displayed=20" not in combined
+    assert "preview limited to 20 rows" in combined
+    assert f"output truncated at {combined_budget} bytes" in combined
+    frame.show(n=26, max_output_bytes=None)
+    complete = capsys.readouterr().out
+    assert "total=26 displayed=26 omitted=0" in complete
+    assert "cluster-25" in complete
+    exact_budget = len(complete.encode("utf-8"))
+    frame.show(n=26, max_output_bytes=exact_budget)
+    assert capsys.readouterr().out == complete
+    frame.show(n=26, max_output_bytes=exact_budget - 1)
+    shorter = capsys.readouterr().out
+    assert len(shorter.encode("utf-8")) <= exact_budget - 1
+    assert f"output truncated at {exact_budget - 1} bytes" in shorter
+    frame.show(n=26, max_output_bytes=900)
+    bounded = capsys.readouterr().out
+    assert len(bounded.encode("utf-8")) <= 900
+    assert "output truncated" in bounded
+    assert "total=26" in bounded and "omitted=" in bounded
+    with pytest.raises(ValueError, match="minimum") as caught:
+        frame.show(n=26, max_output_bytes=1)
+    minimum_match = re.search(r"minimum is (\d+) bytes", str(caught.value))
+    assert minimum_match is not None
+    minimum = int(minimum_match[1])
+    frame.show(n=26, max_output_bytes=minimum)
+    recovered = capsys.readouterr().out
+    assert len(recovered.encode("utf-8")) <= minimum
+    assert "total=26" in recovered
+    saved = frame.persist()
+    requests: list[int] = []
+    original = LocalFrameServices.preview
+
+    def preview(self: LocalFrameServices, backing: object, n: int) -> object:
+        requests.append(n)
+        return original(self, backing, n)
+
+    monkeypatch.setattr(LocalFrameServices, "preview", preview)
+    saved.show(n=0)
+    assert requests == []
+    saved.show(n=26, max_output_bytes=None)
+    assert requests == [26]
+    assert "cluster-25" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_show_metadata_only_preserves_row_counts_at_byte_limit(
+    local: LocalFrameServices,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    empty: bool,
+) -> None:
+    frame = _memory(local)
+    if empty:
+        frame = frame.top(0, by=frame["value"]).compute()
+    saved = frame.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("metadata-only display must not read row or coordinate payloads")
+
+    monkeypatch.setattr(CompletedFrameData, "preview_rows", forbidden)
+    monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
+    monkeypatch.setattr(LocalFrameServices, "preview", forbidden)
+    for root in (frame, saved):
+        root.show(n=20 if empty else 0, max_output_bytes=500)
+        output = capsys.readouterr().out
+        assert len(output.encode("utf-8")) <= 500
+        assert (
+            "total=0 displayed=0 omitted=0" in output
+            if empty
+            else ("total=2 displayed=0 omitted=2" in output)
+        )
+        assert "empty result" in output if empty else "n=0" in output
+        with pytest.raises(ValueError, match="minimum"):
+            root.show(n=20 if empty else 0, max_output_bytes=1)
+
+
+def test_show_unlimited_preserves_wide_rows_and_escaped_cells(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    long_value = "界" * 300 + "\\line|one\nnext"
+    values = tuple(
+        DataColumn(f"v{i}", f"value{i}", ScalarDataType("string"), False) for i in range(10)
+    )
+    schema = DataSchema((), values, value_paths=tuple((value.name,) for value in values))
+    data = CompletedFrameData(
+        schema, pd.DataFrame({f"v{i}": [long_value if i == 9 else str(i)] for i in range(10)})
+    )
+    frame = AnalysisFrame._from_memory(
+        local, CompletedFrameResult(data, _memory(local)._backing.metadata)
+    )
+    frame.show(n=1, max_output_bytes=None)
+    output = capsys.readouterr().out
+    assert "value9" in output and "界" * 300 in output
+    assert r"\\line\|one\nnext" in output
+    assert "total=1 displayed=1 omitted=0" in output
 
 
 def test_pending_show_names_current_operations_and_direct_input_kinds(

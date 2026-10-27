@@ -24,6 +24,7 @@ class MaterializationError(DatasetConstructionError):
         help_target: str = "analysis_frame.compute",
         attribute_context: AttributeFailureContext | None = None,
         sampling_context: SamplingFailureContext | None = None,
+        received_limit: int = 320,
     ) -> None:
         self.stage = stage
         self.attribute_context = attribute_context
@@ -35,6 +36,7 @@ class MaterializationError(DatasetConstructionError):
             location=f"dataset.{stage}",
             message="Dataset materialization contract failed.",
             help_target=help_target,
+            received_limit=received_limit,
         )
 
     def __str__(self) -> str:

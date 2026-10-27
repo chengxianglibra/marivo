@@ -213,9 +213,9 @@ def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
     other = literal_frame.select({"value": literal_frame["value"]})
     with pytest.raises(CoreRuleError) as captured:
         if consumer == "align":
-            literal_frame.align(other)
+            literal_frame.align(other, on=())
         else:
-            literal_frame.compare({"reference": mv.baseline(other)})
+            literal_frame.compare({"reference": mv.baseline(other, on=())})
     _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
     assert captured.value.location == f"frame.{consumer}"
     assert captured.value.expected == "a complete explicit axis bijection"

@@ -19,11 +19,15 @@ class DatasetConstructionError(AnalysisError):
         location: str = "dataset",
         message: str = "Dataset contract validation failed.",
         help_target: str | None = None,
+        received_limit: int = 320,
     ) -> None:
+        bounded_received = received[:received_limit]
+        if received_limit > 320 and len(received) > received_limit:
+            bounded_received = received[: received_limit - 3] + "..."
         super().__init__(
             message=message,
             expected=expected[:320],
-            received=received[:320],
+            received=bounded_received,
             location=location[:160],
             hint=repair[:480],
             repair=AnalysisRepair(

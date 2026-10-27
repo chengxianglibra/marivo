@@ -90,17 +90,17 @@ def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     source = case.session.observe({f"metric_{i}": revenue for i in range(8)})
     report = source.attribute(by=(region,)).compute()
-    report.show(n=2)
+    report.show(n=2, max_output_bytes=None)
     text = capsys.readouterr().out
-    assert "Target metric_0 (level)" in text
-    assert "diagnostic" in text and "output_names" in text
-    assert len(text.encode("utf-8")) <= 8192
+    assert "detail.value.metric_0" in text and "detail.value.metric_7" in text
+    assert "method_facts" in text
+    report.show(n=2)
+    assert len(capsys.readouterr().out.encode("utf-8")) <= 8192
     artifact = report.persist()
     reopened = case.session.persisted_frame(artifact.artifact_id)
-    reopened.show(n=2)
+    reopened.show(n=2, max_output_bytes=None)
     cold_text = capsys.readouterr().out
-    assert "Target metric_0 (level)" in cold_text
-    assert len(cold_text.encode("utf-8")) <= 8192
+    assert "detail.value.metric_0" in cold_text and "detail.value.metric_7" in cold_text
     detail_path = "detail.value.metric_7"
     assert detail_path in reopened.output_names
     selected = reopened.select({"original": reopened[detail_path]}).compute()

@@ -106,7 +106,7 @@ def provider() -> DisclosureProvider:
                 ),
                 P(
                     "periods",
-                    "Call offset(periods=n): non-boolean integer nominal grain-period offset. Supply no years keyword.",
+                    "Non-boolean integer steps of the consuming axis grain, including its step: day -7 is seven days; week -1 is one week, week -7 seven weeks; month -1 one month. Negative moves from current to earlier baseline. Not row positions or fixed days. Supply no years keyword.",
                 ),
             ),
             "CalendarCorrespondence",
@@ -125,7 +125,7 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Supply exactly one of years or periods. Construction reads no rows. Missing civil dates are not clamped; week years use ISO week-year. Source shift supports unit week/month/year complete buckets or prefixes; fixed-data complete day/quarter matching remains supported."
+                    "Supply exactly one of years or periods. Construction reads no rows. Builtin calendar grains currently require count=1; subday offset is unsupported. Missing civil dates are not clamped; week years use ISO week-year. Source shift supports unit week/month/year complete buckets or prefixes; fixed-data complete day/quarter matching remains supported."
                     if target == "offset"
                     else "row_count is input-independent and counts current rows, including value NA. Population.count() captures an explicit identity domain as a source Metric.",
                 ),
@@ -239,7 +239,7 @@ def provider() -> DisclosureProvider:
             output="AnalysisFrame",
             constraints=(
                 "Return a new lazy Frame. Preserve selected values, physical types, units, NA, presence, remaining coordinates and relative row order. An absent member produces an empty typed result; removing the final axis produces zero or one row, including with no value columns.",
-                "Reacquire handles from the returned Frame. Retained source declarations preserve fixed parent keys for attribute; cold recovery does not restore declarations. Compare still requires explicit on for remaining ordinary axes.",
+                "Reacquire handles from the returned Frame. Retained source declarations preserve fixed parent keys for attribute; cold recovery does not restore declarations. Remaining axes use compare's default matching or a complete explicit on.",
             ),
             effects="Capture only; no schema or business read. Evaluation consumes the complete input and retains its required checks.",
             failures=(
@@ -397,7 +397,7 @@ def provider() -> DisclosureProvider:
                 P("other", "Another AnalysisFrame owned by this Session."),
                 P(
                     "on",
-                    "None only for zero axes or one calendar or interval axis per input; otherwise complete FrameAxis pairs declaring caller business correspondence, without checking original Entity/Field equality.",
+                    "Default: unique same-name ordinary axes with equal roles and ordered key names, plus at most one same-kind time axis per side. Otherwise pass complete pairs declaring caller business correspondence, without checking original Entity/Field equality.",
                 ),
                 P(
                     "match",
@@ -420,7 +420,7 @@ def provider() -> DisclosureProvider:
                 ),
                 P(
                     "on",
-                    "Bare Frame only: complete axis pairs. Named inputs put on in mv.baseline(...). Caller owns business correspondence; Entity/Field identity is not checked. Omission infers only zero axes or one time axis.",
+                    "Bare Frame pairs; named inputs put on in mv.baseline(...). Default: unique same-name ordinary axes with equal roles/ordered key names and at most one same-kind time axis per side. Caller owns business correspondence; Entity/Field identity is not checked. Compare supports at most one time pair.",
                 ),
                 P(
                     "match",
@@ -548,7 +548,7 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Outer correspondence keeps the ordered union; presence is independent of value NA. Calendar ordinal requires complete nominal/actual buckets; offset also supports saved week/month/year bucket-start prefixes with exactly equal progress. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
                     if name == "align"
-                    else "reference.present. Alias omission infers no time relationship; collisions need alias/select, never numbering. on/outer cannot repair ownership, paired axes, axis count or key/time types. Outer order: current, then mapped baseline-only keys by alias. Baseline times must map into current domain; use align for unions. Direct shift may supply match; wrong anchors/conflicts reject. Calendar ordinal needs complete buckets; week/month/year bucket-start offset prefixes need exactly equal saved progress. Independent nonnullable current.present/<alias>.present differ from NA and inherited *.presence.*. Duration keeps ticks; relative is dimensionless (unit=None). Missing/NA stay NA; child errors remain."
+                    else "reference.present. Alias omission infers no time relationship; collisions need alias/select, never numbering. on/outer cannot repair ownership or incompatible axes. Outer order: current, then mapped baseline-only keys by alias. Baseline times must map into current domain; use align for unions. Direct shift may supply match; wrong anchors/conflicts reject. Calendar ordinal needs complete buckets; week/month/year bucket-start offset prefixes need exactly equal saved progress. Nonnullable current.present/<alias>.present differ from NA and inherited *.presence.*. Duration keeps ticks; relative is dimensionless (unit=None). Missing and NA propagate."
                     if name == "compare"
                     else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
                     if name == "correlate"

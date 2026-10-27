@@ -1098,9 +1098,9 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
     artifact.show()
     text = capsys.readouterr().out
     assert "omitted" in text or "truncated" in text
-    assert "max_output_bytes" not in text
+    assert "max_output_bytes=None" in text
     assert ".to_pandas()" in text and ".evidence_digest()" in text
-    assert len(text.encode()) <= 8193
+    assert len(text.encode()) <= 8192
     assert artifact.to_pandas().shape == (1, 60)
     artifact.evidence_digest()
 

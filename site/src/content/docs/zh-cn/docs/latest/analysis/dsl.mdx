@@ -189,8 +189,10 @@ TimeScope 包含起点、不包含终点。显式选定的 Population 可以保�
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `baselines` | 是 | — | 单个 Frame（别名 `reference`），或非空有序的别名 → `mv.baseline(frame, ...)` Mapping；`current` 为保留名。 |
-| `on` | 否 | `None` | 仅裸 Frame 使用轴对 tuple；命名基期在 `mv.baseline(...)` 中指定 `on`。`None` 仅推导零轴或两端各一个时间轴，普通轴须显式完整映射。 |
+| `on` | 否 | `None` | 裸 Frame 使用轴对 tuple；命名基期在 `mv.baseline(...)` 中指定 `on`。省略时按唯一同名、相同角色及有序完整键名配对普通轴，并配对两端各至多一个同种时间轴；否则须指定全部轴对。 |
 | `match` | 否 | `None` | 仅裸 Frame 使用单个 CalendarCorrespondence；命名基期在 `mv.baseline(...)` 中指定 `match`。`None` 使用兼容的冻结直接关系或坐标相等。 |
+
+默认轴配对不依赖轴顺序。同名不证明业务身份：省略 `on` 表示调用者接受该对应。名称重复或不匹配、只指定部分轴时，须显式给出完整 `on`。compare 最多支持一对时间轴；align 可显式通过 `on` 对齐多个时间轴，但不能使用 `match`。
 
 输出保留当前值，添加 `<alias>.baseline.<name>`、`<alias>.absolute.<name>` 和 `<alias>.relative.<name>`；`current.present` 与 `<alias>.present` 独立表示行是否存在，不等于数值是否为 NA。
 
@@ -238,7 +240,7 @@ assert member_change.to_pandas()["east.absolute.revenue"].tolist() == [400]
 值、类型、单位、NA、presence 和相对行序保持不变。单分量键使用标量，
 复合键按 `axis.key_names` 顺序传入完整 tuple。`None` 选择可空 NULL 坐标；
 不存在的成员返回空 Frame，删除最后一个轴也不补行。时间和 paired 轴不能被固定。
-从返回 Frame 重新取得句柄；若仍有普通轴，compare 仍需完整的 `on`。
+从返回 Frame 重新取得句柄；剩余轴采用默认配对规则或完整的 `on`。
 保留的来源声明会为后续 attribute 保持被固定的成员约束。
 Help：`analysis.analysis_frame.fix`。
 
@@ -368,7 +370,7 @@ association.show()
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `other` | 是 | — | 同 Session 的另一 Frame，不接受配对轴输入。 |
-| `on` | 否 | `None` | 轴数相同且类型兼容的完整一一映射；`None` 仅推导零轴或两端各一个时间轴。 |
+| `on` | 否 | `None` | 轴数相同且类型兼容的完整一一映射；省略时使用与 compare 相同的普通轴和时间轴规则。 |
 | `match` | 否 | `None` | 显式受支持的时间规则；`None` 使用冻结坐标相等。 |
 
 {/* example: aligned-absolute-only */}
