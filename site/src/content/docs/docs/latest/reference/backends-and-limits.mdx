@@ -9,27 +9,62 @@ description: Check supported drivers, source forms, methods, and numeric limits.
 <span id="contribution-qualification"></span>
 <span id="resource-and-saved-output-boundaries"></span>
 
-Choose a connection and an analytical method separately. Driver installation and a successful connection do not establish that every method can execute.
+Choose a connection and an analytical method separately. A driver or successful connection
+does not guarantee that a method supports the source's types and structure.
 
 | Backend | Extra | Important conditions |
 | --- | --- | --- |
-| DuckDB | `duckdb` | Local tutorial needs no server; contribution requires qualified physical tables |
-| PostgreSQL | `postgres` | Requires libpq and access; exact median/quantile depend on supported physical types |
-| MySQL / MariaDB | `mysql` | PyMySQL with RSA authentication support; no local MySQL client C library; exact ranked quantiles; no approximate source quantiles |
-| Trino | `trino` | Catalog/schema and access; exact ranked quantiles or explicit approximate quantiles |
-| ClickHouse | `clickhouse` | Ordinary qualified grouped aggregation; Distributed keyed join routes have restrictions; exact ranked quantiles or explicit TDigest approximation |
+| DuckDB | `duckdb` | Local database and file-source engine; the tutorial needs no server |
+| PostgreSQL | `postgres` | Requires libpq and database access |
+| MySQL / MariaDB | `mysql` | PyMySQL includes RSA authentication support; no local MySQL client C library |
+| Trino | `trino` | Requires `catalog` and `user_env`; `schema` is optional |
+| ClickHouse | `clickhouse` | Physical joins require a qualified MergeTree table; Distributed join routes are restricted |
 
 ## Check source form and method
 
-Table, file and HTTP discovery have different execution conditions. Parameterized HTTP JSON can be declared and previewed but is not an admitted numerical Frame source. Exact numeric source median/quantile supports all five backends. MySQL, Trino and ClickHouse extract ranked bounds on the source and interpolate locally; DuckDB and PostgreSQL retain their qualified exact paths. Approximate quantiles are explicitly authored and supported on DuckDB, Trino and ClickHouse, with backend-specific algorithms. PostgreSQL and MySQL reject approximate source methods. Ordinary count, distinct count, sum, min, max, mean and weighted mean still depend on actual types and expressions.
+Database tables use their selected SQL backend; CSV, Parquet and file JSON use DuckDB.
+Analysis Session supports local JSON files through the unparameterized GET route. Other
+HTTP JSON forms can be declared and previewed through datasource APIs but are not Analysis
+Session inputs.
 
-Contribution requires qualified physical tables and retained source declarations. DuckDB, PostgreSQL, MySQL, Trino and ClickHouse use their native execution paths, subject to actual method, type, key and source restrictions. Parent and fine reads are independent and have no shared-snapshot guarantee. Attribute trusts semantic identity, relationship cardinality and version-grain declarations. Operation-specific membership/Population coverage, overlap, distinct-value partitions and numeric checks remain required; only requested final targets must close within their closure tolerance. Float64 allows the greater of 1% of the absolute final target and its numeric rounding budget; other numeric types retain their existing rules. Use explicit observe and compare to investigate unsupported contribution targets without claiming a decomposition.
+Exact source `median` and `quantile` are available for numeric inputs on all five backends.
+DuckDB and PostgreSQL use native exact algorithms; MySQL, Trino and ClickHouse select exact
+rank bounds in source queries and interpolate from them. Linear interpolation uses
+`h=(n-1)q`; for `[0, 10]` at `q=0.95`, the result is `9.5`. Integer and floating results
+use `float64`; Decimal follows its declared precision and scale. Under the default NULL
+policy, empty or all-NULL input returns NA; strict NULL checks still apply to the demanded
+input.
 
-Remote contribution retains direct physically nonnull integer or string identities and qualified string collations. Incompatible non-temporal scopes on one root are rejected. A successful ordinary observation alone does not qualify these contribution inputs.
+Approximate numeric methods must be explicit. DuckDB uses `approx_quantile`, Trino uses
+`approx_percentile`, and ClickHouse uses `quantileTDigest`; PostgreSQL and MySQL have no
+approximate source route. Algorithms can differ, with no universal error bound. Other
+common reductions—count, distinct count, sum, min, max, mean and weighted mean—remain
+subject to type and expression qualification.
+
+Contribution analysis uses qualified source routes on all five backends, subject to method,
+type, key and source restrictions. Parent totals and fine contributions are read
+independently and may come from different source snapshots. `Attribute` trusts declared
+Entity identity, relationship cardinality and version grain; qualification also checks
+membership/Population coverage and overlap, distinct-value partitions, time correspondence
+and numeric closure. Only requested final targets are checked against fresh parent totals.
+Float64 closure allows a residual up to the greater of 1% of the target's absolute value
+and its numeric rounding budget; other types use their own rules. If a target is not
+admitted, use explicit observations and comparison to investigate it without treating the
+result as a contribution decomposition.
+
+Remote `Attribute` routes require direct physical signed-integer or string identities and
+qualified string collations. The Entity `primary_key` declares complete, non-null identity;
+the route trusts that declaration even if physical metadata marks an identity column
+nullable. It does not run a full-source NULL or uniqueness precheck; operation-specific
+identity checks still apply. For scoped data validation, use `ms.source_check` with a bounded
+`catalog.source_health(..., checks=..., scope=...)` call.
+Incompatible non-time scopes within one source root cannot be combined.
 
 ## Account for resource and numeric limits
 
-Local data operations can retain full required vectors in memory. A display limit is not a computation or scan limit. Timeouts retain the driver's native meaning and may be unsupported; there is no whole-graph deadline or silent switch to another executor.
+Local operations may keep all required vectors in memory. A display limit changes rendering;
+it does not cap computation or source scan work. Query timeouts use native driver settings,
+may be unsupported, and do not bound the full client call and result fetch.
 
 `md.raw_sql()` requests a 600-second native query timeout by default. Override it with
 `timeout_seconds`; Trino receives it as `query_max_run_time`. Connection acquisition
@@ -46,13 +81,24 @@ md.raw_sql(
 )
 ```
 
-Source precision and overflow follow the qualified backend. Marivo does not precheck native overflow or retry it locally: the backend may raise an error, wrap a value, or return Infinity or NaN. Completed and saved Frames retain native floating values through export. Conversion cannot repair precision already lost or a value already wrapped by the source. Local arithmetic, comparison deltas and paired statistics also follow their actual pandas/Arrow or Decimal scalar kernel, including native rounding, errors and nonfinite results. There is no extra overflow/finite scan, protective widening, precision emulation or fallback. Local int64 SUM stays int64 and can wrap; integer source SUM uses native Ibis accumulation, whose transport may reject a wider backend result. Direct projection, `is_null()` and persistence preserve validity. No universal Decimal precision guarantee applies across all sources.
+`md.raw_sql()` expects read-only SQL; Trino relies on database permissions to deny writes.
+It loads all returned rows into memory. Use filters, aggregation or SQL `LIMIT` to control
+result size; `LIMIT` does not bound source scan cost.
 
-MySQL SUM retains the server's widened Decimal result until safe conversion to
-the declared Decimal carrier. A sum outside that carrier's range fails before
-publication, rather than being clipped by an extra result CAST. Arithmetic within
-a fused source expression still uses native precision and overflow behavior.
+Numeric precision and overflow follow the backend and type. Integer SUM uses an `int64`
+result: local sums can wrap, while a wider source accumulator may fail when the result
+crosses the Ibis transport boundary. ClickHouse can return wrapped values. Conversion after
+a source read cannot recover lost precision. MySQL SUM keeps its widened Decimal until it
+can be safely converted to the declared Decimal result; an out-of-range value fails instead
+of being clipped. Arithmetic inside a fused source expression still follows MySQL's native
+rules. Saved Frames export committed values as stored; export does not recompute or repair
+source precision or overflow.
 
-Mean skips NULL inputs and returns NULL when none are valid. The default `nulls="ignore"` uses this fixed computation; `nulls="error"` additionally asserts that its demanded input contains no NULLs, including native AVG. Empty input passes this assertion. Native AVG algorithms and overflow remain backend-owned. Business filling belongs in an explicit supported input expression or preprocessing step. A qualified `amount.mean(time=point).per(point).mean()` first completes each represented timestamp mean, then averages those means with equal weight in the source. It does not require scheduled time coverage, synthesize missing timestamps, or fall back to a local mean. For timestamp values `[0, 0, 0]` and `[100]`, the result is `50`, not the raw-row mean `25`. Time-sample `mean` and `weighted_mean` use represented samples on every admitted route, including local formulas, Duration and windows; they do not synthesize scheduled samples. Explicit Population domains and existing NULL/weight policies remain unchanged. Other reducers retain their own NULL and coverage contracts.
+`mean()` skips NULLs by default and returns NULL when no values are valid. `nulls="error"`
+requires its demanded input to contain no NULLs; empty input passes. For
+`amount.mean(time=point).per(point).mean()`, Marivo averages each represented timestamp's
+mean with equal weight. With timestamp values `[0, 0, 0]` and `[100]`, the result is `50`,
+not the row-weighted mean `25`. Missing scheduled timestamps are not synthesized;
+time-sample `mean` and `weighted_mean` use represented samples.
 
 The local tutorial demonstrates its DuckDB route only. [Connect data](/docs/latest/modeling/semantic-layer/) for setup and [troubleshoot](/docs/latest/reference/troubleshooting/) for concrete failures.

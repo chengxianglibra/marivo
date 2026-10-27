@@ -267,7 +267,7 @@ Customers c1 and c2 belong to east and west respectively; c3 has no orders. The 
 
 Declare orders and customers as Entities with complete primary keys, then a directed relationship using `ms.relationship` and `ms.join_on`. Obtain the exact constructor with `marivo.help("semantic.relationship.define")`. If identity is (tenant, customer), include both parts; a customer number alone can match another tenant.
 
-Use relationship match/cardinality checks in [model validation](/docs/latest/modeling/semantic-layer/#load-and-validate). A declared relationship does not prove current source completeness.
+`ms.load()` validates the declared mapping and derives structural cardinality without reading source rows. To check current matches or compare observed multiplicity with an expected cardinality, use `ms.source_check.relationship_matches(...)` or `ms.source_check.relationship_cardinality(...)` with `catalog.source_health(..., checks=..., scope=...)`. These data checks require an explicit bounded scope and describe only that scope.
 
 ### Decide how multiple memberships contribute
 
@@ -416,7 +416,7 @@ health = catalog.source_health(
 health.show()
 ```
 
-Loading checks project coherence. Readiness checks requested physical dependencies and required temporal artifacts without reading business data. Preview reads a bounded scope; ordinary preview does not change readiness. Source health checks connectivity/schema by default and only tests data expectations when explicitly requested.
+`ms.load()` checks model declarations and project coherence without reading source rows. Readiness checks requested physical dependencies and required temporal artifacts without connecting or querying data. To inspect current source data, pass explicit checks and a bounded `scope` to `catalog.source_health(...)`; without data checks, source health checks connectivity and schema/capability metadata only. Preview reads its bounded scope; ordinary preview does not change readiness.
 
 For `preview` and `preview_many`, `limit` must be an integer from 1 to 100 inclusive and bounds retained preview rows per result. `scope.max_rows` independently guards acquisition; invalid limits raise a structured semantic error before a connection opens. `preview.is_truncated` reports omitted preview rows, while `preview.coverage` reports acquisition completeness. `preview.show(n=...)` only changes how many retained rows are displayed.
 

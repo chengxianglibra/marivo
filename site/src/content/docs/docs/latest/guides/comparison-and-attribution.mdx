@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Compare and attribute changes
+description: Choose a baseline, align coordinates, and interpret supported contributions.
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,37 @@ head:
       content: noindex
 ---
 
-This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
+Comparison measures the difference between current and baseline Frames. Attribution breaks a supported target into contributions across a new classification. The [Analysis DSL guide](/docs/latest/analysis/dsl/) has the shared setup and full executable examples for both.
 
-## Compare fixed data
+## Choose and align a baseline
 
-[Continue reading](/docs/latest/analysis/dsl/)
+Compare Frames from the same Session that represent the question you intend to compare. Completed Frames hold fixed values; `compare` does not rebuild them from their source declarations. If you need a new source read, explicitly create new observations and compare their results. Prepare matching value paths with compatible units before calling `compare`; equal names pair outputs but do not establish that two Metrics have the same business meaning.
 
-## Ask for new source facts explicitly
+Use `on` to declare how complete axes correspond when their names differ or the default pairing is not the intended one. Use `match` to state how calendar or interval coordinates correspond when their keys differ. These choices express business correspondence; compatible key shapes alone do not prove it. Named baselines put both rules inside `mv.baseline(...)`.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+`compare` keeps current values and adds baseline, absolute-change, relative-change, and row-presence columns. Relative change is `(current - baseline) / abs(baseline)`. A zero baseline gives NA; missing rows and NA values remain missing. Presence indicates that a row exists, not that its value is non-NA. Comparison uses an outer coordinate match, but every baseline time row must map into the current declared time domain. Use [`align`](/docs/latest/analysis/dsl/#compare-and-align) when you need a general union of time domains.
 
-## Explain selected targets with a new breakdown
+See [compare baselines in the Analysis DSL](/docs/latest/analysis/dsl/#compare-and-align) for the `compare` parameters and a complete example.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+## Attribute a supported change
 
-## Fix a parent selection before a new request
+Use `attribute(by=...)` when you need contributions for a selected direct Metric or supported comparison output, broken down by a new semantic classification. The report includes contributions, contribution shares, a freshly read `total`, the input Frame's `observed_total`, and method facts that describe the calculation. Read both totals when a source may have changed since the original observation: attribution fixes the completed parent keys and values, then reads parent and fine inputs independently, without a shared-snapshot guarantee.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+This example uses `session`, `revenue`, `july`, `august`, and `region` from the [DSL setup](/docs/latest/analysis/dsl/). It attributes the absolute change in the shared sample by region:
 
-## Align an explicit complete-domain reference
+```python
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
+).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
+```
 
-[Continue reading](/docs/latest/analysis/dsl/)
+In this sample the parent change is -200, with -100 attributed to each region. These are method-based arithmetic contributions under the declared Metric and scope; they do not establish that either region caused the change. A grouped comparison can show how values differ by region, but use `attribute` when you need contributions to a selected target.
 
-## Choose calendar correspondence deliberately
+If a parent selection must stay fixed for follow-up analysis, complete it first. `attribute` retains those selected keys and does not rerank them after its fresh reads. For a separate source question, `session.population_from(frame, on=...)` can carry selected complete ordinary keys into a new observation. Use the Population in `by` to define the output domain, and `where=mv.in_population(...)` to restrict source contributions. The source declaration is process-local: independent reopen retains fixed results and method facts, but not the declaration needed for another `attribute` request.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+For full rules and more examples, see [investigate changes in the Analysis DSL](/docs/latest/analysis/dsl/#investigate-changes) and the [analysis results guide](/docs/latest/analysis/results/).

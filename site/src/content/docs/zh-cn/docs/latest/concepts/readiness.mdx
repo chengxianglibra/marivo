@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 就绪检查
+description: 就绪检查的范围和报告用法。
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,17 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+`catalog.readiness` 检查所选目录条目及其物理依赖闭包，并核验所需的已认证时间产物。
+它不会连接数据源，也不读取业务行。传入 `refs` 可限定检查范围；省略时会检查所有已加载的物理对象。
 
-## 就绪检查判断什么
+结合 `status`、`blockers` 和 `warnings` 阅读报告。`blocked` 表示发现至少一个阻塞项；
+`ready_with_warnings` 表示没有阻塞项，但仍有警告需要检查。按报告修复阻塞项后重新运行；
+状态只描述本次请求的范围。
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+`analysis_ready_inputs` 列出直接请求且依赖闭包没有阻塞项的物理引用。若要将就绪输入交给后续分析，
+应直接请求所需的物理字段或 `Entity` 引用。选择声明式 `Measure` 或 `Metric` 时，会检查其物理依赖，
+但派生表达式本身不会作为物理交接输入返回。
 
-## Preview 与 readiness 相互独立
-
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
-
-## Source health 独立于 readiness
-
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
-
-## 报告字段
-
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
-
-## 重要 blocker
-
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
-
-## 继续进入分析
-
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+通过就绪检查仅表示静态检查范围内没有阻塞项，不代表当前来源数据符合预期、业务口径正确，
+也不保证后续分析一定能执行。若要检查当前数据预期，请为 `catalog.source_health` 指定明确的
+`ms.source_check` 规则和有界的 `scope`，然后运行实际观察。示例及各检查的区别见[“加载与检查”](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。

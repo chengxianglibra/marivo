@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Python quick start
+description: Set up the local DuckDB example, define revenue, and compute a result.
 pagefind: false
 head:
   - tag: meta
@@ -9,20 +9,38 @@ head:
       content: noindex
 ---
 
-This content is now in [Quick start](/docs/latest/start/python/).
+Install the development checkout using [Installation and projects](/docs/latest/start/installation/), then run the complete [Python Quick Start](/docs/latest/start/python/) in a separate demo directory. It creates six sample orders in local DuckDB and defines a `sales.revenue` Metric. The seed script replaces the demo `orders` table, so keep this walkthrough separate from an existing project.
 
 ## Create the source
 
-[Continue reading](/docs/latest/start/python/)
+The tutorial's [`seed.py` example](/docs/latest/start/python/#create-the-demo-data) creates the local orders table in `warehouse.duckdb`. Run it from the demo project's root with `.venv/bin/python seed.py`.
 
 ## Declare the datasource
 
-[Continue reading](/docs/latest/start/python/)
+The example declares `warehouse` with `md.duckdb(name="warehouse", path="warehouse.duckdb")` in `models/datasources/warehouse.py`. See the [complete datasource declaration](/docs/latest/start/python/#declare-the-connection).
 
 ## Author the semantic model
 
-[Continue reading](/docs/latest/start/python/)
+The model defines the `sales` Domain, an `orders` Entity keyed by `order_id`, the `order_date` TimeDimension and `region` Dimension, an `amount` Measure in CNY, and a `revenue` Metric. Follow [the model example](/docs/latest/start/python/#define-revenue) for the declarations.
 
 ## Compute, persist and reopen
 
-[Continue reading](/docs/latest/start/python/)
+After the datasource and model files are in place, the analysis code looks up the exact Metric path in the Session Catalog and computes it:
+
+```python
+from uuid import uuid4
+
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(
+    f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
+)
+entry = session.catalog.get("metric:sales.revenue")
+assert entry.kind == "metric"
+fixed = session.observe({"revenue": entry.value}).compute()
+fixed.show()
+```
+
+With the sample data, the result is 1,800. `compute()` returns fixed in-memory values; continue from `fixed` in the same process. To reuse the exact result in another process within the same project, call `fixed.persist()` and retain the returned Session and Artifact IDs. In that project, the later process recovers the Session with `mv.session.resume(session_id)`, then reopens the Frame with `session.persisted_frame(artifact_id)`. See the [complete calculation example](/docs/latest/start/python/#calculate-revenue) and [analysis results guide](/docs/latest/analysis/results/) for persistence and recovery.
+
+For exact signatures and repairs, use `marivo.help("datasource.duckdb")`, `marivo.help("analysis.session.get_or_create")`, `marivo.help("analysis.session.observe")`, and `marivo.help("analysis.analysis_frame.compute")`. Start at `marivo.help("analysis")` to discover related analysis targets.

@@ -9,12 +9,19 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
+This guide is now part of the [Semantic layer](/docs/latest/modeling/semantic-layer/).
 
 ## Build one complete definition
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+For `ms.measure_column`, `name=` is the semantic name and `column=` selects the
+physical field; `additivity` is required and `unit` is optional. Derived Measures
+and Metrics take their names from the decorated function. Their zero-argument
+bodies compose typed dependencies, which the loader binds before publishing the
+Catalog. See the [complete model example](/docs/latest/modeling/semantic-layer/#complete-model).
 
 ## Preserve the business rule
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Units describe a quantity; additivity specifies where summing is permitted.
+Choose both from business meaning, since numeric type alone does not grant sum
+permission. Set time, null, and sample policies on the corresponding Metric
+operators. See [Preserve the business rule](/docs/latest/modeling/semantic-layer/#preserve-the-business-rule).

@@ -9,19 +9,23 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
+This guide has moved to [Semantic layer](/docs/latest/modeling/semantic-layer/), which explains how to define, load, and validate reusable business meaning.
 
 ## Put reusable meaning in the model
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+<span id="choose-the-owner-of-each-fact"></span>
+<span id="expression-entity-output-grain"></span>
+
+The model captures definitions that should keep the same meaning across analyses, including Entity identity and row grain, Dimensions, Measures, Metrics, and Relationships. Confirm the relevant business meaning before the first analysis that uses a new or changed definition. See the [complete model](/docs/latest/modeling/semantic-layer/#complete-model) and its examples.
+
+<span id="establish-business-authority"></span>
+<span id="reuse-before-authoring"></span>
+<span id="select-loaded-objects"></span>
+
+Before writing a new definition, load the current project and check its Catalog for one to reuse. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate) shows how to select a loaded definition.
 
 ## Separate definition changes from questions
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
-
-<span id="choose-the-owner-of-each-fact"></span>
-<span id="reuse-before-authoring"></span>
-<span id="select-loaded-objects"></span>
-<span id="establish-business-authority"></span>
-<span id="expression-entity-output-grain"></span>
 <span id="local-expressions-and-publication"></span>
+
+For a question-specific calculation, combine values from loaded definitions; it does not need to become a reusable Metric. The `semantic.expressions` Help topic and [Compose metric expressions](/docs/latest/modeling/semantic-layer/#compose-metric-expressions) show how.

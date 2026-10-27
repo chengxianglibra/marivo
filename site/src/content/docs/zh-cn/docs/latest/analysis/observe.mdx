@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 观察指标
+description: 了解如何观察指标并计算或发布结果。
 pagefind: false
 head:
   - tag: meta
@@ -9,8 +9,11 @@ head:
       content: noindex
 ---
 
-内容已合并至 [分析 DSL](/zh-cn/docs/latest/analysis/dsl/)。
+调用 `session.observe(...)`，即可按所选输出域构造 Metric 计算，并返回待执行的
+`AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
 
-## 读取 8 月收入
+`by` 选择输出坐标，`where` 筛选来源贡献。默认的 `by=()` 请求一个整体单元，不设定时间范围。
+若 `Metric` 的采样或窗口规则要求有限时间范围，请在 `by` 中加入 `TimeScope` 或
+`CalendarAxis`；其样本覆盖检查仍可能在 `compute()` 或 `persist()` 时失败。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+完整说明和示例见[分析 DSL 的 observe 部分](/zh-cn/docs/latest/analysis/dsl/#观察指标)。

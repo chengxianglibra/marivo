@@ -8,20 +8,20 @@ tutorial: true
 
 Give this sentence to an agent that can run terminal commands:
 
-> Install Marivo in this project using https://marivo.io/install.sh, run the environment checks, and confirm that the marivo-semantic and marivo-analysis skills are loaded.
+> Install Marivo in this project using https://marivo.io/install.sh, follow the activation instructions, run `marivo doctor`, and report whether this Agent has discovered the `marivo-semantic` and `marivo-analysis` skills.
 
-The script installs a released package. For development APIs in these latest guides, ask the agent to follow [source installation](/docs/latest/start/installation/). If skills are not discovered automatically, provide the installed skill file locations.
+The installer installs a released package and initializes the project. `marivo doctor` checks the local setup and skill files, but it cannot tell whether the Agent tool has loaded them. If the Agent does not discover a skill, provide its installed path. A remote data source needs a separate connection check. These latest guides use development APIs, so follow [source installation](/docs/latest/start/installation/).
 
 ## Ask a question
 
-With an existing model, state the business question, metric, dates, and reference:
+With an existing model, state the business question, metric, time period, and comparison baseline:
 
-> Use this project's sales.revenue to compare August 2026 with July, break the change down by region, and report the values, evidence, and limitations.
+> Use this project's `sales.revenue` to compare August 2026 with July, break the change down by region, and report the values, evidence, and limitations.
 
-For a new project, provide the data location and approved definitions. Confirm material choices such as refunds, currency, and business time. Without production data, ask the agent to run [quick start](/docs/latest/start/python/).
+For a new project, provide the data location and agreed definitions. For a real data source, install its backend extra and set the environment variables used by its connection; see [datasource configuration](/docs/latest/modeling/datasources/) and [backend prerequisites](/docs/latest/reference/backends-and-limits/). Confirm material choices such as refunds, currency, and business time. Without production data, ask the agent to run [quick start](/docs/latest/start/python/) in a separate demo project.
 
 ## Review the answer
 
-The six-order example should show July 1,000, August 800, and a decline of 200; east and west each decline by 100. Ask the agent to distinguish arithmetic decomposition from causal claims and explain missing data and method limits. Retain Session and saved-result IDs for later use.
+For the [six-order DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), July revenue is CNY 1,000 and August is CNY 800, a decrease of CNY 200. `east` and `west` each decrease by CNY 100. Ask the Agent to explain how the regional changes add to the total without presenting the breakdown as a cause, and to flag material missing data or method limits.
 
-For a follow-up, state which scope stays fixed and whether you need historical results or current data. For example: “Keep west selected and compare by customer type.”
+For a follow-up, state which scope stays fixed. To reopen the same values in another process, ask the Agent to save the result and keep its `session_id` and `artifact_id`; see [Results and evidence](/docs/latest/analysis/results/). A one-time answer does not need a saved result. For current source values, ask for a fresh observation. For example: “Keep west selected and compare by customer type.”

@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Connect and inspect data
+description: Configure a backend and inspect a bounded physical source before modeling it.
 pagefind: false
 head:
   - tag: meta
@@ -9,32 +9,60 @@ head:
       content: noindex
 ---
 
-This content is now in [Datasource configuration](/docs/latest/modeling/datasources/).
+Declare each connection in `models/datasources/`; loading a declaration does
+not open a connection. For environment-based credentials, declare `*_env`
+references. After a validated connection test, Marivo may cache
+environment-sourced credentials as plaintext in the user-global
+`~/.marivo/secrets.toml`. Set
+`MARIVO_PERSIST_CREDENTIALS=0` to disable this cache.
+
+`md.inspect` reads physical metadata. To collect a row sample, select columns
+and pass an explicit scope with positive `max_rows` and `timeout_seconds`.
+Backends may skip a timeout request they do not support; `max_rows` bounds
+returned rows, not bytes scanned. Metadata and samples can guide modeling, but
+do not establish business meaning. See [Datasource configuration](/docs/latest/modeling/datasources/).
 
 ## Declare a local connection
 
-[Continue reading](/docs/latest/modeling/datasources/)
+[Declare a local DuckDB connection](/docs/latest/modeling/datasources/#duckdb--mdduckdb).
 
 ## Declare remote access
 
-[Continue reading](/docs/latest/modeling/datasources/)
+[Configure a PostgreSQL](/docs/latest/modeling/datasources/#postgresql--mdpostgres),
+[MySQL](/docs/latest/modeling/datasources/#mysql--mdmysql),
+[ClickHouse](/docs/latest/modeling/datasources/#clickhouse--mdclickhouse), or
+[Trino](/docs/latest/modeling/datasources/#trino--mdtrino) connection.
 
 ## Inspect before assigning meaning
 
-[Continue reading](/docs/latest/modeling/datasources/)
+[Test a connection and inspect its physical source](/docs/latest/modeling/datasources/#credentials-and-connection-checks), then [define an Entity](/docs/latest/modeling/semantic-layer/#load-and-validate).
 
-## Bound row evidence
+<a id="bound-row-evidence"></a>
 
-[Continue reading](/docs/latest/modeling/datasources/)
+## Collect a bounded row sample
+
+Use `marivo.help("datasource.inspection")` to choose a scope and inspected columns.
+After `md.inspect(...)`, call `.sample(...)` on the returned `SourceInspection`.
+Sample values stay in memory by default; `persist_values=True` explicitly saves
+bounded sample values as plaintext in project-local state.
 
 ## Choose physical sources
 
-[Continue reading](/docs/latest/modeling/datasources/)
+Choose a table or view with `md.table(...)`; Parquet, CSV, and JSON file sources
+use DuckDB. See [physical sources](/docs/latest/modeling/datasources/#connections-and-physical-sources).
 
 ## Parameterized JSON
 
-[Continue reading](/docs/latest/modeling/datasources/)
+Declare request values with `md.source_param(...)` and bind them for datasource
+sampling or Semantic preview. Public Analysis Sessions currently accept only
+local JSON sources using GET with no declared query parameters. For exact
+signatures, see `marivo.help("datasource.json")` and
+`marivo.help("datasource.source_param")`.
 
 ## Default datasource and host credentials
 
-[Continue reading](/docs/latest/modeling/datasources/)
+The built-in `default` is a fresh, in-memory DuckDB with no credentials. For
+durable data, declare a file-backed DuckDB or use a datasource backed by
+persistent storage. For host-managed credentials, see
+[runtime configuration](/docs/latest/reference/configuration/#integrate-host-credentials)
+and `marivo.help("datasource.credential_scope")`.

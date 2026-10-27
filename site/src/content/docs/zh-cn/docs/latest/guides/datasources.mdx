@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 连接并检查数据
+description: 配置数据后端，并在建模前检查限定范围内的物理数据源。
 pagefind: false
 head:
   - tag: meta
@@ -9,32 +9,55 @@ head:
       content: noindex
 ---
 
-内容已合并至 [数据源配置](/zh-cn/docs/latest/modeling/datasources/)。
+在 `models/datasources/` 中声明连接；加载声明时不会打开连接。环境变量凭据使用
+`*_env` 引用声明。连接测试通过后，Marivo 可能将来自环境变量的凭据以明文
+缓存到用户级 `~/.marivo/secrets.toml`。设置 `MARIVO_PERSIST_CREDENTIALS=0`
+可关闭此缓存。
+
+`md.inspect` 读取物理元数据。采集行样本时，需要指定列和显式范围，并设置正数
+`max_rows` 与 `timeout_seconds`。若后端不支持超时请求，可能会跳过该请求；
+`max_rows` 限制返回行数，不限制扫描字节数。元数据和样本可用于指导建模，
+但不能代替业务定义。详见[数据源配置](/zh-cn/docs/latest/modeling/datasources/)。
 
 ## 声明本地连接
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+[声明本地 DuckDB 连接](/zh-cn/docs/latest/modeling/datasources/#duckdb--mdduckdb)。
 
 ## 声明远程访问
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+配置 [PostgreSQL](/zh-cn/docs/latest/modeling/datasources/#postgresql--mdpostgres)、
+[MySQL](/zh-cn/docs/latest/modeling/datasources/#mysql--mdmysql)、
+[ClickHouse](/zh-cn/docs/latest/modeling/datasources/#clickhouse--mdclickhouse) 或
+[Trino](/zh-cn/docs/latest/modeling/datasources/#trino--mdtrino) 连接。
 
 ## 先检查，再赋予含义
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+[先测试连接并检查物理来源](/zh-cn/docs/latest/modeling/datasources/#凭据与连接检查)，再[定义 Entity](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。
 
-## 限制行数据证据
+<a id="限制行数据证据"></a>
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+## 采集有界行样本
+
+通过 `marivo.help("datasource.inspection")` 选择范围和已检查到的列。调用
+`md.inspect(...)` 后，可在返回的 `SourceInspection` 对象上调用 `.sample(...)`。
+样本值默认只保留在内存中；显式设置 `persist_values=True` 会将有界样本值
+以明文保存在项目状态中。
 
 ## 选择物理来源
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+用 `md.table(...)` 选择表或视图；Parquet、CSV 和 JSON 文件来源由 DuckDB 读取。
+详见[物理来源](/zh-cn/docs/latest/modeling/datasources/#连接与物理来源)。
 
 ## 参数化 JSON
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+用 `md.source_param(...)` 声明请求值，并在数据源采样或语义层预览时绑定。
+公开分析会话目前仅接受使用 GET 且未声明查询参数的本地 JSON 来源。
+精确签名请查询 `marivo.help("datasource.json")` 和
+`marivo.help("datasource.source_param")`。
 
 ## 默认数据源与宿主凭据
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+内置 `default` 是全新的内存 DuckDB，无需凭据。若要持久保存数据，请声明
+文件型 DuckDB，或使用底层存储可持久保存的数据源。宿主管理凭据请参阅
+[运行环境配置](/zh-cn/docs/latest/reference/configuration/#集成宿主凭据)，并查询
+`marivo.help("datasource.credential_scope")`。

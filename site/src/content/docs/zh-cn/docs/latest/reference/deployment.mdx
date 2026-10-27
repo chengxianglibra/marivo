@@ -9,14 +9,22 @@ head:
       content: noindex
 ---
 
-内容已合并至 [配置与部署](/zh-cn/docs/latest/reference/configuration/)。
+部署说明已合并至[配置与部署](/zh-cn/docs/latest/reference/configuration/)。
 
 ## 准备运行环境
 
-[继续阅读](/zh-cn/docs/latest/reference/configuration/)
+请在实际运行代码的 Python 环境中安装 Marivo。安装命令见[安装指南](/zh-cn/docs/latest/start/installation/)。
+
+[准备运行环境](/zh-cn/docs/latest/reference/configuration/#准备运行环境)介绍所需驱动、数据源访问和可写的项目状态目录。
+
+[明确选择项目](/zh-cn/docs/latest/reference/configuration/#明确选择项目)说明如何指定项目根目录。
 
 ## 集成宿主凭据
 
-[继续阅读](/zh-cn/docs/latest/reference/configuration/)
+数据源模型应使用环境变量名引用凭据，不要写入秘密值。
+
+[数据源指南](/zh-cn/docs/latest/guides/datasources/)介绍 `*_env` 引用、可选的用户级明文凭据缓存，以及如何用 `MARIVO_PERSIST_CREDENTIALS=0` 关闭缓存。
+
+若要接入宿主管理的凭据解析器，请参阅[配置与部署](/zh-cn/docs/latest/reference/configuration/#集成宿主凭据)，并查询 `marivo.help("datasource.credential_scope")`。
 
 <span id="在代理运行的位置部署-marivo"></span>

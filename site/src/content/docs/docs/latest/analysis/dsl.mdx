@@ -11,6 +11,10 @@ Use existing closed Metrics directly when they answer the question. Follow `sema
 
 Source construction is lazy; evaluating a pending Frame can run captured dependencies. Fixed data does not reconstruct source declarations. Same-process Frames can retain declarations for attribute; independent reopen cannot. Continue from compute/persist's returned Frame; `analysis.execution` and `analysis.results` explain evaluation and inspection, while `analysis.sessions` owns recovery.
 
+Source metadata may mark identity columns nullable. Analysis treats an Entity's
+`primary_key` as its identity contract, but does not validate every source row for
+non-null, unique keys. Use explicit [source health checks](/docs/latest/modeling/semantic-layer/#load-and-validate)
+to test those expectations on a chosen scope.
 Nullable metadata alone does not disqualify a source binding or add a full-source
 NULL or uniqueness precheck. Existing identity-output and operation-specific checks remain.
 
@@ -29,28 +33,16 @@ The operators below follow this order. Their `by` arguments have different owner
 
 ## Native numeric execution
 
-Source and local calculations retain their actual numeric kernel's overflow,
-rounding, Infinity, NaN and error behavior. Marivo adds no overflow precheck,
-finite-value scan, protective widening or retry with another type/engine.
-Local integers/floats use their pandas/Arrow carrier; existing Decimal scalar
-expressions use the native Decimal context. Local int64 SUM stays int64; it can
-wrap. Native errors still fail compute. Results from different backends or dtypes
-need not agree at numeric boundaries.
+Source calculations follow backend arithmetic; local calculations use their
+pandas/Arrow or Decimal carrier. Local int64 SUM can wrap, and source and local
+results can differ near numeric limits. For a wider source integer SUM, cast the
+source field to `decimal(38,0)` in its Entity expression before aggregation; the
+backend must support transporting the result type.
 
-NULL validity, empty/all-NULL rules, zero-division masking, identity and units
-remain governed by Marivo. Native NaN is distinct from NULL. Frame/Store schema
-and lossless transport checks remain; unsupported output types fail rather than
-being silently narrowed. Explicit casts and source result-type bindings retain
-their owning purpose. Help: `analysis.column.sum`, `analysis.analysis_frame.compute`.
-
-
-
-Integer source SUM also adds no protective Decimal input cast. Native Ibis
-transport may reject a wider backend result. When the business requires a wider
-carrier, author an explicit `.cast(ibis.dtype("decimal(38,0)"))` in the Entity
-expression before reduction; the chosen Decimal arithmetic remains kernel-owned.
-Dedicated quantile output finishing, Duration ticks and Attribute closure/finite
-method metadata retain their method and storage contracts.
+Marivo defines NULL, empty/all-NULL, zero-division and unit behavior. NaN is
+distinct from NULL. Frames and stored results retain their declared types and
+reject lossy transport. Help: `analysis.column.sum`,
+`analysis.analysis_frame.compute`.
 
 ## Population — choose the complete domain
 
@@ -307,13 +299,27 @@ Division retains its original typed divisor and arithmetic order. `rescale` decl
 
 Outputs include `contribution.<name>`, `contribution_share.<name>`, `total.<name>`, `observed_total.<name>` and fine diagnostics. `method_facts` retains the method explanation through filtering and persistence.
 
-Completion fixes the selected parent keys and observed values. Attribute independently reads fresh parent and fine inputs without reranking those keys or guaranteeing a shared snapshot. `total` comes from the fresh parent formula; `observed_total` keeps the receiver's historical value. Qualified physical tables use native backend execution, subject to method, type and source restrictions. Attribute trusts declared identity, relationship cardinality and version grain. Membership/Population coverage and overlap, distinct values crossing groups, numeric validity and complete time correspondence remain checked in the backend. Explicit `source_check` owns data-quality checks. Float64 `method_facts` preserves captured finite values without recomputing arithmetic; structure, types, units and storage integrity remain checked. Only requested final targets must close within their closure tolerance; a mismatch fails the request without residual repair. Relative targets use the absolute fresh parent baseline. General Column arithmetic is not an attributable source formula; define supported linear/ratio Metrics before observing them. Independent reopen retains values and method facts but loses the declaration needed for a new attribute request. Help: `analysis.analysis_frame.attribute`.
+Attribute fixes the selected parent keys and observed values, then reads fresh parent
+and fine-grain inputs separately. The reads can reflect different source states.
+`total` uses the fresh parent formula; `observed_total` preserves the value from the
+input Frame. Qualified physical tables use native backend execution for supported
+methods, types and source shapes.
+
+Attribute trusts declared identity, relationship cardinality and version grain. It
+checks membership and Population coverage and overlap, whether distinct values
+appear in multiple groups, numeric validity, complete time correspondence and
+closure of requested final targets. `method_facts` preserve captured finite Float64 values and their
+method explanation without recalculating the arithmetic. The closure rules below
+apply to requested targets; relative targets use the absolute fresh parent baseline.
+Define a supported linear or ratio Metric before observing it; general Frame
+Column arithmetic has no attribution method. Reopening a saved Frame retains
+values and method facts, but not the source declaration needed for another
+attribute request.
+Help: `analysis.analysis_frame.attribute`.
 
 Numeric source division converts both operands to Float64 before dividing, preserving fractional integer ratios on backends such as Trino. Zero denominators remain NULL.
 
-Source metadata may mark identity columns nullable. Attribute trusts the complete, non-null semantic `primary_key` declaration and adds no full-source NULL or uniqueness precheck. Invalid declared identities are not guaranteed to raise an error; use explicit `source_check` when verification is required. Existing identity-output and operation-specific checks remain.
-
-Float64 accepts `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`. The percentage uses the fresh final target: level, absolute change or normalized relative change. Zero totals retain the numeric budget. Integer/count closure remains exact; Decimal and Duration retain their existing policies. Accepted residuals are not redistributed.
+Float64 accepts `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`. The percentage uses the fresh final target: level, absolute change or normalized relative change. Zero totals retain the numeric budget. Integer/count closure remains exact; Decimal and Duration retain their existing policies. A target outside its tolerance fails the request; accepted residuals are not redistributed.
 
 Start with the total decline, then ask which regions account for it.
 

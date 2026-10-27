@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Observe metrics
+description: Learn how to capture, evaluate, and publish a metric observation.
 pagefind: false
 head:
   - tag: meta
@@ -9,8 +9,14 @@ head:
       content: noindex
 ---
 
-This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
+`session.observe(...)` captures a metric calculation over a selected output
+domain and returns a pending `AnalysisFrame`. Call `compute()` to evaluate it,
+or `persist()` to complete and publish it.
 
-## Read August revenue
+`by` selects output coordinates; `where` filters source contributions. The
+default `by=()` requests one overall cell and sets no time range. If a `Metric`'s
+sampling or window rules require a bounded period, include a `TimeScope` or
+`CalendarAxis` in `by`; sample-coverage checks specific to that `Metric` may
+still fail during `compute()` or `persist()`.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+See the [observe section of Analysis DSL](/docs/latest/analysis/dsl/#observe-metrics) for the full guide and example.

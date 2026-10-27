@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 时间与成员组分析
+description: 选择观察时段、固定成员组并分析时间窗口。
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,59 @@ head:
       content: noindex
 ---
 
-内容已合并至 [时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
+先完成[分析 DSL 共享示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。完整日历与窗口示例见[时间序列指南](/zh-cn/docs/latest/analysis/time-series/)；本页总结哪些选择会决定结果包含哪些成员和时间点。
 
 ## 声明来源时间与采样
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+`TimeDimension` 为 `Entity` 声明观察、日历和窗口使用的业务时间角色。将普通 `Dimension` 命名为 `date` 并不能代替时间维度。按来源编码选择解析器；只有来源确实按固定节奏采样时才声明 `sample_interval`。它描述预期的时钟时刻，不会把事件时间戳分桶。解析器的来源时区与 `Session` 的报告时区职责不同：前者解释来源值，后者确定日历边界。详见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
 
 ## 显式选择完整身份
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+将成员组显式表示为由完整身份元组构成的分析对象集合（`Population`）。`session.members(entity, where=...)` 选择来源中已有记录的身份。对于版本化 `Entity`，传入精确的 `at=session.instant(...)`；这个成员选择时刻与观察 `TimeScope` 分开指定。快照按其声明的业务时区，选择 `at` 所属业务日的版本；有效期 `Entity` 则根据声明的 `closed_open` 或 `closed_closed` 边界规则，选择包含 `at` 的版本。如果指定版本不存在，成员就保持缺失，分析不会回退到其他版本。显式列出身份时用 `mv.coordinates(...)`，并另行确认来源中是否存在这些身份。
+
+下面示例固定由 `region` 为 `east` 的来源订单构成成员组，再观察该组在 8 月的输出域。`session`、`mv`、`revenue`、`region` 和 `august` 来自 DSL 共享示例：
+
+```python
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry.value
+east_cohort = session.members(Orders, where=region == "east")
+cohort_in_august = mv.product(august, east_cohort)
+august_revenue = session.observe(
+    {"revenue": revenue},
+    by=cohort_in_august,
+    where=mv.in_population(east_cohort),
+).compute()
+```
+
+`by=P` 会保留 `P` 的完整输出键；`where=mv.in_population(P)` 会将来源贡献限制在 `P` 中。若问题既要求保留成员组的完整输出域，又要求将贡献限制在组内，应同时使用两者。没有事实贡献的选中成员，其求和结果为零；存在事实但值全部为 NULL 时，求和结果为 NA。身份列表、版本化成员选择和域覆盖详见[Population 指南](/zh-cn/docs/latest/analysis/population/)。
 
 ## 保留精确日历边界
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+`session.time_scope(start=..., end=...)` 包含 `start`，不包含 `end`。选择定义这些边界的业务报告时区。夏令时切换附近，自然日和自然月的实际经过时长可能不同。财务或命名业务期间应使用已认证的[业务日历](/zh-cn/docs/latest/modeling/dates/#业务日历)。
 
 ## 将窗口附着到 Metric
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+先将窗口规则附加到 `Metric`，再观察结果；用 `by` 指定输出期间。下面示例使用共享设置中的 `august`：
+
+```python
+from datetime import timedelta
+
+days = august.by(mv.grain("day"))
+rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+rolling_daily = session.observe({"revenue": rolling}, by=(days,)).compute()
+month_to_date = revenue.window(mv.to_date(grain=mv.grain("month")))
+mtd_daily = session.observe({"revenue": month_to_date}, by=(days,)).compute()
+```
+
+`trailing_duration` 按实际经过时长计算，七天即 168 小时。`to_date` 从每个所选自然月的起点重新累计。来源数据须包含窗口所需的回溯历史，因为滚动窗口可能早于展示期间。对每日结果行求和，不能代替在月粒度重新观察比率或去重数 Metric。
+
+`sample_interval` 声明预期的采样时刻，不会补齐缺失时钟。时间样本均值使用实际表示的样本；严格样本规约则会在有限期间内检查已声明时钟的覆盖情况。已表示时刻上的 NULL 与缺失时钟不同。详见[时间均值与样本覆盖](/zh-cn/docs/latest/analysis/time-series/#时间均值与采样覆盖)。
 
 ## 配对已经完成的端点
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+需要固定比较端点时，先在同一 `Session` 中按问题所需粒度计算两个 `AnalysisFrame`，再进行比较。`mv.ordinal()` 按兼容且完整期间的日历位置配对；它不按偶然行序连接，也不从标签推断日期关系。准确的轴和时间对应规则见[分析 DSL 中的基准比较](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)。
 
 ## 观察精确偏移期间
 
-[继续阅读](/zh-cn/docs/latest/analysis/time-series/)
+对于月度 `CalendarAxis`，`months.shift(mv.offset(periods=-1))` 会按轴粒度选择前一个月。偏移计数的是粒度步数，而不是可见行数或固定天数。偏移保留相同的左闭右开边界：`[2026-08-01, 2026-08-20)` 对应 `[2026-07-01, 2026-07-20)`。目标期间缺失时仍保持缺失，不会移到相邻日期。参见[偏移期间示例](/zh-cn/docs/latest/analysis/time-series/#理解窗口与对应关系)。

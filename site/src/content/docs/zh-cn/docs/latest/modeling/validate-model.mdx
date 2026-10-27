@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 验证语义模型
+description: 检查模型定义和依赖，再按需查看当前数据源。
 pagefind: false
 head:
   - tag: meta
@@ -9,8 +9,24 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
-
 ## 先检查定义，再检查数据
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+编辑模型后，请在项目根目录运行检查。以下示例使用[本地 Python 教程](/zh-cn/docs/latest/start/python/)
+中的 `sales.orders.amount` measure：
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry.value
+catalog.readiness(refs=[amount]).show()
+```
+
+`ms.load()` 检查模型声明、引用、依赖循环和表达式契约。`catalog.readiness(...)`
+检查所选物理输入和已认证的时间产物。这两步都不会打开数据源连接。
+
+若要查看当前来源数据，请用显式有界范围调用 `catalog.preview(...)`。
+`catalog.source_health(...)` 默认检查当前连接与结构；只有显式传入检查规则及其有界范围时，才会读取业务数据。
+[加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和来源健康检查示例。

@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Validate a semantic model
+description: Check model definitions and dependencies before inspecting current source data.
 pagefind: false
 head:
   - tag: meta
@@ -9,8 +9,28 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
-
 ## Check definitions, then inspect data
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+After editing a model, start from its project root. This example uses the
+`sales.orders.amount` measure from the [local Python tutorial](/docs/latest/start/python/):
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry.value
+catalog.readiness(refs=[amount]).show()
+```
+
+`ms.load()` checks model declarations, references, dependency cycles, and
+expression contracts. `catalog.readiness(...)` checks the selected physical
+inputs and certified temporal artifacts. Neither step opens a datasource
+connection.
+
+To inspect current source data, use `catalog.preview(...)` with an explicit
+bounded scope. `catalog.source_health(...)` checks current connectivity and
+schema by default; it reads business rows only when you provide explicit checks
+and their bounded scope. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
+has the complete preview and source-health examples.

@@ -87,11 +87,19 @@ print(paired_difference.mean())
 
 ## Use a common sample for correlation
 
-For native Pearson or Spearman use `frame.correlate(x, y, method="pearson")` or `method="spearman"`, with numeric Columns from the same exact Frame. The result includes `coefficient` and `n_pairs`. Unknown pairs are excluded together. Constant endpoints or fewer than two pairs give an unknown coefficient, with the actual count retained. Spearman uses average ranks for ties.
+Use `frame.correlate(x, y, method="pearson")` or `method="spearman"` with numeric
+Columns from the same exact Frame. The result includes `coefficient` and `n_pairs`.
+Rows with NULL in either endpoint are excluded together. Fewer than two pairs or a
+constant endpoint returns a NULL coefficient while retaining the pair count.
+
+`n_pairs` counts non-NULL pairs, including valid NaN or Infinity values; it is not
+a count of finite pairs. Correlation follows pandas behavior, so non-finite or
+extreme values can produce NaN or an error. Spearman ranks paired values using
+average ranks for ties.
 
 The pandas example uses a common present/non-null mask for both endpoints. Never pair unrelated exports by their row index. A grouped coefficient cannot be averaged to obtain pooled correlation.
 
-Normalization returns shares 0.25 and 0.75, total 800 and count 2 on both rows. Filtering before calculating changes the denominator; filtering afterwards preserves it. Empty sums are zero, all-unknown nonempty sums are unknown; presence and unknown numeric values remain distinct.
+Normalization returns shares 0.25 and 0.75, total 800 and count 2 on both rows. Filtering before calculating changes the denominator; filtering afterwards preserves it. Empty sums are zero; sums over nonempty rows with only NULL values are NULL. Row presence and missing numeric values remain distinct.
 
 External statistics do not automatically acquire typed Evidence. State the sample, missing-value policy, method and assumptions. [Export results](/docs/latest/analysis/results/) when an external method is needed.
 
@@ -119,13 +127,11 @@ assert paired["n_pairs"].tolist() == [5]
 assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
 ```
 
-## Numeric kernel boundaries
+## Numeric behavior
 
-Local SUM and mean use Arrow's native accumulator and rounding. int64 SUM can
-wrap, while a native arithmetic kernel can raise an overflow error. Decimal scalar
-expressions use their native context. Pearson uses pandas correlation; Spearman
-uses pandas average ranks followed by correlation. These algorithms can lose low
-bits or return valid NaN for extreme inputs. Marivo adds no finite-value scan,
-protective widening or retry. `n_pairs` counts pairs present in the Arrow validity
-bitmap; it does not certify finite inputs. NULL and zero-division rules still
-apply. Saved Frames preserve valid NaN/Infinity separately from NULL.
+Local Frame SUM and mean use Arrow's native arithmetic. Local int64 SUM stays
+int64 and can wrap; native kernels may also raise overflow errors. Decimal scalar
+expressions follow the Decimal context, while source calculations follow backend
+arithmetic. Near numeric limits, results may lose precision and vary by backend
+or dtype; native kernels can also return valid NaN/Infinity or raise an error.
+Saved Frames preserve valid NaN/Infinity separately from NULL.

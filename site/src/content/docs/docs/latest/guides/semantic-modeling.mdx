@@ -9,24 +9,35 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
+This guide has moved to [Semantic layer](/docs/latest/modeling/semantic-layer/). The
+topics below link to the corresponding sections in the current guide.
 
 ## Declare one dependency slice
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Build the smallest dependency-complete model slice needed for the definitions
+you want to use. The [complete model example](/docs/latest/modeling/semantic-layer/#complete-model)
+shows the pieces together.
 
 ## Names, aliases and computation
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+For Measure and Metric declarations, the function name supplies the semantic
+name; assigning a Python alias does not rename the definition. See [field and
+Metric definitions](/docs/latest/modeling/semantic-layer/#define-fields-and-metrics).
 
 ## Units and explicit sum permission
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Choose a Measure's unit and sum permissions from its business meaning. A numeric
+type does not establish either; row arithmetic carries compatible facts but does
+not grant new sum permission by itself. See the [complete model](/docs/latest/modeling/semantic-layer/#complete-model).
 
 ## Ibis fields and pure declarations
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Entity and Dimension/TimeDimension bodies use restricted Ibis expressions.
+Measure and Metric declarations take no table argument and return a semantic
+expression. See [field and Metric definitions](/docs/latest/modeling/semantic-layer/#define-fields-and-metrics).
 
 ## Reauthor retired declarations
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Re-express an older definition with the current declaration API, then use
+`ms.load()` to validate the model and `catalog.get("kind:path")` to inspect the
+exact definition. See [load and validate](/docs/latest/modeling/semantic-layer/#load-and-validate).

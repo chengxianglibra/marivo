@@ -1,30 +1,24 @@
 ---
 title: Results and evidence
-description: Save result identifiers, reopen data, and export values and evidence.
+description: Save result identifiers, reopen data, export values, and inspect evidence.
 ---
 
-Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), which explicitly calls `persist()` and returns `saved`. Only `persist()` saves an AnalysisFrame. A one-shot answer can use `compute()` without saving; retain its returned Frame for further work in the same process.
+Run the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), which persists its comparison as `saved`. Use `compute()` for a completed Frame you will keep in the same Python process. Persist the result when you need to reopen it in another process.
 
-## Keep exact identifiers
+## Save the result identifiers
 
-Append this to `analysis.py` **before** running the producing script. It records
-the returned result's identities before the process exits; no `show()` is required.
-Do not import or rerun `analysis.py` in a later process just to discover IDs:
-that would execute its source observations again.
+In `analysis.py`, add these lines after `saved = change.persist()` and run the producing script:
 
 ```python
 print(saved.session_id)
 print(saved.artifact_id)
 ```
 
-Retain these two identifiers from the tool output for the next invocation; no
-additional state file is needed. Include the data needed for the current
-decision in that first script too, so saving does not add a separate inspection round.
-An already retained exact reference needs no new publication.
+Keep both IDs for the next process. Rerunning the producer performs the source observations again and may read changed data or publish another result.
 
-## Reopen in another process
+## Reopen the saved data
 
-Save as `reopen.py` and run `.venv/bin/python reopen.py SESSION_ID FRAME_ID` from the same project, substituting the two printed identifiers. This script loads neither `analysis.py` nor the semantic model and does not query the source. Resuming the Session alone does not recover unsaved Frames or Python variables.
+Save this as `reopen.py` and run `.venv/bin/python reopen.py SESSION_ID FRAME_ID` from the same project, replacing the placeholders with the IDs you saved. It reopens the committed Frame without repeating its source observations. The final line writes `comparison.csv` in the current directory and overwrites it if it already exists.
 
 ```python
 import sys
@@ -39,28 +33,14 @@ reopened.show(n=0)
 rows.to_csv("comparison.csv", index=False)
 ```
 
-The two changes remain -100. Supported Frame operations can continue on these saved rows. When correcting an operation, reopen the same inputs rather than repeating their source observations. Persist a new result explicitly only if it needs to remain available for later use. A new original-source question requires explicit source inputs; saved data does not reconstruct its original metric definitions or executable source declaration.
+The two absolute changes remain -100 because this reads the saved comparison. Continue with supported Frame operations on `reopened`; call `persist()` on a derived Frame if you want to save another result. To use fresh source values, build and run an explicit source observation with the required definitions.
 
-The export is an isolated pandas copy with readable coordinates and ordinary string columns. CSV is a convenience for sharing values, not a lossless Marivo reimport format: typed attributes and frozen time interpretation need the original Frame. Inspect units and keys before joining exports.
+`to_pandas()` returns an isolated flat table with readable coordinate and value names and separate presence columns. CSV is useful for sharing values but does not preserve typed analysis metadata or frozen time interpretation; keep the Frame for typed analysis. Check units and keys before joining exported tables.
 
-A new computation from the original source expression can observe changed data; [troubleshooting](/docs/latest/reference/troubleshooting/) covers missing files and incompatible old state.
+## Read evidence in context
 
-## Evidence and conclusions
+An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
 
-A result contains values; a conclusion interprets those values in a business context. Marivo records facts that help you inspect that interpretation.
+On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays metadata and audit summaries without reading result rows. Use `findings()` to read committed Findings and `evidence_digest()` to read saved Evidence. A plain observation's saved audit records source and evaluation facts; it may have no Findings. Supported contribution analyses retain their method explanations in `method_facts`.
 
-### Know what you are reading
-
-An AnalysisFrame can describe a pending calculation, completed memory data, or exact saved data. `compute` obtains completed values and `persist` saves a completed result. A bounded display is not a complete export.
-
-The saved Frame exposes `session_id` and `artifact_id` directly. `show()` combines metadata, audit summaries and a bounded data preview; `show(n=0)` omits data reads. Read committed Findings through `findings()` and full evidence through `evidence_digest()`. Plain observation does not necessarily produce Findings. Supported contribution methods retain complete explanations through `method_facts`.
-
-By default `show()` requests up to 20 rows within 8 KiB and reports how many rows were displayed and omitted. Use `show(n=26, max_output_bytes=None)` to display a complete 26-row prefix without a byte limit. The row limit still applies; use `to_pandas()` for the complete fixed data.
-
-If both limits remove rows, the display reports both reasons. Empty results and `n=0` retain their row counts even when other metadata is omitted. If the required summary cannot fit, retry with the minimum byte budget reported in the error.
-
-### Keep time and meaning explicit
-
-Source read time, evaluation time and save time differ. Saving yesterday's data today does not make the values current. A later source query can return a different answer; exact saved data remains the record of what was committed.
-
-A contribution of -100 says how an approved formula allocates a change. It does not prove a campaign caused the decline. Evidence also does not establish source completeness, a cross-source snapshot, or approval of business policy.
+Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope describes the period, filters, and source constraints used for the read; it does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.

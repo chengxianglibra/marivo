@@ -9,16 +9,31 @@ head:
       content: noindex
 ---
 
-内容已合并至 [数据源配置](/zh-cn/docs/latest/modeling/datasources/)。
+本指南现已并入[数据源配置](/zh-cn/docs/latest/modeling/datasources/)。
+
+这些检查回答不同问题：[`md.load().test(...)`](/zh-cn/docs/latest/modeling/datasources/#凭据与连接检查)
+打开连接并执行字面量往返查询；成功仅表示本次数据源探测通过。
+[`md.inspect(...)`](/zh-cn/docs/latest/modeling/datasources/#凭据与连接检查)读取物理元数据，
+`.sample(...)` 则在显式范围内读取所选行。`ms.load()` 检查语义声明与依赖，但不会连接数据源；
+`catalog.source_health(...)` 检查当前数据源连接以及 schema 和能力元数据；只有显式声明
+有界数据检查时才读取数据行。元数据和样本可帮助选择物理来源；业务含义应由语义定义承载。详见
+[语义模型验证](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。
+
+凭据使用 `*_env` 引用。连接测试成功后，Marivo 可能将解析出的环境变量凭据以明文
+缓存到 `~/.marivo/secrets.toml`；设置 `MARIVO_PERSIST_CREDENTIALS=0` 可关闭缓存。
 
 ## 确认访问与结构
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+读取数据行时，使用[有界样本](/zh-cn/docs/latest/guides/datasources/#限制行数据证据)，选择所需列并显式指定范围。范围必须包含正数 `max_rows` 与 `timeout_seconds`；后端可能跳过不支持的超时请求。`max_rows` 限制返回行数，不限制扫描字节数。只有显式设置 `persist_values=True` 时，样本值才会以明文保存在项目本地状态中。
 
 ## 连接远程数据库
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+配置 [PostgreSQL](/zh-cn/docs/latest/modeling/datasources/#postgresql--mdpostgres)、
+[MySQL](/zh-cn/docs/latest/modeling/datasources/#mysql--mdmysql)、
+[ClickHouse](/zh-cn/docs/latest/modeling/datasources/#clickhouse--mdclickhouse) 或
+[Trino](/zh-cn/docs/latest/modeling/datasources/#trino--mdtrino) 连接。
 
 ## 选择物理来源
 
-[继续阅读](/zh-cn/docs/latest/modeling/datasources/)
+表或视图使用 `md.table(...)`。Parquet、CSV 和 JSON 文件来源由 DuckDB 读取；
+详见[连接与物理来源](/zh-cn/docs/latest/modeling/datasources/#连接与物理来源)。

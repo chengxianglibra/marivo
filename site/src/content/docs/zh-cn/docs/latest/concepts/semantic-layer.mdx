@@ -9,19 +9,23 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+本页内容已合并至[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)，其中介绍如何定义、加载和验证可复用的业务含义。
 
 ## 将复用含义放进模型
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+<span id="明确每类事实的所有者"></span>
+<span id="表达式-entity-的输出粒度"></span>
+
+模型保存应在不同分析中保持一致的定义，包括 Entity 身份与行粒度、Dimension、Measure、Metric 和 Relationship。在分析中首次使用新增或修改的定义前，先确认相关业务口径。请参阅[完整模型](/zh-cn/docs/latest/modeling/semantic-layer/#complete-model)及相关示例。
+
+<span id="确定业务依据"></span>
+<span id="先复用再定义"></span>
+<span id="获取已加载对象"></span>
+
+新建定义前，先加载当前项目，并在 Catalog 中查找可复用的定义。[加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节说明了如何从 Catalog 中选取已加载的定义。
 
 ## 区分定义变化与当前问题
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
-
-<span id="明确每类事实的所有者"></span>
-<span id="先复用再定义"></span>
-<span id="获取已加载对象"></span>
-<span id="确定业务依据"></span>
-<span id="表达式-entity-的输出粒度"></span>
 <span id="局部表达式与发布边界"></span>
+
+对于单次问题的计算，可以组合已加载定义中的值，不必将其发布为可复用的 Metric。`semantic.expressions` Help 主题和[组合指标表达式](/zh-cn/docs/latest/modeling/semantic-layer/#组合指标表达式)介绍了具体做法。

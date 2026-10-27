@@ -9,24 +9,24 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+本指南已合并至[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。以下主题链接到新版指南中的对应章节。
 
 ## 声明一个完整依赖切片
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+从完成所需定义的最小依赖集合开始。[完整模型示例](/zh-cn/docs/latest/modeling/semantic-layer/#complete-model)展示了这些定义如何组合。
 
 ## 名称、别名与计算
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+Measure 和 Metric 声明的函数名就是语义名称；给 Python 变量另起别名不会重命名定义。参阅[字段与 Metric 定义](/zh-cn/docs/latest/modeling/semantic-layer/#定义字段与指标)。
 
 ## 单位与显式求和授权
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+应根据业务含义声明 Measure 的单位和求和许可。数值类型无法确定这两者；逐行算术会传递兼容事实，但本身不会授予新的求和许可。参阅[完整模型](/zh-cn/docs/latest/modeling/semantic-layer/#complete-model)。
 
 ## Ibis 字段体与纯声明体
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+Entity 与 Dimension/TimeDimension 声明体使用受约束的 Ibis 表达式。Measure 和 Metric 声明不接收表参数，而是返回语义表达式。参阅[字段与 Metric 定义](/zh-cn/docs/latest/modeling/semantic-layer/#定义字段与指标)。
 
 ## 旧声明的人工改写
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+旧定义应按当前声明 API 重写，再用 `ms.load()` 验证模型，并用 `catalog.get("kind:path")` 查看指定定义。参阅[加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。

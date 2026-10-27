@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Compare analysis results
+description: Compare current values with baselines and read absolute and relative changes.
 pagefind: false
 head:
   - tag: meta
@@ -9,12 +9,6 @@ head:
       content: noindex
 ---
 
-This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
+Use `AnalysisFrame.compare` to compare the current result with one or more baselines from the same Session. The result keeps current values and adds baseline values, absolute and relative changes for each baseline, and row-presence indicators. Missing rows and NA values are not treated as zero; a zero baseline produces an NA relative change.
 
-## Calculate the change
-
-[Continue reading](/docs/latest/analysis/dsl/)
-
-## Read the numbers
-
-[Continue reading](/docs/latest/analysis/dsl/)
+See [Compare baselines in the Analysis DSL](/docs/latest/analysis/dsl/#compare-and-align) for an executable example and guidance on matching axes and time periods.

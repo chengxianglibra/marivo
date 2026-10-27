@@ -9,12 +9,17 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+本指南现已并入[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
 
 ## 编写完整定义
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+使用 `ms.measure_column` 时，`name=` 是语义名称，`column=` 选择物理字段；
+`additivity` 必填，`unit` 可选。派生 Measure 与 Metric 的语义名称来自装饰函数。
+它们的零参数函数体组合类型化依赖，loader 在发布 Catalog 前绑定完整依赖范围。
+参见[完整模型示例](/zh-cn/docs/latest/modeling/semantic-layer/#complete-model)。
 
 ## 保持业务规则
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+单位描述数量，求和许可说明允许沿哪些范围求和。应依据业务含义确定两者，不能只凭
+数值类型推断。Metric 的时间、空值和样本策略写在相应算子上。参见
+[保持业务规则](/zh-cn/docs/latest/modeling/semantic-layer/#保持业务规则)。

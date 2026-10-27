@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Time and cohorts
+description: Choose observation periods, explicit member cohorts, and time windows.
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,59 @@ head:
       content: noindex
 ---
 
-This content is now in [Time series and windows](/docs/latest/analysis/time-series/).
+Start from the [shared Analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs). The canonical [time-series guide](/docs/latest/analysis/time-series/) has full calendar and window examples; this page summarizes the choices that determine which members and time points a result represents.
 
 ## Declare source time and sampling
 
-[Continue reading](/docs/latest/analysis/time-series/)
+A `TimeDimension` declares the `Entity`'s business-time role for observations, calendars, and windows. A regular `Dimension` named `date` is not a substitute. Choose a parser for the source encoding; use `sample_interval` only when the source represents a scheduled cadence. It describes expected clock points and does not bucket event timestamps. The parser's source timezone and the `Session`'s reporting timezone have separate roles: one interprets source values, the other sets calendar boundaries. See [date and time definitions](/docs/latest/modeling/dates/).
 
 ## Select complete identities explicitly
 
-[Continue reading](/docs/latest/analysis/time-series/)
+Treat a cohort as an explicit `Population` of complete identity tuples. `session.members(entity, where=...)` selects identities represented in the source. For a versioned `Entity`, pass an exact `at=session.instant(...)`; this membership time is separate from the observation `TimeScope`. A snapshot resolves the daily version for the business day containing that instant in its declared timezone. A validity `Entity` resolves the version whose interval contains `at`, using the declared `closed_open` or `closed_closed` convention. If the selected version is absent, it stays absent; analysis does not substitute the latest available row. Use `mv.coordinates(...)` for an explicit requested identity list, and check source presence separately.
+
+This example fixes the cohort to source-represented east orders, then observes its August domain. The shared DSL setup provides `session`, `mv`, `revenue`, `region`, and `august`:
+
+```python
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry.value
+east_cohort = session.members(Orders, where=region == "east")
+cohort_in_august = mv.product(august, east_cohort)
+august_revenue = session.observe(
+    {"revenue": revenue},
+    by=cohort_in_august,
+    where=mv.in_population(east_cohort),
+).compute()
+```
+
+`by=P` keeps `P`'s complete keys in the output domain; `where=mv.in_population(P)` restricts source contributions to `P`. Use both when the question needs both the full cohort domain and contributions limited to its members. A selected member with no fact contributions has sum zero; represented facts whose values are all NULL have sum NA. See the [Population guide](/docs/latest/analysis/population/) for literal identities, versioned membership, and domain coverage.
 
 ## Keep exact calendar boundaries
 
-[Continue reading](/docs/latest/analysis/time-series/)
+`session.time_scope(start=..., end=...)` includes `start` and excludes `end`. Use the business reporting timezone that defines those boundaries. Civil days and months can span different elapsed durations around daylight-saving changes. For fiscal or named business periods, use a certified [business calendar](/docs/latest/modeling/dates/#business-calendars).
 
 ## Attach the window to the Metric
 
-[Continue reading](/docs/latest/analysis/time-series/)
+Attach the window rule to the `Metric` before observing it, and provide the output period through `by`. For example, with `august` from the shared setup:
+
+```python
+from datetime import timedelta
+
+days = august.by(mv.grain("day"))
+rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+rolling_daily = session.observe({"revenue": rolling}, by=(days,)).compute()
+month_to_date = revenue.window(mv.to_date(grain=mv.grain("month")))
+mtd_daily = session.observe({"revenue": month_to_date}, by=(days,)).compute()
+```
+
+`trailing_duration` measures elapsed time, so seven days is 168 hours. `to_date` resets at the start of each selected calendar month. Include the required lookback history in the source: a rolling window can begin before the displayed period. Summing daily output rows is not a replacement for observing a ratio or distinct-count Metric at monthly grain.
+
+`sample_interval` declares an expected sample schedule; it does not fill missing clocks. Time-sample means use represented samples, while strict sample reducers check declared clock coverage over a finite period. A NULL at a represented time is different from a missing clock. See [time means and sample coverage](/docs/latest/analysis/time-series/#time-means-and-sample-coverage).
 
 ## Pair completed endpoints
 
-[Continue reading](/docs/latest/analysis/time-series/)
+When you want fixed endpoints, compute both `AnalysisFrame` values in the same `Session` at the grain needed by the question before comparing. `mv.ordinal()` pairs matching positions in compatible, complete periods; it does not join on incidental row order or infer a date relationship from a label. See [compare in the Analysis DSL](/docs/latest/analysis/dsl/#compare-and-align) for exact axis and time correspondence.
 
 ## Observe exact shifted periods
 
-[Continue reading](/docs/latest/analysis/time-series/)
+For a monthly CalendarAxis, `months.shift(mv.offset(periods=-1))` selects the previous month by grain. Offsets count grain steps, not visible rows or fixed-day durations. The shift follows the same half-open boundaries: `[2026-08-01, 2026-08-20)` maps to `[2026-07-01, 2026-07-20)`. A missing target period remains absent instead of moving to a nearby date. See the [shifted-period example](/docs/latest/analysis/time-series/#interpret-windows-and-correspondence).

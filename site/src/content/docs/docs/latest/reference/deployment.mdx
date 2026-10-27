@@ -9,14 +9,26 @@ head:
       content: noindex
 ---
 
-This content is now in [Configuration and deployment](/docs/latest/reference/configuration/).
+This deployment guidance has been consolidated into [Configuration and deployment](/docs/latest/reference/configuration/).
 
 ## Prepare the runtime
 
-[Continue reading](/docs/latest/reference/configuration/)
+Install Marivo in the Python environment that runs your work; see
+[installation](/docs/latest/start/installation/) for commands.
+
+[Runtime preparation](/docs/latest/reference/configuration/#prepare-the-runtime)
+covers drivers, source access and writable project state.
+
+[Project selection](/docs/latest/reference/configuration/#select-the-project-explicitly)
+explains how to choose the project root.
 
 ## Integrate host credentials
 
-[Continue reading](/docs/latest/reference/configuration/)
+Declare environment-variable references in datasource models rather than secret
+values. The [datasource guide](/docs/latest/guides/datasources/) explains
+`*_env` references, the optional plaintext user-global credential cache and
+`MARIVO_PERSIST_CREDENTIALS=0`. For a host-managed credential resolver, see
+[Configuration and deployment](/docs/latest/reference/configuration/#integrate-host-credentials)
+and `marivo.help("datasource.credential_scope")`.
 
 <span id="deploy-marivo-where-the-agent-runs"></span>

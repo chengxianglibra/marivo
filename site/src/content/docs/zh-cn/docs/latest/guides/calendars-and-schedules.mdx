@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 业务日历与工作日程
+description: 为分析选择业务日历、时区和工作日程。
 pagefind: false
 head:
   - tag: meta
@@ -9,20 +9,29 @@ head:
       content: noindex
 ---
 
-内容已合并至 [日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
+明确来源日期或时间戳的解释方式、业务时间字段和观察范围。观察区间包含起点、
+不包含终点。来源解析时区、日历边界时区和 `Session` 报告时区各有不同作用。
+定义业务期间时，应使用合适的日历和边界时区；可能重叠的活动或节假日应建模为
+命名活动期间。
+统计工作日时，日程需覆盖所选范围内的每个日期，包括调休日；缺失状态表示未知。
+严格样本规约仅在 `TimeDimension` 声明 `sample_interval` 且观察范围有限时检查
+预期采样时刻。详见
+[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)和
+[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
 
 ## 认证周期日历
 
-[继续阅读](/zh-cn/docs/latest/modeling/dates/)
+[查看如何认证并读取日历](/zh-cn/docs/latest/modeling/dates/#认证并读取)。
 
 ## 命名时间发生项
 
-[继续阅读](/zh-cn/docs/latest/modeling/dates/)
+[查看如何声明命名期间](/zh-cn/docs/latest/modeling/dates/#命名活动期间mstemporal_set)。
 
 ## 浏览节假日并选择比较范围
 
-[继续阅读](/zh-cn/docs/latest/modeling/dates/)
+[查看节假日和工作日程](/zh-cn/docs/latest/modeling/dates/#活动与工作日)，
+再参阅[时间范围比较](/zh-cn/docs/latest/analysis/time-series/)。
 
 ## 用普通字段读取工作日事实
 
-[继续阅读](/zh-cn/docs/latest/modeling/dates/)
+[查看如何建模工作日字段与日程](/zh-cn/docs/latest/modeling/dates/#活动与工作日)。

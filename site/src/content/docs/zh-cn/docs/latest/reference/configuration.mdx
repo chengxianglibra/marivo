@@ -16,7 +16,7 @@ description: 配置项目根、共享模型和本地持久状态。
 | `models/semantic/` | 可复用业务定义 | 共享 |
 | `.marivo/` | 本地分析数据、审计、日志与元数据 | 忽略 |
 
-没有配置文件时，项目名默认取目录名，外部语义路径为空，遥测开启。已有配置非法时会失败，不会静默使用默认值。
+没有配置文件时，Marivo 使用目录名作为项目名，不加载外部语义根，并默认开启使用遥测。设置 `[project].name` 可更改 Doctor 报告中的名称。TOML 格式错误或受支持设置的值无效时会产生配置错误。`on` 和 `off` 选项见[日志与遥测](/zh-cn/docs/latest/reference/telemetry/)。
 
 ## 共享模型目录
 
@@ -27,24 +27,24 @@ description: 配置项目根、共享模型和本地持久状态。
 layer_paths = ["../sales-domain/models", "/opt/company/finance-domain/models"]
 ```
 
-先加载本地模型，再按顺序加载这些路径。相对路径以配置文件为基准，不以当前 shell 目录为基准。外部根需要同时包含 `datasources/` 和 `semantic/`。跨根名称必须唯一，后加载的根不覆盖前者。
+Marivo 先加载本地模型，再按列出的顺序加载这些根目录。相对路径以包含 `marivo.toml` 的项目根为基准。每个外部根都必须包含 `datasources/` 和 `semantic/`。不同根中重复的数据源名称或语义 ID 会导致加载失败；后加载的定义不会覆盖先加载的定义。
 
 ## 明确选择项目
 
-需要精确根时，向 `md.load`、`md.inspect` 或 `ms.load` 传入 `workspace_dir`。未指定时，它们依次采用 `MARIVO_PROJECT_ROOT`、最近祖先配置、当前目录。Doctor 的显式 `--project-root` 选择诊断目标，
+需要指定确切项目根时，向 `md.load`、`md.inspect` 或 `ms.load` 传入 `workspace_dir`。未指定时，这些操作依次使用 `MARIVO_PROJECT_ROOT`、最近的祖先配置文件和当前目录。Doctor 的 `--project-root` 用于选择诊断目标。
 
-已加载目录保留当时定义；修改模型后重新调用 `ms.load()`。导入的 Python 依赖需要重载时重启进程。注册和删除只写本地数据源声明。
+已加载的目录保留加载时捕获的定义；编辑模型文件后重新调用 `ms.load()`。模型文件修改或软件包升级后，如需重新加载已导入的模块，请重启 Python。`md.register()` 和 `md.remove()` 只更新项目本地的数据源声明。
 
-结果持久化为项目本地数据。恢复时保留完整所属状态，不要编辑内部文件。不兼容旧状态需要原读取环境，没有自动迁移。参阅[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+分析状态保存在 `.marivo/` 下。要重新打开已保存的结果，请保留此目录。当前存储不会读取旧版本的分析存储；切换版本前，请在兼容的 Marivo 环境中导出仍需使用的结果。参阅[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
 
 ## 运行环境
 
-在 Python 进程实际运行的位置安装 Marivo。使用相同的固定包/源码修订、模型文件和项目根，便于复现。安装流程统一见[安装](/zh-cn/docs/latest/start/installation/)。
+在运行分析的 Python 环境中安装 Marivo。若要复现分析，请使用相同的软件包或源码修订、模型文件和项目根。安装步骤见[安装](/zh-cn/docs/latest/start/installation/)。
 
 ### 准备运行环境
 
-提供项目、所需驱动、环境变量凭据、来源网络权限，以及可写且持久的项目状态目录。一次性目录若不保留状态，保存结果也会随之丢失。
+准备项目和所需数据源驱动，并按数据源声明中的环境变量引用提供凭据。远程数据源还需要网络访问权限。若要重新打开已保存的结果，请将 `.marivo/` 保存在可写且持久的位置；一次性目录中的结果会随目录丢失，除非另行保留状态。
 
-用确切项目根运行 Doctor，检查包与解释器身份。只对预期来源执行真实连接测试；方法支持应另行检查。
+用确切项目根运行 Doctor，检查 Python 可执行文件以及 Marivo 软件包的版本和路径。只有在确实要测试某个数据源的实时连接时，才添加 `--datasource <name> --connect`。连接成功只能确认连通性；还需另行确认所需操作是否受支持。
 
 需要自定义凭据服务时，通过 `marivo.help("datasource.credential_scope")` 查询宿主集成接口。

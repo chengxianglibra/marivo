@@ -3,7 +3,7 @@ title: Installation and projects
 description: Install Marivo and choose the Python environment and project directory.
 ---
 
-Use one project environment for installation, Help, and analysis. Python 3.10 or newer is required. On Windows use `.venv/Scripts/python.exe` wherever these instructions use `.venv/bin/python`.
+Use Python 3.10 or newer, and keep installation, Help, and analysis in the same project environment. On Windows, replace `.venv/bin/python` with `.venv/Scripts/python.exe` in these commands.
 
 ## Install the source used by these guides
 
@@ -22,17 +22,32 @@ uv pip install --python .venv/bin/python -e "../marivo-source[duckdb]"
 
 Keep that revision when sharing a reproduction. Check Doctor's Python executable, package path, and project root before continuing.
 
-For MySQL or MariaDB, select `../marivo-source[mysql]`. This uses PyMySQL,
-including RSA authentication support, and requires no local MySQL client C
-library or compiler. `all` includes the same driver. Existing mysqlclient
-options such as `ssl_mode`, `auth_plugin` or protocol compression must be
-replaced with supported PyMySQL settings; unsupported options fail explicitly.
+For MySQL or MariaDB, select `../marivo-source[mysql]`. This installs PyMySQL
+with RSA authentication support and needs no local MySQL client C library. The
+`all` extra also includes the driver.
 
 ## Use a released package
 
-For a release, install `marivo[duckdb]` instead of the editable source and use its versioned documentation. Other extras include `postgres`, `mysql`, `trino`, and `clickhouse`; consult [backend prerequisites](/docs/latest/reference/backends-and-limits/).
+With `uv` installed, create a clean project environment, install the extra for
+your backend, and use that release's documentation. For the DuckDB tutorial:
 
-The optional `curl -fsSL https://marivo.io/install.sh | bash` installer installs a released package and initializes a project. Read its reported interpreter and extras; it does not install the development checkout.
+```bash
+mkdir marivo-release-demo
+cd marivo-release-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python "marivo[duckdb]"
+```
+
+Other backend extras are `postgres`, `mysql`, `trino`, and `clickhouse`; see
+[backend prerequisites](/docs/latest/reference/backends-and-limits/).
+
+The optional installer is a Bash script for macOS, Linux, WSL, and Windows
+Bash. `curl -fsSL https://marivo.io/install.sh | bash` installs a released
+package into `.venv` and initializes the current directory. By default it
+installs the `duckdb,trino,clickhouse` extras; pass `--extras` to choose a
+different set (for example, `bash -s -- --extras mysql`). The installer
+reports the Python executable and Marivo version. Use the editable-source
+steps above to follow the latest development API.
 
 ## Initialize when useful
 
@@ -40,10 +55,17 @@ The optional `curl -fsSL https://marivo.io/install.sh | bash` installer installs
 .venv/bin/python -m marivo init
 ```
 
-Initialization creates optional configuration and directories. An empty directory also works without a manifest. Avoid `--force` for an existing investigation: it recreates generated artifacts, including local state.
+Initialization creates starter configuration and directories; Marivo can also
+use an empty directory without a manifest. In an existing project,
+`--force` removes `marivo.toml`, `models/`, `.marivo/`, and Marivo skill paths
+under `.agents/`, `.claude/`, and `.codex/` before recreating scaffolding. Use
+it only when you intend to replace those files and state.
 
 ## Select a project
 
-For an existing project, open the directory containing `models/`, install its dependencies, and set the environment variables referenced by its datasource declarations. For a new project, run the quick start in a separate directory before replacing its data and definitions.
+For an existing project, use its project root, install its dependencies in the
+same environment, and set the environment variables named by its datasource
+declarations. For a new project, run the quick start in a separate directory
+before replacing its tutorial data and definitions.
 
 Check the interpreter, package path, and project root, then continue to [quick start](/docs/latest/start/python/).

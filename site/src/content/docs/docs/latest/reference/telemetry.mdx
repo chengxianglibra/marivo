@@ -7,7 +7,9 @@ description: Find local logs, control telemetry, and check records before sharin
 <span id="understand-local-telemetry"></span>
 <span id="capture-modes"></span>
 
-Execution logs record queries and their outcomes; usage telemetry records operations and durations. Both stay local. Use saved Frames to read analytical values.
+Execution logs record submitted SQL and outcomes; usage telemetry records
+selected operation events and durations. Both stay in project-local files. Use
+Frames to inspect analytical values.
 
 ## Find the right records
 
@@ -18,16 +20,22 @@ Execution logs record queries and their outcomes; usage telemetry records operat
 
 Use the query ID to match a SQL submission with its completion.
 
-New execution records use `schema_version: 2`. Each event carries a `runtime` object with `marivo_version`, `python_version`, `python_executable`, `package_path` and `process_id`, including records read from a rotated file or a log tail. These fields belong to the logger and cannot be replaced by caller context.
+New execution-log records use `schema_version: 2` and include a `runtime` object with `marivo_version`, `python_version`, `python_executable`, `package_path` and `process_id`. The logger writes these fields; caller context cannot replace them. This identifies the process environment, not the package contents or a data snapshot. Run `marivo doctor` to inspect the current environment; it cannot reconstruct a historical one. Older records are unchanged, and missing `runtime` means the historical identity is unknown. A file can contain multiple schema versions; interpret each line separately.
 
-This identity describes the environment that emitted the event. It does not prove package contents or a data snapshot; equal development versions and paths can contain different code. Doctor reports the current environment. Older records are unchanged, and missing runtime means the historical identity is unknown. One file can contain multiple schema versions; interpret each line separately. Usage telemetry has its own schema and is unchanged.
+New usage telemetry events use schema v3, identified by
+`marivo.event.schema_version`. Earlier events are not migrated, so interpret
+each event according to its own schema version.
+
+The released 0.5.7–0.5.9 versions support `full`; its introduction is covered
+in the [Marivo 0.5.7 release notes](/docs/latest/release-notes/0.5.7/). The
+current source version, `0.6.0.dev0`, accepts only `on` and `off`.
 
 
 ## Enable or disable telemetry
 
 | Mode | Behavior |
 | --- | --- |
-| `on` | Default; records execution, session creation and reuse, datasource changes, and failures |
+| `on` | Default; records selected operations and failures |
 | `off` | Disables usage telemetry; execution logs remain enabled |
 
 Set the project default in `marivo.toml`:
@@ -37,12 +45,23 @@ Set the project default in `marivo.toml`:
 enabled = "off"
 ```
 
-The `MARIVO_TELEMETRY` environment variable accepts `on` or `off` and overrides project configuration. Invalid environment values are ignored; invalid project values raise a configuration error.
+`MARIVO_TELEMETRY` accepts `on` or `off` and overrides the project setting.
+Invalid environment values are ignored; invalid `[telemetry].enabled` values
+in `marivo.toml` fail configuration validation.
 
-With telemetry enabled, explicit long operations such as analysis execution, semantic loading, and datasource queries record start and completion events. Short operations such as session creation or reuse record completion only. Lightweight reads record failures only; analysis constructors and semantic references do not record events. Nested calls omit successful events while retaining eligible failures and their parent operation identity.
+With telemetry on, explicit long operations such as analysis execution,
+semantic loading and datasource queries emit start and completion events.
+Selected short operations emit a completion event, and some operations record
+failures only. Successful nested calls are omitted; an absent event does not
+prove that no work ran. Use execution logs to inspect SQL activity.
 
 ## Understand retention and sharing
 
-Files roll by UTC day and approximately 128 MiB segments. Historical records are normally kept for 14 days and pruned to a 1 GiB historical budget. Current-day files are not pruned, so the whole directory may exceed that size.
+Files roll by UTC day into segments of approximately 128 MiB. Each stream keeps
+historical records for up to 14 days and prunes them to a 1 GiB historical
+budget. Current-day files are not pruned, so a directory may exceed that size.
 
-Execution logs contain SQL, which can include business conditions and literals. Usage telemetry can retain session questions and SQL reasons. Check records for sensitive content before sharing them.
+Execution logs contain submitted SQL, which can include business conditions
+and literals. Usage telemetry excludes SQL text and exception messages, but can
+include Session questions, analysis purposes and the `reason` passed to
+`md.raw_sql`. Check both records for sensitive content before sharing them.

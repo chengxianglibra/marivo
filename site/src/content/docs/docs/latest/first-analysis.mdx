@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Your first analysis with an agent
+description: Ask a focused business question, check the results, and choose a follow-up.
 pagefind: false
 head:
   - tag: meta
@@ -9,16 +9,37 @@ head:
       content: noindex
 ---
 
-This content is now in [Use Marivo with an agent](/docs/latest/guides/agents/).
+Start with a project whose model and data are available to the AI Agent. Follow
+[Use Marivo with an agent](/docs/latest/guides/agents/) for setup instructions.
+To practice without production data, ask the Agent to follow the [six-order
+Python quick start](/docs/latest/start/python/).
 
-## Give the agent a bounded question
+## Ask a focused question
 
-[Continue reading](/docs/latest/guides/agents/)
+Name the project metric that matches the question, the period and comparison
+period, any grouping, and the values you want to review. Confirm material
+business choices, such as whether revenue includes refunds and which currency
+or business calendar applies.
 
-## Understand the agent’s work
+For the demo model, ask:
 
-[Continue reading](/docs/latest/guides/agents/)
+> Using this project's `sales.revenue`, compare August 2026 with July. Report
+> both period totals and the overall change (August minus July), then show the
+> change by region. Include the scope and evidence.
 
-## Review the answer
+## Check the answer and continue
 
-[Continue reading](/docs/latest/guides/agents/)
+For the six-order demo, July revenue is 1,000 CNY and August revenue is 800 CNY,
+a decline of 200 CNY. East and west each decline by 100 CNY. These checks apply
+only to the demo data. Results for another project depend on its definitions and
+data; if unexpected, first check the selected metric and period.
+
+Check that the answer uses the intended metric, periods, currency, and grouping,
+and explains its evidence and any missing data. The regional figures are a
+numerical breakdown of the change; they do not establish its cause. See [how to
+read evidence](/docs/latest/analysis/results/#read-evidence-in-context) for more
+on scope and audit records.
+
+For a follow-up, state which time or member scope should stay fixed and whether
+you need the saved result or current source values. The [results guide](/docs/latest/analysis/results/)
+explains how to save and reopen a result.

@@ -9,20 +9,50 @@ head:
       content: noindex
 ---
 
-内容已合并至 [安装与项目](/zh-cn/docs/latest/start/installation/)。
+本指南已合并至[安装与项目](/zh-cn/docs/latest/start/installation/)。使用 Python 3.10 或更高版本，并在隔离的 `.venv` 中安装。安装、Help 和分析命令都使用该环境的解释器。Windows 下请把 `.venv/bin/python` 替换为 `.venv/Scripts/python.exe`。
 
 ## 安装已发布包
 
-[继续阅读](/zh-cn/docs/latest/start/installation/)
+使用 Marivo 已发布版本时，应按项目选择后端扩展。已安装 `uv` 时，可按下面的步骤安装 DuckDB 版本：
+
+```bash
+mkdir marivo-demo
+cd marivo-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python "marivo[duckdb]"
+```
+
+其他后端扩展包括 `postgres`、`mysql`、`trino` 和 `clickhouse`。请使用与已安装版本对应的文档。
+也可运行 `curl -fsSL https://marivo.io/install.sh | bash` 使用可选安装脚本。脚本会在需要时准备 `uv`，默认安装 `duckdb,trino,clickhouse`，并初始化目标项目；它安装的是发布包，不是开发源码。详见[发布包安装说明](/zh-cn/docs/latest/start/installation/#使用发布包)。
 
 ## 当前开发源码
 
-[继续阅读](/zh-cn/docs/latest/start/installation/)
+`latest` 指南介绍的是开发 API。若要跟随这些指南，请以可编辑方式安装源码，并将教程项目放在源码检出目录之外。以下命令需要 Git 和 `uv`：
+
+```bash
+git clone https://github.com/chengxianglibra/marivo.git marivo-source
+git -C marivo-source rev-parse HEAD
+mkdir marivo-demo
+cd marivo-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python -e "../marivo-source[duckdb]"
+```
+
+分享复现步骤时请记录源码修订。完整命令见[源码安装步骤](/zh-cn/docs/latest/start/installation/#安装本指南对应的源码)。
 
 ## 按需初始化
 
-[继续阅读](/zh-cn/docs/latest/start/installation/)
+手动安装后，只有在需要项目模板时才运行 `.venv/bin/python -m marivo init`。官方安装脚本会自动执行 `init`。
+已有项目不要随意使用 `--force`，它会重建生成文件和本地状态。详见[初始化项目](/zh-cn/docs/latest/start/installation/#按需初始化)。
 
 ## 连接前验证
 
-[继续阅读](/zh-cn/docs/latest/start/installation/)
+开始快速入门前，使用同一解释器检查包版本和项目环境：
+
+```bash
+.venv/bin/python -m marivo --version
+.venv/bin/python -m marivo doctor --project-root .
+```
+
+Doctor 会报告 Python 可执行文件、包路径和项目根目录。安装开发源码后，可在独立演示目录继续[最新 Python 快速开始](/zh-cn/docs/latest/start/python/)；其中的种子脚本会替换演示用的 `orders` 表。
+安装发布包后，应使用对应版本的快速开始。使用数据源的项目还需设置相应环境变量。详见[选择项目](/zh-cn/docs/latest/start/installation/#选择项目)。

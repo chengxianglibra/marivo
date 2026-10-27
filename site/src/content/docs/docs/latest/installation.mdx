@@ -9,20 +9,68 @@ head:
       content: noindex
 ---
 
-This content is now in [Installation and projects](/docs/latest/start/installation/).
+This guide has moved to [Installation and projects](/docs/latest/start/installation/).
+Use Python 3.10 or newer in an isolated `.venv`, and use that environment's
+interpreter for installation, Help, and analysis commands. On Windows, replace
+`.venv/bin/python` with `.venv/Scripts/python.exe`.
 
 ## Install a released package
 
-[Continue reading](/docs/latest/start/installation/)
+For a published release, install the backend extra your project uses. If you
+already use `uv`, the DuckDB setup is:
+
+```bash
+mkdir marivo-demo
+cd marivo-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python "marivo[duckdb]"
+```
+
+Other backend extras are `postgres`, `mysql`, `trino`, and `clickhouse`. Use
+the documentation for the installed release. The optional command
+`curl -fsSL https://marivo.io/install.sh | bash` installs a release, prepares
+`uv` if needed, defaults to `duckdb,trino,clickhouse`, and initializes the
+target project. It does not install the development checkout. See
+[released-package details](/docs/latest/start/installation/#use-a-released-package).
 
 ## Current development source
 
-[Continue reading](/docs/latest/start/installation/)
+The `latest` guides describe development APIs. To follow them, install a
+checkout editably and keep the tutorial project separate from the source
+checkout. These commands require Git and `uv`:
+
+```bash
+git clone https://github.com/chengxianglibra/marivo.git marivo-source
+git -C marivo-source rev-parse HEAD
+mkdir marivo-demo
+cd marivo-demo
+uv venv --python 3.10 --seed
+uv pip install --python .venv/bin/python -e "../marivo-source[duckdb]"
+```
+
+Record the checkout revision when sharing a reproduction. See the complete
+[source-install steps](/docs/latest/start/installation/#install-the-source-used-by-these-guides).
 
 ## Initialize only when useful
 
-[Continue reading](/docs/latest/start/installation/)
+For a manual install, run `.venv/bin/python -m marivo init` when you want the
+starter configuration and directories. The official installer runs `init`
+automatically. Avoid `--force` in an existing project unless you intend to
+recreate generated files and local state. See [project initialization](/docs/latest/start/installation/#initialize-when-useful).
 
 ## Verify before connecting
 
-[Continue reading](/docs/latest/start/installation/)
+Before the quick start, check the package version and project environment with
+the same interpreter:
+
+```bash
+.venv/bin/python -m marivo --version
+.venv/bin/python -m marivo doctor --project-root .
+```
+
+Doctor reports the Python executable, package path, and project root. After a
+development-source install, continue to the [Python quick start](/docs/latest/start/python/)
+in a separate demo directory; its seed script replaces the demo `orders` table.
+After a release install, use the quick start for that release instead. Configure
+datasource environment variables in the project that uses them. See
+[project selection](/docs/latest/start/installation/#select-a-project).

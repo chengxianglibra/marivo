@@ -8,11 +8,11 @@ tutorial: true
 <span id="compute-and-save-the-comparison"></span>
 <span id="interpret-the-result"></span>
 
-Complete [installation](/docs/latest/start/installation/) in a separate directory. Create six completed orders in CNY, without refunds or currency conversion.
+Start in the separate project created in [installation](/docs/latest/start/installation/). The demo uses six completed orders in CNY and excludes refunds and currency conversion.
 
 ## Create the data
 
-Save as `seed.py` and run `.venv/bin/python seed.py`. This replaces the demo orders table.
+Save as `seed.py` and run `.venv/bin/python seed.py`. This recreates the `orders` table in `warehouse.duckdb`, replacing its contents.
 {/* example: demo-seed */}
 
 ```python title="seed.py"
@@ -86,7 +86,6 @@ amount = ms.measure_column(
 )
 
 
-
 @ms.metric()
 def revenue():
     return amount.sum(time=order_date)
@@ -115,12 +114,10 @@ fixed = pending.compute()
 fixed.show()
 ```
 
-The result is 1,800, the sum of all six amounts. Each run creates a fresh project-local Session. Use `mv.session.resume(session_id)` only when intentionally continuing an exact saved Session.
+The total is CNY 1,800, the sum of the six order amounts. Each run creates a new project-local Session.
 
-`compute()` returns complete memory data. Continue calculations from `fixed` to retain that observation. When a saved Artifact is needed, call `saved = fixed.persist()` and `saved.show(n=0)`; this saves those values without reevaluating the source. In an existing project, the runnable entry's `--list-metrics` mode discovers unknown Metric paths. Choose an exact displayed path and resume the printed Session ID for observation. Use `--list-fields` in that Session only when a requested grouping path is unknown; `--full-output` explicitly expands a bounded list.
+`compute()` returns a complete in-memory Frame. Continue calculations from `fixed` to use those values in this process. To reopen them in another process, persist `fixed` and keep the returned Frame's `session_id` and `artifact_id`; see [Results and evidence](/docs/latest/analysis/results/).
 
-`domains=None` loads all authoring domain directories and freezes that scope in the Session. Explicit names select only those directories, without dependency expansion; include every required domain before creation. To widen a frozen scope, create a new Session with `domains=None` or the complete required sequence. Catalog loading reads metadata, so this default needs no extra source-data audit.
+Here, `domains=None` loads every domain directory in this separate demo project. In a larger project, specify every domain the analysis needs; an explicit domain list does not expand to include dependencies.
 
-The [neutral runnable entry](https://github.com/chengxianglibra/marivo/tree/main/examples/analysis) documents discovery, exact Metric selection, optional grouping and intervals, persistence, and continuation by Session ID, with a separate synthetic fixture. Use the [axis examples](https://github.com/chengxianglibra/marivo/blob/main/examples/analysis/AXES.md) when the task needs shared source conditions, complete-axis comparison or paired association. They retain the null, absence, zero and repeated-time distinctions. After `import marivo`, use focused exact Help such as `marivo.help("analysis.session.observe")` or the public bound callable `marivo.help(session.observe)`; follow printed targets when discovering other syntax.
-
-The [analysis DSL](/docs/latest/analysis/dsl/) supplies a complete `analysis.py` for monthly and regional comparisons.
+Next, use the [complete Analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) to compare monthly revenue by region. After `import marivo`, call `marivo.help("analysis.session.observe")` for the exact signature.

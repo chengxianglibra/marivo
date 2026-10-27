@@ -9,27 +9,52 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 <span id="贡献资格"></span>
 <span id="资源和保存边界"></span>
 
-分别选择连接与分析方法。驱动安装和连接成功，不代表所有方法都可执行。
+分别选择连接与分析方法。驱动安装或连接成功，不保证具体方法适用于当前来源的
+数据类型和结构。
 
 | 后端 | 可选依赖 | 重要条件 |
 | --- | --- | --- |
-| DuckDB | `duckdb` | 本地教程无需服务；贡献要求合格物理表 |
-| PostgreSQL | `postgres` | 需要 libpq 和权限；精确中位数/分位数受物理类型限制 |
-| MySQL / MariaDB | `mysql` | 使用包含 RSA 认证支持的 PyMySQL，无需本地 MySQL 客户端 C 库；支持排序取界的精确分位，不支持近似源端分位 |
-| Trino | `trino` | 需要 catalog/schema 与权限；支持排序取界的精确分位或显式近似分位 |
-| ClickHouse | `clickhouse` | 支持合格普通分组聚合，Distributed 键连接有限制；支持排序取界的精确分位或显式 TDigest 近似分位 |
+| DuckDB | `duckdb` | 本地数据库与文件来源引擎；教程无需服务器 |
+| PostgreSQL | `postgres` | 需要 libpq 和数据库访问权限 |
+| MySQL / MariaDB | `mysql` | PyMySQL 包含 RSA 认证支持；无需本地 MySQL 客户端 C 库 |
+| Trino | `trino` | 必须设置 `catalog` 和 `user_env`；`schema` 可选 |
+| ClickHouse | `clickhouse` | JOIN 操作要求通过准入的 MergeTree 表；Distributed 表的 JOIN 路线受限 |
 
 ## 核对来源形式与方法
 
-表、文件和 HTTP 的发现能力与执行条件不同。参数化 HTTP JSON 可以声明和预览，但不是数值 Frame 来源。五种 backend 均支持精确数值来源中位数/分位数。MySQL、Trino 和 ClickHouse 在源端排序取界后本地插值；DuckDB 和 PostgreSQL 保留已准入的精确路径。近似分位必须显式声明，支持 DuckDB、Trino 和 ClickHouse，各 backend 的算法可以不同；PostgreSQL 和 MySQL 拒绝近似源端方法。普通计数、去重数、求和、最值、均值与加权均值仍取决于实际类型与表达式。
+数据库表使用所选 SQL 后端；CSV、Parquet 和文件 JSON 由 DuckDB 读取。Analysis Session
+只支持未参数化 GET 路线的本地 JSON 文件。其他 HTTP JSON 形式仍可通过数据源 API 声明
+和预览，但不能作为 Analysis Session 输入。
 
-贡献要求合格的物理表及保留的来源声明。DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse 使用各自的原生执行路径，仍受实际方法、类型、键和来源能力限制。父级与细分独立读取，不保证共享快照。Attribute 信任语义层的身份、关系基数和版本粒度声明，仍检查操作新增的 membership/Population 缺失与重叠、distinct 值跨组及数值有效性；只对请求的最终目标按其闭合容差验收。Float64 容差取最终目标绝对值的 1% 与数值舍入预算的较大值；其他数值类型保持原有规则。不支持贡献时，可显式观察和比较继续调查，但不宣称精确分解。
+五类后端均可对数值输入执行精确来源端 `median` 和 `quantile`。DuckDB 和 PostgreSQL
+使用原生精确算法；MySQL、Trino 和 ClickHouse 在来源查询中取得精确排序边界，再据此
+插值。线性插值使用 `h=(n-1)q`，所以 `[0, 10]` 在 `q=0.95` 时结果为 `9.5`。整数和
+浮点结果使用 `float64`；Decimal 遵循声明的精度与小数位数。默认 NULL 政策下，空输入
+或全为 NULL 时返回 NA；显式严格 NULL 检查仍作用于本次需求的输入。
 
-远端贡献仍要求直接映射到物理非空整数或字符串列的 identity，以及合格的字符串 collation。同一 root 内不兼容的非时间 scope 会被拒绝。普通观察成功本身不代表这些输入已满足贡献准入条件。
+数值近似方法必须显式声明。DuckDB 使用 `approx_quantile`，Trino 使用 `approx_percentile`，
+ClickHouse 使用 `quantileTDigest`；PostgreSQL 和 MySQL 没有近似来源端路线。各算法结果
+可能不同，没有统一误差界限。其他常见规约——计数、去重计数、求和、最小/最大值、
+均值和加权均值——仍须满足实际类型与表达式的准入条件。
+
+贡献分析使用五类后端的合格来源路线，但仍受方法、类型、键和来源限制。父级总量与
+细分贡献独立读取，可能来自不同来源快照。`Attribute` 信任实体身份、关系基数和版本
+粒度声明；准入还会检查 membership/Population 覆盖与重叠、distinct 值的跨组分区、
+时间对应和数值闭合。只核对请求的最终目标与新读取的父级总量。Float64 闭合容差取
+目标绝对值的 1% 与数值舍入预算的较大值；其他类型使用各自规则。若目标不满足准入
+条件，可通过显式观察和比较继续调查，但不能把结果当作贡献分解。
+
+远端 `Attribute` 要求直接物理有符号整数字段或字符串身份字段，以及合格的字符串
+collation。Entity 的 `primary_key` 声明完整且非空的身份；即使物理元数据将身份列标为可空，
+该路线仍信任此声明，不会全量预检来源数据中的空值或唯一性；各操作的身份检查仍会执行。
+需要按范围核验数据时，使用 `ms.source_check` 构造检查，并通过有界的
+`catalog.source_health(..., checks=..., scope=...)` 执行。同一来源 root 内不兼容的非时间
+scope 不能合并。
 
 ## 考虑资源与数值限制
 
-本地操作可能在内存保留全部所需向量。展示行数限制不是计算或扫描限制。超时遵循驱动原生含义，部分设置可能不受支持；没有整个计算图的期限，也不会静默切换执行器。
+本地计算可能在内存保留全部所需向量。展示行数限制只影响输出，不限制计算量或来源扫描。
+查询超时使用后端原生设置，可能不受支持，也不覆盖完整客户端调用和结果获取过程。
 
 `md.raw_sql()` 默认请求 600 秒的原生查询超时，可通过 `timeout_seconds` 覆盖；
 Trino 将其用于 `query_max_run_time`。连接获取使用独立的原生 30 秒设置。
@@ -45,12 +70,20 @@ md.raw_sql(
 )
 ```
 
-来源精度和溢出遵循合格后端。Marivo 不预检查原生运算溢出，也不因此回退本地重算：后端可以报错、返回回绕值、Infinity 或 NaN。完整和已保存的 Frame 在导出时保留原生浮点值。转换无法修复已丢失的精度或来源已经回绕的值；本地算术、比较差值和配对统计也遵循实际 pandas/Arrow 或 Decimal 标量内核，包括原生舍入、异常和非有限结果，不额外扫描溢出或有限值，不做保护性加宽、精度模拟或回退。本地 int64 SUM 保持 int64，可能回绕；源端整数 SUM 使用原生 Ibis 累加，转换边界可能拒绝后端返回的更宽结果。直接投影、`is_null()` 和保存恢复保留各自的 validity。不同来源之间没有统一 Decimal 精度保证。
+`md.raw_sql()` 只应执行只读 SQL；Trino 依赖数据库权限禁止写入。它会把查询返回的全部
+行加载到内存。可使用筛选、聚合或 SQL `LIMIT` 控制结果大小；`LIMIT` 不限制来源扫描成本。
 
-MySQL SUM 保留服务器返回的宽精度 Decimal，再安全转换为声明的 Decimal
-载体。超出该载体范围的聚合值会在发布前失败，避免额外的结果 CAST 先将其截到
-范围边界。融合来源表达式内部的算术仍遵循原生精度和溢出行为。
+数值精度和溢出遵循后端与数据类型。整数 SUM 使用 `int64` 结果：本地求和可能回绕，
+较宽的来源端累计值也可能在通过 Ibis 传输时失败；ClickHouse 可能返回回绕值。来源读取
+后再转换无法恢复已经丢失的精度。MySQL SUM 会先保留服务器返回的宽精度 Decimal，再安全
+转换为声明的 Decimal 结果；超出范围时会报错，而不会截断。融合来源表达式内部的算术仍
+遵循 MySQL 原生规则。已保存的 Frame 按已提交值导出；导出不会重算，也不能修复来源端已
+发生的精度损失或溢出。
 
-mean 跳过 NULL 输入，没有有效值时返回 NULL。默认 `nulls="ignore"` 使用这套固定计算规则；`nulls="error"` 额外断言本次需求输入不含 NULL，原生 AVG 同样执行该断言。空输入通过此断言。原生 AVG 的数值算法与溢出仍由后端决定。业务填补应放在受支持的显式输入表达式或预处理步骤中。符合下推条件的 `amount.mean(time=point).per(point).mean()` 先计算每个已出现时间点的均值，再在来源中对这些均值等权平均；不要求时间覆盖完整，不补齐缺失时间点，也不回退本地计算均值。例如两个时间点的值分别为 `[0, 0, 0]` 和 `[100]`，结果为 `50`，而非原始行均值 `25`。时间样本 `mean` 和 `weighted_mean` 在所有已准入路径中都使用实际样本，包括本地公式、Duration 和窗口，不会补齐预期时钟。显式 Population 域和已有 NULL、权重政策保持不变。其他规约仍遵循各自的 NULL 和覆盖契约。
+`mean()` 默认跳过 NULL，没有有效值时返回 NULL。`nulls="error"` 要求本次需求输入不含
+NULL；空输入通过此断言。对于 `amount.mean(time=point).per(point).mean()`，先求每个已出现
+时间点的均值，再对这些均值等权平均。时间点数据为 `[0, 0, 0]` 和 `[100]` 时，结果是
+`50`，而非按原始行加权的 `25`。不会合成没有数据的预期时间点；时间样本 `mean` 和
+`weighted_mean` 使用实际出现的样本。
 
 本地教程只演示其 DuckDB 路线。配置见[接入数据](/zh-cn/docs/latest/modeling/semantic-layer/#连接与检查)，具体失败见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。

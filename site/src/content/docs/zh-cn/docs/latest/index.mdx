@@ -8,29 +8,29 @@ description: 用 Python 定义业务指标、查询数据并保存分析结果�
 <span id="开始前需要什么"></span>
 <span id="选择入口"></span>
 
-Marivo 是用于业务数据分析的 Python 库，提供语义层和分析 DSL。语义层保存指标、实体、维度和关系等业务定义；分析 DSL 用这些定义计算、比较和拆分结果，并保留分析依据。
+Marivo 是用于业务数据分析的 Python 库。语义层记录可复用的业务定义，包括指标、实体、维度和关系。分析 DSL 按这些定义计算和比较结果。保存结果后，可查看记录的数据来源和评估信息。
 
-例如，订单表有金额、地区和日期。你可以定义收入，再按地区查看每月收入、比较两个时期，或计算滚动窗口和相关性。分析结果可以保存，之后从同一份数据继续计算。
+例如，订单表包含金额、地区和日期。定义收入后，可按地区计算每月收入、比较不同期间，或用滚动窗口观察趋势。保存已完成结果后，可重新读取当时保存的值。
 
 ## 可以做什么
 
-| 任务 | 用法与结果 |
+| 想完成的任务 | 从这里开始 |
 | --- | --- |
-| 接入数据 | 声明数据库或文件来源，检查结构和样本 |
-| 定义业务口径 | 定义收入、客单价等指标，复用单位、时间和关系规则 |
-| 查询与分组 | 按地区、客户和时期计算指标，选择所需记录 |
-| 比较与拆分 | 比较两个时期或目标值，按维度调查变化 |
-| 时间与统计 | 按日历聚合、计算滚动窗口、占比和相关性 |
-| 保存与检查 | 保存固定结果，读取数据和方法说明 |
+| 连接数据库或文件，并检查结构和限定范围的样本 | [数据源配置](/zh-cn/docs/latest/modeling/datasources/) |
+| 定义可复用指标及其实体、时间字段和关系 | [语义层](/zh-cn/docs/latest/modeling/semantic-layer/) |
+| 按期间或维度计算指标，并筛选或检查所选记录 | [分析 DSL](/zh-cn/docs/latest/analysis/dsl/) |
+| 与基准结果比较，并按群体检查差异 | [比较基准](/zh-cn/docs/latest/analysis/dsl/#比较与对齐) · [调查变化](/zh-cn/docs/latest/analysis/dsl/#调查变化) |
+| 按日历期间分组，计算窗口、份额或成对相关性 | [时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/) · [统计与相关性](/zh-cn/docs/latest/analysis/statistics/) |
+| 重新打开已保存的值，并查看来源与审计记录 | [结果与证据](/zh-cn/docs/latest/analysis/results/) |
 
 ## 从哪里开始
 
-[安装与项目](/zh-cn/docs/latest/start/installation/)说明环境准备。[快速开始](/zh-cn/docs/latest/start/python/)提供六笔本地订单，计算总收入 1,800 元。
+[安装与项目](/zh-cn/docs/latest/start/installation/)说明环境准备。[快速开始](/zh-cn/docs/latest/start/python/)使用六笔本地订单，计算总收入 1,800 CNY。
 
-[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)介绍如何建模；[分析 DSL](/zh-cn/docs/latest/analysis/dsl/)通过代码介绍查询、筛选、比较和拆分。
+[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)说明如何定义可复用指标；[分析 DSL](/zh-cn/docs/latest/analysis/dsl/)通过代码演示查询、筛选、比较和贡献拆分。
 
-需要让 Agent 操作时，阅读[使用 Agent](/zh-cn/docs/latest/guides/agents/)。
+使用 Agent 分析时，可从[使用 Agent](/zh-cn/docs/latest/guides/agents/)和[用 Agent 完成首次分析](/zh-cn/docs/latest/first-analysis/)开始。
 
-本 latest 指南对应开发源码。发布包请使用匹配版本的文档。数据访问与分析方法的支持范围见[数据源限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+本 latest 文档跟随开发源码。若使用已发布版本，请切换到对应版本的文档；数据访问与分析方法的支持范围见[数据源支持与限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
 
-独立参考页：[Datasource](/zh-cn/docs/latest/modeling/datasources/) · [日期与时间](/zh-cn/docs/latest/modeling/dates/) · [Population](/zh-cn/docs/latest/analysis/population/).
+更多参考：[日期与时间定义](/zh-cn/docs/latest/modeling/dates/) · [分析对象集合（Population）](/zh-cn/docs/latest/analysis/population/)。

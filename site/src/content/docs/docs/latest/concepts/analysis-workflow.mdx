@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Analysis workflow
+description: Choose definitions and scope, evaluate an observation, and retain results for follow-up.
 pagefind: false
 head:
   - tag: meta
@@ -9,32 +9,52 @@ head:
       content: noindex
 ---
 
-This content is now in [Analysis DSL](/docs/latest/analysis/dsl/).
+Marivo analysis moves from a business question to a result you can inspect and
+reuse. Choose the business definition, population and time scope, and how long
+to retain the result based on the work that follows.
 
-## Read guidance for the next decision
+## Start with the question
 
-[Continue reading](/docs/latest/analysis/dsl/)
+Look up an existing `Metric` in the project Catalog and reuse it when its meaning
+and aggregation answer the question. If no existing Metric fits, define the
+needed business meaning in the [semantic layer](/docs/latest/modeling/semantic-layer/).
+Use a stable project-local name with `mv.session.get_or_create(...)` when repeated
+runs should recover the same Session.
 
-## Create and recover an exact Session
+See [Session acquisition](/docs/latest/analysis/dsl/#repeatable-session-acquisition)
+and the [shared input example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs).
 
-[Continue reading](/docs/latest/analysis/dsl/)
+## Choose members, contributions, and time
 
-## Construct explicit source inputs
+Use a Population to select complete members. `session.observe(...)` captures a
+Metric calculation; `by` selects output coordinates, while `where` filters
+source contributions. When the Metric's time-sample reduction requires a finite
+period, include a `TimeScope` or `CalendarAxis` in `by`. Use `session.read(...)`
+to retrieve named attributes for selected Entity identities.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+Continue with [population selection](/docs/latest/analysis/dsl/#select-and-filter),
+[scope and grain](/docs/latest/analysis/dsl/#scope-and-grain), and
+[observing Metrics](/docs/latest/analysis/dsl/#observe-metrics).
 
-## Fix values before the next decision
+## Evaluate and retain the result
 
-[Continue reading](/docs/latest/analysis/dsl/)
+`session.observe(...)` returns a pending `AnalysisFrame`. `compute()` evaluates
+it and returns a Frame whose values live in the current Python process.
+`persist()` completes and publishes the result. If another process needs the
+same values, save the returned Session and Artifact IDs before the producing
+process exits. For current source values in a later analysis, capture a new
+observation.
 
-## Ask for new source facts explicitly
+The DSL guide explains [when to compute or persist](/docs/latest/analysis/dsl/#choose-retention-before-execution);
+the [results guide](/docs/latest/analysis/results/) shows how to reopen a saved
+result.
 
-[Continue reading](/docs/latest/analysis/dsl/)
+## Continue with selected data
 
-## Keep source contribution and time meaning
-
-[Continue reading](/docs/latest/analysis/dsl/)
-
-## Read data and audit within their boundaries
-
-[Continue reading](/docs/latest/analysis/dsl/)
+Use the returned Frame for follow-up work that should use the same computed
+values. To carry a selected field or identity into a new source question, map
+the axis from the completed Frame with `session.population_from(...)`, then pass
+that Population to the new observation with `where=mv.in_population(...)`. The
+selected keys stay fixed, while the new observation reads its source values
+again. Build the bridge and observation in the owning Session. See
+[select and filter](/docs/latest/analysis/dsl/#select-and-filter) for an example.

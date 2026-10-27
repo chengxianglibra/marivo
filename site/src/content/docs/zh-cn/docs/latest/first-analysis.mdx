@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 用 Agent 完成首次分析
+description: 提出聚焦的业务问题，核对结果并选择下一步。
 pagefind: false
 head:
   - tag: meta
@@ -9,16 +9,26 @@ head:
       content: noindex
 ---
 
-内容已合并至 [使用 Agent](/zh-cn/docs/latest/guides/agents/)。
+先准备好项目模型和数据，并确保 AI Agent 可以访问。准备工作见[使用 Agent](/zh-cn/docs/latest/guides/agents/)。
+若要在没有生产数据的情况下练习，可让 Agent 按[六笔订单 Python 快速开始](/zh-cn/docs/latest/start/python/)操作。
 
-## 向 Agent 提供明确范围的问题
+## 提出聚焦的问题
 
-[继续阅读](/zh-cn/docs/latest/guides/agents/)
+说明与问题相符的项目指标、时间范围、比较期间、分组方式和需要核对的数值。退款是否扣除、使用什么币种和业务日历等重要口径应先确认。
 
-## 理解 Agent 的工作
+对于演示模型，可以这样提问：
 
-[继续阅读](/zh-cn/docs/latest/guides/agents/)
+> 使用本项目的 `sales.revenue` 比较 2026 年 8 月与 7 月。列出两个期间的总额和整体变化
+> （8 月减去 7 月），再按地区列出变化。说明范围并提供依据。
 
-## 审阅回答
+## 核对结果并继续
 
-[继续阅读](/zh-cn/docs/latest/guides/agents/)
+六笔演示订单以 CNY 计价：7 月收入为 1,000，8 月为 800，减少 200；east 和 west 各减少 100。
+这些数值只适用于演示数据。其他项目的结果取决于其定义和数据；若结果不符合预期，先核对所用指标和时间范围。
+
+确认回答采用了问题指定的指标、期间、币种和分组，并说明证据及是否存在缺失数据。
+地区数值是对变化的计算拆分，不能证明变化原因。参阅[如何阅读证据](/zh-cn/docs/latest/analysis/results/#理解证据及其适用范围)，
+了解记录的范围和审计信息。
+
+继续提问时，说明哪些时间或成员范围需要保持不变，以及要复用已保存结果还是读取当前来源数据。
+[结果指南](/zh-cn/docs/latest/analysis/results/)说明如何保存和重新打开结果。

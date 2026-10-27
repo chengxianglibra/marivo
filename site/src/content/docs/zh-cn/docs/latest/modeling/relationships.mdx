@@ -9,16 +9,16 @@ head:
       content: noindex
 ---
 
-内容已合并至 [语义层](/zh-cn/docs/latest/modeling/semantic-layer/)。
+本文现已并入[语义层：关系与归属](/zh-cn/docs/latest/modeling/semantic-layer/#关系与归属)。
 
 ## 先明确连接粒度
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+选择连接字段前，先确认两端实体的完整 `primary_key`；连接键应包含表达预期实体匹配所需的全部身份组成部分。如果端点是版本化实体，使用它的操作还要选定确切的快照或有效期边界。参见[关系粒度与示例](/zh-cn/docs/latest/modeling/semantic-layer/#先明确连接粒度)。
 
 ## 让声明符合规则
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+用 `from_entity` 和 `to_entity` 声明关系方向，再通过 `ms.join_on` 配对确切端点上的直接字段。`ms.relationship` 根据两端完整主键推导结构基数；这不能证明当前数据行都能匹配。若要核对当前匹配情况，或将观测到的多重性与预期基数比较，可向 `catalog.source_health(...)` 传入显式数据源检查和有界范围。参见[声明示例与检查](/zh-cn/docs/latest/modeling/semantic-layer/#让声明符合规则)。
 
 ## 决定多重归属如何贡献
 
-[继续阅读](/zh-cn/docs/latest/modeling/semantic-layer/)
+连接到有重叠归属时，事实贡献可能重复。应先确定是否需要允许分组总额重叠，或定义有业务依据的分配；按新属性统计实体时保留实体身份。使用 `mv.membership(...)` 可明确分组或分配路径。参见[多重归属示例](/zh-cn/docs/latest/modeling/semantic-layer/#决定多重归属如何贡献)。

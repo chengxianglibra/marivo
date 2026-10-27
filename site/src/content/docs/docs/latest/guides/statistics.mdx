@@ -9,24 +9,52 @@ head:
       content: noindex
 ---
 
-This content is now in [Statistics and correlation](/docs/latest/analysis/statistics/).
+This guide has moved to [Statistics and correlation](/docs/latest/analysis/statistics/).
+The topics below link to the corresponding sections in the current guide.
 
 ## Reduce or select current rows
 
-[Continue reading](/docs/latest/analysis/statistics/)
+Use `reduce()` to summarize rows represented by the current Frame.
+`mv.row_count()` counts every row, including rows with NULL values. An empty sum
+is zero; a nonempty all-NULL sum is NULL. Use `over()` to broadcast a partition
+statistic back to the current rows. For source Entity contribution counts,
+selected Population member counts (including members without facts), or an
+original Metric total, explicitly observe the corresponding domain; grouped
+summaries cannot reconstruct those results. See the
+[count-domain guidance](/docs/latest/analysis/statistics/).
 
 ## Broadcast partition statistics and normalize current values
 
-[Continue reading](/docs/latest/analysis/statistics/)
+`over()` calculates a statistic within each partition. With `share(along=...)`,
+the selected axes are summed and the remaining axes define partitions. The
+result is a ratio, not a percentage; a zero partition total yields NA, and
+signed values can produce ratios outside `[0, 1]`.
+Filtering before the calculation changes its denominator, while filtering
+afterward keeps it. See [partition statistics and shares](/docs/latest/analysis/statistics/#summarize-and-normalize-rows).
 
 ## Export for unsupported descriptive work
 
-[Continue reading](/docs/latest/analysis/statistics/)
+For methods outside the Frame statistics, export a completed Frame with
+`.to_pandas()` and calculate on that data. Report the sample, missing-value
+policy, method and assumptions; external calculations do not add typed Evidence.
+See the [statistics examples](/docs/latest/analysis/statistics/#summarize-and-normalize-rows).
 
 ## Pair one shared set of endpoint rows
 
-[Continue reading](/docs/latest/analysis/statistics/)
+Use Pearson or Spearman correlation with numeric Columns from the same exact
+Frame input; Duration is not supported. Spearman assigns average ranks to ties.
+Each pair is excluded when either value is NULL; fewer than two pairs or a
+constant endpoint yields a NULL coefficient. `n_pairs` counts non-NULL pairs,
+including valid NaN or Infinity, so it is not a finite-pair count; check
+non-finite values before interpreting the coefficient. Correlation does not
+filter comparison presence flags, so select rows present on both sides when that
+is the intended sample. It is descriptive and does not establish causation or
+support statistical inference. Group coefficients cannot be averaged into a
+pooled result. See
+[the paired-sample rules](/docs/latest/analysis/statistics/#use-a-common-sample-for-correlation).
 
 ## Numeric results and overflow
 
-[Continue reading](/docs/latest/analysis/statistics/)
+Statistics use native numeric kernels. Local int64 `SUM` stays int64 and can
+wrap; source calculations follow the backend's arithmetic. Near numeric limits,
+check the result's range and precision. See [numeric behavior](/docs/latest/analysis/statistics/#numeric-behavior).

@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Calendars and schedules
+description: Choose the calendar, timezone, and workday schedule for your analysis.
 pagefind: false
 head:
   - tag: meta
@@ -9,20 +9,31 @@ head:
       content: noindex
 ---
 
-This content is now in [Date and time definitions](/docs/latest/modeling/dates/).
+Choose how source dates or timestamps are interpreted, which time field supplies
+business time, and an explicit observation range. The range includes its start
+and excludes its end. Treat the source parser timezone, calendar boundary
+timezone, and `Session` reporting timezone as separate roles. Define business
+periods with an appropriate calendar and boundary timezone; model activities or
+holidays that can overlap as named occurrences. Workday counts need a schedule
+covering each selected date, including compensatory workdays; a missing status is
+unknown. Strict sample reducers check expected clock points only when a
+`TimeDimension` declares `sample_interval` and the observation range is finite. See
+[Date and time definitions](/docs/latest/modeling/dates/) and
+[Time series and windows](/docs/latest/analysis/time-series/).
 
 ## Certify a period calendar
 
-[Continue reading](/docs/latest/modeling/dates/)
+[See how to certify and read a calendar](/docs/latest/modeling/dates/#certify-and-read).
 
 ## Name temporal occurrences
 
-[Continue reading](/docs/latest/modeling/dates/)
+[See how to declare named occurrences](/docs/latest/modeling/dates/#named-occurrences-mstemporal_set).
 
 ## Browse holidays and choose comparison ranges
 
-[Continue reading](/docs/latest/modeling/dates/)
+[Review holiday and workday schedules](/docs/latest/modeling/dates/#activities-and-working-days),
+then see [time-range comparisons](/docs/latest/analysis/time-series/).
 
 ## Read working-day facts from ordinary fields
 
-[Continue reading](/docs/latest/modeling/dates/)
+[See how to model working-day fields and schedules](/docs/latest/modeling/dates/#activities-and-working-days).

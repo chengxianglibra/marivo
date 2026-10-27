@@ -85,11 +85,16 @@ print(paired_difference.mean())
 
 ## 相关性使用共同样本
 
-原生 Pearson 或 Spearman 使用 `frame.correlate(x, y, method="pearson")` 或 `method="spearman"`，两个数值 Column 必须来自同一个确切 Frame。结果包含 `coefficient` 和 `n_pairs`。任一端未知时整对排除；端点恒定或不足两对时系数未知，仍保留实际配对数。Spearman 对并列值取平均秩。
+使用 `frame.correlate(x, y, method="pearson")` 或 `method="spearman"`，两个数值
+Column 必须来自同一个确切 Frame。结果包含 `coefficient` 和 `n_pairs`。任一端为 NULL
+时整对排除；不足两对或某端恒定时，系数为 NULL，但仍保留配对数。
+
+`n_pairs` 统计非 NULL 配对，也包括有效 NaN 或 Infinity，因此它不代表有限值配对数。
+相关性遵循 pandas 算法，非有限值或极端数值可能返回 NaN 或报错。Spearman 对并列值取平均秩。
 
 pandas 示例使用共同的存在且非空掩码。不能按行号拼接无关导出。各组系数也不能直接平均得到总体相关性。
 
-归一化返回占比 0.25、0.75，每行总额为 800、行数为 2。先筛选再计算会改变分母，计算后筛选则保留分母。空输入的求和为零，非空且全未知的求和未知；行存在与数值未知仍有区别。
+归一化返回占比 0.25、0.75，每行总额为 800、行数为 2。先筛选再计算会改变分母，计算后筛选则保留分母。空输入的求和为 0；非空但数值全为 NULL 时，求和为 NULL。行存在与数值缺失是不同信息。
 
 外部统计不会自动获得类型化 Evidence。应说明样本、缺失策略、方法和假设。需要其他方法时[导出结果](/zh-cn/docs/latest/analysis/results/)。
 
@@ -117,11 +122,10 @@ assert paired["n_pairs"].tolist() == [5]
 assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
 ```
 
-## 数值内核边界
+## 数值行为
 
-本地 SUM 和 mean 使用 Arrow 原生累加与舍入。int64 SUM 可能回绕，原生算术内核也可能
-抛出溢出异常。Decimal 标量表达式使用原生 context。Pearson 使用 pandas 相关性算法；
-Spearman 先用 pandas 计算平均秩，再计算相关性。极端输入可能丢失低位或返回有效 NaN。
-Marivo 不额外扫描有限值，不做保护性加宽或重算。`n_pairs` 统计 Arrow validity 位图中
-两端均存在的配对数，不证明输入有限。NULL 和除零规则仍然适用；保存后的 Frame 区分
-有效 NaN/Infinity 与 NULL。
+本地 Frame 的 SUM 和 mean 使用 Arrow 原生算术。本地 int64 SUM 保持 int64，可能回绕；原生
+内核也可能抛出溢出异常。Decimal 标量表达式遵循 Decimal context，来源端计算遵循实际后端的
+算术行为。接近数值范围边界时，结果可能丢失精度，并因后端或数值类型不同而异；原生内核
+也可能返回有效 NaN/Infinity 或报错。保存后的 Frame 会将有效 NaN/Infinity 作为值保留，
+与 NULL 区分。

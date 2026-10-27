@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: Python 快速开始
+description: 设置本地 DuckDB 示例，定义收入并计算结果。
 pagefind: false
 head:
   - tag: meta
@@ -9,20 +9,38 @@ head:
       content: noindex
 ---
 
-内容已合并至 [快速开始](/zh-cn/docs/latest/start/python/)。
+先按[安装与项目指南](/zh-cn/docs/latest/start/installation/)安装开发源码，再在独立演示目录运行完整的 [Python 快速开始教程](/zh-cn/docs/latest/start/python/)。教程会在本地 DuckDB 中创建六笔示例订单，并定义 `sales.revenue` Metric。种子脚本会替换演示用的 `orders` 表，因此请在独立目录完成本教程，不要覆盖现有项目的数据。
 
 ## 创建来源
 
-[继续阅读](/zh-cn/docs/latest/start/python/)
+教程中的 [`seed.py` 示例](/zh-cn/docs/latest/start/python/#创建演示数据)会在 `warehouse.duckdb` 中创建本地订单表。从演示项目根目录运行 `.venv/bin/python seed.py`。
 
 ## 声明 datasource
 
-[继续阅读](/zh-cn/docs/latest/start/python/)
+示例在 `models/datasources/warehouse.py` 中通过 `md.duckdb(name="warehouse", path="warehouse.duckdb")` 声明 `warehouse`。参阅[完整的数据源声明](/zh-cn/docs/latest/start/python/#声明连接)。
 
 ## 创作语义模型
 
-[继续阅读](/zh-cn/docs/latest/start/python/)
+模型定义 `sales` Domain、以 `order_id` 为键的 `orders` Entity、`order_date` 时间维度、`region` 维度、单位为 CNY 的 `amount` Measure，以及 `revenue` Metric。具体声明见[模型示例](/zh-cn/docs/latest/start/python/#定义收入)。
 
 ## 执行和重开
 
-[继续阅读](/zh-cn/docs/latest/start/python/)
+准备好 datasource 和模型文件后，在 Session Catalog 中查询确切的 Metric 路径并计算：
+
+```python
+from uuid import uuid4
+
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(
+    f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
+)
+entry = session.catalog.get("metric:sales.revenue")
+assert entry.kind == "metric"
+fixed = session.observe({"revenue": entry.value}).compute()
+fixed.show()
+```
+
+使用示例数据时，结果为 1,800。`compute()` 返回固定的内存值；在同一进程中继续从 `fixed` 派生计算即可。若要在同一项目的其他进程中复用该结果，请调用 `fixed.persist()` 并保留返回的 Session ID 和 Artifact ID。之后在该项目的新进程中使用 `mv.session.resume(session_id)` 恢复会话，再通过 `session.persisted_frame(artifact_id)` 重开 Frame。完整计算示例见[Python 快速开始教程](/zh-cn/docs/latest/start/python/#计算收入)；持久化和恢复用法见[分析结果指南](/zh-cn/docs/latest/analysis/results/)。
+
+查询准确签名和修复建议，可使用 `marivo.help("datasource.duckdb")`、`marivo.help("analysis.session.get_or_create")`、`marivo.help("analysis.session.observe")` 和 `marivo.help("analysis.analysis_frame.compute")`。从 `marivo.help("analysis")` 开始可发现相关分析目标。

@@ -9,16 +9,16 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
+This guide is now part of [Semantic layer: relationships and membership](/docs/latest/modeling/semantic-layer/#relationships-and-membership).
 
 ## Establish the grain before joining
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Identify each endpoint's full `primary_key` before choosing join fields; include every component needed to express the intended entity match. If an endpoint is versioned, select the exact snapshot or validity boundary in the operation that uses it. See [relationship grain and its example](/docs/latest/modeling/semantic-layer/#establish-the-grain-before-joining).
 
 ## Make the declaration match the rule
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+Declare direction with `from_entity` and `to_entity`, then pair direct fields from those endpoints with `ms.join_on`. `ms.relationship` derives structural cardinality from each endpoint's complete primary key; this does not establish whether current rows match. To check matches or compare observed multiplicity with an expected cardinality, pass an explicit source check and bounded scope to `catalog.source_health(...)`. See [the declaration example and checks](/docs/latest/modeling/semantic-layer/#make-the-declaration-match-the-rule).
 
 ## Decide how multiple memberships contribute
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+A join across overlapping memberships can repeat fact contributions. Decide whether overlapping group totals are intended or define a justified allocation; keep entity identity when counting entities by a new attribute. Use `mv.membership(...)` to make grouping or allocation paths explicit. See [the membership example](/docs/latest/modeling/semantic-layer/#decide-how-multiple-memberships-contribute).

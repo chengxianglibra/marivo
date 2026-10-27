@@ -68,25 +68,58 @@ progress.show()
 
 ## Interpret windows and correspondence
 
-August's total is 800. The seven-day trailing revenue at the end of August 5 is 100; month-to-date at August 15 is 200. Lookback can extend before the displayed start, so provide that history for real data.
+August's total is 800. At the end of August 5, trailing seven-day revenue is
+100; month-to-date through August 15 is 200. A trailing window can reach before
+the displayed range, so include the required lookback history in the source data.
 
-`trailing_duration` measures elapsed time. Civil periods follow calendar boundaries and can differ across daylight-saving transitions. The window's endpoint is the bucket's actual right boundary. `to_date` resets at the selected period boundary.
+`trailing_duration` measures elapsed time: seven days is 168 hours. Civil
+periods follow calendar boundaries and can span different amounts of elapsed
+time around daylight-saving changes. Each window ends at the bucket's actual
+right boundary; `to_date` resets at the start of the selected period.
 
-Ordinal matching pairs original positions in compatible complete periods. A month shift of the August 1–20 prefix compares with July 1–20, without including July 20 midnight or later. The sample therefore compares 200 with 300, a change of -100. A missing target date is not silently clamped to another date.
+Ordinal matching pairs positions in compatible, complete periods. The daily
+scopes `[August 1, August 4)` and `[July 1, July 4)` each contain three days and
+pair by position. Shifting the monthly prefix `[August 1, August 20)` back one
+month compares it with `[July 1, July 20)`, excluding July 20 midnight and
+later. The example compares 200 with 300, a change of -100. A missing target
+date remains absent instead of moving to a nearby date.
 
-`mv.offset(periods=n)` counts steps of the consuming axis's grain, including its grain step. On daily data `-7` means seven days; on weekly data `-1` means one week and `-7` means seven weeks; on monthly data `-1` means one month. A negative offset seeks an earlier baseline. It does not count displayed rows or fixed days. Builtin calendar grains currently require `count=1`; subday offset is unsupported.
+`mv.offset(periods=n)` counts steps of the consuming axis's grain, not visible
+rows or fixed-day durations: on daily data, `-7` is seven days; on weekly data,
+`-1` is one week; and on monthly data, `-1` is one month. Built-in calendar
+offsets require grain `count=1`; subday offsets are unsupported.
 
-Summing result rows is a statistic on those rows. For a monthly ratio or distinct count, request the original metric at monthly grain instead. For fiscal calendars and named activities, [prepare and certify the calendar](/docs/latest/modeling/dates/#business-calendars) before selecting its grain. Source parsing and report timezone are separate choices; use explicit parser timezone only for naive timestamps, not aware timestamps or date-only encodings.
+Summing result rows is a statistic on those rows. For a monthly ratio or
+distinct count, observe the original `Metric` at monthly grain instead. Prepare
+and certify a [fiscal or named-activity calendar](/docs/latest/modeling/dates/#business-calendars)
+before using it as a grain.
 
-Raw local timestamps use the declared source timezone or its resolved reader default for constant-bound membership. Repeated clocks select the later occurrence; skipped clocks select the transition instant. Filtering and calendar buckets share this wall order, so the first repeated hour can be empty. Projected values retain backend-native conversion. Expressions without raw lineage retain native filtering. Use aware timestamps when the exact occurrence matters. Session boundaries and sample completeness retain their own validation.
+Source parsing and report timezones are separate: set a parser timezone for
+naive time-bearing source values; aware timestamps already identify an instant,
+and date-only encodings do not use a timezone. For raw local timestamp columns,
+filtering and calendar assignment around daylight-saving transitions follow the
+source timezone's wall-clock order: repeated clocks resolve to the later
+occurrence, and skipped clocks to the transition instant. The first occurrence
+of a repeated reporting hour can therefore be empty. Projected timestamps keep
+the backend's native conversion; use aware/UTC timestamps or another identity
+field when both repeated instants must remain distinct.
 
-`ms.hour_prefix(date_field)` inherits the prefix's source timezone context and reader default when combining a civil date with an hour. It has no separate timezone parameter; changing the report timezone does not reinterpret the source.
+`ms.hour_prefix(date_field)` uses the source timezone context of its date prefix.
+Changing the report timezone does not reinterpret that source timestamp.
 
 ## Time means and sample coverage
 
-`sample_interval=(1, "hour")` declares expected clock points; it does not round event timestamps to hours. Time-sample `mean` and `weighted_mean` aggregate represented samples without filling missing clocks. Explicit Population sample domains and existing NULL/weight policies remain unchanged.
+`sample_interval=(1, "hour")` declares expected hourly clock points; it does not
+round event timestamps into hourly buckets. Time-sample `mean` and
+`weighted_mean` aggregate represented samples without filling missing clocks.
+Weighted means use only pairs where neither the value nor the weight is NULL.
+An explicit `Population` still selects its declared sample coordinates.
 
-Continue with the six-order model: first average order amounts per order date, then average the represented dates within each region. This model declares no regular sample interval. Only dates with orders participate. August gives 100 for east and 600 for west; adding zero gives the same results.
+In the six-order example, first average order amounts per date, then average
+the represented dates within each region. Only dates with orders participate,
+and each date has equal weight; when order counts differ by date, this can differ
+from an order-weighted mean. August gives 100 for east and 600 for west; adding
+zero to each daily mean leaves those results unchanged.
 
 ```python
 order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
@@ -100,4 +133,8 @@ sample_mean.show()
 adjusted.show()
 ```
 
-A strict sample reducer such as `samples.quantile(0.95)` still requires declared clock coverage. Its error identifies the Metric, time field, actual interval and up to six groups with three missing instants each. Existing NULL samples are not missing clocks. Dates have equal weight; if order counts differ by date, this result can differ from an order-weighted mean. Time samples do not automatically form hourly buckets.
+Strict sample reducers such as `samples.quantile(0.95)` check expected clock
+points when the time field declares `sample_interval`; coverage checks require a
+finite observation period. Missing clocks appear in diagnostics. Without a
+cadence declaration, there is no expected schedule to check. A NULL at a
+represented time is not a missing clock.

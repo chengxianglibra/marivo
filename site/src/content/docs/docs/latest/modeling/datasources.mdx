@@ -1,11 +1,11 @@
 ---
 title: Datasource configuration
-description: Configure DuckDB, PostgreSQL, MySQL, ClickHouse and Trino, one parameter at a time.
+description: Configure DuckDB, PostgreSQL, MySQL, ClickHouse, and Trino datasources.
 ---
 
-Marivo supports five datasource constructors. Save each declaration under `models/datasources/`; the loader collects it without opening a connection. Pick the constructor for the actual backend, then refer to its name from an Entity. Remote examples are configuration templates: replace their hosts/database names and set the named environment variables before testing access.
+Marivo provides five datasource constructors. Save each declaration under `models/datasources/`; the loader collects it without opening a connection. Choose the constructor for the backend, then reference its name from an Entity. Remote examples are templates: replace the host and database, then set the referenced environment variables before testing.
 
-Each row documents one constructor parameter. “Default” is the Marivo Python default. For optional connection fields, `None` omits the override and leaves backend/driver behavior in effect; it does not promise a fixed port or an anonymous login. Credentials may still be required by your server even when a parameter is optional. `name`, `ai_context`, and `extra` are repeated for each constructor so each table is complete.
+Each table lists constructor parameters and their Python defaults. An omitted optional value leaves backend, adapter, or driver behavior in effect. Set referenced environment variables before testing.
 
 | Backend | Constructor | Typical use |
 | --- | --- | --- |
@@ -19,14 +19,14 @@ Each row documents one constructor parameter. “Default” is the Marivo Python
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |
+| `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `path` | No | `':memory:'` | DuckDB file path, or `":memory:"` for a process-local database. Use a file for the tutorial. |
 | `read_only` | No | `False` | Open the database in read-only mode when true. |
 | `http_scope` | No | `None` | HTTP(S) URL prefix bounding remote JSON authentication; required when an HTTP auth mode is supplied. |
 | `http_bearer_token_env` | No | `None` | Environment variable name for a bearer token; mutually exclusive with header authentication. |
 | `http_headers_env` | No | `None` | Mapping from HTTP header names to environment variable names containing their secret values; mutually exclusive with bearer authentication. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above; use the typed arguments for modeled settings and never include plaintext credentials. `None` adds none. |
+| `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
+| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
 
 ```python
@@ -42,16 +42,16 @@ Exact reference: `marivo.help("datasource.duckdb")`.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |
+| `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `host` | Yes | — | Database server host name or IP address. |
 | `database` | Yes | — | Database to connect to. |
-| `port` | No | `None` | Connection port; `None` leaves it to the backend driver. Set explicitly for a non-default endpoint. |
-| `schema` | No | `None` | Default schema for table resolution; `None` supplies no Marivo schema override. |
-| `autocommit` | No | `None` | Override driver autocommit behavior; `None` leaves the driver default. |
-| `user_env` | No | `None` | Name of the environment variable holding the user, not the user value. `None` declares no user reference. |
-| `password_env` | No | `None` | Name of the environment variable holding the password. `None` declares no password reference. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above; use the typed arguments for modeled settings and never include plaintext credentials. `None` adds none. |
+| `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
+| `schema` | No | `None` | Default schema for table resolution. |
+| `autocommit` | No | `None` | Driver autocommit override. |
+| `user_env` | No | `None` | Environment variable name for the database user. |
+| `password_env` | No | `None` | Environment variable name for the password. |
+| `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
+| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
 
 ```python
@@ -74,15 +74,15 @@ on MySQL and seconds on MariaDB.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |
+| `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `host` | Yes | — | Database server host name or IP address. |
 | `database` | Yes | — | Database to connect to. |
-| `port` | No | `None` | Connection port; `None` leaves it to the backend driver. Set explicitly for a non-default endpoint. |
-| `autocommit` | No | `None` | Override driver autocommit behavior; `None` leaves the driver default. |
-| `user_env` | No | `None` | Name of the environment variable holding the user, not the user value. `None` declares no user reference. |
-| `password_env` | No | `None` | Name of the environment variable holding the password. `None` declares no password reference. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above; use the typed arguments for modeled settings and never include plaintext credentials. `None` adds none. |
+| `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
+| `autocommit` | No | `None` | Driver autocommit override. |
+| `user_env` | No | `None` | Environment variable name for the database user. |
+| `password_env` | No | `None` | Environment variable name for the password. |
+| `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
+| `extra` | No | `None` | Additional JSON-compatible PyMySQL connection options not modeled above. |
 
 
 ```python
@@ -101,16 +101,16 @@ Exact reference: `marivo.help("datasource.mysql")`.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |
+| `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `host` | Yes | — | Database server host name or IP address. |
-| `port` | No | `None` | Connection port; `None` leaves it to the backend driver. Set explicitly for a non-default endpoint. |
-| `database` | No | `None` | Database name; `None` uses `"default"` in the Marivo adapter. |
-| `secure` | No | `None` | Enable TLS when true; `None` leaves the driver setting unchanged. |
-| `settings` | No | `None` | ClickHouse session settings mapping; `None` adds no authored settings. |
-| `user_env` | No | `None` | Name of the environment variable holding the user, not the user value. `None` declares no user reference. |
-| `password_env` | No | `None` | Name of the environment variable holding the password. `None` declares no password reference. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above; use the typed arguments for modeled settings and never include plaintext credentials. `None` adds none. |
+| `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
+| `database` | No | `None` | Database name; defaults to `"default"` in the Marivo adapter. |
+| `secure` | No | `None` | Enable TLS when true. |
+| `settings` | No | `None` | ClickHouse session settings mapping. |
+| `user_env` | No | `None` | Environment variable name for the database user. |
+| `password_env` | No | `None` | Environment variable name for the password. |
+| `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
+| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
 
 ```python
@@ -130,20 +130,20 @@ Exact reference: `marivo.help("datasource.clickhouse")`.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `name` | Yes | — | Project-wide lowercase snake_case name; referenced by `ms.ref.datasource(name)`. |
+| `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `host` | Yes | — | Database server host name or IP address. |
 | `catalog` | Yes | — | Trino catalog, mapped to the Ibis database connection argument. |
 | `user_env` | Yes | — | Required environment variable name for the Trino user; no implicit backend user fallback. |
-| `port` | No | `None` | Connection port; `None` leaves it to the backend driver. Set explicitly for a non-default endpoint. |
-| `schema` | No | `None` | Default schema for table resolution; `None` supplies no Marivo schema override. |
-| `source` | No | `None` | Client application/source tag sent to Trino; `None` does not override it. |
-| `timezone` | No | `None` | Engine session timezone; separate from the Analysis Session report timezone. `None` supplies no engine override. |
-| `http_scheme` | No | `None` | HTTP transport scheme; set `"https"` for TLS. `None` uses driver behavior. |
-| `client_tags` | No | `None` | Tuple of client tags, forwarded to the backend as a list; `None` adds none. |
-| `session_properties` | No | `None` | Trino session property mapping; `None` adds none. |
-| `auth_env` | No | `None` | Environment variable name for backend authentication material; `None` declares none, suitable only when the server permits it. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above; use the typed arguments for modeled settings and never include plaintext credentials. `None` adds none. |
+| `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
+| `schema` | No | `None` | Default schema for table resolution. |
+| `source` | No | `None` | Client application/source tag sent to Trino. |
+| `timezone` | No | `None` | Trino engine session timezone; distinct from the Analysis Session report timezone. |
+| `http_scheme` | No | `None` | HTTP transport scheme; use `"https"` for TLS. |
+| `client_tags` | No | `None` | Tuple of client tags, passed to Trino as a list. |
+| `session_properties` | No | `None` | Trino session property mapping. |
+| `auth_env` | No | `None` | Environment variable name for authentication material, when the server requires it. |
+| `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
+| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
 
 ```python
@@ -161,7 +161,7 @@ Exact reference: `marivo.help("datasource.trino")`.
 
 ## Credentials and connection checks
 
-Author credentials only as `*_env` references. Set those variables before running the check. After a validated round-trip, default credential resolution may cache resolved values in plaintext in `~/.marivo/secrets.toml`; set `MARIVO_PERSIST_CREDENTIALS=0` to disable this. Do not put credentials in `extra` or model source.
+Reference credentials by environment variable name with `*_env`; Marivo does not infer variable names. After a successful `md.load().test(...)` round-trip, Marivo may cache environment-resolved values as plaintext in the user-global `~/.marivo/secrets.toml`. Caching is disabled when `MARIVO_PERSIST_CREDENTIALS=0` or `CI` is non-empty. The cache file is restricted to owner access (`0600`), its parent directory to `0700`, and Marivo refuses to write it inside a Git repository. Keep secret values out of model files and `extra`.
 
 After creating the [tutorial database](/docs/latest/start/python/), run this from its project root:
 
@@ -176,4 +176,4 @@ md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 
 ## Connections and physical sources
 
-`md.table(...)` selects a table/view in a datasource. `md.parquet(...)`, `md.csv(...)`, and `md.json(...)` describe DuckDB file/HTTP sources; they are not additional datasource types. Inspection support does not automatically establish numerical analysis support, and parameterized JSON is not admitted as a numerical Session source. A returned-row limit does not limit scanned bytes. See [backend and method limits](/docs/latest/reference/backends-and-limits/), then [define Entities](/docs/latest/modeling/semantic-layer/).
+`md.table(...)` selects a table or view in any supported backend. `md.parquet(...)` and `md.csv(...)` describe DuckDB file sources; `md.json(...)` describes a file or HTTP source. These are source descriptors, not additional datasource types. `md.inspect(...)` reads physical metadata. For a row sample, call `inspection.sample(...)` with an explicit scope, selected columns, and positive `max_rows` and `timeout_seconds`. Unsupported native timeout requests may be skipped; `max_rows` limits returned rows, not bytes scanned. Sample values stay in memory unless `persist_values=True` stores the bounded values as plaintext in project-local state. For JSON, Analysis Sessions currently admit only local files using GET with no declared query parameters. See [bounded datasource inspection](/docs/latest/guides/datasources/#bound-row-evidence), [backend and method limits](/docs/latest/reference/backends-and-limits/), then [define Entities](/docs/latest/modeling/semantic-layer/).

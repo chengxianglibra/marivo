@@ -9,32 +9,39 @@ description: Diagnose common errors and find API usage in Live Help.
 <span id="contribution-targets-and-full-explanation-reads"></span>
 <span id="exact-data-recovery-and-resubmission"></span>
 
-Use the symptom to choose a repair. Keep the original error and the interpreter, package version and project root from Doctor. For historical execution, inspect the event's runtime identity in [execution logs](/docs/latest/reference/telemetry/); Doctor only identifies the current environment.
+Start with the symptom. Keep the full error and check the same interpreter and project with `marivo doctor`; it reports the Python executable, Marivo version and package path, and project root. For a past run, use the event's runtime identity in [execution logs](/docs/latest/reference/telemetry/). Doctor describes the current environment.
 
-| Symptom | Confirm | Repair |
+| Symptom | Check | Next step |
 | --- | --- | --- |
-| A documented API is missing | Package version and loaded path | Use the matching development source or versioned guide |
-| Connection fails | Named environment references, driver and network access | Correct the configuration and rerun the datasource test |
-| Model fails to load | Duplicate names, missing refs, declaration syntax | Repair the named model file; restart after edits to imported dependencies |
-| Readiness is blocked | Requested physical dependencies and temporal artifacts | Repair the reported dependency or certify the complete calendar range |
-| A method is unsupported | Backend, source form, expression and types | Use a supported method or an explicit new observation; do not silently change the metric |
-| Column/axis belongs to another input | Which exact Frame produced the handle | Obtain handles from the receiver or explicitly align inputs |
-| Unexpected unknown difference | Presence, null values and zero baseline | Explain the missing value instead of filling every case with zero |
-| Period comparison rejects | Complete boundaries, timezone and matching rule | Choose valid complete periods or a supported explicit correspondence |
-| Contribution is unavailable after reopen | Saved data has no source declaration | Rebuild explicit source inputs for a new question |
-| Saved result cannot be read | Exact Session/result ID, missing files and Marivo version | Preserve state; use the compatible original version for old data |
+| A documented API is unavailable | Installed version and package path | Query the target in Live Help from the same interpreter and use documentation for that version. |
+| A datasource connection fails | Selected project, datasource declaration, environment references, driver and network | Correct the reported configuration, then run a connection check for that datasource. |
+| A semantic model fails to load or readiness is blocked | Error location, referenced definition and selected dependency scope | Use the `semantic.load` Help target for project assembly or `semantic.readiness` for the requested analysis dependencies; repair the reported definition or dependency. |
+| An analysis method rejects an input | Error's expected/received values, location and repair | Follow its Help target. For a `Column` or axis error, reacquire the handle from the Frame used by the operation. |
+| A comparison or value is unexpected | Time range, baseline correspondence, row presence and null values | Inspect the compared inputs and result before changing the match or missing-value policy; an absent row or null is not automatically zero. |
+| Attribution is unavailable after reopening a saved Frame | Whether the Frame retains its source declaration | Reopened Frames contain fixed data and saved method facts, not executable source declarations. Build an explicit source input for a new attribution read. |
+| A saved Session or Frame cannot be opened | Selected project root, exact Session and Artifact IDs, and Marivo version | Preserve `.marivo/`; resume the exact Session and reopen the exact saved Frame. Use a compatible Marivo version to read data from an older Store generation. |
+
+A datasource connectivity test opens a live connection and may cache validated environment credentials. Run it only when you intend to verify that source.
 
 ## Handle an uncertain save
 
-Resume the owning Session to reconcile its original transaction before submitting again. Explicit resubmission can produce another saved result and may read changed sources. Keep returned IDs while they are available; there is no implicit latest result lookup.
+If a save ends with an uncertain outcome, resume the owning Session before resubmitting. Recovery checks the original publication without rereading sources. Resubmission can create a duplicate result and may read changed source data.
 
-Do not delete `.marivo/` or force initialization as a general repair. Older Store generations remain unchanged, and `mv.session.get_or_create(name)` can create the current generation in the same project. Each version writes independent Sessions and Artifacts; names and IDs are not merged or resolved across generations. An invalid current Store still requires repair.
+For cross-process reuse, replace the placeholders with the returned `session_id` and `artifact_id`, then reopen that exact Frame:
 
-`get_or_create()` and `recent()` warn once per project and observed older Store path set in each process. `recent()` returns only current-generation history; an empty page does not mean older history was deleted. `resume()` and `inspect()` report missing current-generation IDs with guidance about retained older Stores, without asserting ID ownership. `marivo doctor` reports older paths and file modification times on every run; those times are not the last business write times. These diagnostics do not read older databases or count their Sessions.
+```python
+import marivo.analysis as mv
 
-Use a compatible Marivo environment to read/export older data. Old generations are retained without automatic cleanup. Archive or delete one yourself only after verifying the export and confirming that its original history is no longer needed.
+session_id = "SESSION_ID"
+artifact_id = "ARTIFACT_ID"
 
-[Find Help](#query-the-installed-version) for the error's exact repair target. Frame/Column validation points to the public operation that rejected the input. For example, an old statistic passed to `over` links to `analysis.analysis_frame.over`; reconstruct it from the receiving Frame. Pending export links to `analysis.analysis_frame.to_pandas`; compute first and export the returned Frame. Internal errors without a unique public owner can still point to broader Help. Include a minimal reproduction with credentials and private data removed when asking for assistance.
+session = mv.session.resume(session_id)
+result = session.persisted_frame(artifact_id)
+```
+
+Session recovery does not restore an unsaved Frame that existed only in memory. Keep `.marivo/` with the project. `mv.session.recent()` lists only the current Store generation, so an empty result does not mean older data was deleted. Store generations are independent; use a compatible Marivo version to read and export older results. Do not delete the state directory as a general recovery step.
+
+Use the error's repair and Help target when provided. Structured errors can include the expected and received values, location and a concrete repair. For a minimal Help example, see [Query the installed version](#query-the-installed-version). Remove credentials and private data from reproductions.
 
 ## Find APIs
 
@@ -51,26 +58,26 @@ marivo.help("analysis")
 marivo.help("analysis.analysis_frame")
 ```
 
-CLI uses the same targets: `.venv/bin/python -m marivo help analysis`. With a known returned object, `marivo.help(type(result))` discovers its type; query attributes by their string Help target.
+The CLI accepts the same targets: `.venv/bin/python -m marivo help analysis`. With a returned object, `marivo.help(type(result))` shows its type contract; query an attribute using its string Help target.
 
-Choose the information missing now; the topics are independent entry points.
+Choose the topic that answers your current question; these are independent entry points.
 
 | Need | Help target |
 | --- | --- |
 | Governed inputs, member domain or time | `analysis.inputs` |
-| Choose observation, Frame construction, calculations or statistics | `analysis.operators` |
+| Choose an observation, Frame operation or statistic | `analysis.operators` |
 | Acquire Columns, complete axes or statistics | `analysis.inputs.frame` |
 | Prepare a baseline or endpoint correspondence | `analysis.inputs.comparison` |
-| Complete memory values or a saved result | `analysis.execution` |
-| Data inspection, export or saved audit | `analysis.results` |
+| Compute in memory or save a result | `analysis.execution` |
+| Inspect data, export values or read saved evidence | `analysis.results` |
 | Create or recover exact Session and saved Frame identities | `analysis.sessions` |
 
-Known targets can be queried directly. Source construction captures explicit questions without business reads; evaluating a pending Frame can still execute its captured source dependencies. Complete or reopened Frame data supports calculations without recovering its original source declaration.
+Known targets can be queried directly. Constructing a source Frame captures its dependencies; evaluating a pending Frame may read those sources. Calculations on completed or reopened Frames use fixed data. Reopening a saved Frame does not restore its original source declaration.
 
-For authoring, `authoring` links directly to `semantic.load`, Catalog reuse, connections, physical evidence, model definitions, expressions and validation, with optional ontology context. Empty projects can load without initialization and include the built-in `default` datasource. Model topics link single-mode definitions directly to construction; fields offer column and expression modes. Exact parameters explain omission and link to their input producers or a bounded choice. Known targets can be queried directly.
+For authoring, start with `marivo.help("authoring")`; for semantic checks, use `marivo.help("semantic.validation")` to choose among loading, readiness and preview. These checks answer different questions about the project and its inputs.
 
-Execution imports are `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Create sessions through `mv.session.get_or_create`; there is no top-level `marivo.session` alias.
+Import APIs with `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Access analysis sessions through `mv.session`, for example `mv.session.get_or_create(name)` or `mv.session.resume(session_id)`.
 
 ### Ask for help effectively
 
-Record the version, exact interpreter and package path from Doctor, project selection, the smallest relevant declaration and code, the full structured error, expected result and actual result. Remove secrets and private rows. Use the repository's existing issue tracker or contribution links; do not post credentials in an example.
+Include the version, interpreter, package path and project root from Doctor, plus the smallest relevant declaration and code, the full structured error, and the expected and actual result. Remove secrets and private rows before using the repository's support or contribution channel.

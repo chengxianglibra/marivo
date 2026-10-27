@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 分析工作流程
+description: 确定分析定义与范围，计算观测结果，并按后续需要保留。
 pagefind: false
 head:
   - tag: meta
@@ -9,32 +9,44 @@ head:
       content: noindex
 ---
 
-内容已合并至 [分析 DSL](/zh-cn/docs/latest/analysis/dsl/)。
+Marivo 分析从业务问题出发，生成可检查并可继续使用的结果。根据后续工作，
+选择业务定义、Population 与时间范围，并决定如何保留结果。
 
-## 为下一项决策读取指导
+## 从问题开始
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+先在项目 Catalog 中查找现有 `Metric`；业务含义和聚合方式符合问题时，直接复用。
+若没有合适的 Metric，就在[语义层](/zh-cn/docs/latest/modeling/semantic-layer/)
+中定义所需的业务口径。脚本需要重复运行时，使用稳定的项目内名称调用
+`mv.session.get_or_create(...)`，以便恢复同一 Session。
 
-## 创建并恢复精确 Session
+参阅 [Session 获取方式](/zh-cn/docs/latest/analysis/dsl/#可重复运行的-session-获取)
+和[共享输入示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+## 选择成员、贡献与时间
 
-## 显式构造来源输入
+使用 Population 选择完整成员。`session.observe(...)` 捕获 Metric 计算；`by`
+选择输出坐标，`where` 筛选来源贡献。若 Metric 使用的时间样本规约要求有限时段，
+在 `by` 中加入 `TimeScope` 或 `CalendarAxis`。需要读取选定 Entity 身份的命名属性时，
+使用 `session.read(...)`。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+接着了解[对象选择](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)、
+[范围与粒度](/zh-cn/docs/latest/analysis/dsl/#范围与粒度)，以及
+[observe 指标](/zh-cn/docs/latest/analysis/dsl/#观察指标)。
 
-## 下一项决策前固定值
+## 计算并保留结果
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+`session.observe(...)` 返回待执行的 `AnalysisFrame`。`compute()` 执行计算，
+并返回一个 Frame，其值保存在当前 Python 进程中。`persist()` 完成计算并发布结果。
+若其他进程需要同一批值，请在生产进程退出前保存返回的 Session 和 Artifact ID。
+后续分析若需要来源的当前值，应重新捕获观测。
 
-## 显式请求新来源事实
+DSL 指南说明[何时选择 compute 或 persist](/zh-cn/docs/latest/analysis/dsl/#执行前选择结果保留方式)；
+[结果指南](/zh-cn/docs/latest/analysis/results/)展示如何重新打开已保存的结果。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+## 用选定数据继续分析
 
-## 保持来源贡献与时间含义
-
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
-
-## 按边界读取数据与审计
-
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+若后续计算应使用同一批已计算值，请继续使用返回的 Frame。要将选定字段或身份
+带入新的来源问题，可用 `session.population_from(...)` 映射已完成 Frame 中的轴，再将
+生成的 Population 通过 `where=mv.in_population(...)` 传给新观测。选定的键保持不变，
+新观测仍会重新读取来源数据。创建映射和观测时使用其所属 Session。参阅
+[选择与筛选](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)中的示例。

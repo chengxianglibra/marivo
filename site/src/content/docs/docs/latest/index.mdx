@@ -9,29 +9,29 @@ description: Define business metrics, query data, and save analysis results with
 <span id="what-you-bring"></span>
 <span id="choose-your-path"></span>
 
-Marivo is a Python library for business data analysis. Its semantic layer defines metrics, entities, dimensions, and relationships. Its analysis DSL uses those definitions to calculate, compare, and break down results while retaining the basis for the calculation.
+Marivo is a Python library for business data analysis. Its semantic layer records reusable business definitions, including metrics, entities, dimensions, and relationships. The analysis DSL applies those definitions to calculate and compare results. Saved results retain source and evaluation records for review.
 
-For example, an orders table contains amounts, regions, and dates. Define revenue once, then query monthly revenue by region, compare periods, calculate rolling windows, or measure correlation. Save results to continue working with the same data later.
+For example, define revenue from an orders table with amounts, regions, and dates. Calculate monthly revenue by region, compare periods, or explore trends with rolling windows. Persist a completed result to reopen its captured values later.
 
 ## What you can do
 
-| Task | Operations and results |
+| Task | Start here |
 | --- | --- |
-| Connect data | Declare databases or files and inspect schemas and samples |
-| Define business meaning | Reuse revenue, average order value, units, time, and relationships |
-| Query and group | Calculate by region, customer, or period; select records |
-| Compare and investigate | Compare periods or targets and investigate changes by dimension |
-| Time and statistics | Calendar grouping, rolling windows, shares, and correlation |
-| Save and inspect | Save fixed results and read their data and method explanations |
+| Connect a database or file; inspect its schema and a bounded sample | [Datasource configuration](/docs/latest/modeling/datasources/) |
+| Define reusable metrics and the entities, time fields, and relationships behind them | [Semantic layer](/docs/latest/modeling/semantic-layer/) |
+| Calculate metrics by period or dimension, then filter or inspect selected records | [Analysis DSL](/docs/latest/analysis/dsl/) |
+| Compare a result with a baseline and examine differences by group | [Compare baselines](/docs/latest/analysis/dsl/#compare-and-align) · [Investigate changes](/docs/latest/analysis/dsl/#investigate-changes) |
+| Group by calendar periods; calculate windows, shares, or paired correlations | [Time series and windows](/docs/latest/analysis/time-series/) · [Statistics and correlation](/docs/latest/analysis/statistics/) |
+| Reopen saved values and review the captured source and audit context | [Results and evidence](/docs/latest/analysis/results/) |
 
 ## Get started
 
 [Installation and projects](/docs/latest/start/installation/) covers setup. [Quick start](/docs/latest/start/python/) creates six local orders and calculates total revenue of CNY 1,800.
 
-The [semantic layer](/docs/latest/modeling/semantic-layer/) covers modeling. The [analysis DSL](/docs/latest/analysis/dsl/) demonstrates queries, filters, comparison, and investigation with code.
+The [semantic layer](/docs/latest/modeling/semantic-layer/) explains how to model reusable metrics. The [analysis DSL](/docs/latest/analysis/dsl/) walks through queries, filters, comparisons, and contribution breakdowns in code.
 
-For agent operation, see [Use Marivo with an agent](/docs/latest/guides/agents/).
+For agent-led analysis, start with [Use Marivo with an agent](/docs/latest/guides/agents/) and [Your first analysis](/docs/latest/first-analysis/).
 
-These latest guides follow development source. Use matching versioned documentation for a released package. Check [source limits](/docs/latest/reference/backends-and-limits/) for connection and method support.
+These latest guides follow development source. For a released package, use its versioned documentation. Check [supported sources and limits](/docs/latest/reference/backends-and-limits/) for backend and method support.
 
-Dedicated references: [Datasource](/docs/latest/modeling/datasources/) · [Date and time](/docs/latest/modeling/dates/) · [Population](/docs/latest/analysis/population/).
+More references: [Date and time definitions](/docs/latest/modeling/dates/) · [Population](/docs/latest/analysis/population/).

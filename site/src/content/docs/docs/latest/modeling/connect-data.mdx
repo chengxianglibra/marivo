@@ -9,16 +9,35 @@ head:
       content: noindex
 ---
 
-This content is now in [Datasource configuration](/docs/latest/modeling/datasources/).
+This guide is now part of [Datasource configuration](/docs/latest/modeling/datasources/).
+
+These checks answer different questions. [`md.load().test(...)`](/docs/latest/modeling/datasources/#credentials-and-connection-checks)
+opens a connection and runs a literal round-trip query; a pass confirms only
+that the current datasource probe succeeded. [`md.inspect(...)`](/docs/latest/modeling/datasources/#credentials-and-connection-checks)
+reads physical metadata, while `.sample(...)` reads selected rows under an
+explicit scope. `ms.load()` validates semantic declarations and dependencies
+without connecting;
+`catalog.source_health(...)` checks current source connectivity plus schema and
+capability metadata. It reads data only for explicit checks with a bounded
+scope. Metadata and samples help you choose a source; use semantic definitions
+to assign business meaning. See [semantic model validation](/docs/latest/modeling/semantic-layer/#load-and-validate).
+
+Declare credentials with `*_env` references. After a successful connection test,
+Marivo may cache resolved environment credentials as plaintext in
+`~/.marivo/secrets.toml`; set `MARIVO_PERSIST_CREDENTIALS=0` to disable the cache.
 
 ## Confirm access and structure
 
-[Continue reading](/docs/latest/modeling/datasources/)
+To read rows, use [a bounded sample](/docs/latest/guides/datasources/#bound-row-evidence), choosing columns and an explicit scope. The scope needs positive `max_rows` and `timeout_seconds`; a backend may skip an unsupported timeout request. `max_rows` limits returned rows, not bytes scanned. Sample values are persisted as plaintext in project-local state only when `persist_values=True`.
 
 ## Connect a remote database
 
-[Continue reading](/docs/latest/modeling/datasources/)
+Configure a [PostgreSQL](/docs/latest/modeling/datasources/#postgresql--mdpostgres),
+[MySQL](/docs/latest/modeling/datasources/#mysql--mdmysql),
+[ClickHouse](/docs/latest/modeling/datasources/#clickhouse--mdclickhouse), or
+[Trino](/docs/latest/modeling/datasources/#trino--mdtrino) connection.
 
 ## Choose the physical source
 
-[Continue reading](/docs/latest/modeling/datasources/)
+Use `md.table(...)` for a table or view. Parquet, CSV, and JSON file sources are
+read through DuckDB; see [connections and physical sources](/docs/latest/modeling/datasources/#connections-and-physical-sources).

@@ -3,9 +3,9 @@ title: Date and time definitions
 description: Define temporal fields, parsers, ranges, grains, business calendars and named occurrences.
 ---
 
-Keep three choices explicit: how a source encodes time, which business-time role a Metric uses, and which range/grain an analysis observes. A civil DATE is a calendar date, an aware timestamp is an instant, and a TimeScope is a finite half-open interval. Source parsing timezone, calendar boundary timezone and Session reporting timezone have separate responsibilities.
+Model source encoding, business-time role and observation range/grain separately. A civil `DATE` is a calendar day; a timezone-aware timestamp identifies an instant; and `TimeScope` captures a finite half-open `[start, end)` interval. The parser timezone interprets source values, the Session timezone sets reporting boundaries, and a certified calendar's boundary timezone governs its periods.
 
-Declaration snippets belong in a semantic model with `import marivo.semantic as ms` and the referenced Entity/fields already defined. They are alternatives for different encodings, not declarations to append all at once. The complete calendar walkthrough below uses its own project.
+The declaration snippets assume `import marivo.semantic as ms` and that their referenced Entities and fields already exist. They show alternatives for different source encodings. The complete calendar walkthrough below uses a separate project.
 
 ## Time dimension — business time
 
@@ -16,11 +16,9 @@ A Time dimension declares the time role used by observations, windows, and calen
 | `name` | Yes | — | Semantic name, unique in its owning scope. |
 | `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
 | `column` | Yes | — | Physical column name exposed by the Entity source; may differ from the semantic name. |
-| `sample_interval` | No | `None` | Canonical positive `(count, "minute" or "hour")` subday spacing that tiles one day; `None` declares no sample spacing. DATE rejects this option. |
+| `sample_interval` | No | `None` | Canonical positive `(count, "minute" or "hour")` subday cadence that divides a nominal day, is shorter than one day, and is representable in the source encoding; DATE fields cannot provide subday samples. |
 | `parse` | No | `None` | Parser for source encoding; `None` uses native temporal type. Encoded strings/integers require an explicit parser. |
-| `is_default` | No | `False` | Selects the default Metric time role on this Entity; at most one field may be default. |
-| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+| `is_default` | No | `False` | Marks this as the Entity's default Metric time role. |
 
 
 
@@ -30,19 +28,13 @@ order_date = ms.time_dimension_column(
 )
 ```
 
-For a string such as `20260801`, add `parse=ms.strptime("%Y%m%d")`. Formats use Python directives (`%M` means minutes). Naive timestamps need parser timezone or frozen reader authority; aware timestamps reject a redundant parser timezone. A default role is not an observation range: Analysis still supplies the intended scope. Help: `semantic.time_dimension.from_column`; see [business calendars](#business-calendars) for governed fiscal periods.
+Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. For naive timestamps, specify the source timezone when known or use the frozen reader authority. Choose at most one `is_default=True` time field per Entity. It selects the default Metric time role but does not set the observation range; supply a `TimeScope` for that range. See [business calendars](#business-calendars) for governed fiscal periods.
+
+When a sampling rule checks coverage, `sample_interval` declares exact expected clock points; it does not bucket or truncate timestamps. A missing point differs from a present row whose Metric is `NULL`.
 
 ## Derived time field: `ms.time_dimension`
 
-| Parameter | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | No | `None` | Override the function name; `None` uses the decorated function name. |
-| `entity` | Yes | — | Owning Entity, binding the field to one source row grain. |
-| `sample_interval` | No | `None` | Canonical positive `(count, "minute" or "hour")` subday spacing that tiles one day; `None` declares no sample spacing. DATE rejects this option. |
-| `parse` | No | `None` | Parser for source encoding; `None` uses native temporal type. Encoded strings/integers require an explicit parser. |
-| `is_default` | No | `False` | Selects the default Metric time role on this Entity; at most one field may be default. |
-| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+Use `@ms.time_dimension` when a time field is an expression over its Entity. It accepts the same `entity`, `parse`, `sample_interval` and `is_default` options described above. The function name is used unless `name=` is supplied.
 
 ## Native timestamp: `ms.timestamp`
 
@@ -58,14 +50,14 @@ created_at = ms.time_dimension_column(
 )
 ```
 
-This recipe assumes a naive source timestamp in Shanghai time. For an aware timestamp, omit that timezone. Never use a report timezone to silently reinterpret the source.
+This example assumes a naive source timestamp in Shanghai time. An aware source timestamp already identifies an instant, so omit the parser timezone. Parsing affects the TimeDimension projection, not an Entity key. A naive local clock cannot distinguish the two instants in a repeated fall-back hour; use an offset-bearing or UTC source value, or another identity field, when that distinction matters.
 
 ## Encoded date/time: `ms.strptime`
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `format` | Yes | — | Positional Python strptime format; widths, zero padding, separators and valid dates define the required canonical encoding. |
-| `timezone` | No | `None` | Only for a time-bearing naive encoding. Date-only formats reject timezone; `None` uses the applicable reader authority for time-bearing values. |
+| `format` | Yes | — | Python `strptime` format. Directive widths, zero padding, separators and valid calendar values define the expected source encoding. |
+| `timezone` | No | `None` | Optional source timezone for time-bearing values. Date-only formats do not use a timezone; omitted values use reader authority. |
 
 
 ```python
@@ -75,14 +67,15 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-`20260801` matches `%Y%m%d`; `202681` does not. Use Python `%M` for minutes, never MySQL `%i`. A declared format is not proof that all source rows comply.
+For example, `%Y%m%d` expects a value such as `20260801` with fixed widths and zero padding. In time-bearing formats, Python `%M` means minutes. The declaration defines the required encoding; it does not scan every source row for violations.
 
 ## Separate hour column: `ms.hour_prefix`
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `prefix` | Yes | — | Positional TimeDimension expression supplying the date prefix. The hour field inherits its source time context; there is no separate timezone argument. |
+| `prefix` | Yes | — | TimeDimension expression that supplies the civil-date prefix. The hour field inherits its source timezone context. |
 
+The hour source must use an integer from 0 to 23 or a canonical two-digit string.
 
 ```python
 event_hour = ms.time_dimension_column(
@@ -95,9 +88,9 @@ event_hour = ms.time_dimension_column(
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `start` | Yes | — | Inclusive date or instant boundary, supplied as string, date or aware datetime. |
-| `end` | Yes | — | Exclusive boundary, strictly after start; the same accepted input kinds apply. |
-| `timezone` | No | `None` | Parsing/calendar timezone; `None` uses the Session’s saved report timezone. Naive datetime inputs and ambiguous boundaries reject. |
+| `start` | Yes | — | Inclusive boundary as an ISO date/time string, `date`, or timezone-aware `datetime`. |
+| `end` | Yes | — | Exclusive boundary after `start`; accepts the same input types. |
+| `timezone` | No | `None` | Interprets civil dates and offset-free ISO strings and sets reporting calendar boundaries; defaults to the Session's saved report timezone. Aware datetimes retain their instants. |
 
 
 ```python
@@ -106,28 +99,28 @@ august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC"
 days = august.by(mv.grain("day"))
 ```
 
+Python naive `datetime` objects and ambiguous or nonexistent local boundary times are rejected. Use a `date` for a civil boundary and an ISO timestamp with an explicit offset for an exact subday instant.
+
 ## Calendar grain: `mv.grain`
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `unit` | Yes | — | Calendar unit: second, minute, hour, day, week, month, quarter or year. |
-| `count` | No | `1` | Positive number of base units per bucket; defaults to one. |
+| `count` | No | `1` | Canonical positive width for subday units that divides a nominal day and is shorter than one day. Day-or-coarser units use `count=1`. |
 
-`scope.by(grain)` returns a CalendarAxis. Civil months are calendar periods, not fixed durations; DST can change a civil day’s elapsed length. DATE contribution roles require day-or-coarser output and actual boundaries at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for runnable observation and comparison examples.
+`scope.by(grain)` returns a `CalendarAxis`. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
 
 ## Business calendar: `ms.period_calendar`
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | Yes | — | Semantic name, unique in its owning scope. |
-| `date` | Yes | — | Civil-date TimeDimension; timestamps at midnight cannot substitute for DATE. |
+| `date` | Yes | — | Civil-date TimeDimension. |
 | `boundary_timezone` | Yes | — | Explicit IANA timezone defining civil-day boundaries. |
 | `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
 | `levels` | Yes | — | Level name → Dimension mapping on the same Entity. Period keys must be globally unique within a level; day is reserved and derived. |
-| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
-All fields belong to one Entity. Certification requires exactly one row per covered date and contiguous, nonoverlapping periods without gaps. Equal labels alone do not establish period boundaries. Use a TemporalSet for overlapping activities instead.
+All fields belong to one Entity. The date field must be a civil `DATE` TimeDimension; a midnight timestamp is not equivalent. Certification requires one row for every covered date and a non-`NULL` key for every level on every date. Within a level, each key identifies one contiguous period, so periods neither overlap nor leave gaps. Use a `TemporalSet` for separate or overlapping activities.
 
 ## Business calendars
 
@@ -135,7 +128,7 @@ Use ordinary grains in [time analysis](/docs/latest/analysis/time-series/) when 
 
 ### Create seven calendar dates
 
-Use the environment from [installation](/docs/latest/start/installation/). Work in a separate `calendar-demo` project: create `models/datasources/warehouse.py` with the tutorial’s DuckDB declaration and local path `warehouse.duckdb`. Run the commands from this new project, using the installed interpreter by its absolute path. Save the following as `seed_calendar.py` and run it. It replaces only this demo calendar table.
+Use the environment from [installation](/docs/latest/start/installation/). In a separate `calendar-demo` project, create `models/datasources/warehouse.py` with the DuckDB declaration from [Declare the connection](/docs/latest/start/python/#declare-the-connection), using the local path `warehouse.duckdb`. Run from this project with the installed interpreter's absolute path. Save the following as `seed_calendar.py` and run it; rerunning replaces only this demo's `calendar` table.
 
 {/* example: calendar-seed */}
 
@@ -155,7 +148,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
 
 ### Declare dates and periods
 
-Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for the separate project; replace the earlier tutorial declarations when using this separate project. This demonstration week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
+Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for `calendar-demo`. The example week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
 
 {/* example: calendar-model */}
 
@@ -206,24 +199,19 @@ assert period.kind == "calendar_period"
 period.show()
 ```
 
-Expect FY2026-W01 covering seven dates. The seven source dates form one declared week, so `limit=1` returns that entire period preview and `is_truncated=False`. Preview truncation counts period entries, not source dates; exhaustive coverage confirms complete source acquisition. Preview `limit` accepts integers from 1 to 100 inclusive. Temporarily setting `scope.max_rows` to 1 makes certification unable to cover the whole range; restore 8 and retry. Failed or truncated acquisition does not publish a replacement certificate. Read `calendar.details().snapshot_status` for the current certificate.
+Expect FY2026-W01 to cover seven dates. Those dates form one period, so `limit=1` retains the whole period preview while certification still acquires the complete date range. Preview limits count period entries, not source dates, and accept integers from 1 to 100. Keep `scope.max_rows` high enough for exhaustive acquisition; a failed or truncated read does not replace the current certificate. Check `calendar.details().snapshot_status` for its status.
 
-Real models need all approved business periods and complete dates. Equal labels do not establish boundaries. Use `calendar.grain("week")` for the certified grain, rather than passing a guessed name to a builtin grain constructor.
+Real models need authoritative business periods and a complete date spine. When the business week is defined by this calendar, use `calendar.grain("week")` to select that certified level.
 
 ### Activities and working days
 
-Use `ms.temporal_set` to declare unique occurrence IDs, starts, ends and optional categories, then certify through a complete bounded preview. Civil-date boundaries need explicit business timezone. Matching holiday categories do not automatically pair years; query `marivo.help("semantic.temporal_set")` for exact authoring.
+Use `ms.temporal_set` for finite named intervals such as campaigns or holidays, including schedules with gaps or overlaps. Each occurrence has a unique ID and half-open bounds within finite coverage. Certification needs a complete bounded preview; see [named occurrences](#named-occurrences-mstemporal_set) for the fields and exact Help target.
 
-Working-day fields must cover all dates and compensating workdays. Missing dates or unknown states are not rest days. Model separate organizational or regional schedules explicitly.
+For a working-day schedule, provide a status for every date in the counting range, including compensating workdays. A missing date or `NULL` status is unknown, not a rest day. Give each organizational or regional schedule its own identity.
 
 ## Declaration-time grain: `ms.calendar_grain`
 
-| Parameter | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `calendar` | Yes | — | Calendar symbol returned by `ms.period_calendar(...)`, or a calendar reference in the same scope. |
-| `level` | Yes | — | Declared level name, or the derived `day` level. |
-
-`ms.calendar_grain(calendar=calendar_ref, level="week")` captures a source-free grain lookup; `calendar.grain("week")` on a certified Catalog calendar binds the existing certificate.
+`ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use the bound grain with `scope.by(grain)` or a Metric window.
 
 ## Named occurrences: `ms.temporal_set`
 
@@ -235,9 +223,7 @@ Working-day fields must cover all dates and compensating workdays. Missing dates
 | `end` | Yes | — | TimeDimension containing each exclusive end, strictly after its start. |
 | `boundary_timezone` | Yes | — | Explicit IANA timezone defining civil-day boundaries. |
 | `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
-| `category` | No | `None` | Optional Dimension of canonical nonempty category strings or Null; `None` declares no category field. |
-| `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
-| `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
+| `category` | No | `None` | Optional Dimension whose values are nonempty strings or `NULL`. |
 
 
 ```python
@@ -251,6 +237,6 @@ ms.temporal_set(
 )
 ```
 
-Starts and ends must use one temporal kind, lie wholly within coverage, and use unique occurrence IDs. Overlap and gaps are allowed. A one-day holiday is explicitly `[day, day + 1)`. Certification uses `catalog.preview(...)` over complete coverage, just as for calendars; truncated or invalid reads do not publish a new snapshot. A shared category does not automatically pair holidays across years.
+Occurrences use either civil dates or timestamps consistently; each has a unique ID, and its bounds lie wholly within coverage. Timestamp bounds need clear timezone semantics; a naive repeated local clock cannot identify both instants. Gaps and overlaps are allowed. A one-day holiday is `[day, day + 1)`. Certification uses `catalog.preview(...)` over complete coverage; a failed or truncated read does not replace the current snapshot. Matching categories do not define cross-year holiday pairing.
 
-Read certified scopes through `calendar.period(level, key)`, `calendar.period_on(level, date)` or `campaigns.occurrence(key)`; these return TimeScope values. `calendar.grain(level)` binds a certified grain. They read the local certificate, not the source. Exact constructor Help: `semantic.time_dimension.from_column`, `semantic.strptime`, `semantic.period_calendar`, and `semantic.temporal_set`.
+Read certified scopes through `calendar.period(level, key)`, `calendar.period_on(level, date)` or `campaigns.occurrence(key)`; these return `TimeScope` values from the local certificate. For exact signatures, use Live Help targets `semantic.time_dimension.from_column`, `semantic.strptime`, `semantic.period_calendar` and `semantic.temporal_set`.

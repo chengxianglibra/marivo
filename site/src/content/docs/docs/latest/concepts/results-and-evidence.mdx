@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Results and evidence
+description: Read saved results, audit records, and method explanations in context.
 pagefind: false
 head:
   - tag: meta
@@ -9,12 +9,36 @@ head:
       content: noindex
 ---
 
-This content is now in [Results and evidence](/docs/latest/analysis/results/).
+A completed `AnalysisFrame` holds the values produced by its evaluation. A saved
+Frame also carries the audit record for that result. For source-backed results,
+read it as the outcome of captured source reads and scope, not a live view of
+current data.
 
-## Know what you are reading
+## Inspect the saved result
 
-[Continue reading](/docs/latest/analysis/results/)
+On a saved Frame, `show()` gives a bounded preview; `show(n=0)` displays metadata
+and audit summaries. `to_pandas()` exports all fixed values as a flat table.
+Keep the Frame for typed analysis. To reopen the exact result in another
+process, use its `session_id` and `artifact_id`.
 
-## Keep time and meaning explicit
+The [results guide](/docs/latest/analysis/results/#reopen-the-saved-data) shows
+how to save and reopen a result, and how to export its values.
 
-[Continue reading](/docs/latest/analysis/results/)
+## Read evidence in context
+
+Saved audit records separate source reads and scope (when applicable), the
+evaluation and its checks, and the committed Session and Artifact.
+`evidence_digest()` reads the saved Evidence facts; `findings()` reads Findings
+attached to the commit. An ordinary observation can have source and evaluation
+facts without producing Findings.
+
+Source-read, evaluation-completion, and commit times are distinct. Use the
+recorded source scope and read time to judge freshness; a recent commit alone
+does not establish fresh source data. To analyze current source values, capture
+a new observation.
+
+After a successful supported `attribute()` analysis, the Frame exposes
+`method_facts` that explain how the selected method decomposes an output within
+its recorded scope and assumptions. They describe the analysis method, not the
+cause behind an observed value or change. See
+[how to read evidence](/docs/latest/analysis/results/#read-evidence-in-context).

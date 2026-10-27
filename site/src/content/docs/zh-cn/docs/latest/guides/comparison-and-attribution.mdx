@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 比较并归因变化
+description: 选择基准、对齐坐标，并解释受支持的贡献。
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,37 @@ head:
       content: noindex
 ---
 
-内容已合并至 [分析 DSL](/zh-cn/docs/latest/analysis/dsl/)。
+比较衡量当前 Frame 与基准 Frame 之间的差异；归因则按新的分类，将受支持目标拆解为各组贡献。[分析 DSL 指南](/zh-cn/docs/latest/analysis/dsl/)提供共享示例设置，以及两种操作的完整可运行示例。
 
-## 比较固定数据
+## 选择并对齐基准
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+用于比较的 Frame 应来自同一 Session，并代表你要比较的问题。已完成的 Frame 保存固定值；`compare` 不会根据其来源声明重新构造数据。如果问题需要重新读取来源，请显式创建新的观察并比较新结果。调用 `compare` 前，先准备好路径相同且单位兼容的输出。相同名称会配对输出，但不能证明两个 Metric 表达相同的业务含义。
 
-## 显式声明新来源调查
+如果轴名称不同，或默认配对不符合预期，使用 `on` 声明完整轴之间的对应关系。如果日历或区间坐标的键不同，使用 `match` 声明时间坐标如何对应。这些规则表达业务对应关系；键结构兼容本身不能证明它们在业务上可比。命名基准应将这两项规则放在 `mv.baseline(...)` 中。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+`compare` 保留当前值，并添加基准值、绝对变化、相对变化和行存在状态。相对变化的计算式为 `(current - baseline) / abs(baseline)`。基准值为零时结果为 NA；缺失行和 NA 值仍保持缺失。行存在状态表示该行是否存在，不表示其值是否为非 NA。比较采用外部坐标匹配，但每个基准时间行都必须能映射到当前声明的时间域。需要两个时间域的一般并集时，请使用 [`align`](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)。
 
-## 用新维度解释已选目标
+请参阅[分析 DSL 中的基准比较](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，了解 `compare` 参数和完整示例。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+## 归因受支持的变化
 
-## 先固定父选择，再发起新请求
+当需要按新的语义分类，拆解选定的直接 Metric 或受支持的比较输出时，使用 `attribute(by=...)`。报告包含贡献、贡献占比、新读取的 `total`、输入 Frame 中的 `observed_total`，以及用于说明计算方式的方法事实。如果原始观察之后来源数据可能已变化，请同时查看这两个合计值：归因会固定已完成的父级键和值，再分别读取父级和细分输入，因此不保证这些读取来自同一数据快照。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+下面的示例使用[分析 DSL 设置](/zh-cn/docs/latest/analysis/dsl/)中的 `session`、`revenue`、`july`、`august` 和 `region`，按地区归因示例中的绝对变化：
 
-## 对齐明确覆盖完整域的参照
+```python
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
+).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
+```
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+此示例的整体变化为 -200，其中两个地区各贡献 -100。这些贡献是在已声明的 Metric 和范围内，按方法计算出的数值分解；它们不能证明变化由任何一个地区导致。按地区进行分组比较可以展示各地区的数值变化；若要计算对选定目标的贡献，请使用 `attribute`。
 
-## 主动选择日历对应
+如果后续分析需要固定父级选择，先完成该选择。`attribute` 会保留这些键，不会根据新读取的数据重新选择父级键。对于独立的新来源问题，可用 `session.population_from(frame, on=...)` 将选中的完整普通键带入新观察。将 Population 放入 `by` 可指定输出域；在 `where` 中使用 `mv.in_population(...)` 可限制来源贡献。来源声明仅在当前进程中保留；独立重开会保留固定结果和方法事实，但不会保留再次调用 `attribute` 所需的声明。
 
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+完整规则和更多示例见[分析 DSL 中的变化调查](/zh-cn/docs/latest/analysis/dsl/#调查变化)和[分析结果指南](/zh-cn/docs/latest/analysis/results/)。

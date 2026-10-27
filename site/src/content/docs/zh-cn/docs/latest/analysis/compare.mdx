@@ -1,6 +1,6 @@
 ---
-title: 页面已合并
-description: 页面已合并
+title: 比较分析结果
+description: 比较当前值与基准，并查看绝对和相对变化。
 pagefind: false
 head:
   - tag: meta
@@ -9,12 +9,6 @@ head:
       content: noindex
 ---
 
-内容已合并至 [分析 DSL](/zh-cn/docs/latest/analysis/dsl/)。
+使用 `compare` 方法，将当前分析结果（`AnalysisFrame`）与同一分析会话（`Session`）中的一个或多个基准进行比较。结果保留当前值，并为每个基准添加基准值、绝对变化、相对变化和行存在状态。缺失行和 NA 值不会按零处理；基准值为零时，相对变化为 NA。
 
-## 计算变化
-
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
-
-## 解读数值
-
-[继续阅读](/zh-cn/docs/latest/analysis/dsl/)
+参阅[分析 DSL 中的基准比较](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，查看可运行示例以及轴和时间范围的匹配规则。

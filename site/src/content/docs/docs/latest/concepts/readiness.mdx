@@ -1,6 +1,6 @@
 ---
-title: Page merged
-description: Page merged
+title: Readiness
+description: What readiness checks and how to use its report.
 pagefind: false
 head:
   - tag: meta
@@ -9,28 +9,25 @@ head:
       content: noindex
 ---
 
-This content is now in [Semantic layer](/docs/latest/modeling/semantic-layer/).
+`catalog.readiness` checks selected catalog entries, their physical dependency
+closures, and any required certified temporal artifacts. It opens no datasource
+connection and reads no business rows. Pass `refs` to scope the check; omitting
+`refs` checks all loaded physical objects.
 
-## What readiness checks
+Read `status`, `blockers`, and `warnings` together. `blocked` means at least one
+blocker was found. `ready_with_warnings` means no blockers were found, but there
+are warnings to review. Follow blocker repairs and rerun; each status describes
+only the requested scope.
 
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+`analysis_ready_inputs` lists directly requested physical refs whose dependency
+closures have no blockers. For a handoff, request physical fields or `Entity`
+references directly. Selecting a declared `Measure` or `Metric` checks its
+physical dependencies, but does not return the derived expression as a physical
+handoff input.
 
-## Preview is independent
-
-[Continue reading](/docs/latest/modeling/semantic-layer/)
-
-## Source health is separate
-
-[Continue reading](/docs/latest/modeling/semantic-layer/)
-
-## The report
-
-[Continue reading](/docs/latest/modeling/semantic-layer/)
-
-## Important blockers
-
-[Continue reading](/docs/latest/modeling/semantic-layer/)
-
-## Continue to analysis
-
-[Continue reading](/docs/latest/modeling/semantic-layer/)
+A passing result is a static readiness check, not proof of current source data,
+correct business meaning, or successful execution of the intended analysis. For
+current data expectations, use `catalog.source_health` with explicit
+`ms.source_check` rules and a bounded `scope`, then run the intended observation.
+See [Load and validate](/docs/latest/modeling/semantic-layer/#load-and-validate)
+for examples and how the checks differ.
