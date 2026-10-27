@@ -67,6 +67,7 @@ def test_public_attribute_help_example_uses_real_source(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    assert isinstance(revenue, Deferred)
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     source_frame = session.observe({"revenue": revenue})
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
@@ -79,12 +80,96 @@ def test_public_attribute_help_example_uses_real_source(
     assert level.to_pandas()["contribution.revenue"].tolist() == [610, 50, 0]
 
 
+def test_execution_help_examples_continue_in_a_new_process_without_sources(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    """Use the actual Help code and only printed IDs across the process boundary."""
+    import os
+    import subprocess
+    import sys
+
+    case = analysis_dsl_case_factory("j2")
+    examples: dict[str, str] = {}
+    for target in ("analysis_frame.compute", "analysis_frame.persist", "session.persisted_frame"):
+        descriptor = REGISTRY.by_canonical_id(target)
+        assert isinstance(descriptor, CallableInput)
+        examples[target] = descriptor.example.code
+    root = Path(__file__).resolve().parents[2]
+    env = {**os.environ, "PYTHONPATH": str(root)}
+    producer = (
+        "import sys\n"
+        "from unittest.mock import patch\n"
+        "import marivo.analysis as mv\n"
+        "from marivo.datasource.adapters import SourceSession\n"
+        "from tests.shared_fixtures import terminal_runs\n"
+        "session = mv.session.resume(sys.argv[1])\n"
+        "metric = session.catalog.get('metric:sales.revenue').value\n"
+        "frame = session.observe({'value': metric})\n"
+        + examples["analysis_frame.compute"]
+        + "\nassert result.to_pandas()['scaled'].tolist() == [1320]\n"
+        "assert terminal_runs(session) == ()\n"
+        "frame = fixed\n"
+        "with patch.object(SourceSession, '__init__', side_effect=AssertionError('source reread')):\n"
+        f"    exec({examples['analysis_frame.persist']!r})\n"
+        "assert len(terminal_runs(session)) == 1\n"
+        "assert result.persist() is result\n"
+        "assert len(terminal_runs(session)) == 1\n"
+    )
+    produced = subprocess.run(
+        [sys.executable, "-c", producer, case.session.id],
+        cwd=case.root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert produced.returncode == 0, produced.stdout + produced.stderr
+    session_id, artifact_id = produced.stdout.strip().splitlines()
+    (case.root / "models").rename(case.root / "models.offline")
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    consumer = (
+        "import sys\n"
+        "from unittest.mock import patch\n"
+        "import marivo.analysis as mv\n"
+        "from marivo.analysis.errors import AnalysisError\n"
+        "from marivo.datasource.adapters import SourceSession\n"
+        "from tests.shared_fixtures import terminal_runs\n"
+        "session_id, artifact_id = sys.argv[1:]\n"
+        "def forbidden(*args, **kwargs):\n"
+        "    raise AssertionError('cold continuation accessed Catalog or sources')\n"
+        "with patch.object(mv.Session, 'catalog', property(forbidden)), "
+        "patch.object(SourceSession, '__init__', forbidden):\n"
+        f"    exec({examples['session.persisted_frame']!r})\n"
+        "    before = len(terminal_runs(session))\n"
+        "    try:\n"
+        "        result['missing']\n"
+        "    except AnalysisError:\n"
+        "        pass\n"
+        "    else:\n"
+        "        raise AssertionError('missing output must reject')\n"
+        "    corrected = result.select({'scaled': result['value'] * 3}).compute()\n"
+        "    assert corrected.to_pandas()['scaled'].tolist() == [1980]\n"
+        "    assert session.persisted_frame(artifact_id).to_pandas()['value'].tolist() == [660]\n"
+        "    assert len(terminal_runs(session)) == before\n"
+    )
+    reopened = subprocess.run(
+        [sys.executable, "-c", consumer, session_id, artifact_id],
+        cwd=case.root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert reopened.returncode == 0, reopened.stdout + reopened.stderr
+
+
 def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    assert isinstance(region, Deferred)
     frame = case.session.values(
         by=(region,),
         columns={"value": None},
@@ -307,9 +392,9 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source)
 
-    def run(project: Path, script: str, *, timeout: int = 60) -> None:
+    def run(project: Path, script: str, *args: str, timeout: int = 60) -> str:
         completed = subprocess.run(
-            [sys.executable, script],
+            [sys.executable, script, *args],
             cwd=project,
             env={**os.environ, "PYTHONPATH": str(root)},
             capture_output=True,
@@ -317,6 +402,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
             timeout=timeout,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
+        return completed.stdout
 
     def run_group(project: Path, scripts: tuple[str, ...]) -> None:
         runner = project / "run_examples.py"
@@ -356,6 +442,10 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
                 "\nassert len(daily.to_pandas()) == 31\n"
                 'assert rolling.to_pandas()["revenue"].iloc[4] == 100\n'
                 'assert month_to_date.to_pandas()["revenue"].iloc[14] == 200\n'
+                'assert sample_mean.to_pandas()["sales.orders.region"].tolist() == ["east", "west"]\n'
+                'assert sample_mean.to_pandas()["average"].tolist() == [100, 600]\n'
+                'assert adjusted.to_pandas()["sales.orders.region"].tolist() == ["east", "west"]\n'
+                'assert adjusted.to_pandas()["average"].tolist() == [100, 600]\n'
             )
         write(tmp_path, filename, source)
     write(
@@ -390,8 +480,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         "check_metrics.py",
         "import marivo.analysis as mv\n"
         'session = mv.session.get_or_create("extended-model")\n'
-        "metrics = session.catalog.metrics\n"
-        'result = session.observe({name: metrics.get("sales." + name) for name in '
+        'result = session.observe({name: session.catalog.get("metric:sales." + name).value for name in '
         '("revenue", "average_order_value", "gross_margin_rate")}).compute().to_pandas()\n'
         'assert result["revenue"].iloc[0] == 1800\n'
         'assert result["average_order_value"].iloc[0] == 300\n'
@@ -405,10 +494,10 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
             # The identity block belongs in the producer, before that process exits.
             source = (tmp_path / "analysis.py").read_text() + "\n" + source
         write(tmp_path, filename, source)
-    run(tmp_path, "save_ids.py")
+    session_id, frame_id = run(tmp_path, "save_ids.py").strip().splitlines()[-2:]
     (tmp_path / "models/semantic/sales/_domain.py").unlink()
     (tmp_path / "warehouse.duckdb").unlink()
-    run(tmp_path, "reopen.py")
+    run(tmp_path, "reopen.py", session_id, frame_id)
 
     calendar = tmp_path / "calendar-demo"
     write(calendar, "models/datasources/warehouse.py", named("demo-datasource"))

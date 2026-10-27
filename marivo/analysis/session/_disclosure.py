@@ -165,6 +165,7 @@ def provider() -> DisclosureProvider:
             Session,
             "persisted_frame",
             "AnalysisFrame",
+            "session = mv.session.resume(session_id)\n"
             "result = session.persisted_frame(artifact_id)",
             "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes audit directly.",
         ),
@@ -224,7 +225,7 @@ def provider() -> DisclosureProvider:
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
-        "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
+        "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
         "metrics": "Closed Metric or nonempty tuple/Mapping. Only root DeclaredMetricRef supplies local names; expressions need Mapping. Names exclude dots, backslashes, controls and left_present/right_present. Names/order remain fixed.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
@@ -238,7 +239,7 @@ def provider() -> DisclosureProvider:
         "at": ("session.instant",),
         "on": ("FrameAxis", "inputs.catalog"),
         "session_id": ("session.recent",),
-        "artifact_id": ("analysis_frame.persist",),
+        "artifact_id": ("analysis_frame.artifact_id", "analysis_frame.persist"),
     }
     for receiver, name, output, code, effect in operations:
         value = getattr(receiver, name)
@@ -332,7 +333,7 @@ def provider() -> DisclosureProvider:
                     if name == "resume"
                     else ("saved_session_id",)
                     if name == "inspect"
-                    else ("session", "artifact_id")
+                    else ("session_id", "artifact_id")
                     if name == "persisted_frame"
                     else ("session", "frame", "target")
                     if name == "population_from"

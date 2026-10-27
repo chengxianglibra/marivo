@@ -8,7 +8,7 @@ description: 按日历期间分组，计算滚动窗口与累计值。
 ## 按日与月观察
 
 ```python
-from analysis import mv, session, revenue, august
+from analysis import mv, session, revenue, amount, region, august
 ```
 
 {/* example: calendar-query */}
@@ -86,12 +86,18 @@ ordinal 将兼容完整期间的原始位置配对。8 月 1–20 日前缀偏�
 
 `sample_interval=(1, "hour")` 声明预期时钟点，不会把事件时间截断到小时。时间样本 `mean` 和 `weighted_mean` 聚合实际样本，不补齐缺失时钟。显式 Population 样本域和已有 NULL、权重政策保持不变。
 
+继续使用六笔订单模型，先按订单日期计算金额均值，再对各地区实际出现的日期取均值。模型没有声明固定采样间隔，仅实际有订单的日期参与计算。8 月 east 的结果为 100，west 为 600；加零后的结果相同。
+
 ```python
-# elapsed, created_at and cluster are closed fields from this Session's Catalog.
-samples = elapsed.mean(time=created_at).per(created_at)
-frame = session.observe({"average": samples.mean()}, by=(scope, cluster))
+order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_date_entry.kind == "time_dimension"
+order_date = order_date_entry.value
+samples = amount.mean(time=order_date).per(order_date)
+sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
 # Arithmetic does not add a clock-coverage requirement.
-adjusted = session.observe({"average": samples.mean() + 0}, by=(scope, cluster))
+adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+sample_mean.show()
+adjusted.show()
 ```
 
-`samples.quantile(0.95)` 等严格样本规约仍要求声明的时钟覆盖。错误会指出指标、时间字段、实际区间，以及最多六个分组、每组三个缺失时刻。已有 NULL 样本不等于缺失时钟。各时间戳值的均值不等于按查询条数加权的均值，也不等于小时桶均值。
+`samples.quantile(0.95)` 等严格样本规约仍要求声明的时钟覆盖。错误会指出指标、时间字段、实际区间，以及最多六个分组、每组三个缺失时刻。已有 NULL 样本不等于缺失时钟。各日期样本等权；若各日期订单数不同，该结果可能不同于按订单条数加权的均值。时间样本也不会自动形成小时桶。

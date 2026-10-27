@@ -173,17 +173,32 @@ can continue via explicit new observations and governed fixed-parent key bridges
 
 ## Reopen and continue fixed data
 
+The earlier `change` was explicitly persisted. Retain its identifiers from the
+producer's output before that process exits; no additional state file is needed.
+
 ```python
-saved_session_id = session.id
-saved_artifact_id = change.artifact_id
+print(change.session_id)
+print(change.artifact_id)
+```
+
+In another process in the same project, pass those exact identifiers as
+`saved_session_id` and `saved_artifact_id`:
+
+```python
+import marivo.analysis as mv
+
 resumed = mv.session.resume(saved_session_id)
 restored = resumed.persisted_frame(saved_artifact_id)
 restored.show(n=0)
 positive = restored.where(restored["revenue"] > 0).compute()
 positive.show()
 assert positive.to_pandas()["revenue"].tolist() == [200, 600]
-positive.persist().show(n=0)
 ```
+
+This continuation needs no new commit to inspect its answer. If a later process
+needs `positive`, explicitly call `positive.persist()` and retain the returned
+Frame's identifiers. Correcting a fixed-data operation can reuse the saved inputs;
+obtaining new source facts requires an explicit new observation.
 
 Opening metadata, then reading/deriving saved values, requires neither original
 models nor sources. Complete data consumers validate actual required payloads;

@@ -205,11 +205,13 @@ _PAGES = (
         "decision_hub",
         guidance=(
             "Choose retention before executing: compute fixes data in this Python process; retain the returned Frame for data operations. A one-shot answer needs no save. Derivations remain lazy and need compute/persist.",
-            "If another process needs these values, persist and output or save the Session and Artifact IDs before this process exits. Session recovery alone does not recover unsaved data. An existing exact saved reference needs no new publication.",
+            "Only an explicit persist call saves a Frame. For cross-process reuse, retain its session_id and artifact_id, then resume the Session and reopen that Frame. Session recovery alone does not recover unsaved data. An existing saved Frame needs no new publication.",
         ),
+        related=("session.persisted_frame",),
         route_summaries=(
             ("analysis_frame.compute", "Obtain complete fixed memory data."),
             ("analysis_frame.persist", "Save a result for exact cross-process recovery."),
+            ("session.persisted_frame", "Reopen an exact saved Frame using its retained IDs."),
         ),
     ),
     NavigationInput(
@@ -260,9 +262,9 @@ _PAGES = (
         "Create or recover the exact working context.",
         (),
         guidance=(
-            "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Recovery does not replay source observations.",
+            "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Session recovery restores context, not Python variables or unsaved Frames, and does not replay source observations.",
             "Reopen exact committed data with persisted_frame(id); read its committed audit directly. Continue fixed-data operations or explicitly construct new source inputs through operators.",
-            "Older Stores coexist unchanged with current work; read/export them in a compatible environment. Names, IDs and Artifacts remain independent across generations. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
+            "Older Stores coexist unchanged with current work; read/export them in a compatible environment. Names, IDs and saved Frames remain independent across generations. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
         ),
         related=("operators",),
         route_summaries=(

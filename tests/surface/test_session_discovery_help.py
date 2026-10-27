@@ -32,7 +32,7 @@ def test_repeatable_session_help_is_reachable_and_discloses_conflicts() -> None:
 
 
 def test_session_help_explains_generation_isolation_and_uncertain_id_ownership() -> None:
-    assert "Names, IDs and Artifacts remain independent" in rendered_help("analysis.sessions")
+    assert "Names, IDs and saved Frames remain independent" in rendered_help("analysis.sessions")
     recent = rendered_help("analysis.session.recent")
     assert "warn once per set per process" in recent
     assert "without opening older Stores" in recent

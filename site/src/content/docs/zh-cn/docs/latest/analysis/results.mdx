@@ -3,7 +3,7 @@ title: 结果与证据
 description: 保存结果标识，恢复数据并导出数值和分析依据。
 ---
 
-先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。取得返回结果后应保存其标识，恢复时使用这些确切标识。
+先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)，其中显式调用 `persist()` 并返回 `saved`。只有 `persist()` 会保存 AnalysisFrame。一次执行即可回答的问题可以使用 `compute()` 而不保存；同进程后续工作继续使用其返回的 Frame。
 
 ## 保留确切标识
 
@@ -12,42 +12,32 @@ description: 保存结果标识，恢复数据并导出数值和分析依据。
 `analysis.py`，因为那会重新执行脚本中的来源观测。
 
 ```python
-from pathlib import Path
-import json
-
-Path("saved-result.json").write_text(
-    json.dumps(
-        {
-            "session": saved.session_id,
-            "result": saved.artifact_id,
-        }
-    )
-)
+print(saved.session_id)
+print(saved.artifact_id)
 ```
 
-也可以直接输出同样的小型 JSON 对象。身份必须保留到生产进程的变量之外。
+从工具输出中保留这两个标识，供下一次调用使用；无须额外状态文件。
 首次脚本同时输出当前决策所需数据，避免为了保存而增加一轮单独查看。
 已有精确保存引用时，无须再次发布。
 
 ## 在另一进程中恢复
 
-保存为 `reopen.py`，从同一项目运行 `.venv/bin/python reopen.py`。该脚本不导入 `analysis.py` 或语义模型，也不查询来源。
+保存为 `reopen.py`，从同一项目运行 `.venv/bin/python reopen.py SESSION_ID FRAME_ID`，将两个占位符替换为刚才输出的标识。该脚本不导入 `analysis.py` 或语义模型，也不查询来源。仅恢复 Session 不会恢复未保存的 Frame 或 Python 变量。
 
 ```python
-import json
-from pathlib import Path
+import sys
 import marivo.analysis as mv
 
-ids = json.loads(Path("saved-result.json").read_text())
-session = mv.session.resume(ids["session"])
-reopened = session.persisted_frame(ids["result"])
+session_id, frame_id = sys.argv[1:]
+session = mv.session.resume(session_id)
+reopened = session.persisted_frame(frame_id)
 rows = reopened.to_pandas()
 assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
 reopened.show(n=0)
 rows.to_csv("comparison.csv", index=False)
 ```
 
-两个变化仍为 -100。可以在保存行上继续执行受支持的 Frame 运算。新的原来源问题需要显式来源输入；保存数据不会重建原指标定义。
+两个变化仍为 -100。可以在保存行上继续执行受支持的 Frame 运算。修正运算时恢复同一组输入，避免重复它们的来源观测；只有新结果需要留待后续使用时，才显式持久化。新的原来源问题需要显式来源输入；保存数据不会重建原指标定义或可执行来源声明。
 
 导出是独立 pandas 副本，使用可读坐标和普通字符串列。CSV 便于分享数值，但不是可无损导回 Marivo 的格式：类型属性和冻结时间解释需要原 Frame。连接多个导出前先检查单位与键。
 

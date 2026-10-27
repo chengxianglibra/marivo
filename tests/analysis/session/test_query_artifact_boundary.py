@@ -416,8 +416,8 @@ def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
     for target in ("analysis.analysis_frame.compute", mv.AnalysisFrame.compute):
         public_help(target)
         text = capsys.readouterr().out
-        assert "No Artifact is created" in text
-        assert "memory" in text and "stored" in text
+        assert "No result is persisted" in text
+        assert "memory" in text.lower() and "stored" in text.lower()
     for target in ("analysis.analysis_frame.persist", mv.AnalysisFrame.persist):
         public_help(target)
         text = capsys.readouterr().out

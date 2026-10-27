@@ -8,7 +8,7 @@ Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-
 ## Observe days and months
 
 ```python
-from analysis import mv, session, revenue, august
+from analysis import mv, session, revenue, amount, region, august
 ```
 
 {/* example: calendar-query */}
@@ -86,12 +86,18 @@ Raw local timestamps use the declared source timezone or its resolved reader def
 
 `sample_interval=(1, "hour")` declares expected clock points; it does not round event timestamps to hours. Time-sample `mean` and `weighted_mean` aggregate represented samples without filling missing clocks. Explicit Population sample domains and existing NULL/weight policies remain unchanged.
 
+Continue with the six-order model: first average order amounts per order date, then average the represented dates within each region. This model declares no regular sample interval. Only dates with orders participate. August gives 100 for east and 600 for west; adding zero gives the same results.
+
 ```python
-# elapsed, created_at and cluster are closed fields from this Session's Catalog.
-samples = elapsed.mean(time=created_at).per(created_at)
-frame = session.observe({"average": samples.mean()}, by=(scope, cluster))
+order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_date_entry.kind == "time_dimension"
+order_date = order_date_entry.value
+samples = amount.mean(time=order_date).per(order_date)
+sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
 # Arithmetic does not add a clock-coverage requirement.
-adjusted = session.observe({"average": samples.mean() + 0}, by=(scope, cluster))
+adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+sample_mean.show()
+adjusted.show()
 ```
 
-A strict sample reducer such as `samples.quantile(0.95)` still requires declared clock coverage. Its error identifies the Metric, time field, actual interval and up to six groups with three missing instants each. Existing NULL samples are not missing clocks. A mean of per-timestamp values is not a query-weighted mean or an hourly bucket mean.
+A strict sample reducer such as `samples.quantile(0.95)` still requires declared clock coverage. Its error identifies the Metric, time field, actual interval and up to six groups with three missing instants each. Existing NULL samples are not missing clocks. Dates have equal weight; if order counts differ by date, this result can differ from an order-weighted mean. Time samples do not automatically form hourly buckets.

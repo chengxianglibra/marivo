@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import inspect
 import re
 from collections import Counter
@@ -342,6 +343,7 @@ class DatasetDisclosureRegistry:
                     }
                     - defined
                     - {"mv", "ms"}
+                    - set(vars(builtins))
                 )
                 if external != set(descriptor.example.requires):
                     raise invalid("exact external example inputs", descriptor.canonical_id)

@@ -3,7 +3,7 @@ title: Results and evidence
 description: Save result identifiers, reopen data, and export values and evidence.
 ---
 
-Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs). Save the identifiers while you still have the returned result; use those exact identifiers to reopen it.
+Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), which explicitly calls `persist()` and returns `saved`. Only `persist()` saves an AnalysisFrame. A one-shot answer can use `compute()` without saving; retain its returned Frame for further work in the same process.
 
 ## Keep exact identifiers
 
@@ -13,43 +13,33 @@ Do not import or rerun `analysis.py` in a later process just to discover IDs:
 that would execute its source observations again.
 
 ```python
-from pathlib import Path
-import json
-
-Path("saved-result.json").write_text(
-    json.dumps(
-        {
-            "session": saved.session_id,
-            "result": saved.artifact_id,
-        }
-    )
-)
+print(saved.session_id)
+print(saved.artifact_id)
 ```
 
-You can output the same small JSON object instead of writing a file. Retain it
-outside the producer's variables. Include the data needed for the current
+Retain these two identifiers from the tool output for the next invocation; no
+additional state file is needed. Include the data needed for the current
 decision in that first script too, so saving does not add a separate inspection round.
 An already retained exact reference needs no new publication.
 
 ## Reopen in another process
 
-Save as `reopen.py` and run `.venv/bin/python reopen.py` from the same project. This script loads neither `analysis.py` nor the semantic model and does not query the source.
+Save as `reopen.py` and run `.venv/bin/python reopen.py SESSION_ID FRAME_ID` from the same project, substituting the two printed identifiers. This script loads neither `analysis.py` nor the semantic model and does not query the source. Resuming the Session alone does not recover unsaved Frames or Python variables.
 
 ```python
-import json
-from pathlib import Path
+import sys
 import marivo.analysis as mv
 
-ids = json.loads(Path("saved-result.json").read_text())
-session = mv.session.resume(ids["session"])
-reopened = session.persisted_frame(ids["result"])
+session_id, frame_id = sys.argv[1:]
+session = mv.session.resume(session_id)
+reopened = session.persisted_frame(frame_id)
 rows = reopened.to_pandas()
 assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
 reopened.show(n=0)
 rows.to_csv("comparison.csv", index=False)
 ```
 
-The two changes remain -100. Supported Frame operations can continue on these saved rows. A new original-source question requires explicit source inputs; saved data does not reconstruct its original metric definitions.
+The two changes remain -100. Supported Frame operations can continue on these saved rows. When correcting an operation, reopen the same inputs rather than repeating their source observations. Persist a new result explicitly only if it needs to remain available for later use. A new original-source question requires explicit source inputs; saved data does not reconstruct its original metric definitions or executable source declaration.
 
 The export is an isolated pandas copy with readable coordinates and ordinary string columns. CSV is a convenience for sharing values, not a lossless Marivo reimport format: typed attributes and frozen time interpretation need the original Frame. Inspect units and keys before joining exports.
 

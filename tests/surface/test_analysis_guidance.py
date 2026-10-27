@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import inspect
 import re
 from collections import deque
@@ -38,6 +39,36 @@ def test_metric_intent_reaches_observation_without_restarting_discovery() -> Non
     ]
     assert owners == ["operators"]
     assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
+
+
+def test_execution_help_links_retention_and_exact_recovery_without_new_owners() -> None:
+    routes = {
+        "analysis.execution": (
+            "analysis.analysis_frame.compute",
+            "analysis.analysis_frame.persist",
+            "analysis.session.persisted_frame",
+        ),
+        "analysis.analysis_frame.compute": ("analysis.analysis_frame.persist",),
+        "analysis.analysis_frame.persist": (
+            "analysis.analysis_frame.session_id",
+            "analysis.analysis_frame.artifact_id",
+            "analysis.session.persisted_frame",
+        ),
+        "analysis.session.persisted_frame": ("analysis.session.resume",),
+    }
+    for target, expected in routes.items():
+        links = re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", rendered_help(target))
+        assert set(expected) <= set(links), target
+        for link in expected:
+            assert rendered_help(link).startswith(f"Target: {link}\n")
+    descriptor = REGISTRY.by_canonical_id("session.persisted_frame")
+    assert isinstance(descriptor, CallableInput)
+    assert descriptor.discovery_group == "sessions"
+    assert [
+        d.canonical_id
+        for d in REGISTRY.descriptors
+        if isinstance(d, NavigationInput) and "session.persisted_frame" in d.members
+    ] == ["sessions"]
 
 
 def test_attribute_intent_and_complete_fact_navigation_have_exact_owners() -> None:
@@ -153,7 +184,7 @@ def _free_names(code: str) -> set[str]:
         if isinstance(node, (ast.Import, ast.ImportFrom))
         for alias in node.names
     }
-    return loaded - assigned - imported - {"mv", "ms"}
+    return loaded - assigned - imported - {"mv", "ms"} - set(vars(builtins))
 
 
 def test_first_round_help_targets_are_reachable_and_bounded() -> None:

@@ -422,15 +422,15 @@ def provider() -> DisclosureProvider:
             "compute",
             (),
             "AnalysisFrame",
-            "Return complete independent memory; memory roots return themselves.",
+            "Return complete independent memory; memory roots return self.",
             "fixed = frame.compute()\n"
             "derived = fixed.select({'scaled': fixed['value'] * 2})\n"
             "result = derived.compute()",
             ("frame",),
             "execution",
             (
-                "Example needs numeric frame['value']. No Artifact is created. Validate stored data/method facts; use returned handles. Fixed derivations: lazy, no source reread. Sources may change.",
-                "For another process, persist and output Session/Artifact IDs before exit.",
+                "Validate stored data/method facts; pending inputs may read sources. Fixed derivations: lazy, no rereads. No result is persisted. Example needs numeric frame['value'].",
+                "UInt64/naive: semantic.entity.define.",
             ),
         ),
         (
@@ -440,14 +440,12 @@ def provider() -> DisclosureProvider:
             (),
             "AnalysisFrame",
             "Commit evaluated data and return its stored Frame without recomputing a completed memory input.",
-            "import json\nimport sys\n"
-            "result = frame.persist()\n"
-            "sys.stdout.write(json.dumps({'session_id': result.session_id, 'artifact_id': result.artifact_id}) + '\\n')",
+            "result = frame.persist()\nprint(result.session_id)\nprint(result.artifact_id)",
             ("frame",),
             "execution",
             (
-                "A stored root checks commit metadata and returns itself. Evaluation finishes before publication admission; failures and unknown publication outcomes require their structured repair, never an automatic recomputation. Retain Session and Artifact IDs; lost return references require explicit resubmission, which may duplicate saved outputs or read changed sources.",
-                "For a short script that needs later continuation, persist and output/save IDs before exit; no show call is required. An existing saved reference needs no new publication.",
+                "Pending inputs evaluate before publication admission; completed memory inputs are saved without reevaluation. A stored root checks commit metadata and returns itself. Only an explicit persist call saves a Frame.",
+                "Retain the returned Frame's session_id and artifact_id for reopening in another process; no show call or sidecar file is required. Failures and unknown publication outcomes require their structured repair, never automatic recomputation. Lost IDs may require explicit resubmission, which can duplicate saved outputs or read changed sources.",
             ),
         ),
         (
@@ -605,6 +603,15 @@ def provider() -> DisclosureProvider:
                 value,
                 bindings=(bind(value, owner),),
                 summary=summary,
+                related=("analysis_frame.persist",)
+                if owner is AnalysisFrame and name == "compute"
+                else (
+                    "analysis_frame.session_id",
+                    "analysis_frame.artifact_id",
+                    "session.persisted_frame",
+                )
+                if owner is AnalysisFrame and name == "persist"
+                else (),
                 parameters=parameters,
                 output=output,
                 constraints=constraints,

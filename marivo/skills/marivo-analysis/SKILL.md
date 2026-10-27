@@ -143,15 +143,21 @@ or reconstruct signatures before trying a documented call. Logical construction
 can proceed without values; evaluate when the next decision needs values.
 Connectivity and readiness do not qualify the selected method.
 
-Compose known Population and AnalysisFrame dependencies before evaluation. Use
-`compute()` when the next decision needs complete fixed memory data; use
-`persist()` when the result must remain recoverable across processes. Continue
-from the returned Frame to retain those exact values and selected keys. Reusing
-a source expression may read changed sources; it does not reuse a previous answer.
-For a follow-up requiring new facts, provide explicit source inputs and map
-ordinary complete axes with `session.population_from(..., on=...)` when needed.
-A restored Frame does not recover old semantic objects or the producer's selection program.
-Logical construction does not prove business rows were read or a result exists.
+Arrange execution around the data needed for the next decision. Compose known,
+compatible operations before evaluation, and continue from the returned complete
+Frame. Retain memory data while it remains accessible; when a concrete continuation
+needs the same values in another process, explicitly persist the needed Frame and
+retain its exact identity before ending execution. A one-shot answer needs no save;
+do not persist every intermediate result in anticipation of unspecified future work.
+Use `marivo help analysis.execution` for evaluation, retention and reopening mechanics.
+
+Keep method changes separate from data refresh. When correcting an operation or
+its parameters, reuse still-valid completed inputs and preserve unaffected work.
+Reevaluate sources only for a concrete need for new facts, not to recreate values
+already available in a retained Frame. Check that retained inputs still fit the
+question's scope, grain and freshness requirements. A new source question needs
+explicit governed inputs; saved results do not restore their executable declarations.
+Logical construction alone does not establish that business rows were read.
 
 ### Read the result and update the answer
 
@@ -232,23 +238,19 @@ provisional results separate from canonical Evidence.
 
 ### Evidence continuity
 
-Use one question-scoped Session and retain its exact ID across rounds. Continue
-from complete memory Frames while their exact values remain available in the
-same process; compute-only Frames have no committed identity. When cross-process recovery
-is needed, persist and retain `frame.artifact_id` from the returned stored Frame.
-An implicit latest result, scripts, and chat summaries do not replace that
-persisted identity. Frame handles stay in their originating Session; reopen with
-`session.persisted_frame(id)` in that Session when restoring committed data.
+Use one question-scoped Session and retain its exact identity and the identities
+of saved Frames needed across rounds. Keep these available to subsequent execution;
+a description of earlier results or an implicit latest result is insufficient.
+Use the existing Store and public recovery surface for saved data.
 
 Use `marivo help analysis.sessions` for recovery mechanics. Never replay source
 queries or reconstruct displayed rows to conceal missing retained state. Local
 committed results are trusted; recovery does not establish current semantic
 authority, source freshness, causality, or suitability for the question. If a
 current observation is needed, make it explicit. If recovery fails, disclose the
-affected branch and continue independent work. If a returned Artifact identity
-was lost, explicitly resubmit the analysis rather than claiming recovery. This
-may create duplicate saved outputs; a new source evaluation may return changed
-data. Reuse complete memory data when exact prior values remain available.
+affected branch and continue independent work. Follow the structured repair when
+a saved identity or publication outcome is unavailable; any explicit resubmission
+must remain distinguishable from recovery and respect the original access budget.
 
 ### Scope and resources
 
@@ -283,11 +285,11 @@ uncertainty; distinguish computed facts, interpretation, recommendations, and
 hypotheses; disclose material warnings, omissions, terminal exits, and unresolved
 semantic persistence needs.
 
-Retain supporting definitions, scope and available Session/Artifact identities
+Retain supporting definitions, scope and available Session and saved Frame identities
 without exposing runtime bookkeeping unless an audit is requested.
 Match delivery to the request: a single-value answer normally needs only the
 value, period and material limitations. Exports, reports and reusable scaffolding
 are not default deliverables; choose them only for a requested output or a
-concrete continuation need. A Session ID alone does not retain compute-only data.
+concrete continuation need.
 Stop exploring once answers and limitations are complete. Delivery or publication
 uses an independent capability when requested.
