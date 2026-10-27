@@ -131,7 +131,7 @@ Store 16 is under `<project_root>/.marivo/analysis/generations/v16/`. One closed
 `marivo.frame_output/v5` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
-Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
+artifacts are Frame commits; stored Frames expose their identity and audit directly.
 
 Closed method facts distinguish level, absolute and relative targets, retaining
 their explicit output paths and observed versus newly evaluated parent totals.
@@ -210,7 +210,7 @@ an answer. A strict source failure cannot become a missing cell or be hidden by
 an output projection. Missing stored IDs use ArtifactNotFoundError; malformed
 protocol/coordinates are format failures, not a non-Frame-kind guess.
 
-Save Session ID and `saved.artifact.id`. Resume the same Session and call
+Save Session ID and `saved.artifact_id`. Resume the same Session and call
 `session.persisted_frame(artifact_id)` with the exact string. This opens commit
 metadata without Catalog/model/source access or a payload scan. It does not
 recover original source objects or history. Missing/corrupt saved data fails;
@@ -221,8 +221,10 @@ it is not a cache miss that authorizes recomputation.
 Pending Frame.show discloses captured structure and pending operations without
 parent row reads/schema preparation. All show calls validate nonnegative integer
 n (excluding bool) before reads. Memory/stored show(n=0) gives metadata only;
-Artifact.show() has no n and reads submission/audit only. Findings and Evidence
-reads do not read Parquet or coordinate attachments.
+Completed cards include bounded inputs/operations and source-fact/check/Finding
+counts; stored cards add commit time. Summaries never load complete audit or
+method payloads. Frame Findings and Evidence reads do not read Parquet or
+coordinate attachments.
 
 Positive show renders the actual prefix in result order and resolves required
 frozen labels, nominal/actual bounds and endpoint maps. Direct/calendar-comparison

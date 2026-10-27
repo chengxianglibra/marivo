@@ -41,12 +41,8 @@ def _forbidden(*args: object, **kwargs: object) -> None:
     raise AssertionError("local service reached a source, mutation, reopen or payload boundary")
 
 
-def _publish(session: Session) -> mv.Artifact:
-    return (
-        session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
-        .persist()
-        .artifact
-    )
+def _publish(session: Session) -> mv.AnalysisFrame:
+    return session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),)).persist()
 
 
 def test_local_identity_preserves_exact_store_and_has_no_callback_or_result_fields(
@@ -87,19 +83,18 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
 
     assert LocalFrameServices(local.store, local.session_ref).owner == local.owner
     assert session.name == "local-services"
-    saved = session.persisted_frame(artifact.id)
-    reopened = saved.artifact
-    assert reopened._manifest == artifact._manifest
-    assert local.artifact(artifact.id)._manifest == reopened._manifest
+    saved = session.persisted_frame(artifact.artifact_id)
+    reopened = saved
+    manifest = local._audit_manifest(local.open_frame(artifact.artifact_id))
+    assert reopened.artifact_id == artifact.artifact_id
+    assert manifest.artifact_id == reopened.artifact_id
     assert terminal_runs(local) == terminal_runs(session)
-    assert terminal_run(local, artifact._manifest.run_id) == terminal_run(
-        session, artifact._manifest.run_id
-    )
+    assert terminal_run(local, manifest.run_id) == terminal_run(session, manifest.run_id)
     assert terminal_runs(local) == terminal_runs(session)
-    backing = local.open_frame(artifact.id)
+    backing = local.open_frame(artifact.artifact_id)
     assert local.preview(backing, 0).rows.empty
     saved.show(n=0)
-    reopened.show()
+    reopened.show(n=0)
     assert reopened.findings().items == ()
     assert reopened.evidence_digest() == artifact.evidence_digest()
     assert saved.persist() is saved
@@ -114,12 +109,12 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
     monkeypatch.setattr(cr, "check_binding", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
     monkeypatch.setattr(SessionStore, "_write", _forbidden)
-    backing = local.open_frame(artifact.id)
+    backing = local.open_frame(artifact.artifact_id)
     completed = local.read_complete(backing)
     result = export_frame(
         completed.data.schema, completed.data.copy_rows(), completed.data.copy_attachments()
     )
-    expected = session.persisted_frame(artifact.id).to_pandas()
+    expected = session.persisted_frame(artifact.artifact_id).to_pandas()
     pd.testing.assert_frame_equal(result, expected)
     assert result.attrs == expected.attrs
     assert result.iloc[0, 0] == 7
@@ -139,30 +134,30 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
     assert reference() is None
 
     # A second read consumes the actual backing again, rather than a cached table.
-    payload = local.store.project_root / artifact._manifest.data.rows.receipt.project_relative_path
-    (payload / artifact._manifest.data.rows.receipt.file_manifest[0].relative_path).unlink()
+    payload = local.store.project_root / backing.data.rows.receipt.project_relative_path
+    (payload / backing.data.rows.receipt.file_manifest[0].relative_path).unlink()
     with pytest.raises(MaterializationError, match="FileNotFoundError"):
         local.read_complete(backing)
 
 
 def test_local_reads_reject_foreign_session_and_store(session: Session, tmp_path: Path) -> None:
     artifact = _publish(session)
-    backing = session._runtime.local.open_frame(artifact.id)
+    backing = session._runtime.local.open_frame(artifact.artifact_id)
     other_session = mv.session.get_or_create("foreign", timezone="UTC")
     local = other_session._runtime.local
     with pytest.raises(ArtifactNotFoundError):
-        local.artifact(artifact.id)
+        local.open_frame(artifact.artifact_id)
     with pytest.raises(ArtifactNotFoundError):
         local.read_complete(backing)
     with pytest.raises(ArtifactNotFoundError):
-        session._runtime.local.artifact("missing-artifact")
+        session._runtime.local.open_frame("missing-artifact")
 
     other_store = SessionStore(tmp_path / "other-project")
     other_store.create_session("same-id", session_ref=session.id)
     same_id = LocalFrameServices(other_store, session.id)
     assert same_id.owner != session._runtime.local.owner
     with pytest.raises(ArtifactNotFoundError):
-        same_id.artifact(artifact.id)
+        same_id.open_frame(artifact.artifact_id)
     with pytest.raises(ArtifactNotFoundError):
         same_id.read_complete(backing)
 
@@ -173,7 +168,7 @@ def test_invalid_preview_precedes_metadata_or_payload_reads(
 ) -> None:
     artifact = _publish(session)
     local = session._runtime.local
-    backing = local.open_frame(artifact.id)
+    backing = local.open_frame(artifact.artifact_id)
     foreign = mv.session.get_or_create("foreign-preview")._runtime.local
     monkeypatch.setattr(SessionStore, "_read", _forbidden)
     monkeypatch.setattr(OutputRead, "_open", _forbidden)
@@ -230,15 +225,15 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     monkeypatch.setattr(SessionStore, "open_existing", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "open", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "create", _forbidden)
-    assert local.artifact(artifact.id).id == artifact.id
-    backing = local.open_frame(artifact.id)
+    assert local.open_frame(artifact.artifact_id).artifact_id == artifact.artifact_id
+    backing = local.open_frame(artifact.artifact_id)
     assert local.read_complete(backing).data.copy_rows().iloc[0, 0] == 7
     monkeypatch.setattr(Session, "_sources", _forbidden)
     monkeypatch.setattr(catalog, "load", _forbidden)
     monkeypatch.setattr(DatasetRuntime, "connection_service", _forbidden)
     computed = derived.compute()
     assert computed.to_pandas()["copy"].tolist() == [7]
-    assert computed.persist().artifact.session_id == local.session_ref
+    assert computed.persist().session_id == local.session_ref
     column.show()
     axis.show()
     assert memory_ref() is not None
@@ -275,3 +270,72 @@ def test_retained_authority_uses_original_writer_exclusion(session: Session) -> 
     assert terminal_runs(session) == before
     assert local.store.resources(local.session_ref) == ()
     assert _publish(session).session_id == local.session_ref
+
+
+def test_frame_identity_and_audit_availability_follow_exact_carrier(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
+    memory = pending.compute()
+    saved = memory.persist()
+    another = memory.persist()
+    reopened = session.persisted_frame(saved.artifact_id)
+    assert another.artifact_id != saved.artifact_id
+    assert saved.persist() is saved
+    derived = saved.select({"answer": saved["answer"]})
+    loaded = saved.compute()
+    retained_id = saved.artifact_id
+    monkeypatch.setattr(SessionStore, "_read", _forbidden)
+    for frame in (pending, memory, saved, reopened, derived, loaded):
+        assert frame.session_id == session.id
+    assert saved.artifact_id == reopened.artifact_id == retained_id
+    for frame in (pending, memory, derived, loaded):
+        with pytest.raises(CoreRuleError, match="persist"):
+            _ = frame.artifact_id
+        with pytest.raises(CoreRuleError, match="persist"):
+            frame.findings()
+        with pytest.raises(CoreRuleError, match="persist"):
+            frame.evidence_digest()
+
+
+def test_show_zero_combines_audit_summary_without_reading_payloads(
+    session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    saved = _publish(session)
+    monkeypatch.setattr(OutputRead, "_open", _forbidden)
+    for member in (
+        "preview",
+        "read_data",
+        "read_complete",
+        "read_method_facts",
+        "findings",
+        "evidence_digest",
+    ):
+        monkeypatch.setattr(LocalFrameServices, member, _forbidden)
+    saved.show(n=0)
+    text = capsys.readouterr().out
+    assert saved.session_id in text and saved.artifact_id in text
+    for field in (
+        "result_id:",
+        "evaluated_at:",
+        "committed_at:",
+        "inputs:",
+        "operations:",
+        "source_facts:",
+        "checks:",
+        "findings:",
+    ):
+        assert field in text
+    assert "preview: omitted by n=0" in text
+    assert ".evidence_digest()" in text
+    assert ".findings(limit=20)" not in text
+
+
+@pytest.mark.parametrize("limit,cursor", [(0, None), (101, None), (True, None), (1, 3)])
+def test_invalid_finding_request_precedes_store_reads(
+    session: Session, monkeypatch: pytest.MonkeyPatch, limit: int, cursor: object
+) -> None:
+    saved = _publish(session)
+    monkeypatch.setattr(SessionStore, "_read", _forbidden)
+    with pytest.raises(CoreRuleError, match=r"limit 1\.\.100"):
+        saved.findings(limit, cursor)  # type: ignore[arg-type]  # Invalid cursor is rejected before Store access.

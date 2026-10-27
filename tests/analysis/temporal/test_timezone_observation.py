@@ -388,7 +388,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     database.rename(database.with_suffix(".offline"))
     for file in tmp_path.glob("*.parquet"):
         file.rename(file.with_suffix(".offline"))
-    pd.testing.assert_frame_equal(session.persisted_frame(source.artifact.id).to_pandas(), expected)
+    pd.testing.assert_frame_equal(session.persisted_frame(source.artifact_id).to_pandas(), expected)
     worker = """
 import json, sys
 import duckdb, ibis
@@ -414,7 +414,7 @@ assert frame.attrs['axes'][1]['role'] == 'identity'
 print(json.dumps({'pid': __import__('os').getpid(), 'values': frame['value'].tolist()}))
 """
     process = subprocess.run(
-        [sys.executable, "-c", worker, session.id, source.artifact.id],
+        [sys.executable, "-c", worker, session.id, source.artifact_id],
         cwd=tmp_path,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
         capture_output=True,

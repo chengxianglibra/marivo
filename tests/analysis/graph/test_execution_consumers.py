@@ -36,7 +36,12 @@ def _assert_values(result: mv.AnalysisFrame) -> None:
         ("a", 9007199254740993, 2): None,
         ("b", 9007199254740993, 1): 4,
     }
-    assert [column.dtype for column in result.artifact._manifest.data.schema.axes[0].columns] == [
+    assert [
+        column.dtype
+        for column in result._local._audit_manifest(result._require_stored("artifact_id"))
+        .data.schema.axes[0]
+        .columns
+    ] == [
         ScalarDataType("string"),
         ScalarDataType("int64"),
         ScalarDataType("int64"),
@@ -76,8 +81,11 @@ def test_public_source_reexecution_and_terminal_read(
             source_trace.record(saved)
             captures.append(saved)
         first, second = captures
-        assert first.artifact.id != second.artifact.id
-        assert first.artifact._manifest.run_id != second.artifact._manifest.run_id
+        assert first.artifact_id != second.artifact_id
+        assert (
+            first._local._audit_manifest(first._require_stored("artifact_id")).run_id
+            != second._local._audit_manifest(second._require_stored("artifact_id")).run_id
+        )
         shared_result = shared.persist()
         _assert_ratio(shared_result)
         memory = first.compute()
@@ -93,9 +101,9 @@ def test_public_source_reexecution_and_terminal_read(
             raise AssertionError("Terminal read opened a business source")
 
         monkeypatch.setattr(SourceSession, "execute", forbidden)
-        reopened = session.persisted_frame(first.artifact.id)
+        reopened = session.persisted_frame(first.artifact_id)
         _assert_values(reopened)
-        _assert_ratio(session.persisted_frame(shared_result.artifact.id))
+        _assert_ratio(session.persisted_frame(shared_result.artifact_id))
         exported = reopened.to_pandas()
         values = exported["value"]
         assert values[values > 0].tolist() == [2, 4]

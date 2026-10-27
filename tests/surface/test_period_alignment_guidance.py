@@ -59,7 +59,7 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     defined = selected.where(~selected["value"].is_null())
     assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()["count"].tolist() == [12]
     saved = comparison.persist()
-    artifact = saved.artifact
+    artifact = saved
     saved.show(n=1)
     card = capsys.readouterr().out
     assert "to_pandas" in card and "compare(" not in card
@@ -69,7 +69,8 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     assert data.attrs["comparisons"][0]["alias"] == "reference"
     assert len(data.attrs["frozen_coordinates"]) == 3
     artifact.show()
-    assert "session.persisted_frame(" in capsys.readouterr().out
+    audit = capsys.readouterr().out
+    assert saved.artifact_id in audit and "committed_at:" in audit
     assert not hasattr(artifact, "contract") and not hasattr(artifact, "execute")
 
 

@@ -233,21 +233,26 @@ _PAGES = (
     ),
     NavigationInput(
         "results.evidence",
-        "Read saved Artifact audit or original Frame method facts.",
+        "Read saved Frame audit or original method facts.",
         (),
         guidance=(
-            "A saved Frame's .artifact provides committed audit; Frame.method_facts exposes original method facts. These facts do not establish a causal conclusion or current source freshness.",
-            "An unsaved result needs persist only when a saved Artifact is required; inspecting current Frame facts does not require saving.",
+            "A saved Frame provides committed audit directly; Frame.method_facts exposes original method facts. These facts do not establish a causal conclusion or current source freshness.",
+            "An unsaved result needs persist only when a committed result is required; inspecting current Frame facts does not require saving.",
         ),
-        related=("analysis_frame.method_facts", "FrameMethodFacts", "analysis_frame.persist"),
+        related=(
+            "analysis_frame.show",
+            "analysis_frame.method_facts",
+            "FrameMethodFacts",
+            "analysis_frame.persist",
+        ),
         discovery_group="results",
         route_summaries=(
-            ("artifact.show", "Inspect saved submission identity and audit summaries."),
-            ("artifact.findings", "Read a bounded page of saved Findings."),
-            ("artifact.evidence_digest", "Read saved Evidence facts and collection digests."),
+            ("analysis_frame.show", "Inspect saved submission identity and audit summaries."),
+            ("analysis_frame.findings", "Read a bounded page of saved Findings."),
+            ("analysis_frame.evidence_digest", "Read saved Evidence facts and collection digests."),
             ("analysis_frame.method_facts", "Access captured original method facts on this Frame."),
             ("FrameMethodFacts", "Understand original method facts and their limits."),
-            ("analysis_frame.persist", "Save current results when a committed Artifact is needed."),
+            ("analysis_frame.persist", "Save current results when a committed result is needed."),
         ),
     ),
     NavigationInput(
@@ -256,7 +261,7 @@ _PAGES = (
         (),
         guidance=(
             "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Recovery does not replay source observations.",
-            "Reopen exact committed data with persisted_frame(id); its Artifact is audit. Continue fixed-data operations or explicitly construct new source inputs through operators.",
+            "Reopen exact committed data with persisted_frame(id); read its committed audit directly. Continue fixed-data operations or explicitly construct new source inputs through operators.",
             "Older Stores coexist unchanged with current work; read/export them in a compatible environment. Names, IDs and Artifacts remain independent across generations. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
         ),
         related=("operators",),
@@ -316,7 +321,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             "root",
             guidance=(
                 "Imports: import marivo.analysis as mv",
-                "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data. Artifact: saved audit.",
+                "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and audit.",
                 "Start with session.get_or_create; discover inputs through session.catalog. Related Frames share one Session; none is implicit.",
                 "Operators: observe, derive, filter, rank, summarize, compare, correlate, attribute; parameters link to producers.",
                 "Enter known targets directly; otherwise choose the missing information.",

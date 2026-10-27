@@ -30,14 +30,13 @@ def test_exported_quantities_support_pandas_association_and_reopening(
     coefficient = coefficients.loc["value", "count"]
     assert isinstance(coefficient, float)
     assert -1 <= coefficient <= 1
-    restored = plain(case.session.persisted_frame(artifact.artifact.id))
+    restored = plain(case.session.persisted_frame(artifact.artifact_id))
     pd.testing.assert_frame_equal(restored, frame)
     assert (
         restored[["value", "count"]].astype(float).corr(method=method).loc["value", "count"]
         == coefficient
     )
     assert run_ids(case.session) == before
-    assert not hasattr(artifact.artifact, "correlate")
 
 
 @pytest.mark.parametrize("model", ("naive", "drift", "seasonal_naive"))
@@ -53,13 +52,13 @@ def test_exported_history_supports_three_pandas_forecast_models(
     assert (prediction.lower <= prediction.prediction).all()
     assert (prediction.upper >= prediction.prediction).all()
     pd.testing.assert_frame_equal(
-        forecast(plain(case.session.persisted_frame(artifact.artifact.id)).value, model), prediction
+        forecast(plain(case.session.persisted_frame(artifact.artifact_id)).value, model), prediction
     )
     for level in (0.0, 1.0, float("nan"), float("inf")):
         with pytest.raises(ValueError):
             forecast(history.value, model, level=level)
     assert run_ids(case.session) == before
-    assert not hasattr(artifact.artifact, "forecast")
+    assert not hasattr(artifact, "forecast")
 
 
 def test_exported_quantities_support_all_requested_pandas_pairs(
@@ -116,7 +115,7 @@ def test_statistical_failure_is_atomic(
     with pytest.raises(AnalysisError):
         query.persist()
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(previous.artifact.id).to_pandas(), saved
+        case.session.persisted_frame(previous.artifact_id).to_pandas(), saved
     )
     assert_clean(case.session, artifacts=1)
     assert len(terminal_runs(case.session, status="failed")) == 1

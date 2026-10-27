@@ -22,16 +22,16 @@ def test_duckdb_cost_routes_keep_the_original_exact_sum(
         for query in queries:
             first = query.persist()
             assert work.validate(first)["passed"] is True
-            references.append(first.artifact.id)
+            references.append(first.artifact_id)
             before = len(terminal_runs(work.session))
             second = query.persist()
             assert work.validate(second)["passed"] is True
-            assert second.artifact.id != first.artifact.id
+            assert second.artifact_id != first.artifact_id
             assert len(terminal_runs(work.session)) == before + 1
             source_trace.record(first)
             submitted = len(source_trace.native_sql)
             assert (
-                work.session.persisted_frame(first.artifact.id)
+                work.session.persisted_frame(first.artifact_id)
                 .to_pandas()
                 .equals(first.to_pandas())
             )

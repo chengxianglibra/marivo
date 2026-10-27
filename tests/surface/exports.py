@@ -97,7 +97,6 @@ ANALYSIS_PUBLIC = (
     "to_date",
     "trailing_duration",
     "trailing_periods",
-    "Artifact",
     "ArtifactDigest",
     "ArtifactRef",
     "Finding",

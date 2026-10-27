@@ -242,7 +242,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
         session._runtime.local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata)
     )
     saved = memory.persist()
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     loaded = reopened.compute()
     continued = reopened.select({"next": reopened["value"] + 1}).compute()
     for frame in (memory, loaded, continued):

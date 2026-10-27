@@ -20,7 +20,7 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
 
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()
-    store, ref = case.session._runtime.store, artifact.artifact.id
+    store, ref = case.session._runtime.store, artifact.artifact_id
     with store._read() as connection:
         saved = connection.execute(
             "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (ref,)

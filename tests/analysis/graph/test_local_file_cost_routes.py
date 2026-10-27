@@ -63,7 +63,10 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         assert frame["value"].iloc[1:].tolist() == [2, 3, 4]
         assert frame["value"].notna().sum() == 3
         assert [
-            column.dtype for column in observed.artifact._manifest.data.schema.axes[1].columns
+            column.dtype
+            for column in observed._local._audit_manifest(observed._require_stored("artifact_id"))
+            .data.schema.axes[1]
+            .columns
         ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),

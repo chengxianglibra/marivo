@@ -311,7 +311,8 @@ def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
         ("compute", "read_complete"),
         ("to_pandas", "read_data"),
         ("persist", "open_frame"),
-        ("artifact", "open_frame"),
+        ("findings", "findings"),
+        ("evidence_digest", "evidence_digest"),
         ("method_facts", "read_method_facts"),
         ("show", "preview"),
     ),
@@ -331,7 +332,7 @@ def test_frame_consumers_preserve_the_specialized_storage_failure(
     with monkeypatch.context() as fault:
         fault.setattr(LocalFrameServices, read_boundary, unavailable)
         with pytest.raises(StorageAccessError) as captured:
-            if consumer in ("artifact", "method_facts"):
+            if consumer == "method_facts":
                 _ = getattr(saved, consumer)
             else:
                 getattr(saved, consumer)()

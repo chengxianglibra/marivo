@@ -117,7 +117,7 @@ fixed.show()
 
 结果是 1,800，即六笔金额之和。每次运行都会创建新的项目内会话。只有需要继续某个确切的已保存会话时，才显式调用 `mv.session.resume(session_id)`。
 
-`compute()` 返回完整的内存数据；继续从 `fixed` 派生计算可保留这次观测。需要已保存的 Artifact 时，调用 `saved = fixed.persist()` 和 `saved.artifact.show()`；这会保存这些值，不会重新计算来源。在已有项目中，可运行入口的 `--list-metrics` 模式可发现未知的 Metric 路径。选择展示的确切路径，并通过打印的会话 ID 恢复会话进行观测。只有请求分组且字段路径未知时，才在同一会话中使用 `--list-fields`；`--full-output` 可显式展开有界列表。
+`compute()` 返回完整的内存数据；继续从 `fixed` 派生计算可保留这次观测。需要已保存的 Artifact 时，调用 `saved = fixed.persist()` 和 `saved.show(n=0)`；这会保存这些值，不会重新计算来源。在已有项目中，可运行入口的 `--list-metrics` 模式可发现未知的 Metric 路径。选择展示的确切路径，并通过打印的会话 ID 恢复会话进行观测。只有请求分组且字段路径未知时，才在同一会话中使用 `--list-fields`；`--full-output` 可显式展开有界列表。
 
 `domains=None` 加载全部语义创作领域目录，并在会话中冻结这个范围。显式名称只选择这些目录，不会自动扩展依赖；创建前须包含全部必需领域。需要扩大已冻结的范围时，用 `domains=None` 或完整的必需领域序列创建新会话。Catalog 加载只读取元数据，因此使用默认范围无需额外审计来源数据。
 

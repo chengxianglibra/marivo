@@ -107,7 +107,7 @@ def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory)
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        values = case.session.persisted_frame(fixed.artifact.id).to_pandas()["value"]
+        values = case.session.persisted_frame(fixed.artifact_id).to_pandas()["value"]
         assert values.min() == 150 and values.max() == 450
     finally:
         offline.rename(case.database_path)
@@ -131,7 +131,7 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
     frame = result.to_pandas()
     assert frame["value"].tolist() == [150, 850]
     assert len(frame) == 2
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
 def test_empty_numeric_row_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -148,7 +148,7 @@ def test_empty_numeric_row_state(analysis_dsl_case_factory: DslCaseFactory) -> N
     row = result.to_pandas().iloc[0]
     assert row["sum"] == 0 and row["count"] == 0
     assert pd.isna(row["mean"])
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
 
 
 def test_explicit_classification_rollup_and_current_rows(
@@ -187,7 +187,7 @@ def test_selected_row_groups_preserve_count_mean_state(
     assert _dict(frame, "sum") == {"east": 600}
     assert _dict(frame, "mean") == {"east": 300}
     assert (frame["sum"].sum() / frame["count"].sum()) == 300
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
     assert not hasattr(stats, "rollup")
 
 
@@ -307,7 +307,7 @@ assert frame['sum'].sum() / frame['count'].sum() == 49
 assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, saved.artifact.id],
+        [sys.executable, "-c", script, case.session.id, saved.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -347,7 +347,7 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         assert _source(case, expression).compute().to_pandas()["value"].tolist() == pytest.approx(
             [2 / 3] if kind == "ratio" else [0]
         )
-        assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+        assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
 
 
 def test_required_terminal_data_damage_revokes_reads(retained_coordinates_case: DslCase) -> None:
@@ -363,13 +363,13 @@ def test_required_terminal_data_damage_revokes_reads(retained_coordinates_case: 
         else:
             path.write_bytes(b"broken committed numerical data")
         try:
-            reopened = case.session.persisted_frame(statistic.artifact.id)
+            reopened = case.session.persisted_frame(statistic.artifact_id)
             for value in (statistic, reopened):
                 with pytest.raises(AnalysisError):
                     value.to_pandas()
         finally:
             path.write_bytes(original)
-    assert case.session.persisted_frame(statistic.artifact.id).to_pandas()["count"].tolist() == [3]
+    assert case.session.persisted_frame(statistic.artifact_id).to_pandas()["count"].tolist() == [3]
 
 
 def test_weighted_coordinates_merge_paired_components(
@@ -513,7 +513,7 @@ def test_terminal_schema_version_and_binding_mismatch_reject(
             schema.values + schema.values,
             value_paths=schema.value_paths + schema.value_paths,
         )
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
 def test_typed_integer_classification_and_singleton(retained_coordinates_case: DslCase) -> None:
@@ -569,7 +569,7 @@ def test_review_selected_category_retains_classification(
     assert _dict(current.to_pandas(), "region") == {"A": "east", "B": "east"}
     statistic = selected.reduce({"count": mv.row_count()}).compute()
     assert statistic.to_pandas()["count"].tolist() == [2]
-    assert case.session.persisted_frame(current.artifact.id).to_pandas().equals(current.to_pandas())
+    assert case.session.persisted_frame(current.artifact_id).to_pandas().equals(current.to_pandas())
 
 
 @pytest.mark.parametrize("parquet", [False])
@@ -595,7 +595,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     assert _observe(
         case, overall=True, members=_selected_members(case, selected)
     ).compute().to_pandas()["value"].tolist() == [0]
-    assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+    assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
 
 
 def test_review_fixed_group_statistics_keep_axes_and_current_rows(
@@ -611,7 +611,7 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     frame = statistic.to_pandas()
     assert _dict(frame, "mean") == {"east": 140, "south": 7}
     assert statistic.axes[0].name == grouped.axes[1].name
-    assert session.persisted_frame(statistic.artifact.id).to_pandas().equals(frame)
+    assert session.persisted_frame(statistic.artifact_id).to_pandas().equals(frame)
     assert _observe(case, overall=True).compute().to_pandas()["value"].tolist() == [147]
 
 
@@ -639,4 +639,4 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
         )
         assert _dict(frame) == expected
         assert len(frame.columns) == 2
-        assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+        assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)

@@ -128,7 +128,7 @@ def test_required_terminal_receipts_reject_corruption_without_source(
             else:
                 primary.write_bytes(b"damaged required terminal output")
             # Opening metadata is deliberately lazy; the actual consumed file fails.
-            reopened = session.persisted_frame(difference.artifact.id)
+            reopened = session.persisted_frame(difference.artifact_id)
             with pytest.raises(AnalysisError):
                 reopened.to_pandas()
             with pytest.raises(AnalysisError):
@@ -138,6 +138,6 @@ def test_required_terminal_receipts_reject_corruption_without_source(
         finally:
             primary.write_bytes(contents)
         pd.testing.assert_frame_equal(
-            session.persisted_frame(difference.artifact.id).to_pandas(), expected
+            session.persisted_frame(difference.artifact_id).to_pandas(), expected
         )
     assert terminal_runs(session) == runs_before

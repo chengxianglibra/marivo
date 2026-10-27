@@ -61,15 +61,15 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
 
     case = analysis_dsl_case_factory("j1")
     saved = _values(case).persist()
-    value = saved.artifact
-    original = encode(value._manifest)
+    value = saved
+    original = encode(value._local._audit_manifest(value._require_stored("artifact_id")))
     for field in ("definition_graph", "continuation"):
         payload = json.loads(original)
         payload["value"]["fields"][field] = {"record": "GroupDomain", "fields": {}}
         with case.session._runtime.store._write() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (json.dumps(payload), value.id),
+                (json.dumps(payload), value.artifact_id),
             )
         state = case.root / ".marivo/analysis"
         before = {
@@ -78,7 +78,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
             if p.is_file() and not p.name.endswith(("-wal", "-shm"))
         }
         with pytest.raises(IntegrityError) as caught:
-            case.session.persisted_frame(value.id)
+            case.session.persisted_frame(value.artifact_id)
         assert caught.value.stage == "terminal_output"
         assert caught.value.repair is not None
         assert "cannot be migrated or replayed" in caught.value.repair.action
@@ -90,7 +90,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
     with case.session._runtime.store._write() as connection:
         connection.execute(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-            (original, value.id),
+            (original, value.artifact_id),
         )
     import pyarrow.parquet as pq
 
@@ -99,11 +99,10 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
 
     with monkeypatch.context() as audit_only:
         audit_only.setattr(pq, "ParquetFile", forbidden)
-        value.show()
-        assert case.session.persisted_frame(value.id).artifact.id == value.id
+        value.show(n=0)
+        assert case.session.persisted_frame(value.artifact_id).artifact_id == value.artifact_id
     assert len(terminal_runs(case.session)) == 1
-    assert not hasattr(value, "to_pandas")
-    assert case.session.persisted_frame(value.id).to_pandas()["value"].tolist() == [
+    assert case.session.persisted_frame(value.artifact_id).to_pandas()["value"].tolist() == [
         450,
         150,
         400,

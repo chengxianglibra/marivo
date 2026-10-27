@@ -61,7 +61,7 @@ def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str
             "session": error.session_ref,
             "before": before,
             "after": snapshot(runtime),
-            "artifact": retained.artifact.id,
+            "artifact": retained.artifact_id,
         }
     raise AssertionError("contender was admitted")
 

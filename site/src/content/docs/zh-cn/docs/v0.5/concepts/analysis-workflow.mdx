@@ -738,7 +738,7 @@ delta.to_pandas()    # 终端导出，用于自定义本地分析
 
 默认卡片受 50 行和 8 KiB 双重约束，以先达到者为准。省略行会准确报告
 `displayed`、`total`、`omitted`，并给出可复制的
-`session.artifact('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
+`session('<ref>').to_pandas()` 恢复调用。向 `show()` 或 `render()`
 传入 `max_output_bytes=None` 可展示全部行。
 
 当操作产生证据时，`artifact.show()` 会在结果预览之前展示有界的类型化
@@ -801,7 +801,7 @@ Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 
 ```python
 runs = session.runs(limit=20)
 run = session.get_run(runs.items[0].run_id)
-previous = session.artifact(ref)
+previous = session(ref)
 graph = session.graph(artifact_ref=ref, direction="ancestors")
 
 # 仅在恢复任务、问题明显重复或同类错误再次出现时查看历史：

@@ -52,7 +52,7 @@ def test_numeric_string_category_persists_and_exports(
     frame = saved.to_pandas()
     assert frame[ordinary_columns(frame)[0]].tolist() == ["A"]
     assert frame["value"].tolist() == ["123"]
-    restored = case.session.persisted_frame(saved.artifact.id)
+    restored = case.session.persisted_frame(saved.artifact_id)
     assert restored.to_pandas().equals(frame)
     assert frame.loc[frame["value"] == "123"].equals(frame)
     assert selected.compute().to_pandas().equals(frame)
@@ -145,8 +145,8 @@ assert len(terminal_runs(session)) == 2
                 "-c",
                 script,
                 case.session.id,
-                original.artifact.id,
-                positive.artifact.id,
+                original.artifact_id,
+                positive.artifact_id,
             ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
@@ -185,7 +185,7 @@ def test_public_decimal_field_comparison(
         member for member, total in totals.items() if total > 0
     }
     assert all(isinstance(value, Decimal) for value in frame["value"])
-    restored = case.session.persisted_frame(saved.artifact.id)
+    restored = case.session.persisted_frame(saved.artifact_id)
     assert restored.to_pandas().equals(frame)
     assert frame.loc[frame["value"] > threshold].equals(frame)
 
@@ -224,7 +224,7 @@ def test_public_duration_field_comparison(
 
     dtype = frame["value"].dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("ns")
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
     runs_before = terminal_runs(case.session)
     business_calls: list[str] = []
 
@@ -246,7 +246,7 @@ def test_public_duration_field_comparison(
     assert not hasattr(error, "run_ref")
     assert terminal_runs(case.session) == runs_before
     assert business_calls == []
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
 def test_foreign_predicate_inputs_reject_before_execution(

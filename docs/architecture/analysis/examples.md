@@ -47,7 +47,7 @@ change = current.compare(
     match=mv.ordinal(),
 ).persist()
 change.show(n=10)
-change.artifact.show()
+change.show(n=0)
 assert change.to_pandas()["reference.absolute.revenue"].tolist() == [-100, -100]
 ```
 
@@ -175,14 +175,14 @@ can continue via explicit new observations and governed fixed-parent key bridges
 
 ```python
 saved_session_id = session.id
-saved_artifact_id = change.artifact.id
+saved_artifact_id = change.artifact_id
 resumed = mv.session.resume(saved_session_id)
 restored = resumed.persisted_frame(saved_artifact_id)
 restored.show(n=0)
 positive = restored.where(restored["revenue"] > 0).compute()
 positive.show()
 assert positive.to_pandas()["revenue"].tolist() == [200, 600]
-positive.persist().artifact.show()
+positive.persist().show(n=0)
 ```
 
 Opening metadata, then reading/deriving saved values, requires neither original

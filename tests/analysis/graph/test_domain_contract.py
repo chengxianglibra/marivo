@@ -31,7 +31,7 @@ def test_reduced_count_compares_as_an_independent_quantity(
     frame = result.to_pandas()
     assert frame["reference.absolute.rows"].tolist() == [1]
     assert frame["reference.relative.rows"].tolist() == pytest.approx([1 / 3])
-    schema = result.artifact._manifest.data.schema
+    schema = result._local._audit_manifest(result._require_stored("artifact_id")).data.schema
     assert all(column.unit is None for column in schema.values)
     same = (
         current.compare(

@@ -107,7 +107,7 @@ cheap single-line hint, then `artifact.show()` for a bounded read and
 `artifact.to_pandas()` only as a terminal step when you need a mutable local
 copy. Every artifact carries lineage and is persisted under project-local
 `.marivo/`, so later steps can recover it by ref without re-querying the
-datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`;
+datasource. `artifact.artifact_id` is a read-only alias of the canonical `artifact.ref`;
 for every frame, `row_count == shape[0]`.
 :::
 

@@ -281,7 +281,7 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     marivo.help('analysis.frame_level_division_method.divisor')
 """
     cold = subprocess.run(
-        [sys.executable, "-c", code, session.id, saved.artifact.id, str(nested)],
+        [sys.executable, "-c", code, session.id, saved.artifact_id, str(nested)],
         cwd=checkout,
         env={**os.environ, "PYTHONPATH": str(checkout), "MARIVO_PROJECT_ROOT": str(tmp_path)},
         capture_output=True,
@@ -1243,13 +1243,13 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert method.left.value==Decimal('240.500000000')
     assert method.change.value==Decimal('41')
     assert saved.compute().method_facts==saved.method_facts
-    checks=[dict(item.values) for item in saved.artifact.evidence_digest().items if item.kind=='check']
+    checks=[dict(item.values) for item in saved.evidence_digest().items if item.kind=='check']
     ids={item.get('check') for item in checks}
     assert {'attribute.complete_key_mapping','attribute_closure'} <= ids
     assert not {'attribute.scoped_identity_coverage','attribute.disjoint_joint_partition'} & ids
 """
         cold = subprocess.run(
-            [sys.executable, "-c", code, session.id, saved.artifact.id, str(checkout)],
+            [sys.executable, "-c", code, session.id, saved.artifact_id, str(checkout)],
             cwd=checkout,
             env={**os.environ, "PYTHONPATH": str(checkout), "MARIVO_PROJECT_ROOT": str(tmp_path)},
             capture_output=True,
@@ -1563,7 +1563,7 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         ]
         assert len(mappings) == 1 and mappings[0]["result"] == "passed"
         saved = report.persist()
-        reopened = session.persisted_frame(saved.artifact.id)
+        reopened = session.persisted_frame(saved.artifact_id)
         assert reopened._backing.metadata.audit == audit
         before = roles.copy()
         assert reopened.compute().to_pandas().equals(rows)
@@ -1753,7 +1753,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
         saved.method_facts[0].show()
 """
     cold = subprocess.run(
-        [sys.executable, "-c", code, session.id, saved_native.artifact.id, saved.artifact.id],
+        [sys.executable, "-c", code, session.id, saved_native.artifact_id, saved.artifact_id],
         cwd=checkout,
         env={**os.environ, "PYTHONPATH": str(checkout), "MARIVO_PROJECT_ROOT": str(tmp_path)},
         capture_output=True,

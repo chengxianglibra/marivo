@@ -76,7 +76,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     assert frames["source_calendar"]["value"].tolist() == [0, 0, 0]
     saved: dict[str, object] = {}
     for name, value in outputs.items():
-        manifest = value.artifact._manifest
+        manifest = value._local._audit_manifest(value._require_stored("artifact_id"))
         data = manifest.data
         calendars = tuple(axis for axis in data.schema.axes if isinstance(axis, CalendarDataAxis))
         assert all(axis.frozen is not None for axis in calendars)
@@ -114,7 +114,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
                 )
         assert decode(encode(manifest), type(manifest)) == manifest
         saved[name] = {
-            "artifact": value.artifact.id,
+            "artifact": value.artifact_id,
             "snapshot": snapshot(value, frame=frames[name]),
         }
     state = case.root / "calendar-round1.json"
@@ -164,7 +164,7 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
     first = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     unit = mv.coordinates(by=(), keys=((),))
     artifact = session.frame(mv.product(first, unit)).persist()
-    manifest = artifact.artifact._manifest
+    manifest = artifact._local._audit_manifest(artifact._require_stored("artifact_id"))
     (part0,) = manifest.data.attachments
     for broken in (
         replace(part0, name="calendar_bounds"),
@@ -312,7 +312,7 @@ def test_global_top_keeps_complete_key_ties_after_score_projection(
     ranked = values.top(2, by=values["score"], descending=True)
     artifact = ranked.select({"selected": 1}).persist()
     expected = [("B", "C"), ("A", "C")]
-    for selected in (artifact, session.persisted_frame(artifact.artifact.id)):
+    for selected in (artifact, session.persisted_frame(artifact.artifact_id)):
         frame = selected.to_pandas()
         assert list(frame.iloc[:, :2].itertuples(index=False, name=None)) == expected
         assert frame["selected"].tolist() == [1] * 2

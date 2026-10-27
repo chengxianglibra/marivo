@@ -441,7 +441,7 @@ class Session:
 
         Constraints: Checks commit metadata without source, Catalog or payload reads. Data
         reads validate consumed files. Old Stores are refused unchanged; missing or foreign
-        IDs fail. For audit metadata, use saved.artifact.
+        IDs fail. For audit metadata, use saved.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.frame import AnalysisFrame
@@ -454,7 +454,7 @@ class Session:
             reject(
                 "an exact nonempty Artifact ID string",
                 type(artifact_id).__name__,
-                "Pass the exact committed output ID, not an Artifact object or Ref.",
+                "Pass the exact committed output ID, not a Frame object or Ref.",
                 "session.persisted_frame",
             )
         backing = self._runtime.local.open_frame(artifact_id)

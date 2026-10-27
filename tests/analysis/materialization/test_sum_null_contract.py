@@ -76,7 +76,7 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
     with pytest.raises(AnalysisError, match="non-NA internal samples"):
         session.observe({"mean": amount.sum().per(members).mean(nulls="error")}).compute()
     saved = fixed.persist()
-    pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact.id).to_pandas(), rows)
+    pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact_id).to_pandas(), rows)
     empty = members.where(~mv.in_population(members))
     with pytest.raises(AnalysisError, match="missing output coordinates"):
         session.observe({"total": amount.sum()}, by=empty).compute()

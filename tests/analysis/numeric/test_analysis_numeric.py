@@ -692,7 +692,7 @@ def test_numeric_states_produce_offline_and_cold(
                 source,
             )
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
-    producer = "\nfrom tests.shared_fixtures import catalog_value\n\nimport json, sys\nfrom pathlib import Path\nimport marivo.analysis as mv\nfrom tests.analysis.numeric.pandas_coordinates import ordinary_columns\nimport marivo.semantic as ms\nfrom tests.analysis.materialization.domain_recovery_worker import snapshot\nms.load(workspace_dir='.')\nsession = mv.session.resume(sys.argv[1])\namount = catalog_value(session.catalog, 'sales.order.amount', kind='field')\ntime = catalog_value(session.catalog, 'sales.order.ordered_at', kind='field')\nbase = amount.sum(time=time)\nmetric = base if sys.argv[2] == 'decimal' else base.per(time).mean()\nmembers = session.members(session.catalog.get('entity:sales.customer').value)\nscope = session.time_scope(start='2026-08-01',end='2026-08-03')\nquery = session.observe({'value':metric}, by=mv.product(scope, members))\nfine = query.persist()\ntotal = session.observe({'value':metric}, by=(scope,), where=mv.in_population(members)).persist()\nartifacts = {'fine':fine.artifact.id,'total':total.artifact.id}\nPath('recovery-manifests.json').write_text(json.dumps({name:snapshot(value) for name,value in (('fine',fine),('total',total))}))\nprint(json.dumps(artifacts))\n"
+    producer = "\nfrom tests.shared_fixtures import catalog_value\n\nimport json, sys\nfrom pathlib import Path\nimport marivo.analysis as mv\nfrom tests.analysis.numeric.pandas_coordinates import ordinary_columns\nimport marivo.semantic as ms\nfrom tests.analysis.materialization.domain_recovery_worker import snapshot\nms.load(workspace_dir='.')\nsession = mv.session.resume(sys.argv[1])\namount = catalog_value(session.catalog, 'sales.order.amount', kind='field')\ntime = catalog_value(session.catalog, 'sales.order.ordered_at', kind='field')\nbase = amount.sum(time=time)\nmetric = base if sys.argv[2] == 'decimal' else base.per(time).mean()\nmembers = session.members(session.catalog.get('entity:sales.customer').value)\nscope = session.time_scope(start='2026-08-01',end='2026-08-03')\nquery = session.observe({'value':metric}, by=mv.product(scope, members))\nfine = query.persist()\ntotal = session.observe({'value':metric}, by=(scope,), where=mv.in_population(members)).persist()\nartifacts = {'fine':fine.artifact_id,'total':total.artifact_id}\nPath('recovery-manifests.json').write_text(json.dumps({name:snapshot(value) for name,value in (('fine',fine),('total',total))}))\nprint(json.dumps(artifacts))\n"
 
     def run(script: str, *args: str) -> object:
         completed = subprocess.run(
@@ -740,7 +740,7 @@ for name, artifact in json.loads(sys.argv[2]).items():
     values = frame['value']
     if sys.argv[3] == 'duration':
         values = pa.array(values).cast(pa.duration('ns')).cast(pa.int64()).to_pylist()
-    output[name] = {'values':[str(value) for value in values], 'artifact':saved.artifact.id}
+    output[name] = {'values':[str(value) for value in values], 'artifact':saved.artifact_id}
 assert run_ids(session) == before
 print(json.dumps(output, sort_keys=True))
 """
@@ -802,7 +802,7 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
         assert case.session.observe({"boundary": metric}).compute().to_pandas()[
             "boundary"
         ].tolist() == [expected]
-        assert case.session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
+        assert case.session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
 
 
 def test_definition_quantile_checks_q_and_accepts_endpoints(

@@ -80,7 +80,12 @@ def test_public_contract_actions_and_result_card(
     assert isinstance(route_help_target("analysis.analysis_frame"), NativeHelpRoute)
     saved = observed.persist()
     assert subject_key not in repr(saved) and ".show()" in repr(saved)
-    assert saved.artifact._manifest.data.schema.values[0].unit == "CNY"
+    assert (
+        saved._local._audit_manifest(saved._require_stored("artifact_id"))
+        .data.schema.values[0]
+        .unit
+        == "CNY"
+    )
     saved.show(n=2)
     card = capsys.readouterr().out
     assert "AnalysisFrame" in card and "rows: 4" in card
@@ -92,7 +97,7 @@ def test_public_contract_actions_and_result_card(
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        reopened = case.session.persisted_frame(saved.artifact.id)
+        reopened = case.session.persisted_frame(saved.artifact_id)
         reopened.show(n=2)
         reopened_card = capsys.readouterr().out
         assert "source declaration retained" in card
@@ -186,24 +191,20 @@ def test_public_coordinate_rollup_is_composed_before_terminal_publication(
     assert grouped.axes[1].name == direct.axes[1].name
     assert grouped_rows.to_numpy().tolist() == direct_rows.to_numpy().tolist()
     assert grouped_rows.dtypes.tolist() == direct_rows.dtypes.tolist()
-    assert session.persisted_frame(grouped.artifact.id).to_pandas().equals(grouped.to_pandas())
+    assert session.persisted_frame(grouped.artifact_id).to_pandas().equals(grouped.to_pandas())
 
 
-def test_public_mixed_fixed_and_live_rejects_before_run(
+def test_public_mixed_fixed_and_live_captures_without_a_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     fixed = _observe(case, "2026-07-01", "2026-08-01").persist()
     live = _observe(case, "2026-08-01", "2026-09-01")
     before = terminal_runs(case.session)
-    with pytest.raises(AnalysisError):
-        live.compare(
-            {
-                "reference": mv.baseline(
-                    fixed.artifact, on=tuple(zip(live.axes, fixed.axes, strict=True))
-                )
-            }
-        )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+    combined = live.compare(
+        {"reference": mv.baseline(fixed, on=tuple(zip(live.axes, fixed.axes, strict=True)))}
+    )
+    assert isinstance(combined, mv.AnalysisFrame)
     assert terminal_runs(case.session) == before
 
 
@@ -251,7 +252,7 @@ def test_public_failed_run_preserves_prior_artifact(
         with pytest.raises(DatasourceConnectionError):
             logical.persist()
         assert terminal_runs(case.session) == before
-        assert case.session.persisted_frame(first.artifact.id).to_pandas().equals(expected)
+        assert case.session.persisted_frame(first.artifact_id).to_pandas().equals(expected)
     finally:
         offline.rename(case.database_path)
 

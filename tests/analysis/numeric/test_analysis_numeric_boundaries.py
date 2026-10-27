@@ -89,7 +89,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     )
     assert defined == expected
     assert all(isinstance(value, float) for value in defined.values())
-    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(rows)
+    assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(rows)
     results = [session.observe({"value": metric}, where=mv.in_population(members)).compute()]
     for result in results:
         assert result.to_pandas()["value"].tolist() == [expected_total]
@@ -141,7 +141,7 @@ def test_decimal_fold_retains_widened_sample_type(
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [Decimal(1800)]
-    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
+    assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
 
 
 @pytest.mark.parametrize(
@@ -192,7 +192,7 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [value]
-    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
+    assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -226,7 +226,7 @@ def test_numeric_raw_order_and_exchange_batches(
         by=session.members(session.catalog.get("entity:sales.customer").value),
     )
     fixed = logical.persist()
-    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
+    assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
     exact = sum(Fraction(value) for _, value in facts)
     bound = sum(abs(value) for _, value in facts) * 1e-12 + 1e-12
     for result in (

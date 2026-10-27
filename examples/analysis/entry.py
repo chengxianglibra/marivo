@@ -104,6 +104,6 @@ elif args.metric_path is not None:
     fixed.show()
     if args.persist:
         saved = fixed.persist()
-        saved.artifact.show()
-        print(f"Artifact: {saved.artifact.id}")
+        saved.show(n=0)
+        print(f"Artifact: {saved.artifact_id}")
 print(f"Session: {session.id}")

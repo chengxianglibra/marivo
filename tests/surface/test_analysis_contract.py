@@ -93,7 +93,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
         assert terminal_runs(session) == ()
 
     saved = selected.persist()
-    artifact = saved.artifact
+    artifact = saved
     output = saved.to_pandas()
     # Complete output coordinates retain the two groups without selected facts;
     # their fixed sum is additive zero.
@@ -118,7 +118,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     assert (
         tuple(
             item
-            for item in session.persisted_frame(artifact.id).artifact.evidence_digest().items
+            for item in session.persisted_frame(artifact.artifact_id).evidence_digest().items
             if item.kind == "read"
         )
         == reads
@@ -235,22 +235,24 @@ def test_frame_and_audit_cards_advertise_only_actual_state_continuations(
     pending.show(n=0)
     card = capsys.readouterr().out
     assert ".compute()" in card and ".persist()" in card
-    assert ".to_pandas()" not in card and ".artifact" not in card
+    assert ".to_pandas()" not in card and ".findings(" not in card
     fixed = pending.compute()
     fixed.show(n=0)
     card = capsys.readouterr().out
-    assert ".to_pandas()" in card and ".persist()" in card and ".artifact" not in card
+    assert ".to_pandas()" in card and ".persist()" in card and ".findings(" not in card
     saved = fixed.persist()
     saved.show(n=0)
     card = capsys.readouterr().out
-    assert ".to_pandas()" in card and ".artifact" in card and ".compute()" not in card
-    saved.artifact.show()
+    assert ".to_pandas()" in card and "artifact_id:" in card and ".compute()" not in card
+    saved.show(n=0)
     audit = capsys.readouterr().out
-    assert f"session.persisted_frame({saved.artifact.id!r}).show(n=20)" in audit
+    assert saved.artifact_id in audit
+    assert "committed_at:" in audit and "source_facts: 0" in audit
+    assert "checks: 1" in audit and "findings: 0" in audit
     assert "Artifact.to_pandas" not in audit and "artifact.show(n=" not in audit
     case.session.show()
     recap = capsys.readouterr().out
-    assert saved.artifact.id not in recap
+    assert saved.artifact_id not in recap
     assert "artifacts: 1" in recap
     assert "run" not in recap.lower()
-    assert ".artifact(ref)" not in recap
+    assert "(ref)" not in recap

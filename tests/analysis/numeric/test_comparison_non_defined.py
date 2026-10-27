@@ -139,7 +139,7 @@ def test_null_operands_propagate_in_period_comparison(
     assert sorted(absolute.dropna().tolist()) == [-50, 0, 20]
     assert absolute.isna().sum() == 9
     assert frame[["current.present", "reference.present"]].all().all()
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
 def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(

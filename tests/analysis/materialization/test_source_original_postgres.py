@@ -226,7 +226,7 @@ def test_postgres_original_parent_sum_widens_before_publication(
         assert query.compute().to_pandas()["value"].tolist() == [2**63, -(2**63)]
         trace = capture_source(monkeypatch)
         saved = query.persist()
-        assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+        assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
         assert publication_counts(session) != before
         assert trace.returned_rows == [2]
         assert trace.uploaded_key_rows == []

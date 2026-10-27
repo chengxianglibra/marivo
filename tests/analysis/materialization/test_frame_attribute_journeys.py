@@ -95,8 +95,8 @@ def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     assert "Target metric_0 (level)" in text
     assert "diagnostic" in text and "output_names" in text
     assert len(text.encode("utf-8")) <= 8192
-    artifact = report.persist().artifact
-    reopened = case.session.persisted_frame(artifact.id)
+    artifact = report.persist()
+    reopened = case.session.persisted_frame(artifact.artifact_id)
     reopened.show(n=2)
     cold_text = capsys.readouterr().out
     assert "Target metric_0 (level)" in cold_text

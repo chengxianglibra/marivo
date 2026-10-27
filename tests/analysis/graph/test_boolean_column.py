@@ -108,7 +108,7 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        reopened = case.session.persisted_frame(saved.artifact.id)
+        reopened = case.session.persisted_frame(saved.artifact_id)
         pd.testing.assert_frame_equal(reopened.to_pandas(), rows)
         restored = reopened.where(reopened["right.flag"].is_null()).compute()
         pd.testing.assert_frame_equal(restored.to_pandas(), expected)

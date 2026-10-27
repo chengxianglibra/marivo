@@ -109,7 +109,7 @@ def test_temporal_comparisons_keep_full_range_and_null_masks(
     ticks: list[int | None] = [minimum, 0, maximum, *([None] if nullable else [])]
     memory = _frame(session, dtype, physical, ticks, nullable=nullable)
     stored = memory.persist()
-    reopened = session.persisted_frame(stored.artifact.id)
+    reopened = session.persisted_frame(stored.artifact_id)
     for frame in (memory, stored, reopened):
         before = terminal_runs(session)
         value, coordinate = frame["value"], frame.coord(frame.axes[0])
@@ -167,7 +167,7 @@ def test_duration_negation_checks_original_unit_overflow_and_preserves_nulls(
 ) -> None:
     physical = pa.duration(unit)
     frame = _frame(session, DurationDataType(unit), physical, [-(2**63), 0, None])
-    for current in (frame, session.persisted_frame(frame.persist().artifact.id)):
+    for current in (frame, session.persisted_frame(frame.persist().artifact_id)):
         before = terminal_runs(session)
         with pytest.raises(MaterializationError, match="Duration tick overflow"):
             current.select({"negative": -current["value"]}).compute()
@@ -229,7 +229,7 @@ def test_timestamp_comparison_scales_units_without_int64_common_unit_cast(sessio
             ),
         ),
     )
-    for current in (frame, session.persisted_frame(frame.persist().artifact.id)):
+    for current in (frame, session.persisted_frame(frame.persist().artifact_id)):
         left, right = current["seconds"], current["nanoseconds"]
         result = (
             current.select(
@@ -327,7 +327,7 @@ def test_timestamp_comparison_preserves_timezone_awareness_distinction(
             ),
         ),
     )
-    for current in (frame, session.persisted_frame(frame.persist().artifact.id)):
+    for current in (frame, session.persisted_frame(frame.persist().artifact_id)):
         naive, aware = current["naive"], current["aware"]
         output = current.select({"eq": naive == aware, "ne": naive != aware}).compute().to_pandas()
         assert pa.array(output["eq"]).to_pylist() == (
@@ -358,7 +358,7 @@ def test_temporal_cold_continuation_uses_fixed_data_without_publication(session:
             session, dtype, physical, [-(2**31) if physical == pa.date32() else -(2**63), 0, None]
         )
         .persist()
-        .artifact.id
+        .artifact_id
         for dtype, physical in TEMPORAL_TYPES
     ]
     script = """

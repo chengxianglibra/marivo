@@ -76,7 +76,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             raise AssertionError("An unqualified approximate quantile route executed")
         assert len(terminal_runs(session)) == before
         output: dict[str, Json] = {
-            name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
+            name: {"artifact": result.artifact_id, "snapshot": snapshot(result)}
             for name, result in results.items()
         }
         manifest.write_text(json.dumps(output, sort_keys=True))

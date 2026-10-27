@@ -142,7 +142,7 @@ def test_fresh_worker_contender_only_rejects_publication(
                 "--metric",
                 "sales.revenue",
                 "--artifact",
-                saved.artifact.id,
+                saved.artifact_id,
             ],
             cwd=PROJECT_ROOT,
             env={**os.environ, "MARIVO_TELEMETRY": "off"},
@@ -155,7 +155,7 @@ def test_fresh_worker_contender_only_rejects_publication(
     report = json.loads(process.stdout.splitlines()[-1])
     assert report["session"] == case.session.id
     assert report["pid"] != os.getpid()
-    assert report["artifact"] == saved.artifact.id
+    assert report["artifact"] == saved.artifact_id
     assert report["before"] == report["after"]
     assert len(terminal_runs(case.session)) == 1
     assert store.resources(case.session.id) == ()

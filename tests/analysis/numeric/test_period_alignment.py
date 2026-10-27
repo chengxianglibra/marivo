@@ -133,7 +133,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     for field in ("absolute", "relative"):
         assert tail["reference." + field + ".value"].isna().all()
     result = fixed.persist()
-    recovered = case.session.persisted_frame(result.artifact.id)
+    recovered = case.session.persisted_frame(result.artifact_id)
     pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
 
 

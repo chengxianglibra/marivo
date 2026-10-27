@@ -9,26 +9,31 @@ owns endpoint and contribution admission.
 
 ## Saved audit access
 
-Only a persisted Frame exposes artifact. Data preview/export and operations
-belong to Frame; Artifact exposes audit-only show(), findings(limit=20,
-cursor=None) and evidence_digest().
+A persisted Frame exposes its captured session_id and artifact_id, plus
+findings(limit=20, cursor=None) and evidence_digest(). There is no separate
+public Artifact view. Pending and memory Frames require persist before commit
+identity or audit reads; session_id is available on every carrier.
+
+show() combines captured structure, bounded audit summaries and a data preview.
+show(n=0) reads metadata only: result/commit identities, evaluation/commit times,
+bounded inputs/operations and source-fact/check/Finding counts. It never reads
+result rows, coordinate attachments, complete method facts or full audit payloads.
 
 ```python
 saved = pending.persist()
 saved.show(n=20)
-artifact = saved.artifact
-artifact.show()
-digest = artifact.evidence_digest()
+saved.show(n=0)
+digest = saved.evidence_digest()
 print(digest.items)
 print(digest.finding_count)
-page = artifact.findings(limit=20)
+page = saved.findings(limit=20)
 for finding in page.items:
     finding.show()
 ```
 
 The digest takes no limit/cursor. Its items contain every saved Evidence fact;
 show is bounded and deterministic. FindingPage has immutable items, limit,
-has_more and next_cursor. Its cursor belongs to that Artifact/read. Consume
+has_more and next_cursor. Its cursor belongs to that commit/read. Consume
 paged typed items; there is no independent finding(id) lookup. An empty set is
 distinct from unavailable or corrupt records. Audit access reads no result rows
 or coordinate attachments.
@@ -136,7 +141,7 @@ analysis skill owns judgment without adding another evidence store.
 
 [frame_audit.py](../../../marivo/analysis/core/frame_audit.py) owns evaluation facts;
 [frame_source_facts.py](../../../marivo/analysis/core/frame_source_facts.py) owns
-source-scope records. [dsl/artifact.py](../../../marivo/analysis/dsl/artifact.py)
+source-scope records. [dsl/frame.py](../../../marivo/analysis/dsl/frame.py)
 and [evidence](../../../marivo/analysis/evidence/) own public audit reads.
 [frame_method_facts.py](../../../marivo/analysis/core/frame_method_facts.py) owns
 immutable explanations; [materialization/frame_method_facts.py](../../../marivo/analysis/materialization/frame_method_facts.py)

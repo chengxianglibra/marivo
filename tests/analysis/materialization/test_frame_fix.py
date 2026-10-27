@@ -234,7 +234,7 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
             script,
             str(local.store.project_root),
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
         ],
         cwd=Path(__file__).resolve().parents[3],
         capture_output=True,

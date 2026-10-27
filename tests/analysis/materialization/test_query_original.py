@@ -300,7 +300,7 @@ def test_current_row_mean_differs_from_explicit_source_mean(
     overall = session.observe({"mean": amount.mean()}).compute()
     assert overall.to_pandas()["mean"].tolist() == [1000 / 91]
     saved = fixed.persist()
-    restored = session.persisted_frame(saved.artifact.id)
+    restored = session.persisted_frame(saved.artifact_id)
     assert restored.reduce({"mean": restored["mean"].mean()}).compute().to_pandas()[
         "mean"
     ].tolist() == [55.0]

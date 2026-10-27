@@ -77,7 +77,7 @@ def test_exported_statistics_use_pandas_rank_projection(
     )
     if fixed:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
-    frame = plain(case.session.persisted_frame(artifact.artifact.id))
+    frame = plain(case.session.persisted_frame(artifact.artifact_id))
     before = run_ids(case.session)
     if family == "association":
         coefficient = (

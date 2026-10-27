@@ -229,7 +229,7 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
         datetime(2026, 8, 1, tzinfo=timezone.utc),
         datetime(2026, 8, 2, tzinfo=timezone.utc),
     ]
-    pd.testing.assert_frame_equal(session.persisted_frame(result.artifact.id).to_pandas(), frame)
+    pd.testing.assert_frame_equal(session.persisted_frame(result.artifact_id).to_pandas(), frame)
 
 
 def test_time_product_observation_keeps_empty_cells_and_window_binding(
@@ -256,7 +256,7 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     ].tolist() == [1099]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     assert saved.to_pandas()["value"].sum() == 1099
-    pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact.id).to_pandas(), frame)
+    pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact_id).to_pandas(), frame)
 
 
 def test_public_grid_observation_and_retained_axis(
@@ -315,7 +315,7 @@ def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) ->
     root = tmp_path / "temporal-grid"
     database = _prepare_temporal_grid_project(root)
     environment = dict(os.environ, MARIVO_PROJECT_ROOT=str(root), PYTHONPATH=str(PROJECT_ROOT))
-    producer = "\nimport json\nimport marivo.analysis as mv\nimport marivo.semantic as ms\nsession = mv.session.get_or_create('temporal-grid-recovery', timezone='UTC')\ncalendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))\nmetric = session.catalog.get('metric:sales.revenue').value.window(mv.all_history())\nresult = session.observe({'value':metric}, by=(calendar,)).persist()\nassert result.to_pandas()['value'].tolist() == [1077,1176,1176]\nprint(json.dumps({'session':session.id,'artifact':result.artifact.id}))\n"
+    producer = "\nimport json\nimport marivo.analysis as mv\nimport marivo.semantic as ms\nsession = mv.session.get_or_create('temporal-grid-recovery', timezone='UTC')\ncalendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))\nmetric = session.catalog.get('metric:sales.revenue').value.window(mv.all_history())\nresult = session.observe({'value':metric}, by=(calendar,)).persist()\nassert result.to_pandas()['value'].tolist() == [1077,1176,1176]\nprint(json.dumps({'session':session.id,'artifact':result.artifact_id}))\n"
     completed = subprocess.run(
         [sys.executable, "-c", producer],
         cwd=root,
@@ -367,7 +367,7 @@ def test_grid_saved_data_damage_rejects_complete_reads(
     result = _observation(case, start="2026-08-01", end="2026-10-01", grain="month").persist()
     from marivo.analysis.materialization.graph_reading import open_manifest
 
-    data = open_manifest(result._local.store, result._local.session_ref, result.artifact.id).data
+    data = open_manifest(result._local.store, result._local.session_ref, result.artifact_id).data
     handles = (data.rows, *(attachment.rows for attachment in data.attachments))
     assert len(handles) == 2
     for handle in handles:
@@ -381,11 +381,11 @@ def test_grid_saved_data_damage_rejects_complete_reads(
                 else:
                     path.write_bytes(b"corrupt terminal calendar data")
                 with pytest.raises(AnalysisError):
-                    case.session.persisted_frame(result.artifact.id).to_pandas()
+                    case.session.persisted_frame(result.artifact_id).to_pandas()
             finally:
                 path.write_bytes(original)
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
+        case.session.persisted_frame(result.artifact_id).to_pandas(), result.to_pandas()
     )
 
 
@@ -414,7 +414,7 @@ def test_cumulative_anchors_ignore_display_start(analysis_dsl_case_factory: DslC
         saved.append((result, expected))
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     for result, expected in saved:
-        assert session.persisted_frame(result.artifact.id).to_pandas()["value"].tolist() == expected
+        assert session.persisted_frame(result.artifact_id).to_pandas()["value"].tolist() == expected
 
 
 def _seed_two_sample_amounts(case: DslCase, *, overflow: bool = False) -> None:
@@ -572,7 +572,7 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
     result = session.observe({"value": ratio.window(mv.all_history())}, by=(calendar,)).persist()
     assert result.to_pandas()["value"].tolist() == [269.25, 235.2]
     pd.testing.assert_frame_equal(
-        session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
+        session.persisted_frame(result.artifact_id).to_pandas(), result.to_pandas()
     )
 
 
@@ -718,7 +718,7 @@ def test_empty_fold_keeps_typed_terminal_output(
     assert total["value"].tolist() == [0]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     pd.testing.assert_frame_equal(
-        session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
+        session.persisted_frame(result.artifact_id).to_pandas(), result.to_pandas()
     )
 
 
@@ -753,7 +753,7 @@ def test_selected_groups_keep_sample_selection_before_execution(
     assert frame[result.axes[0].name].tolist() == ["east"]
     assert frame["value"].tolist() == [450]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    pd.testing.assert_frame_equal(session.persisted_frame(result.artifact.id).to_pandas(), frame)
+    pd.testing.assert_frame_equal(session.persisted_frame(result.artifact_id).to_pandas(), frame)
 
 
 def test_observe_help_example_preserves_totals_and_ratio_grain(
@@ -870,11 +870,11 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
             "runs": sorted(run_ids(session)),
             "outputs": {
                 "outer": {
-                    "artifact": saved_outer.artifact.id,
+                    "artifact": saved_outer.artifact_id,
                     "snapshot": snapshot(saved_outer, frame=outer_rows),
                 },
                 "top": {
-                    "artifact": saved_top.artifact.id,
+                    "artifact": saved_top.artifact_id,
                     "snapshot": snapshot(saved_top, frame=top_rows),
                 },
             },
@@ -951,9 +951,9 @@ with ExitStack() as guards:
         for name,result in (('filtered',filtered),('reduced',reduced)):
             rows=result.to_pandas()
             saved=result.persist()
-            reopened=session.persisted_frame(saved.artifact.id)
+            reopened=session.persisted_frame(saved.artifact_id)
             assert snapshot(reopened,frame=reopened.to_pandas())==snapshot(saved,frame=rows)
-            copied[name]={'artifact':saved.artifact.id,'snapshot':snapshot(saved,frame=rows)}
+            copied[name]={'artifact':saved.artifact_id,'snapshot':snapshot(saved,frame=rows)}
         assert len(run_ids(session))==len(before)+2
         (root/'non-key-copied.json').write_bytes(encode(checked({'outputs':copied,'runs':sorted(run_ids(session))})))
     else:
@@ -1066,8 +1066,8 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     state = checked(
         {
             "session": session.id,
-            "left": left_saved.artifact.id,
-            "right": right_saved.artifact.id,
+            "left": left_saved.artifact_id,
+            "right": right_saved.artifact_id,
             "snapshots": [snapshot(left_saved), snapshot(right_saved)],
             "rule": rule_name,
             "right_value": expected_right,

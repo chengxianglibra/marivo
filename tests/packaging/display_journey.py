@@ -138,7 +138,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         artifacts = {"values": values, "categories": categories, "table": table}
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: value.artifact.id for name, value in artifacts.items()},
+            "artifacts": {name: value.artifact_id for name, value in artifacts.items()},
             "snapshots": {name: snapshot(value) for name, value in artifacts.items()},
         }
         state_path.write_bytes(encode(state))

@@ -14,7 +14,7 @@ meaning, and the Analysis DSL owns typed computation.
 Start unknown capabilities at `marivo help analysis`. Focused Help owns
 signatures, constraints and examples; type Help owns operation discovery.
 Population/AnalysisFrame `.show()` owns captured
-facts; Artifact `.show()` owns committed audit. Artifact is not a computation operand. Structured errors own the current repair.
+facts and bounded audit summaries; persisted Frames expose committed audit directly. Structured errors own the current repair.
 Use the host-selected verified environment, not private source or remembered
 signatures. Construction, execution support and business suitability are
 separate facts.
@@ -72,7 +72,7 @@ Before choosing an operation, establish the distinctions that affect the answer:
   confirmation; qualify claims for selection and repeated comparisons.
 - Distinguish reopening committed output, postprocessing exported values, and
   constructing explicit new source inputs against current data. Choose according to the
-  question's freshness need; an Artifact is not an input to typed computation.
+  question's freshness need; continue typed computation from the retained Frame.
 
 Apply only checks that could change the current conclusion. Do not silently
 exclude holidays or outliers, change weights, or alter the question to make a
@@ -140,7 +140,7 @@ Logical construction does not prove business rows were read or a result exists.
 
 ### Read the result and update the answer
 
-Inspect the returned Frame with `.show()`; read its `.artifact` audit when committed. Follow
+Inspect the returned Frame with `.show()`; read its audit directly when committed. Follow
 `marivo help analysis.results.evidence` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
@@ -203,8 +203,7 @@ For a method outside the installed surface, first complete supported upstream
 work, then preserve exact inputs, assumptions and rerunnable external calculations.
 External outputs do not inherit typed Evidence guarantees. Exported tables and
 attrs cannot restore semantic objects, source history or typed authority. The
-saved Frame remains available for supported data operations; its Artifact is an
-audit view, not a computation operand.
+saved Frame remains available for supported data operations and committed audit reads.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs
@@ -217,8 +216,8 @@ provisional results separate from canonical Evidence.
 
 Use one question-scoped Session and retain its exact ID across rounds. Continue
 from complete memory Frames while their exact values remain available in the
-same process; compute-only Frames have no Artifact. When cross-process recovery
-is needed, persist and retain `frame.artifact.id` from the returned stored Frame.
+same process; compute-only Frames have no committed identity. When cross-process recovery
+is needed, persist and retain `frame.artifact_id` from the returned stored Frame.
 An implicit latest result, scripts, and chat summaries do not replace that
 persisted identity. Frame handles stay in their originating Session; reopen with
 `session.persisted_frame(id)` in that Session when restoring committed data.

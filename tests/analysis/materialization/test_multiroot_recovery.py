@@ -176,7 +176,7 @@ def test_native_independent_multiroot_fixed_and_cold(
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact_id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
             "derived": derived,

@@ -47,7 +47,6 @@ from marivo.analysis.core.frozen_calendar import (
     validate_presence,
 )
 from marivo.analysis.core.model import reject
-from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 from marivo.analysis.materialization import terminal_store
@@ -65,7 +64,6 @@ from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.analysis.refs import ArtifactRef
-from marivo.render import Card
 
 
 @dataclass(frozen=True, slots=True)
@@ -432,33 +430,6 @@ class TerminalReader:
 
     store: SessionStore
 
-    def show(self, manifest: ArtifactManifest) -> None:
-        selected_manifest(self.store, manifest)
-        metadata = manifest.metadata
-        with self.store._read() as conn:
-            producer = terminal_store.run(self.store, conn, manifest.run_id)
-        assert producer is not None
-        continuations = [f"session.persisted_frame({manifest.artifact_id!r}).show(n=20)"]
-        if metadata.findings:
-            continuations.append(".findings(limit=20)")
-        if metadata.audit.source_facts or metadata.audit.evaluation.checks:
-            continuations.append(".evidence_digest()")
-        print(
-            Card(
-                identity=f"Artifact id={manifest.artifact_id} session={manifest.session_id}",
-                available=continuations,
-                omission_recovery=f"use session.persisted_frame({manifest.artifact_id!r}) to read this saved Frame",
-            )
-            .field("result_id", metadata.result_id)
-            .field("evaluated_at", metadata.evaluated_at.isoformat())
-            .field("committed_at", str(producer.terminal_at))
-            .field("inputs", repr(metadata.audit.evaluation.inputs)[:1200])
-            .field("operations", repr(metadata.audit.evaluation.operations)[:600])
-            .field("source_facts", str(len(metadata.audit.source_facts)))
-            .field("checks", str(len(metadata.audit.evaluation.checks)))
-            .render()
-        )
-
     def findings(
         self, manifest: ArtifactManifest, *, limit: int, cursor: str | None
     ) -> FindingPage:
@@ -503,9 +474,3 @@ class TerminalReader:
             finding_count=saved.finding_count,
             finding_set_digest=saved.finding_set_digest,
         )
-
-
-def open_artifact(store: SessionStore, session_id: str, artifact_id: str) -> Artifact:
-    return Artifact._from_manifest(
-        open_manifest(store, session_id, artifact_id), TerminalReader(store)
-    )

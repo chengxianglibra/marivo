@@ -39,7 +39,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
     artifact = current.compare(
         {"reference": mv.baseline(baseline, on=((current.axes[0], baseline.axes[0]),))}
     ).persist()
-    frame = session.persisted_frame(artifact.artifact.id).to_pandas()
+    frame = session.persisted_frame(artifact.artifact_id).to_pandas()
     assert frame["reference.absolute.sales"].iloc[:2].tolist() == [8.0, 0.0]
     assert frame["reference.relative.sales"].iloc[0] == 4.0
     assert frame["reference.relative.sales"].iloc[1:].isna().all()

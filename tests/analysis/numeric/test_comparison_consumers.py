@@ -59,7 +59,7 @@ def test_complete_keys_source_and_fixed(
             pytest.fail("Terminal comparison read touched a source")
 
         monkeypatch.setattr(SourceSession, "execute", forbid_source)
-        reopened = session.persisted_frame(source.artifact.id)
+        reopened = session.persisted_frame(source.artifact_id)
         assert_comparison(reopened, operation)
         assert len(source_trace.native_sql) == native and terminal_runs(session) == before
         assert session._runtime.store.resources(session.id) == ()

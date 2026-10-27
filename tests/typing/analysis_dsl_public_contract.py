@@ -94,13 +94,13 @@ if TYPE_CHECKING:
         assert_type(session.observe({"value": revenue}, by=complete), mv.AnalysisFrame)
         return session.frame(complete)
 
-    def terminal_reads(artifact: mv.Artifact) -> mv.ArtifactDigest:
+    def terminal_reads(artifact: mv.AnalysisFrame) -> mv.ArtifactDigest:
         from pandas import DataFrame
 
-        assert_type(session.persisted_frame(artifact.id), mv.AnalysisFrame)
+        assert_type(session.persisted_frame(artifact.artifact_id), mv.AnalysisFrame)
         assert_type(artifact.show(), None)
-        assert_type(session.persisted_frame(artifact.id).to_pandas(), DataFrame)
-        fixed = session.persisted_frame(artifact.id)
+        assert_type(session.persisted_frame(artifact.artifact_id).to_pandas(), DataFrame)
+        fixed = session.persisted_frame(artifact.artifact_id)
         assert_type(fixed.to_pandas(axis_names={fixed.axes[0]: "region"}), DataFrame)
         assert_type(artifact.findings(limit=20, cursor=None), mv.FindingPage)
         digest = artifact.evidence_digest()

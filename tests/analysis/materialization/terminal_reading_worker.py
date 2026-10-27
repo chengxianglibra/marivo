@@ -57,7 +57,7 @@ def period_produce(root: Path, name: str) -> None:
         assert report._schema == pending_report._schema
     saved_report = stored_report.persist()
     print(
-        session.id, saved_current.artifact.id, saved_baseline.artifact.id, saved_report.artifact.id
+        session.id, saved_current.artifact_id, saved_baseline.artifact_id, saved_report.artifact_id
     )
 
 
@@ -143,7 +143,7 @@ def main() -> None:
             (None if key is None or key is pd.NA else key): value
             for key, value in zip(rows[rows.attrs["axes"][0]["name"]], rows["total"], strict=True)
         } == {None: 5, "A": 9007199254740993}
-        print(session.id, artifact.artifact.id)
+        print(session.id, artifact.artifact_id)
         return
     with ExitStack() as patches:
         for owner, attribute, replacement in (
@@ -155,7 +155,7 @@ def main() -> None:
         session = mv.session.resume(name)
         before = len(terminal_runs(session))
         artifact = session.persisted_frame(sys.argv[4])
-        assert artifact.artifact.id in repr(artifact.artifact)
+        assert artifact.artifact_id in repr(artifact)
         assert "backing=stored" in repr(artifact) and ".show()" in repr(artifact)
         artifact.show(n=1)
         frame = artifact.to_pandas()
@@ -166,14 +166,14 @@ def main() -> None:
             )
         } == {None: 5, "A": 9007199254740993}
         assert dict(frame.attrs["units"])["total"] == "CNY"
-        assert artifact.artifact.findings().items == ()
-        facts = artifact.artifact.evidence_digest()
+        assert artifact.findings().items == ()
+        facts = artifact.evidence_digest()
         assert any(item.kind == "read" for item in facts.items)
         facts.show()
         published = terminal_runs(session, status="succeeded")
         assert len(published) == 1
         assert published[0].lifecycle == "succeeded"
-        assert published[0].output_artifact_ref == artifact.artifact.id
+        assert published[0].output_artifact_ref == artifact.artifact_id
         assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
         fixed = artifact.compute()

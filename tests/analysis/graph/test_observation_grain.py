@@ -110,7 +110,7 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
         case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
     ).persist()
     assert _keyed(saved.to_pandas()) == {("east",): 600}
-    assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+    assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
 
 
 @pytest.mark.parametrize("member_first", [True, False])
@@ -199,7 +199,7 @@ def test_member_classification_survives_rollup_for_additive_comparison(
     selected = selected.select({"value": selected["reference.absolute.value"]})
     saved = selected.persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    frame = session.persisted_frame(saved.artifact.id).to_pandas()
+    frame = session.persisted_frame(saved.artifact_id).to_pandas()
     assert _keyed(frame) == {("east",): 523, ("south",): 400}
     assert frame["value"].sum() == 923
 
@@ -337,7 +337,7 @@ def test_direct_aggregate_uses_selected_contributions(
         ).persist()
         assert _keyed(completed.to_pandas()) == {("east",): 1}
         assert (
-            session.persisted_frame(completed.artifact.id).to_pandas().equals(completed.to_pandas())
+            session.persisted_frame(completed.artifact_id).to_pandas().equals(completed.to_pandas())
         )
 
 
@@ -365,7 +365,7 @@ def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslC
     query = _query(case, by=(channel,), members=_members(case), during=_august(case))
     grouped, total = query.persist(), query.reduce({"value": query["value"].sum()}).persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assert session.persisted_frame(grouped.artifact.id).to_pandas()["value"].sum() == 1000
+    assert session.persisted_frame(grouped.artifact_id).to_pandas()["value"].sum() == 1000
     script = """
 import sys
 import marivo.analysis as mv
@@ -384,7 +384,7 @@ assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [10
 assert len(terminal_runs(session)) == before
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, grouped.artifact.id, total.artifact.id],
+        [sys.executable, "-c", script, session.id, grouped.artifact_id, total.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -427,7 +427,14 @@ def test_complete_member_entity_keeps_compound_key(
         {"value": session.catalog.get("metric:sales.revenue").value}, by=members
     )
     result = observed.persist()
-    assert len(result.artifact._manifest.data.schema.axes[0].columns) == 2
+    assert (
+        len(
+            result._local._audit_manifest(result._require_stored("artifact_id"))
+            .data.schema.axes[0]
+            .columns
+        )
+        == 2
+    )
     with duckdb.connect(str(case.database_path)) as connection:
         expected = set(connection.execute("SELECT customer_id,region FROM customer").fetchall())
     assert set(result.to_pandas().iloc[:, 0]) == expected
@@ -475,7 +482,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     assert (~paired["right_present"]).any()
     if logical_axes:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
-        assert session.persisted_frame(saved.artifact.id).to_pandas().equals(frame)
+        assert session.persisted_frame(saved.artifact_id).to_pandas().equals(frame)
 
 
 @pytest.mark.release
@@ -515,8 +522,8 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     fixed_current, fixed_baseline = current.persist(), baseline.persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     left, right = (
-        session.persisted_frame(fixed_current.artifact.id).to_pandas(),
-        session.persisted_frame(fixed_baseline.artifact.id).to_pandas(),
+        session.persisted_frame(fixed_current.artifact_id).to_pandas(),
+        session.persisted_frame(fixed_baseline.artifact_id).to_pandas(),
     )
     assert dict(
         zip(
@@ -525,4 +532,4 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
             strict=True,
         )
     ) == {key[0]: value for key, value in expected.items()}
-    assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+    assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())

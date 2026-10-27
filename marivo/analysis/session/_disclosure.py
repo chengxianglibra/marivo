@@ -36,12 +36,12 @@ def provider() -> DisclosureProvider:
     exports: list[ExportInput] = []
     acquisitions = {
         "ArtifactDigest": (
-            "Call artifact.evidence_digest(); .items contains all saved output facts.",
-            ("Artifact.evidence_digest",),
+            "Call saved.evidence_digest(); .items contains all saved output facts.",
+            ("analysis_frame.evidence_digest",),
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
+            "Read finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read the Frame audit directly.",
             (
                 "finding.artifact_ref",
                 "artifact_digest.artifact_ref",
@@ -49,14 +49,14 @@ def provider() -> DisclosureProvider:
             ("session.persisted_frame",),
         ),
         "Finding": (
-            "Select an exact self-contained output item from artifact.findings().items.",
-            ("Artifact.findings",),
+            "Select an exact self-contained output item from saved.findings().items.",
+            ("analysis_frame.findings",),
             ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
         ),
         "FindingPage": (
-            "Call artifact.findings(); retain next_cursor for this Artifact.",
-            ("Artifact.findings",),
-            ("Artifact.findings",),
+            "Call saved.findings(); retain next_cursor for this exact Frame commit.",
+            ("analysis_frame.findings",),
+            ("analysis_frame.findings",),
         ),
     }
     for value in READ_TYPES:
@@ -164,7 +164,7 @@ def provider() -> DisclosureProvider:
             "persisted_frame",
             "AnalysisFrame",
             "result = session.persisted_frame(artifact_id)",
-            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; .artifact provides audit.",
+            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes audit directly.",
         ),
         (
             Session,
@@ -206,7 +206,7 @@ def provider() -> DisclosureProvider:
         ),
     )
     acquisition = {
-        "frame": "Same-Session AnalysisFrame; Artifact, IDs and raw tables reject.",
+        "frame": "Same-Session AnalysisFrame; IDs, refs and raw tables reject.",
         "on": "Required immutable tuple of (FrameAxis, closed Field/Entity) pairs; () selects zero axes. Complete ordinary axes only; names/types never infer targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "None uses the frozen Session timezone unless explicitly overridden.",

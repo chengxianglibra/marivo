@@ -105,7 +105,7 @@ def test_busy_contender_preserves_real_producer(
                     "--metric",
                     metric,
                     "--artifact",
-                    committed.artifact.id,
+                    committed.artifact_id,
                 ],
                 capture_output=True,
                 text=True,
@@ -116,7 +116,7 @@ def test_busy_contender_preserves_real_producer(
             value = json.loads(child.stdout)
             assert value["session"] == runtime.session_ref
             assert value["before"] == value["after"] == before
-            assert value["artifact"] == committed.artifact.id
+            assert value["artifact"] == committed.artifact_id
             assert value["pid"] != os.getpid()
             evidence["contender"] = value
         else:
@@ -128,7 +128,7 @@ def test_busy_contender_preserves_real_producer(
         assert snapshot(runtime) == before
         assert len(reads) == read_count
         assert terminal_run(case.session, run).lifecycle == "incomplete"
-        assert case.session.persisted_frame(committed.artifact.id).to_pandas().shape[0] == 3
+        assert case.session.persisted_frame(committed.artifact_id).to_pandas().shape[0] == 3
         evidence.update({"before": before, "run": run})
 
     def pause(point: str) -> None:
@@ -157,13 +157,13 @@ def test_busy_contender_preserves_real_producer(
     assert completed["dataset_artifacts"] == 2
     assert completed["dataset_evidence"] == 2
     assert (
-        committed.artifact.evidence_digest().evidence_count > 0
-        and produced.artifact.evidence_digest().evidence_count > 0
+        committed.evidence_digest().evidence_count > 0
+        and produced.evidence_digest().evidence_count > 0
     )
     assert completed["action_resource_journal"] == 0
     produced_reads = len(reads) - initial_reads
     retry = logical.persist()
-    assert retry.artifact.id != produced.artifact.id
+    assert retry.artifact_id != produced.artifact_id
     assert retry.to_pandas()["value"].sum() == 147
     assert len(reads) == initial_reads + 2 * produced_reads
     rolled = produced.reduce({"value": produced["value"].sum()}).persist()
@@ -171,28 +171,30 @@ def test_busy_contender_preserves_real_producer(
     read_count = len(reads)
     before_offline = snapshot(runtime)
     # Terminal outputs hand data to pandas and never resume the execution graph.
-    exported = case.session.persisted_frame(produced.artifact.id).to_pandas()
+    exported = case.session.persisted_frame(produced.artifact_id).to_pandas()
     assert exported["value"].sum() == 147
     assert exported["value"].loc[exported["value"] > 10].sum() == 140
     assert len(reads) == read_count and snapshot(runtime) == before_offline
     evidence.update(
         {
             "session": runtime.session_ref,
-            "artifact": produced.artifact.id,
+            "artifact": produced.artifact_id,
             "completed": completed,
         }
     )
     if key == "different":
         before_contender = snapshot(runtime)
         retried_contender = contender.persist()
-        assert retried_contender.artifact.id != produced.artifact.id
+        assert retried_contender.artifact_id != produced.artifact_id
         assert (
             snapshot(runtime)["analysis_action_runs"]
             == before_contender["analysis_action_runs"] + 1
         )
         assert retried_contender.to_pandas()["value"].sum() == 4
-        evidence["contender_retry_artifact"] = retried_contender.artifact.id
-        evidence["contender_retry_run"] = retried_contender.artifact._manifest.run_id
+        evidence["contender_retry_artifact"] = retried_contender.artifact_id
+        evidence["contender_retry_run"] = retried_contender._local._audit_manifest(
+            retried_contender._require_stored("artifact_id")
+        ).run_id
     _evidence(f"contention-{key}-{mode}", evidence)
 
 
@@ -342,7 +344,7 @@ def test_resume_is_guarded_and_existing_handle_owner_is_stable(
             second.session_ref,
         }
     result = logical.persist()
-    assert result.artifact.session_id == first.session_ref
+    assert result.session_id == first.session_ref
     assert second.store.session(second.session_ref) == before_second
 
 
@@ -414,9 +416,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
         finally:
             release.set()
         results = [future.result(timeout=30) for future in futures]
-    assert {value.artifact.session_id for value in results} == {
-        runtime.session_ref for runtime in runtimes
-    }
+    assert {value.session_id for value in results} == {runtime.session_ref for runtime in runtimes}
     assert all(result.to_pandas()["value"].sum() == 147.0 for result in results)
     assert all(snapshot(runtime)["analysis_action_run_terminals"] == 2 for runtime in runtimes)
     assert all(len(terminal_runs(session)) == 1 for session in sessions)
@@ -426,6 +426,9 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
             "pid": os.getpid(),
             "query_threads": sorted(query_threads),
             "sessions": [runtime.session_ref for runtime in runtimes],
-            "runs": [value.artifact._manifest.run_id for value in results],
+            "runs": [
+                value._local._audit_manifest(value._require_stored("artifact_id")).run_id
+                for value in results
+            ],
         },
     )

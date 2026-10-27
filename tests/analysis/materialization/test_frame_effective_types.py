@@ -208,7 +208,7 @@ def test_native_types_empty_all_null_persist_and_reopen(
         assert _schema(reduced) == (ScalarDataType("float64"),)
     saved = source.persist()
     read_count = len(calls)
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     assert reopened._schema.values[0].dtype == ScalarDataType("float64")
     pd.testing.assert_frame_equal(saved.to_pandas(), reopened.to_pandas())
     continued = _chain(reopened).compute()
@@ -310,13 +310,13 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         {"infinite": total, "not_a_number": total - total, "missing": total / 0}
     ).compute()
     saved = fixed.persist()
-    assert saved.artifact is not None
+    assert saved is not None
 
     def offline(*args: object, **kwargs: object) -> pd.DataFrame:
         raise AssertionError("complete Frame continuation must not read a source")
 
     monkeypatch.setattr(SourceSession, "execute", offline)
-    reopened = mv.session.resume(session.id).persisted_frame(saved.artifact.id)
+    reopened = mv.session.resume(session.id).persisted_frame(saved.artifact_id)
     projected = reopened.select(
         {
             "not_a_number": reopened["not_a_number"],
@@ -325,9 +325,9 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         }
     ).compute()
     saved_projection = projected.persist()
-    assert saved_projection.artifact is not None
+    assert saved_projection is not None
     reopened_projection = mv.session.resume(session.id).persisted_frame(
-        saved_projection.artifact.id
+        saved_projection.artifact_id
     )
     for frame in (
         fixed,

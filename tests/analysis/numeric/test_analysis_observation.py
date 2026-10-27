@@ -349,7 +349,7 @@ def test_weighted_mean_preserves_pairs_and_original_rollup(
     assert rows.loc["C"] == 400
     rolled = _observe(case, expression, overall=True).persist()
     assert rolled.to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-    _assert_cold_value(case, rolled.artifact.id, 2600 / 7)
+    _assert_cold_value(case, rolled.artifact_id, 2600 / 7)
     path = receipt_paths(case.root, saved)[0]
     missing = path.with_name(path.name + ".missing")
     path.rename(missing)
@@ -357,7 +357,7 @@ def test_weighted_mean_preserves_pairs_and_original_rollup(
         with pytest.raises(AnalysisError):
             saved.to_pandas()
         with pytest.raises(AnalysisError):
-            session.persisted_frame(saved.artifact.id).to_pandas()
+            session.persisted_frame(saved.artifact_id).to_pandas()
     finally:
         missing.rename(path)
 

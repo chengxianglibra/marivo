@@ -149,7 +149,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
         ).persist()
         assert result.to_pandas()["value"].tolist() == [1, 2, 7]
         manifest_path.write_text(
-            json.dumps({"session": session.id, "artifact": result.artifact.id})
+            json.dumps({"session": session.id, "artifact": result.artifact_id})
         )
     else:
         manifest = json.loads(manifest_path.read_text())

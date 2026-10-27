@@ -428,7 +428,7 @@ def test_independent_roots_and_temporal_fold(
                 assert float(saved["left"].sum() / saved["right"].sum()) == pytest.approx(
                     float(ratio_total), rel=1e-14
                 )
-                assert session.persisted_frame(result.artifact.id).to_pandas().equals(exported)
+                assert session.persisted_frame(result.artifact_id).to_pandas().equals(exported)
             assert len(source_trace.native_sql) == before_reads
             source_trace.record(components)
             source_trace.record(rolled)

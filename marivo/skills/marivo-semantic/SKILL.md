@@ -150,7 +150,7 @@ the original question. Kind-level Help routes identify candidate consumers;
 their focused contracts own companion inputs. Population and AnalysisFrame show captured
 facts; static type Help owns operation discovery. Continue analysis from the
 returned computed or persisted Frame. A persisted Frame can resume supported
-data operations; its Artifact provides committed audit. New source facts need
+data operations and directly provides committed audit. New source facts need
 explicit governed inputs, including an explicit ordinary-axis Population bridge
 when selected result keys constrain the new source question.
 

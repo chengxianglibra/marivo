@@ -85,18 +85,16 @@ def test_complete_export_supports_pandas_views_without_new_reads(
     assert rank.min() == 1
     assert run_ids(case.session) == before
     assert callable(artifact.correlate)
-    assert not hasattr(artifact.artifact, "correlate")
     for name in ("contract", "rollup", "deviation", "forecast", "runs", "rank"):
         assert not hasattr(artifact, name)
-        assert not hasattr(artifact.artifact, name)
     for invalid in (-1, True):
         with pytest.raises(AnalysisError):
             artifact.show(n=invalid)
     fixed.show(n=0)
     artifact.show(n=3)
     assert len(capsys.readouterr().out.encode()) <= 8192
-    artifact.artifact.show()
+    artifact.show(n=0)
     assert len(capsys.readouterr().out.encode()) <= 8192
     assert "\n" not in repr(artifact) and ".show()" in repr(artifact)
-    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact_id)), frame)
     assert run_ids(case.session) == before

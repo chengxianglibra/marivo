@@ -367,7 +367,7 @@ assert frame['value'].sum() == 1000
 assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [1000]
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, fixed.artifact.id, total.artifact.id],
+        [sys.executable, "-c", script, session.id, fixed.artifact_id, total.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,

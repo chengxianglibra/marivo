@@ -206,7 +206,7 @@ def test_complete_versioned_members(
             )
         assert session._runtime.store.resources(session.id) == ()
         assert trace.native_sql
-        assert session.persisted_frame(result.artifact.id).to_pandas().equals(read)
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(read)
 
 
 def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(

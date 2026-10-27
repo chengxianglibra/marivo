@@ -145,7 +145,7 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
 def stored_frame(session: Session, artifact: AnalysisFrame) -> pd.DataFrame:
     store = session._runtime.store
     with store._read() as conn:
-        manifest = terminal_store.manifest(store, conn, artifact.artifact.id)
+        manifest = terminal_store.manifest(store, conn, artifact.artifact_id)
     assert manifest == committed(artifact)
     return read_output(store.project_root, manifest.data.schema, manifest.data.rows)
 
@@ -171,7 +171,7 @@ def records(
     cursor = None
     while True:
         page, cursor = terminal_store.records_page(
-            session._runtime.store, artifact.artifact.id, kind=kind, limit=1, cursor=cursor
+            session._runtime.store, artifact.artifact_id, kind=kind, limit=1, cursor=cursor
         )
         items.extend(page)
         if cursor is None:
@@ -183,7 +183,7 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
 ) -> None:
     query = constant(session)
     first, second = query.persist(), query.persist()
-    assert first.artifact.id != second.artifact.id
+    assert first.artifact_id != second.artifact_id
     assert "AnalysisFrame" in repr(first) and "\n" not in repr(first)
     assert stored_frame(session, first)["value.0"].tolist() == [7]
     assert len(terminal_runs(session)) == 2
@@ -194,23 +194,23 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
     )
     assert records(session, first, "finding") == ()
     assert all(item.kind != "read" for item in records(session, first))
-    for artifact in (first, session.persisted_frame(first.artifact.id)):
+    for artifact in (first, session.persisted_frame(first.artifact_id)):
         assert artifact.to_pandas()["answer"].tolist() == [7]
         artifact.show()
-        assert artifact.artifact.findings().items == ()
-        digest = artifact.artifact.evidence_digest()
+        assert artifact.findings().items == ()
+        digest = artifact.evidence_digest()
         assert digest.digest_version == "frame-output-v5"
         assert not any(item.kind == "read" for item in digest.items)
     published = terminal_runs(session, status="succeeded")
     assert all(run.lifecycle == "succeeded" for run in published)
     assert {run.output_artifact_ref for run in published if run.lifecycle == "succeeded"} == {
-        first.artifact.id,
-        second.artifact.id,
+        first.artifact_id,
+        second.artifact_id,
     }
     assert all(
         committed(item).data.rows.receipt.realized_byte_count > 0 for item in (first, second)
     )
-    assert not hasattr(first.artifact, "definition_fingerprint")
+    assert not hasattr(first, "definition_fingerprint")
     assert session._catalog_value is None and session._sources_value is None
 
 
@@ -374,29 +374,29 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
         ),
     )
     artifact_handle = fixed.persist()
-    artifact = artifact_handle.artifact.id
+    artifact = artifact_handle.artifact_id
     assert records(session, artifact_handle, "finding") == saved_findings
     assert records(session, artifact_handle) == evidence
     public = session.persisted_frame(artifact)
-    assert public.artifact.evidence_digest().items == evidence
-    assert public.artifact.evidence_digest().evidence_count == 101
-    page = public.artifact.findings(limit=1)
+    assert public.evidence_digest().items == evidence
+    assert public.evidence_digest().evidence_count == 101
+    page = public.findings(limit=1)
     assert page.items[0].value == finding.value
     assert page.items[0].coordinates == finding.coordinates
     assert not hasattr(page.items[0], "derivation")
     assert not hasattr(page.items[0], "subject")
     assert "coefficient: 0.5" in page.items[0].render()
     assert "v0" in page.items[0].render()
-    page_two = public.artifact.findings(limit=1, cursor=page.next_cursor)
-    page_three = public.artifact.findings(limit=1, cursor=page_two.next_cursor)
+    page_two = public.findings(limit=1, cursor=page.next_cursor)
+    page_three = public.findings(limit=1, cursor=page_two.next_cursor)
     assert [item.finding_id for item in (*page.items, *page_two.items, *page_three.items)] == [
         item.finding_id for item in saved_findings
     ]
     assert not page_three.has_more and page_three.next_cursor is None
     foreign = constant(session).persist()
     with pytest.raises(IntegrityError):
-        foreign.artifact.findings(limit=1, cursor=page.next_cursor)
-    public.artifact.evidence_digest().show()
+        foreign.findings(limit=1, cursor=page.next_cursor)
+    public.evidence_digest().show()
 
     _, cursor = terminal_store.records_page(store, artifact, kind="evidence", limit=1)
     with pytest.raises(IntegrityError):
@@ -526,7 +526,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     second = query.persist()
-    assert second.artifact.id != first.artifact.id
+    assert second.artifact_id != first.artifact_id
     updated = stored_frame(session, second)
     assert {
         (None if pd.isna(key) else key): value
@@ -599,7 +599,7 @@ assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
 )
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(session.project_root), artifact.artifact.id, zone],
+        [sys.executable, "-c", script, str(session.project_root), artifact.artifact_id, zone],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
@@ -705,7 +705,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="finding")[0]==()
 assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path), artifact.artifact.id],
+        [sys.executable, "-c", script, str(tmp_path), artifact.artifact_id],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
@@ -971,16 +971,16 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    reopened = session.persisted_frame(artifact.artifact.id)
-    assert reopened.artifact.id == artifact.artifact.id and "AnalysisFrame" in repr(reopened)
+    reopened = session.persisted_frame(artifact.artifact_id)
+    assert reopened.artifact_id == artifact.artifact_id and "AnalysisFrame" in repr(reopened)
     reopened.show(n=0)
     assert "rows" in capsys.readouterr().out
-    assert reopened.artifact.findings().items == ()
-    facts = reopened.artifact.evidence_digest().items
+    assert reopened.findings().items == ()
+    facts = reopened.evidence_digest().items
     assert any(item.kind == "read" for item in facts)
     publishing = terminal_run(session, committed(artifact).run_id)
     assert publishing.lifecycle == "succeeded"
-    assert publishing.output_artifact_ref == artifact.artifact.id
+    assert publishing.output_artifact_ref == artifact.artifact_id
     assert session.id in session.render()
     assert terminal_run(session, committed(artifact).run_id).lifecycle == "succeeded"
     assert terminal_runs(session) == before
@@ -1003,8 +1003,8 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
     changed.iloc[0, 1] = 0
     changed.attrs["axes"][0]["name"] = "changed"
     changed.attrs["axes"][0]["descriptor"]["columns"][0]["dtype"]["name"] = "changed"
-    pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact.id).to_pandas(), before)
-    assert session.persisted_frame(artifact.artifact.id).to_pandas().attrs == before.attrs
+    pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact_id).to_pandas(), before)
+    assert session.persisted_frame(artifact.artifact_id).to_pandas().attrs == before.attrs
 
 
 @pytest.mark.release
@@ -1070,7 +1070,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     artifact.show(n=20)
     assert "amount" in capsys.readouterr().out
     sizes.clear()
-    frame = session.persisted_frame(artifact.artifact.id).to_pandas()
+    frame = session.persisted_frame(artifact.artifact_id).to_pandas()
     assert len(frame) == count and sum(sizes) == count
     assert frame["amount"].iloc[-1] == count - 1
     primary = (
@@ -1083,8 +1083,8 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         stream.write(b"!")
     with pytest.raises(IntegrityError):
         artifact.to_pandas()
-    assert artifact.artifact.findings().items == ()
-    artifact.artifact.evidence_digest()
+    assert artifact.findings().items == ()
+    artifact.evidence_digest()
     # Unused attachments are no longer legal: exact attachment closure is tested
     # by Store16 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
@@ -1099,10 +1099,10 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
     text = capsys.readouterr().out
     assert "omitted" in text or "truncated" in text
     assert "max_output_bytes" not in text
-    assert ".to_pandas()" in text and ".artifact" in text
+    assert ".to_pandas()" in text and ".evidence_digest()" in text
     assert len(text.encode()) <= 8193
     assert artifact.to_pandas().shape == (1, 60)
-    artifact.artifact.evidence_digest()
+    artifact.evidence_digest()
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
@@ -1115,7 +1115,7 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
         mv.grain("day")
     )
     artifact = calendar_constant(session, axis).persist()
-    exported = session.persisted_frame(artifact.artifact.id).to_pandas()
+    exported = session.persisted_frame(artifact.artifact_id).to_pandas()
     (description,) = exported.attrs["axes"]
     assert description["role"] == "calendar" and description["descriptor"]["timezone"] == zone
     (part,) = exported.attrs["frozen_coordinates"]
@@ -1244,7 +1244,7 @@ def test_open_missing_and_foreign_ids(session: Session) -> None:
     artifact = constant(session).persist()
     other = mv.session.get_or_create("another", timezone="UTC")
     with pytest.raises(ArtifactNotFoundError):
-        other.persisted_frame(artifact.artifact.id)
+        other.persisted_frame(artifact.artifact_id)
     with pytest.raises(ArtifactNotFoundError):
         session.persisted_frame("missing")
 
@@ -1333,7 +1333,7 @@ with patch.object(SourceSession, '__init__', forbidden):
 print('cold-reducer-exact')
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(session.project_root), session.id, saved.artifact.id],
+        [sys.executable, "-c", script, str(session.project_root), session.id, saved.artifact_id],
         cwd=Path(__file__).resolve().parents[3],
         capture_output=True,
         text=True,
@@ -1363,7 +1363,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     assert descriptor.payload.rows.receipt.realized_row_count == (0 if empty else 1)
     assert descriptor.payload.rows.receipt.project_relative_path.startswith(
         session._runtime.store.layout.relative_path(
-            session._runtime.store.layout.artifact_dir(session.id, saved.artifact.id)
+            session._runtime.store.layout.artifact_dir(session.id, saved.artifact_id)
         )
         + "/method-0"
     )

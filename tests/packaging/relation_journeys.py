@@ -951,7 +951,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                     {
                         "session": session.id,
                         "store": session._runtime.store.store_id,
-                        "artifacts": {name: frame.artifact.id for name, frame in saved.items()},
+                        "artifacts": {name: frame.artifact_id for name, frame in saved.items()},
                         "shared_nodes": shared_nodes,
                     }
                 )
@@ -993,14 +993,14 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
         assert all(isinstance(frame, mv.AnalysisFrame) for frame in saved.values())
-        assert all(isinstance(frame.artifact, mv.Artifact) for frame in saved.values())
+        assert all(isinstance(frame, mv.AnalysisFrame) for frame in saved.values())
         assert all(
             not hasattr(frame, name)
             for frame in saved.values()
             for name in ("execute", "rollup", "drill", "share", "population", "_node", "_dataset")
         )
         assert all(
-            not hasattr(frame.artifact, name)
+            not hasattr(frame, name)
             for frame in saved.values()
             for name in ("to_pandas", "where", "compare", "rollup", "_node", "_dataset")
         )

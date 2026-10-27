@@ -129,7 +129,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         ).persist()
         monthly = session.observe(metrics_by_name, by=(scope,)).persist()
         artifacts: dict[str, Json] = {
-            name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
+            name: {"artifact": result.artifact_id, "snapshot": snapshot(result)}
             for name, result in (("original", original), ("monthly", monthly))
         }
         state: dict[str, Json] = {"session": session.id, "artifacts": artifacts}

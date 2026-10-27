@@ -222,6 +222,6 @@ def test_long_path_sum_and_count(
             offline.setattr(ms, "load", forbidden)
             offline.setattr("marivo.datasource.adapters.SourceSession.execute", forbidden)
             for name, value in outputs.items():
-                assert snapshot(session.persisted_frame(value.artifact.id)) == snapshots[name]
+                assert snapshot(session.persisted_frame(value.artifact_id)) == snapshots[name]
         assert terminal_runs(session) == before
         assert session._runtime.store.resources(session.id) == ()

@@ -131,6 +131,6 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
         raise AssertionError("Terminal reads must not materialize semantic sources")
 
     monkeypatch.setattr(Materializer, "entity", no_source_reads)
-    reopened = session.persisted_frame(artifact.artifact.id)
+    reopened = session.persisted_frame(artifact.artifact_id)
     assert reopened.to_pandas().equals(expected)
-    assert reopened.artifact.findings().items == ()
+    assert reopened.findings().items == ()

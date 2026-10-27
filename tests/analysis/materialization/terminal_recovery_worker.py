@@ -156,7 +156,7 @@ def main() -> None:
         session = Session._from_runtime(runtime)
         terminal_publication._event = event
         saved = AnalysisFrame._from_memory(runtime.local, method_result()).persist()
-        print(saved.artifact.id)
+        print(saved.artifact_id)
     except SessionBusyError:
         sys.exit(38)
 

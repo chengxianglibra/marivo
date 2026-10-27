@@ -16,12 +16,11 @@ that would execute its source observations again.
 from pathlib import Path
 import json
 
-artifact = saved.artifact
 Path("saved-result.json").write_text(
     json.dumps(
         {
-            "session": artifact.session_id,
-            "result": artifact.id,
+            "session": saved.session_id,
+            "result": saved.artifact_id,
         }
     )
 )
@@ -46,7 +45,7 @@ session = mv.session.resume(ids["session"])
 reopened = session.persisted_frame(ids["result"])
 rows = reopened.to_pandas()
 assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
-reopened.artifact.show()
+reopened.show(n=0)
 rows.to_csv("comparison.csv", index=False)
 ```
 
@@ -64,7 +63,7 @@ A result contains values; a conclusion interprets those values in a business con
 
 An AnalysisFrame can describe a pending calculation, completed memory data, or exact saved data. `compute` obtains completed values and `persist` saves a completed result. A bounded display is not a complete export.
 
-The saved Frame owns its data. Its `.artifact` provides audit information, Findings where produced, and evidence summaries. Plain observation does not necessarily produce Findings. Supported contribution methods retain complete explanations through `method_facts`.
+The saved Frame exposes `session_id` and `artifact_id` directly. `show()` combines metadata, audit summaries and a bounded data preview; `show(n=0)` omits data reads. Read committed Findings through `findings()` and full evidence through `evidence_digest()`. Plain observation does not necessarily produce Findings. Supported contribution methods retain complete explanations through `method_facts`.
 
 ### Keep time and meaning explicit
 

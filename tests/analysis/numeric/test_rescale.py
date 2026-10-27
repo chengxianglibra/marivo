@@ -100,7 +100,7 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
         name: "By" if name == "ordinary" else "GiB/s" for name in metrics
     }
     assert catalog.get("measure:traffic.flows.total_in_flow_value").definition.unit == "By"
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     assert reopened.to_pandas().equals(saved_data)
     assert reopened._schema.values == saved._schema.values
 

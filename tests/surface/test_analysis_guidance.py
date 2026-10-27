@@ -199,7 +199,7 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
 
 def test_grouping_surface_stays_with_finite_query_operations() -> None:
     assert not hasattr(mv, "GroupedAnalysisDomain")
-    for owner in (mv.Population, mv.AnalysisFrame, mv.Artifact):
+    for owner in (mv.Population, mv.AnalysisFrame):
         assert not hasattr(owner, "group_by")
         assert not hasattr(owner, "aggregate")
     for query_owner, method in (
@@ -226,7 +226,7 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
         assert isinstance(route, NativeHelpRoute) and route.owner == "analysis"
         assert route.resolved.canonical_id == target
     for alias in ("aggregate", "summarize", "agg"):
-        assert not hasattr(mv.AnalysisFrame, alias) and not hasattr(mv.Artifact, alias)
+        assert not hasattr(mv.AnalysisFrame, alias)
     assert not any(target.endswith(".aggregate") for target in REGISTRY.canonical_ids())
 
     page = rendered_help("analysis.analysis_frame.reduce")

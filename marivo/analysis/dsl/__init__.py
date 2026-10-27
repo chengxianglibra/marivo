@@ -1,1 +1,1 @@
-"""AnalysisFrame construction and terminal Artifact types."""
+"""AnalysisFrame construction, data operations and committed audit access."""

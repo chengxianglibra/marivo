@@ -63,7 +63,7 @@ def test_public_ordinal_retains_original_positions_after_selection(
     keys = set(mapping.loc[mapping.iloc[:, 0].isin(retained), current_column].dropna())
     assert left_directory.loc[left_directory.iloc[:, 0].isin(keys), "ordinal"].tolist() == [0]
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(result.artifact.id).to_pandas(), frame
+        case.session.persisted_frame(result.artifact_id).to_pandas(), frame
     )
 
 

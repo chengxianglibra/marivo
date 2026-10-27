@@ -34,10 +34,10 @@ def test_new_public_session_starts_with_empty_v16_store(
     assert terminal_runs(session) == ()
     saved = memory.persist()
     assert isinstance(saved, mv.AnalysisFrame)
-    artifact_id = saved.artifact.id
+    artifact_id = saved.artifact_id
     restored = session.persisted_frame(artifact_id)
     assert isinstance(restored, mv.AnalysisFrame)
-    assert restored.artifact.id == artifact_id
+    assert restored.artifact_id == artifact_id
     assert restored.persist() is restored
     assert len(terminal_runs(session)) == 1
 

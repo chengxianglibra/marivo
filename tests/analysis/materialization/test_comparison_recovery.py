@@ -40,7 +40,7 @@ def test_native_comparison_independent_fixed_and_cold(
         for name, query in comparison_queries(session).items():
             result = query.persist()
             assert_comparison(result, name)
-            originals[name] = {"artifact": result.artifact.id, "snapshot": snapshot(result)}
+            originals[name] = {"artifact": result.artifact_id, "snapshot": snapshot(result)}
             source_trace.record(result)
         state: dict[str, Json] = {"session": session.id, "originals": originals}
         (tmp_path / "comparison-recovery.json").write_bytes(encode(state))

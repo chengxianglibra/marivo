@@ -103,7 +103,7 @@ with patch.object(SourceSession, 'execute', side_effect=AssertionError('source r
     assert copied[0].as_py() == float('inf') and copied[3].as_py() == float('-inf')
 """
         process = subprocess.run(
-            [sys.executable, "-c", code, session.id, saved.artifact.id],
+            [sys.executable, "-c", code, session.id, saved.artifact_id],
             cwd=tmp_path,
             env={
                 **os.environ,

@@ -859,7 +859,7 @@ delta.to_pandas()    # terminal export for custom local analysis
 
 The default card stops at 50 rows or 8 KiB, whichever comes first. Its omission
 line reports exact displayed, total, and omitted row counts and includes a
-copyable `session.artifact('<ref>').to_pandas()` recovery call. Pass
+copyable `session('<ref>').to_pandas()` recovery call. Pass
 `max_output_bytes=None` to `show()` or `render()` to render all rows.
 
 When an operator emits evidence, `artifact.show()` includes its bounded typed
@@ -937,7 +937,7 @@ rerunning upstream queries:
 ```python
 runs = session.runs(limit=20)
 run = session.get_run(runs.items[0].run_id)
-previous = session.artifact(ref)
+previous = session(ref)
 graph = session.graph(artifact_ref=ref, direction="ancestors")
 
 # Only when recovery, a repeated task, or a recurring failure makes history relevant:

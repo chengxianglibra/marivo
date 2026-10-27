@@ -31,7 +31,7 @@ Finding 保留完整 derivation、来源 Artifact、字段、引用以及被摘�
 ```python
 runs = session.runs(limit=20)
 run = session.get_run(runs.items[0].run_id)
-artifact = session.artifact(run.output_artifact_ref)
+artifact = session(run.output_artifact_ref)
 graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
 ```
 

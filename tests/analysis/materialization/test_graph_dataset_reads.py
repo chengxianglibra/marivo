@@ -92,7 +92,7 @@ def test_projection_reads_each_receipt_once_per_call(
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     for _ in range(2):
         opened.clear()
-        frame = case.session.persisted_frame(artifact.artifact.id).to_pandas()
+        frame = case.session.persisted_frame(artifact.artifact_id).to_pandas()
         pd.testing.assert_frame_equal(frame, expected)
         assert Counter(opened) == wanted
         count = len(opened)
@@ -116,11 +116,11 @@ def test_projection_reads_each_receipt_once_per_call(
     foreign = mv.session.get_or_create("foreign-reader", timezone="UTC")
     opened.clear()
     with pytest.raises(AnalysisError):
-        foreign.persisted_frame(artifact.artifact.id)
+        foreign.persisted_frame(artifact.artifact_id)
     assert opened == [] and terminal_runs(case.session) == before
 
 
-def _finding_output(session: mv.Session) -> mv.Artifact:
+def _finding_output(session: mv.Session) -> mv.AnalysisFrame:
     """Seed only the production terminal writer boundary targeted by paging tests."""
     nonce = uuid4().hex
     findings = tuple(
@@ -147,13 +147,9 @@ def _finding_output(session: mv.Session) -> mv.Artifact:
         findings=findings,
         audit=FrameAudit(evidence, frame._backing.metadata.audit.evaluation),
     )
-    return (
-        AnalysisFrame._from_memory(
-            session._runtime.local, CompletedFrameResult(frame._backing.data, metadata)
-        )
-        .persist()
-        .artifact
-    )
+    return AnalysisFrame._from_memory(
+        session._runtime.local, CompletedFrameResult(frame._backing.data, metadata)
+    ).persist()
 
 
 def test_multiple_findings_read_once_and_keep_owned_paging(
@@ -254,7 +250,7 @@ assert len(terminal_runs(session)) == before
             "-c",
             code,
             case.session.id,
-            artifact.artifact.id,
+            artifact.artifact_id,
             expected,
             str(expected_reads),
         ],

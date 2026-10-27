@@ -91,18 +91,18 @@ same continuation is:
 
 ```python
 saved = fixed.persist()
-saved.artifact.show()
+saved.show(n=0)
 ```
 
 Saved standalone reproduction scripts should create a fresh Session by default
 and accept a continuation Session ID as an explicit runtime argument, rather
 than unconditionally resuming the original Session.
-Keep `session.id` and `saved.artifact.id`; use exact recovery only when
+Keep `session.id` and `saved.artifact_id`; use exact recovery only when
 intentionally continuing that saved Session and its frozen scope:
 
 ```python
 resumed = mv.session.resume(session.id)
-restored = resumed.persisted_frame(saved.artifact.id)
+restored = resumed.persisted_frame(saved.artifact_id)
 restored.show()
 ```
 

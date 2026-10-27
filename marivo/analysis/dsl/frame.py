@@ -33,7 +33,12 @@ from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
-from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_audit import (
+    FrameResultMetadata,
+    MemoryInput,
+    SourceInput,
+    StoredInput,
+)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -71,11 +76,11 @@ from marivo.analysis.core.frame_structure import (
     require_complete_structure,
 )
 from marivo.analysis.core.model import reject
-from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
+from marivo.analysis.evidence._dataset_types import ArtifactDigest, FindingPage
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
@@ -1136,8 +1141,8 @@ class AnalysisFrame:
 
         Args: None.
         Returns: A stored AnalysisFrame owned by the same original local service.
-        Example: ``saved = frame.persist(); artifact = saved.artifact``;
-        ``print({'session_id': artifact.session_id, 'artifact_id': artifact.id})``.
+        Example: ``saved = frame.persist()``;
+        ``print({'session_id': saved.session_id, 'artifact_id': saved.artifact_id})``.
         Constraints: Pending evaluation completes before publication admission;
         memory publication does not reevaluate, and stored idempotence reads metadata only.
         For another process, output/save the returned Session and Artifact IDs before exit;
@@ -1169,31 +1174,74 @@ class AnalysisFrame:
         )
 
     @property
-    def artifact(self) -> Artifact:
-        """Open commit and audit metadata for this exact stored root.
+    def session_id(self) -> str:
+        """Return this Frame's captured owning Session ID.
 
-        Returns: The Artifact audit view for this committed Frame.
-        Example: ``saved.artifact.show()``.
-        Constraints: Memory and derived expressions require persist first; no payload read.
+        Args: None.
+        Returns: The exact Session ID for every Frame carrier.
+        Example: ``session = mv.session.resume(frame.session_id)``.
+        Constraints: Read-only metadata; no Store, result or source reads.
         """
+        return self._local.session_ref
+
+    def _require_stored(self, member: str) -> StoredFrameBacking:
         if not isinstance(self._backing, StoredFrameBacking):
             reject(
                 "an exact stored Frame root",
                 type(self._backing).__name__,
-                "Call persist() and use the returned Frame's artifact.",
-                "frame.artifact",
-                canonical_id="analysis_frame.artifact",
+                "Call persist() and use the returned Frame.",
+                f"frame.{member}",
+                canonical_id=f"analysis_frame.{member}",
             )
-        selected = self._local.open_frame(self._backing.artifact_id)
-        if selected != self._backing:
+        return self._backing
+
+    @property
+    def artifact_id(self) -> str:
+        """Return the captured identity of this exact Frame commit.
+
+        Args: None.
+        Returns: The saved ID accepted by session.persisted_frame(id).
+        Example: ``reopened = session.persisted_frame(saved.artifact_id)``.
+        Constraints: Only stored roots have a commit ID. Reads metadata without Store,
+        payload or source access; derived and computed memory Frames require persist.
+        """
+        return self._require_stored("artifact_id").artifact_id
+
+    def findings(self, limit: int = 20, cursor: str | None = None) -> FindingPage:
+        """Read a bounded page of this committed Frame's method Findings.
+
+        Args: limit: Page size from 1 through 100. cursor: Previous page cursor or None.
+        Returns: The commit-scoped FindingPage with immutable items and next_cursor.
+        Example: ``page = saved.findings(limit=20)``.
+        Constraints: Requires a stored root. Reads audit records without result rows,
+        coordinate attachments, method payloads, semantic definitions or sources.
+        The cursor belongs to this exact commit and selection.
+        """
+        backing = self._require_stored("findings")
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 100
+            or (cursor is not None and type(cursor) is not str)
+        ):
             reject(
-                "the exact original committed descriptor",
-                self._backing.artifact_id,
-                "Preserve the selected Artifact metadata.",
-                "frame.artifact",
-                canonical_id="analysis_frame.artifact",
+                "limit 1..100 and a cursor string or None",
+                repr((limit, cursor)),
+                "Use the preceding page cursor with the same limit.",
+                "frame.findings",
+                canonical_id="analysis_frame.findings",
             )
-        return self._local.artifact(self._backing.artifact_id)
+        return self._local.findings(backing, limit=limit, cursor=cursor)
+
+    def evidence_digest(self) -> ArtifactDigest:
+        """Read all committed Evidence facts and collection digests for this Frame.
+
+        Args: None.
+        Returns: ArtifactDigest containing every saved Evidence fact in output order.
+        Example: ``digest = saved.evidence_digest()``.
+        Constraints: Requires a stored root. No result rows, coordinate attachments,
+        method payloads, current semantic checks or source-freshness claims.
+        """
+        return self._local.evidence_digest(self._require_stored("evidence_digest"))
 
     def to_pandas(self, *, axis_names: Mapping[FrameAxis, str] | None = None) -> pd.DataFrame:
         """Export complete fixed data as a readable, isolated flat table.
@@ -1277,13 +1325,14 @@ class AnalysisFrame:
             n: Nonnegative integer excluding bool, default 20; zero is metadata only.
 
         Returns:
-            None; prints the structure and available memory/stored preview.
+            None; prints structure, bounded audit summaries and an available fixed-data preview.
 
         Example:
             ``saved.show(n=0)``.
 
         Constraints: Pending display never prepares schema; positive stored previews bound
-        decoded output, not receipt hashing or Parquet IO. No publication, full-export/head, ancestor
+        decoded output, not receipt hashing or Parquet IO. n=0 reads only metadata,
+        including commit time for stored roots. Audit summaries never read complete Findings or Evidence. No publication, full-export/head, ancestor
         rows, complete-result cache or fallback after a read error. Method facts
         show only counts/origins and a .method_facts pointer; no method payload read.
         """
@@ -1302,7 +1351,14 @@ class AnalysisFrame:
             if isinstance(self._backing, ExpressionFrameBacking)
             else (".to_pandas()", ".persist()")
             if isinstance(self._backing, MemoryFrameBacking)
-            else (".to_pandas()", ".artifact")
+            else (".to_pandas()",)
+            + ((".findings(limit=20)",) if self._backing.metadata.findings else ())
+            + (
+                (".evidence_digest()",)
+                if self._backing.metadata.audit.source_facts
+                or self._backing.metadata.audit.evaluation.checks
+                else ()
+            )
         )
         card = Card(
             identity=repr(self),
@@ -1418,7 +1474,25 @@ class AnalysisFrame:
                 )
             card.field("evaluated_at", self._backing.metadata.evaluated_at.isoformat())
             if isinstance(self._backing, StoredFrameBacking):
-                card.field("artifact", self._backing.artifact_id)
+                card.field("session_id", self.session_id)
+                card.field("artifact_id", self.artifact_id)
+                card.field("committed_at", self._local.committed_at(self._backing).isoformat())
+            audit = self._backing.metadata.audit
+            input_kinds = tuple(
+                "stored"
+                if isinstance(item, StoredInput)
+                else "memory"
+                if isinstance(item, MemoryInput)
+                else "source"
+                if isinstance(item, SourceInput)
+                else "literal"
+                for item in audit.evaluation.inputs
+            )
+            card.field("inputs", _bounded(repr(input_kinds), 600))
+            card.field("operations", _bounded(repr(audit.evaluation.operations), 600))
+            card.field("source_facts", str(len(audit.source_facts)))
+            card.field("checks", str(len(audit.evaluation.checks)))
+            card.field("findings", str(len(self._backing.metadata.findings)))
             card.field("rows", str(total))
             if n:
                 count = min(n, 20)

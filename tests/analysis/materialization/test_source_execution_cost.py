@@ -43,7 +43,7 @@ def _measure(
         saved = completed.persist()
         published = perf_counter()
         submitted = len(trace.native_sql)
-        reopened = session.persisted_frame(saved.artifact.id).to_pandas()
+        reopened = session.persisted_frame(saved.artifact_id).to_pandas()
         pd.testing.assert_frame_equal(reopened, rows, check_exact=True)
         assert len(trace.native_sql) == submitted
         assert len(terminal_runs(session)) == runs + 1

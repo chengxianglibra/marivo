@@ -454,7 +454,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             derived = _verify(artifacts, scenario, exports=exports)
             state: dict[str, Json] = {
                 "session": session.id,
-                "artifacts": {name: value.artifact.id for name, value in artifacts.items()},
+                "artifacts": {name: value.artifact_id for name, value in artifacts.items()},
                 "snapshots": {
                     name: snapshot(value, frame=exports[name]) for name, value in artifacts.items()
                 },
@@ -483,7 +483,6 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         saved = artifacts["value"]
         saved.show(n=2)
         assert all(callable(getattr(saved, name)) for name in ("where", "compare", "reduce"))
-        assert not hasattr(saved.artifact, "to_pandas")
         before = len(terminal_runs(session))
         if "value" in saved.output_names:
             continued = saved.select({"value": saved["value"]}).compute()
@@ -497,8 +496,8 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             "store": session._runtime.store.store_id,
             "source_offline": not (project / "models").exists()
             and not (project / "source_files").exists(),
-            "artifact": saved.artifact.id,
-            "run": saved.artifact._manifest.run_id,
+            "artifact": saved.artifact_id,
+            "run": saved._local._audit_manifest(saved._require_stored("artifact_id")).run_id,
             "rows": obj(obj(state["snapshots"])["value"])["rows"],
             "snapshots": state["snapshots"],
             "derived": derived,

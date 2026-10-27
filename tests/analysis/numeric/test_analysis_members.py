@@ -262,9 +262,9 @@ def test_computed_boolean_dimension(
         raise AssertionError("Boolean Artifact read its source")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    frame = session.persisted_frame(saved.artifact.id).to_pandas()
+    frame = session.persisted_frame(saved.artifact_id).to_pandas()
     selected_frame = frame.loc[frame["value"]].reset_index(drop=True)
-    assert selected_frame.equals(session.persisted_frame(selected.artifact.id).to_pandas())
+    assert selected_frame.equals(session.persisted_frame(selected.artifact_id).to_pandas())
     assert selected_frame.iloc[:, 0].tolist() == [(1, "B")]
     assert session._runtime.store.resources(session.id) == ()
 
@@ -312,7 +312,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     assert _values(dates) == [date(2026, 8, 1)] * 2
     boundary = datetime(2026, 8, 2, tzinfo=timezone.utc)
     selected = logical.where(logical["value"] < boundary).persist()
-    restored = session.persisted_frame(selected.artifact.id)
+    restored = session.persisted_frame(selected.artifact_id)
     assert restored.to_pandas().iloc[:, 0].tolist() == [(1, "A")]
     other = mv.session.get_or_create("other-r52", timezone="UTC")
     foreign = _read(
@@ -361,7 +361,7 @@ selected = frame.loc[frame['value'] < datetime(2026,8,2,tzinfo=timezone.utc)]
 assert selected.iloc[:,0].tolist() == [(1,'A')]
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, fixed.artifact.id],
+        [sys.executable, "-c", script, session.id, fixed.artifact_id],
         cwd=session.project_root,
         env={
             **os.environ,
@@ -411,7 +411,7 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
     (tmp_path / "subjects.duckdb").rename(tmp_path / "subjects.offline")
-    assert session.persisted_frame(result.artifact.id).to_pandas().iloc[:, 0].tolist() == [
+    assert session.persisted_frame(result.artifact_id).to_pandas().iloc[:, 0].tolist() == [
         (7, "A"),
         (7, "B"),
     ]
@@ -458,7 +458,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     payload = receipt_paths(session.project_root, saved)[0]
     payload.write_bytes(b"corrupt complete identity")
     with pytest.raises(AnalysisError):
-        session.persisted_frame(saved.artifact.id).to_pandas()
+        session.persisted_frame(saved.artifact_id).to_pandas()
     _replace_source(
         session,
         "UPDATE r52 SET finish = DATE '2026-09-02' WHERE id = 'A' AND day = DATE '2026-08-01'",
@@ -531,7 +531,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         }
         result = session.read(members, fields).persist()
         frame = result.to_pandas()
-        assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
         outputs.append(frame)
     assert [frame["category"].iloc[i] for i in range(2) for frame in outputs] == [
         "west",

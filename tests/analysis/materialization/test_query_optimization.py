@@ -919,7 +919,7 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
         assert _source_graph(query).fingerprint == fingerprint
     assert bindings[0] != bindings[1]
     first, second = query.persist(), query.persist()
-    assert first.artifact.id != second.artifact.id
+    assert first.artifact_id != second.artifact_id
     pd.testing.assert_frame_equal(first.to_pandas(), second.to_pandas())
     assert _source_graph(query).fingerprint == fingerprint
     assert not hasattr(first, "components") and not hasattr(first, "fusion_groups")

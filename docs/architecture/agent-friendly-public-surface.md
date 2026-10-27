@@ -129,7 +129,7 @@ revenue = revenue_entry.value
 period = session.time_scope(start="2026-06-01", end="2026-06-08")
 saved = session.observe({"revenue": revenue}, by=(period,)).persist()
 saved.show(n=10)
-saved.artifact.show()
+saved.show(n=0)
 ```
 
 This fragment requires a project with the declared Metric and qualified source

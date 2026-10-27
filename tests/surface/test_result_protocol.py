@@ -233,7 +233,7 @@ def test_session_metadata_satisfies_terminal_protocol(
     output = case.session.observe(
         {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")}
     ).persist()
-    assert case.session.persisted_frame(output.artifact.id).artifact.id == output.artifact.id
+    assert case.session.persisted_frame(output.artifact_id).artifact_id == output.artifact_id
     for candidate in (mv.session.inspect(case.session.id), mv.session.recent(), _artifact_digest()):
         assert_conforms(candidate)
         assert candidate.render() == candidate.render()

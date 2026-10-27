@@ -142,7 +142,7 @@ def test_public_full_grid_unknown(
         encode(
             {
                 "session": session.id,
-                "artifact": artifact.artifact.id,
+                "artifact": artifact.artifact_id,
                 "snapshot": snapshot(artifact, frame=raw),
             }
         )

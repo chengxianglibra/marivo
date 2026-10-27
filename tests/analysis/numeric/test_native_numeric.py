@@ -162,7 +162,7 @@ def test_native_weighted_and_mean(
     assert float(
         (raw["value"].loc[pair] * raw["weight"].loc[pair]).sum() / raw["weight"].loc[pair].sum()
     ) == pytest.approx(expected)
-    assert saved.to_pandas().equals(session.persisted_frame(saved.artifact.id).to_pandas())
+    assert saved.to_pandas().equals(session.persisted_frame(saved.artifact_id).to_pandas())
     coordinate = catalog_value(session.catalog, "sales.facts.category", kind="field")
     with_coordinates = session.observe(
         {"value": session.catalog.get("metric:sales.weighted").value},
@@ -313,7 +313,7 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
             where=mv.in_population(members),
         ).persist()
         assert _value(result).tolist() == pytest.approx([1.015])
-        assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
         assert session._runtime.store.resources(session.id) == ()
         if saved is not None:
             assert previous is not None
@@ -363,7 +363,7 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     )
     result = observed.persist()
     assert _value(result).tolist() == [2.0]
-    assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+    assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
 
 
 def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
@@ -464,7 +464,7 @@ def test_mixed_component_attribution_source_and_fixed(
     for method in methods:
         expected = 1.0 if method == "weighted" else 1.0 / weight
         assert changed_rows[f"reference.absolute.{method}"].tolist() == pytest.approx([expected])
-    assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed_rows)
+    assert session.persisted_frame(changed.artifact_id).to_pandas().equals(changed_rows)
 
 
 @pytest.mark.parametrize(
@@ -515,7 +515,7 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
     for result in (
         fixed,
         session.observe({"value": metric}, by=(scope,), where=mv.in_population(members)).compute(),
-        session.persisted_frame(fixed.artifact.id),
+        session.persisted_frame(fixed.artifact_id),
     ):
         result_values = _value(result)
         if family == "duration":
@@ -564,7 +564,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
             )
         }
     ).persist()
-    for result in (fixed, session.persisted_frame(fixed.artifact.id)):
+    for result in (fixed, session.persisted_frame(fixed.artifact_id)):
         values = result.to_pandas()["reference.absolute.value"]
         assert values.tolist() == [Decimal("1.01")]
         dtype = values.dtype
@@ -620,7 +620,7 @@ def test_linear_uses_widened_sums_and_keeps_duration_overflow(
     else:
         assert _value(overall.compute()).tolist() == [Decimal(2**63)]
     assert fixed.to_pandas().equals(previous)
-    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(previous)
+    assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(previous)
 
 
 def test_native_linear_comparison_uses_represented_cells_in_both_routes(
@@ -661,4 +661,4 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
     assert result.to_pandas()["reference.relative.value"].tolist() == [1.0]
     current_values, baseline_values = _value(current.compute()), _value(baseline.compute())
     assert ((current_values - baseline_values) / baseline_values.abs()).tolist() == [1.0]
-    assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+    assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())

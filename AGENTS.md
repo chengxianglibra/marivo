@@ -91,7 +91,7 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
   rerun only the failing scope with `.venv/bin/pytest` and suitable verbosity.
 - `make check` covers lint, typing, default-test, and API-doc stages.
   Run it without narrowing variables for broad evidence.
-  Default tests exclude slow, Runtime, and release tests.
+  Default tests exclude Runtime and release tests.
 - Run only relevant Runtime tests during development. Full release acceptance
   belongs to release preparation and publishing CI; do not run it or start
   MinIO for ordinary commit preparation.

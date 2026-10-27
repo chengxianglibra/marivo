@@ -34,7 +34,6 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodValue,
     FrameRatioMethod,
 )
-from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.temporal import CalendarAxis
@@ -45,8 +44,8 @@ def provider() -> DisclosureProvider:
         value_type(
             "analysis_frame",
             AnalysisFrame,
-            summary="One immutable data object with complete coordinates, ordered values and presence; its carrier is expression, memory or stored.",
-            acquisition="Initial inputs: session.observe/read/values/frame; retained source targets support Frame.attribute. Derive with Frame operations; compute/persist return fixed carriers. Recover exactly with session.persisted_frame(id). Direct construction is unsupported.",
+            summary="Immutable coordinates, values and presence; expression, memory or stored backing.",
+            acquisition="Use session.observe/read/values/frame, then Frame operations. compute/persist fix results; persisted_frame(id) reopens saved data. No direct construction.",
             producers=(
                 "session.observe",
                 "analysis_frame.attribute",
@@ -66,6 +65,8 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.show",
                 "analysis_frame.to_pandas",
                 "analysis_frame.method_facts",
+                "analysis_frame.findings",
+                "analysis_frame.evidence_digest",
             ),
             constraints=(
                 "Ordinary operations consume current data. An instance may retain a source declaration for explicit attribute rereads; independent reopen has no declaration.",
@@ -92,17 +93,6 @@ def provider() -> DisclosureProvider:
             constraints=(
                 "token and name are local metadata, not proof of equality between independent inputs. key_names lists every physical component; complete composite axes remain indivisible in by/on.",
                 "Data axes retain key types, roles and time interpretation without original Entity/Field nominal bindings. Explicit on declares caller business correspondence; validation does not prove semantic identity.",
-            ),
-        ),
-        value_type(
-            "Artifact",
-            Artifact,
-            summary="Read-only committed identity, submission metadata and Finding/Evidence audit view.",
-            acquisition="Read saved.artifact on the exact persisted Frame, or session.persisted_frame(id).artifact. Direct construction and extension are unsupported.",
-            producers=("analysis_frame.artifact",),
-            consumers=("Artifact.show", "Artifact.findings", "Artifact.evidence_digest"),
-            constraints=(
-                "Audit reads consume no result table or coordinate attachments. Preview, export and data operations belong to AnalysisFrame. Old Store generations are rejected unchanged; use a compatible environment or an export made with the original version.",
             ),
         ),
     ]
@@ -452,8 +442,7 @@ def provider() -> DisclosureProvider:
             "Commit evaluated data and return its stored Frame without recomputing a completed memory input.",
             "import json\nimport sys\n"
             "result = frame.persist()\n"
-            "artifact = result.artifact\n"
-            "sys.stdout.write(json.dumps({'session_id': artifact.session_id, 'artifact_id': artifact.id}) + '\\n')",
+            "sys.stdout.write(json.dumps({'session_id': result.session_id, 'artifact_id': result.artifact_id}) + '\\n')",
             ("frame",),
             "execution",
             (
@@ -467,12 +456,12 @@ def provider() -> DisclosureProvider:
             "show",
             (P("n", "Nonnegative integer, excluding bool; default 20, or 0 for metadata only."),),
             "None",
-            "Print bounded captured structure and an existing result prefix without evaluating a pending expression.",
+            "Print captured structure, bounded audit summaries and an existing result prefix without evaluation.",
             "result = frame.show(n=0)",
             ("frame",),
             "results.inspect",
             (
-                "Validate n before reads. Pending cards show captured scopes and operations, with unresolved facts marked. n=0 reads no rows or attachments. Fixed cards show only method-fact counts, bounded origins and a .method_facts pointer; previews never read method payloads. Positive previews resolve displayed frozen coordinates; receipt hashing may read a whole consumed file. Success does not certify unread data.",
+                "Validate n first. Pending cards never evaluate. n=0: metadata only. Completed cards summarize inputs/operations, source/check/Finding counts; stored cards add committed identity/time. No full audit or method payload reads; use .method_facts for explanations. Positive previews resolve shown coordinates; receipt hashing may read whole files. Unread data is not certified.",
             ),
         ),
         (
@@ -533,48 +522,37 @@ def provider() -> DisclosureProvider:
             ),
         ),
         (
-            Artifact,
-            "artifact",
-            "show",
-            (),
-            "None",
-            "Print bounded submission identity, time and saved audit summaries.",
-            "result = artifact.show()",
-            ("artifact",),
-            "results.evidence",
-            (
-                "Metadata only: no preview count or result-row read. For data use session.persisted_frame(artifact.id).show(n=20) or .to_pandas().",
-            ),
-        ),
-        (
-            Artifact,
-            "artifact",
+            AnalysisFrame,
+            "analysis_frame",
             "findings",
             (
                 P("limit", "Page size from 1 through 100."),
-                P("cursor", "Previous page cursor or None for this exact Artifact and selection."),
+                P(
+                    "cursor",
+                    "Previous page cursor or None for this exact Frame commit and selection.",
+                ),
             ),
             "FindingPage",
             "Read a bounded page of self-contained committed Findings.",
-            "result = artifact.findings(limit=20)",
-            ("artifact",),
+            "result = frame.findings(limit=20)",
+            ("frame",),
             "results.evidence",
             (
-                "Reads audit records without result tables, source access or producer-graph restoration.",
+                "Requires a stored Frame root. Reads audit records without result tables, attachments, method payloads, source access or producer-graph restoration.",
             ),
         ),
         (
-            Artifact,
-            "artifact",
+            AnalysisFrame,
+            "analysis_frame",
             "evidence_digest",
             (),
             "ArtifactDigest",
             "Read all saved Evidence facts and collection digests.",
-            "result = artifact.evidence_digest()",
-            ("artifact",),
+            "result = frame.evidence_digest()",
+            ("frame",),
             "results.evidence",
             (
-                "No result-table reads or current-source freshness claim; .items contains all saved facts.",
+                "Requires a stored Frame root. No result-table, attachment or method-payload reads or current-source freshness claim; .items contains all saved facts.",
             ),
         ),
     )
@@ -647,7 +625,6 @@ def provider() -> DisclosureProvider:
         (
             ExportInput("AnalysisFrame", AnalysisFrame, "analysis_frame"),
             ExportInput("FrameAxis", FrameAxis, "frame_axis"),
-            ExportInput("Artifact", Artifact, "Artifact"),
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
             ExportInput("FrameMethodFacts", FrameMethodFacts, "frame_method_facts"),

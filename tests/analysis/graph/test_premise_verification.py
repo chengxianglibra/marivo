@@ -86,7 +86,7 @@ def test_related_field_null_is_counted_and_missing_owner_remains_null(
     before = terminal_runs(session)
     assert values.where(values["value"] == "east").persist().to_pandas().empty
     assert len(terminal_runs(session)) == len(before) + 1
-    assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
 def test_declared_native_inputs_need_only_one_terminal_read(
@@ -99,7 +99,7 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         assert sum("SUM(" in read.sql.upper() for read in reads) == 1
         before = len(reads)
         assert (
-            work.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+            work.session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
         )
         assert len(reads) == before
 
@@ -129,7 +129,7 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         # Same-input Columns retain their original rows and values.
         shared = values.select({"value": values["value"] / values["value"]}).persist()
         assert shared.to_pandas()["value"].tolist() == [1.0] * 64
-        assert session.persisted_frame(ratios.artifact.id).to_pandas().equals(ratios.to_pandas())
+        assert session.persisted_frame(ratios.artifact_id).to_pandas().equals(ratios.to_pandas())
 
 
 def test_shared_matching_assumption_never_becomes_completed_evidence(
@@ -148,7 +148,7 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         assert selected.to_pandas()["value"].tolist() == [1] * 5
         assert not hasattr(trusted, "_graph") and not hasattr(trusted, "_node")
         assert not hasattr(trusted, "rollup")
-        assert session.persisted_frame(trusted.artifact.id).to_pandas().equals(frame)
+        assert session.persisted_frame(trusted.artifact_id).to_pandas().equals(frame)
 
 
 def test_outer_alignment_has_one_public_correspondence_contract() -> None:
@@ -217,8 +217,8 @@ assert len(terminal_runs(session)) == before
 print(json.dumps({'pid':os.getpid(),'rows':len(frame)}))
 """,
                 session.id,
-                saved.artifact.id,
-                scalar.artifact.id,
+                saved.artifact_id,
+                scalar.artifact_id,
                 str(expected),
             ],
             cwd=tmp_path,

@@ -2,8 +2,8 @@
 
 Analysis separates explicit source questions, immutable data operations and
 publication. One AnalysisFrame type represents pending expressions, complete
-memory data and exact stored references. Artifact is the committed result's
-submission/audit view.
+memory data and exact stored references. Persisted Frames expose their commit
+identity and audit directly; data and audit readers remain separate internally.
 
 ## Owning contracts
 
@@ -75,7 +75,7 @@ Session + resolved definitions / explicit literal domains
     -> complete immutable memory data and audit
     -> Store transaction publishing that existing result
     -> stored Frame: source-free supported data operations
-    -> frame.artifact: submission / Findings / Evidence
+    -> Frame identity / Findings / Evidence
 ```
 
 mv.* owns source-free descriptions and composition; session.* introduces Catalog,

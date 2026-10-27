@@ -107,7 +107,7 @@ with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unav
                 "-c",
                 script,
                 case.session.id,
-                *(result.artifact.id for result in results),
+                *(result.artifact_id for result in results),
             ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
@@ -168,7 +168,7 @@ def test_public_references_source_and_fixed(
     )
     assert float(represented) == float(expected)
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), case.session.persisted_frame(saved.artifact_id).to_pandas()
     )
     fixed_values = _plain(values.compute()).set_index("key_0")
     pandas_shares = fixed_values.value.astype("float64") / float(fixed_values.value.sum())
@@ -221,7 +221,7 @@ def test_public_share_numeric_matrix(
         assert shares.value.to_dict() == {key: Decimal(total) for key, total in totals.items()}
     saved = values.persist()
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), case.session.persisted_frame(saved.artifact_id).to_pandas()
     )
     if physical.startswith("duration"):
         assert pa.array(shares.value).type == pa.duration("ns")
@@ -353,7 +353,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
         for value, weight in zip(table.loc[weights > 0, "mean"], weights[weights > 0], strict=True)
     ) == Fraction(kept[5])
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), session.persisted_frame(saved.artifact_id).to_pandas()
     )
 
 
@@ -438,7 +438,7 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     penetration = pd.NA if empty.empty else len(empty) / len(empty)
     assert pd.isna(penetration)
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), session.persisted_frame(saved.artifact_id).to_pandas()
     )
 
 
@@ -540,7 +540,7 @@ def test_fixed_selected_original_can_use_retained_full_reference(
         external.value[external.value > 0].astype("float64") / float(external.value.sum())
     ).to_dict() == selected["value.share"].to_dict()
     pd.testing.assert_frame_equal(
-        full.to_pandas(), case.session.persisted_frame(full.artifact.id).to_pandas()
+        full.to_pandas(), case.session.persisted_frame(full.artifact_id).to_pandas()
     )
 
 
@@ -584,5 +584,5 @@ def test_reference_preparation_captures_independent_source_origins(
         for value, weight in zip(table["count"], weights, strict=True)
     ) == len(raw.orders)
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), session.persisted_frame(saved.artifact_id).to_pandas()
     )

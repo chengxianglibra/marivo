@@ -109,7 +109,7 @@ def test_wide_mean_pending_completed_and_persisted_are_identical(
     pending = _values(case, (2**62, 2**62))
     memory = pending.compute()
     stored = memory.persist()
-    reopened = case.session.persisted_frame(stored.artifact.id)
+    reopened = case.session.persisted_frame(stored.artifact_id)
     assert isinstance(memory._backing, MemoryFrameBacking)
     published_runs = terminal_runs(case.session)
     expected = _mean(pending).to_pandas()
@@ -124,7 +124,7 @@ def test_wide_mean_pending_completed_and_persisted_are_identical(
     assert terminal_runs(case.session) == published_runs
     saved_mean = _mean(memory).persist()
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(saved_mean.artifact.id).to_pandas(), expected
+        case.session.persisted_frame(saved_mean.artifact_id).to_pandas(), expected
     )
     assert len(terminal_runs(case.session)) == len(published_runs) + 1
 

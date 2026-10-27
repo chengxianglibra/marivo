@@ -364,7 +364,7 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
             values = saved.to_pandas()["value"]
             assert values.tolist() == [Decimal(-(2**63) + 3)]
             assert str(values.dtype) == "decimal128(38, 0)[pyarrow]"
-            assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+            assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
             assert trace.native_sql
         fixed = session.read(
             session.members(session.catalog.get("entity:sales.facts").value), {"big": big}
@@ -445,4 +445,4 @@ def test_decimal_overflow_matches_native_result_or_failure(
         else:
             saved = source.persist()
             assert saved.to_pandas()["value"].tolist() == [expected]
-            assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+            assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())

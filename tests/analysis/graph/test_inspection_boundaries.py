@@ -22,7 +22,7 @@ def test_missing_backing_discards_native_exception_and_locator(
     result = case.session.frame(
         case.session.members(case.session.catalog.get("entity:sales.customer").value)
     ).persist()
-    receipt = result.artifact._manifest.data.rows.receipt
+    receipt = result._local._audit_manifest(result._require_stored("artifact_id")).data.rows.receipt
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
     path.unlink()
     store = case.session._runtime.store

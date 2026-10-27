@@ -287,7 +287,7 @@ def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: S
     assert isinstance(revenue, Deferred)
     first = session.observe({"revenue": revenue}).persist()
     second = session.observe({"revenue": revenue}, by=(segment,)).persist()
-    assert first.artifact.id != second.artifact.id
+    assert first.artifact_id != second.artifact_id
     assert len(terminal_runs(session)) == 2
     assert all(run.lifecycle == "succeeded" for run in terminal_runs(session))
 

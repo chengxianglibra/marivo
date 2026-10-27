@@ -53,7 +53,7 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     ranked = result.sort_values(["score", "key_1"], ascending=[False, True]).head(2)
     assert ranked.score.tolist() == sorted(scores, reverse=True)[:2]
     pd.testing.assert_frame_equal(
-        plain(case.session.persisted_frame(artifact.artifact.id)), plain(artifact)
+        plain(case.session.persisted_frame(artifact.artifact_id)), plain(artifact)
     )
     assert run_ids(case.session) == before
 
@@ -178,7 +178,7 @@ def test_observed_nullable_large_int64_preserves_native_and_saved_values(
     assert scored.value.iloc[:3].tolist() == list(values)
     assert scored.score.iloc[:3].tolist() == list(expected(values, "zscore")[3])
     assert pd.isna(scored.score.iloc[3])
-    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact_id)), frame)
 
 
 def test_extreme_binary64_export_supports_bounded_preview(

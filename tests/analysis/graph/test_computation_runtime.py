@@ -399,7 +399,7 @@ def test_mysql_decimal_mean_preserves_declared_carrier(
         assert values.tolist() == [Decimal("10.00")]
         assert isinstance(values.dtype, pd.ArrowDtype)
         assert values.dtype.pyarrow_dtype == pa.decimal128(12, 2)
-        assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+        assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
     finally:
         _drop_remote_table(backend, table)
 

@@ -70,5 +70,5 @@ def test_observe_uses_registered_global_datasource(
     assert output.to_pandas()["revenue"].tolist() == [expected]
     assert terminal_runs(session) == ()
     saved = output.persist()
-    artifact_id = saved.artifact.id
-    assert session.persisted_frame(artifact_id).artifact.id == artifact_id
+    artifact_id = saved.artifact_id
+    assert session.persisted_frame(artifact_id).artifact_id == artifact_id

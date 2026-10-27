@@ -322,7 +322,7 @@ def test_public_compare_retains_presence_and_projection_on_cold_read(
         {"base": mv.baseline(baseline, on=((current.axes[0], baseline.axes[0]),))}
     )
     artifact = comparison.persist()
-    frame = session.persisted_frame(artifact.artifact.id).to_pandas()
+    frame = session.persisted_frame(artifact.artifact_id).to_pandas()
     assert frame["base.absolute.sales"].iloc[:2].tolist() == [60, 20]
     assert frame["base.relative.sales"].iloc[0] == 3.0
     assert pd.isna(frame["base.relative.sales"].iloc[1])
@@ -373,7 +373,7 @@ def test_literal_values_and_saved_top_order(result_session: Session) -> None:
     assert isinstance(saved._backing, StoredFrameBacking)
     preview = session._runtime.local.preview(saved._backing, 1)
     assert preview.rows.iloc[:, 0].tolist() == ["B"]
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
     assert session._runtime.local.preview(reopened._backing, 2).rows.iloc[:, 0].tolist() == [
         "B",
@@ -1106,7 +1106,7 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
         raise AssertionError("terminal reads must not reopen sources")
 
     monkeypatch.setattr(SourceSession, "__enter__", unavailable)
-    assert session.persisted_frame(artifact.artifact.id).to_pandas().equals(frame)
+    assert session.persisted_frame(artifact.artifact_id).to_pandas().equals(frame)
 
 
 def test_explicit_daily_and_monthly_source_observations(
@@ -1188,7 +1188,7 @@ def test_column_sum_distinguishes_missing_samples_from_valid_zero(
         actual = rows["sum"].iloc[0]
         assert pd.isna(actual) if expected is None else actual == expected
         assert rows["rows"].tolist() == [count]
-        assert session.persisted_frame(artifact.artifact.id).to_pandas().equals(rows)
+        assert session.persisted_frame(artifact.artifact_id).to_pandas().equals(rows)
 
 
 def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
@@ -1208,7 +1208,7 @@ def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
     assert frame["total"].to_dict() == {0: large, 1: 20, 2: None}
     assert frame["shifted"].to_dict() == {0: large + 10, 1: 30, 2: None}
     assert pa.array(frame["total"]).type == pa.decimal128(38, 0)
-    pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact.id).to_pandas(), frame)
+    pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact_id).to_pandas(), frame)
     for reduced in (
         query.reduce({"total": query["total"].sum()}),
         session.observe({"total": total.per(region).sum()}),

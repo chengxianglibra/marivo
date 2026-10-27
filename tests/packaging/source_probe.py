@@ -418,7 +418,7 @@ def produce(project: Path) -> dict[str, object]:
             descriptors[name] = _scalar(asdict(result._backing.data))
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: result.artifact.id for name, result in saved.items()},
+            "artifacts": {name: result.artifact_id for name, result in saved.items()},
             "snapshots": receipts,
             "descriptors": descriptors,
             "native_oracle": native_oracle,
@@ -484,9 +484,9 @@ def cold(project: Path) -> dict[str, object]:
         assert receipts == state["snapshots"]
         for name, result in saved.items():
             result.show(n=1)
-            result.artifact.show()
-            result.artifact.findings()
-            result.artifact.evidence_digest()
+            result.show(n=0)
+            result.findings()
+            result.evidence_digest()
             continued = result.select({"value": result["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])
         assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before

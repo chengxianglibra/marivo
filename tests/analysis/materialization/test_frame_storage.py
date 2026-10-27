@@ -345,7 +345,13 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
         with pytest.raises(AnalysisError, match="targets resolving in the baseline directory"):
             consume()
     assert local.preview(backing, 0).attachments == ()
-    local.artifact(value.artifact_id).show()
+    AnalysisFrame._from_stored(
+        local,
+        backing.data,
+        artifact_id=backing.artifact_id,
+        metadata=backing.metadata,
+        method_facts=backing.method_facts,
+    ).show(n=0)
 
 
 def counts(local: LocalFrameServices) -> tuple[int, int]:
@@ -441,7 +447,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
             script,
             str(local.store.project_root),
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
         ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
@@ -479,7 +485,7 @@ def test_zero_axis_empty_select_preserves_cardinality_through_storage(
     assert completed.presence_names == ()
     assert completed.to_pandas().shape == (row_count, 0)
     saved = completed.persist()
-    backing = local.open_frame(saved.artifact.id)
+    backing = local.open_frame(saved.artifact_id)
     reopened = AnalysisFrame._from_stored(
         local,
         backing.data,
@@ -582,7 +588,6 @@ def test_zero_preview_and_audit_do_not_open_payloads(
     saved.show(n=0)
     saved.persist()
     reader = TerminalReader(local.store)
-    reader.show(manifest(saved))
     assert reader.findings(manifest(saved), limit=20, cursor=None).items == ()
     assert reader.evidence_digest(manifest(saved)).items == metadata().audit.source_facts
 
@@ -860,7 +865,7 @@ def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServ
     assert len(prefix.rows) == 1
     assert not next(part for part in prefix.attachments if part.name == right_name).rows.shape[0]
     paired.show(n=0)
-    paired.artifact.show()
+    paired.show(n=0)
     with pytest.raises(AnalysisError):
         paired.compute()
 
@@ -1001,7 +1006,7 @@ print("cold-temporal-exact")
             script,
             str(local.store.project_root),
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
             json.dumps(expected_values),
         ],
         cwd=Path(__file__).resolve().parents[3],
@@ -1116,8 +1121,8 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         lambda: local.read_complete(_stored_backing(saved)),
         lambda: local.preview(_stored_backing(saved), 0),
         lambda: saved.persist(),
-        lambda: local.artifact(current.artifact_id),
-        lambda: TerminalReader(local.store).show(current),
+        lambda: local.committed_at(_stored_backing(saved)),
+        lambda: saved.show(n=0),
         lambda: TerminalReader(local.store).findings(current, limit=1, cursor=None),
         lambda: TerminalReader(local.store).evidence_digest(current),
         lambda: selected_manifest(local.store, current),
@@ -1397,7 +1402,7 @@ assert pa.array(rows[values[1].slot_id]).to_pylist() == [None, 10]
                 script,
                 str(local.store.project_root),
                 local.session_ref,
-                saved.artifact.id,
+                saved.artifact_id,
                 str(minimum),
             ],
             cwd=Path(__file__).resolve().parents[3],
@@ -1476,7 +1481,7 @@ def test_top_orders_exact_extreme_null_composite_keys_and_scores(
         cutoff_rows = _memory_backing(cutoff).data.copy_rows()
         assert pa.array(cutoff_rows["key"]).cast(integer).to_pylist() == keys[:2]
         assert cutoff_rows["other"].tolist() == others[:2]
-        saved_cases.append((saved.artifact.id, keys, others, scores))
+        saved_cases.append((saved.artifact_id, keys, others, scores))
     script = """
 import json, sys
 from pathlib import Path
@@ -1567,7 +1572,7 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
             _stored_backing(saved).metadata.result_id,
             local.store.store_id,
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
         ),
     )
     assert audit.source_facts == metadata().audit.source_facts
@@ -1678,7 +1683,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
             _stored_backing(saved).metadata.result_id,
             local.store.store_id,
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
         ),
     )
     assert _memory_backing(result).metadata.result_id != _stored_backing(saved).metadata.result_id
@@ -1695,7 +1700,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     )
     if kind == "ordinary":
         assert read_calls == 1
-        reopened_backing = local.open_frame(saved.artifact.id)
+        reopened_backing = local.open_frame(saved.artifact_id)
         reopened = AnalysisFrame._from_stored(
             local,
             reopened_backing.data,
@@ -1755,7 +1760,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
             script,
             str(local.store.project_root),
             local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
             kind,
         ],
         cwd=Path(__file__).resolve().parents[3],
@@ -2100,7 +2105,7 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
         assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
         assert "original data files and exact receipts" in caught.value.repair.action
     saved.show(n=0)
-    saved.artifact.show()
+    saved.show(n=0)
     assert saved.persist() is saved
     assert memory.compute() is memory
     assert len(memory.to_pandas()) == 128
@@ -2200,9 +2205,9 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
             script,
             str(local.store.project_root),
             local.session_ref,
-            sparse.artifact.id,
-            saved.artifact.id,
-            paired.artifact.id,
+            sparse.artifact_id,
+            saved.artifact_id,
+            paired.artifact_id,
         ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
@@ -2471,8 +2476,8 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
         patch.setattr(OutputRead, "read", forbid_method)
         saved.show(n=0)
         saved.show(n=1)
-        saved.artifact.show()
-        assert local.open_frame(saved.artifact.id) == _stored_backing(saved)
+        saved.show(n=0)
+        assert local.open_frame(saved.artifact_id) == _stored_backing(saved)
         assert saved.persist() is saved
         _ = saved.select({"q": saved["contribution.q"]})
     assert ".method_facts" in capsys.readouterr().out
@@ -2705,7 +2710,7 @@ print('cold-method-facts-owned')
             script,
             str(local.store.project_root),
             local.session_ref,
-            reduced.artifact.id,
+            reduced.artifact_id,
             str(worktree),
             str(size),
         ],
@@ -2791,8 +2796,8 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
             script,
             str(session._runtime.store.project_root),
             session.id,
-            observed.artifact.id,
-            report.artifact.id,
+            observed.artifact_id,
+            report.artifact_id,
         ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,

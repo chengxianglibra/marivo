@@ -232,7 +232,7 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
     assert selected._schema.values[1].unit is None
     assert selected.to_pandas()["total"].tolist() == [Decimal("5.00"), Decimal("5.00")]
     saved = pending.persist()
-    reopened = case.session.persisted_frame(saved.artifact.id)
+    reopened = case.session.persisted_frame(saved.artifact_id)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
 
@@ -412,7 +412,7 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     assert fixed["total"].tolist() == [180, 230]
     assert fixed["share"].tolist() == [1, 1]
     saved = filtered.persist()
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     assert saved.to_pandas().equals(fixed)
     assert reopened.to_pandas().equals(fixed)
     reopened_month = next(axis for axis in reopened.axes if axis.role == "calendar")

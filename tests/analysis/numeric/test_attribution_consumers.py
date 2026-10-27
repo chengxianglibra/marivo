@@ -162,8 +162,8 @@ def test_source_and_retained(
 
                     offline.setattr(SourceSession, "execute", forbid)
                     restored = allocation(
-                        plain(session.persisted_frame(current.artifact.id)),
-                        plain(session.persisted_frame(baseline.artifact.id)),
+                        plain(session.persisted_frame(current.artifact_id)),
+                        plain(session.persisted_frame(baseline.artifact_id)),
                         method="sum",
                         axes=axes,
                         parents=(),

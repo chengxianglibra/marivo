@@ -60,7 +60,7 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     }
     if mode == "ranks":
         assert sorted(display.other) == [1, 2, 3]
-    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact_id)), frame)
 
 
 def test_pandas_rank_projection_retains_original_fit_scope(
@@ -99,7 +99,7 @@ def test_saved_result_order_and_primary_receipt_are_required_for_preview(
     else:
         path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
     try:
-        reopened = case.session.persisted_frame(artifact.artifact.id)
+        reopened = case.session.persisted_frame(artifact.artifact_id)
         with pytest.raises(AnalysisError):
             reopened.show(n=3)
         assert run_ids(case.session) == before
@@ -147,4 +147,4 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     )
     assert len(selected) == 7 and selected.reference.tolist() == [center] * 7
     assert not selected[["key_0", "key_1"]].duplicated().any()
-    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact_id)), frame)

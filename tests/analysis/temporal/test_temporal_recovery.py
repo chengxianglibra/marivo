@@ -141,7 +141,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
             (datetime(2026, 8, 2, tzinfo=timezone.utc), datetime(2026, 8, 3, tzinfo=timezone.utc)),
         ]
         outputs: dict[str, Json] = {
-            name: {"artifact": saved.artifact.id, "snapshot": snapshot(saved, frame=frame)}
+            name: {"artifact": saved.artifact_id, "snapshot": snapshot(saved, frame=frame)}
             for name, saved, frame in (
                 ("subjects", source, source_frame),
                 ("spatial", spatial, spatial_frame),

@@ -26,7 +26,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()
     saved = artifact.to_pandas()
-    artifact_id = artifact.artifact.id
+    artifact_id = artifact.artifact_id
     store = case.session._runtime.store
     with store._read() as connection:
         payload = connection.execute(
@@ -85,11 +85,11 @@ def test_terminal_corruption_rejects_while_exported_copies_are_isolated(
     for damaged in (payload[:-1], b"damaged terminal data"):
         path.write_bytes(damaged)
         try:
-            metadata = case.session.persisted_frame(artifact.artifact.id)
-            assert metadata.artifact.id == artifact.artifact.id
+            metadata = case.session.persisted_frame(artifact.artifact_id)
+            assert metadata.artifact_id == artifact.artifact_id
             assert metadata.persist() is metadata
             metadata.show(n=0)
-            metadata.artifact.show()
+            metadata.show(n=0)
             with pytest.raises(AnalysisError):
                 metadata.to_pandas()
         finally:
@@ -127,9 +127,9 @@ def test_every_saved_receipt_is_required_when_consumed(
         else:
             target.write_bytes(b"damaged terminal receipt")
         try:
-            reopened = case.session.persisted_frame(artifact.artifact.id)
+            reopened = case.session.persisted_frame(artifact.artifact_id)
             reopened.show(n=0)
-            reopened.artifact.show()
+            reopened.show(n=0)
             assert reopened.persist() is reopened
             with pytest.raises(AnalysisError):
                 reopened.show(n=3)

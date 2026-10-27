@@ -114,7 +114,7 @@ def _save_inputs(
     state: dict[str, Json] = {
         "session": case.session.id,
         "inputs": [
-            {"artifact": value.artifact.id, "snapshot": snapshot(value)} for value in inputs
+            {"artifact": value.artifact_id, "snapshot": snapshot(value)} for value in inputs
         ],
         "methods": list(methods),
         "top_k": top_k,
@@ -143,7 +143,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
     selected = frame.loc[frame.contribution > 0]
     assert selected[["current"]].shape == selected[["baseline"]].shape
     before = len(terminal_runs(case.session))
-    restored = tuple(case.session.persisted_frame(value.artifact.id) for value in inputs)
+    restored = tuple(case.session.persisted_frame(value.artifact_id) for value in inputs)
     pd.testing.assert_frame_equal(
         allocation(*(basis(value) for value in restored), method="count"), frame
     )
@@ -279,7 +279,7 @@ def test_common_other_mapping_each_parent_and_resolution(
         )
     inputs = _inputs(case)
     sources = (
-        (inputs, tuple(case.session.persisted_frame(value.artifact.id) for value in inputs))
+        (inputs, tuple(case.session.persisted_frame(value.artifact_id) for value in inputs))
         if fixed_followup
         else (inputs,)
     )
@@ -473,7 +473,7 @@ def test_new_source_evaluation_preserves_fixed_basis(
     )
     pd.testing.assert_frame_equal(
         allocation(
-            *(basis(case.session.persisted_frame(value.artifact.id)) for value in fixed),
+            *(basis(case.session.persisted_frame(value.artifact_id)) for value in fixed),
             method="count",
         ),
         before,

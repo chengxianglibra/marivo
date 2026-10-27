@@ -122,7 +122,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert trace.native_sql and trace.returned_rows
         submissions = tuple(trace.native_sql)
         saved = report.persist()
-        facts = saved.artifact.evidence_digest().items
+        facts = saved.evidence_digest().items
         role_reads = [
             dict(fact.values)
             for fact in facts

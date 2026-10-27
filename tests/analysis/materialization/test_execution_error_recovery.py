@@ -217,7 +217,7 @@ def test_evaluation_failure_never_inherits_previous_publication(
             assert "session.get_run(" not in str(caught.value)
         assert terminal_runs(case.session) == before
         pd.testing.assert_frame_equal(
-            case.session.persisted_frame(previous.artifact.id).to_pandas(), previous.to_pandas()
+            case.session.persisted_frame(previous.artifact_id).to_pandas(), previous.to_pandas()
         )
 
 

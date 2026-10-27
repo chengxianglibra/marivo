@@ -126,7 +126,7 @@ def test_window_attribute_identifies_its_public_constructor() -> None:
         (
             mv.AnalysisFrame,
             "analysis_frame",
-            ("artifact", "output_names", "axes", "presence_names", "method_facts"),
+            ("session_id", "artifact_id", "output_names", "axes", "presence_names", "method_facts"),
         ),
         (mv.FrameAxis, "frame_axis", ("token", "name", "role", "key_names")),
     ),

@@ -32,7 +32,7 @@ population = session.members(session.catalog.entities.get('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
 
-def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
+def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
     session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
     session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
@@ -164,7 +164,7 @@ import pandas as pd
 from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
 
-def positive(session: mv.Session, members: mv.Population, field: Deferred, other: mv.AnalysisFrame, artifact: mv.Artifact) -> None:
+def positive(session: mv.Session, members: mv.Population, field: Deferred, other: mv.AnalysisFrame, artifact: mv.AnalysisFrame) -> None:
     query = session.observe({"value": field.mean()}, by=members)
     assert_type(query, mv.AnalysisFrame)
     assert_type(query["value"], mv.Column)
@@ -175,15 +175,15 @@ def positive(session: mv.Session, members: mv.Population, field: Deferred, other
     assert_type(query.compare({'reference': mv.baseline(other)}), mv.AnalysisFrame)
     assert_type(query.align(other), mv.AnalysisFrame)
     assert_type(query.compute(), mv.AnalysisFrame)
-    assert_type(query.persist().artifact, mv.Artifact)
-    frame = session.persisted_frame(artifact.id).to_pandas()
+    assert_type(query.persist(), mv.AnalysisFrame)
+    frame = session.persisted_frame(artifact.artifact_id).to_pandas()
     assert_type(frame, pd.DataFrame)
     assert_type(frame.corr(method="pearson", numeric_only=True), pd.DataFrame)
     assert_type(frame.corr(method="spearman", numeric_only=True), pd.DataFrame)
     assert_type(frame.corr(method="kendall", numeric_only=True), pd.DataFrame)
     assert_type(frame.describe(), pd.DataFrame)
 
-def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred) -> None:
+def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: Deferred) -> None:
 """
     calls = (
         "query.deviation(method='zscore')",

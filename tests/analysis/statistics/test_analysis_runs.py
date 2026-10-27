@@ -109,7 +109,7 @@ def test_new_grid_after_subject_selection(
         where=mv.in_population(selected),
     )
     artifact = fresh.persist()
-    receiver = session.persisted_frame(artifact.artifact.id) if fixed else artifact
+    receiver = session.persisted_frame(artifact.artifact_id) if fixed else artifact
     frame = receiver.to_pandas()
     assert frame["value"].tolist() == [60, 0, 0]
     before = len(terminal_runs(session))

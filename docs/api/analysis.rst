@@ -50,9 +50,12 @@ before counting members by it; projecting to the attribute alone counts categori
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
 Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
-must be a string. ``frame.artifact`` is available only for a persisted root and
-provides audit-only ``show()``, ``findings()`` and ``evidence_digest()``.
-Frame owns ``show(n=20)`` and ``to_pandas()``. Artifact is not a computation input.
+must be a string. Every Frame exposes its captured ``session_id``. Stored roots
+expose ``artifact_id``, ``findings()`` and ``evidence_digest()`` directly.
+Pending and memory Frames require ``persist()`` for commit identity and audit reads.
+Identity attributes perform no Store reads. There is no public Artifact wrapper.
+``show(n=20)`` combines metadata, bounded audit summaries and a data preview;
+``show(n=0)`` reads metadata only. Full data export uses ``to_pandas()``.
 
 Public classes describe returned values; they do not authorize direct construction
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
@@ -225,7 +228,9 @@ TDigest. PostgreSQL and MySQL reject approximate source methods. Exact and
 approximate algorithms never substitute; actual type and source restrictions
 still apply.
 
-``show(n=0)`` and Artifact audit read metadata only. Positive show decodes the
+``show(n=0)`` reads metadata and bounded audit summaries only, including stored
+commit time, inputs/operations and source-fact/check/Finding counts; it does not
+read full audit payloads. Positive show decodes the
 saved prefix plus needed frozen coordinate records, without full export/head.
 Receipt verification or Parquet decompression can read more than that prefix.
 ``to_pandas()`` validates complete current data and its required attachments.
@@ -302,7 +307,7 @@ Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
 single Store 16 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
-A derived Frame never exposes an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
+A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
 Completed data owns source-free values, coordinates, presence and one audit:
 inherited source facts plus the current evaluation. It retains no producer,
@@ -344,7 +349,6 @@ Canonical public exports
    TimeScope
    InstantAnchor
    CalendarAxis
-   Artifact
    ArtifactDigest
    ArtifactRef
    Finding

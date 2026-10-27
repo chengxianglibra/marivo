@@ -112,11 +112,11 @@ assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
 saved.show()
-saved.artifact.show()  # Submission and audit only.
-reopened = session.persisted_frame(saved.artifact.id)
+saved.show(n=0)  # Submission and audit only.
+reopened = session.persisted_frame(saved.artifact_id)
 assert reopened.to_pandas().equals(table)
 saved_session_id = session.id
-saved_artifact_id = saved.artifact.id
+saved_artifact_id = saved.artifact_id
 ```
 
 <a id="observe-metrics"></a>
@@ -304,7 +304,7 @@ facts = explained.method_facts
 facts[0].show(n=0)
 declines = explained.where(explained["contribution.revenue"] < 0).compute()
 saved_declines = declines.persist()
-reopened_declines = session.persisted_frame(saved_declines.artifact.id)
+reopened_declines = session.persisted_frame(saved_declines.artifact_id)
 decline_rows = reopened_declines.to_pandas()
 original_explanation = reopened_declines.method_facts
 ```

@@ -86,7 +86,7 @@ def test_named_distribution_carriers_recover_independently(
         exported = value.to_pandas()
         check_original(value, physical, name, exported=exported)
         originals[name] = {
-            "artifact": value.artifact.id,
+            "artifact": value.artifact_id,
             "snapshot": snapshot(value, frame=exported),
         }
     state: dict[str, Json] = {

@@ -196,12 +196,12 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
         verify(frame, mode, profile)
         state = {
             "session": session.id,
-            "artifact": saved.artifact.id,
+            "artifact": saved.artifact_id,
             "frame": snapshot(saved, frame=frame),
             "profile": profile,
         }
         before = run_ids(session)
-        verify(plain(session.persisted_frame(saved.artifact.id)), mode, profile)
+        verify(plain(session.persisted_frame(saved.artifact_id)), mode, profile)
         assert run_ids(session) == before
         if mode == "entity_time" and profile["followup"]:
             member_index = next(

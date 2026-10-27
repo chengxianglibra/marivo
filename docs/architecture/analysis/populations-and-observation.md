@@ -20,7 +20,7 @@ without restoring those source definitions.
 | session.population_from(frame, on=...) | Explicit selected ordinary-key projection into a new semantic binding | Population |
 
 Use closed Entities/fields/Metrics selected from the Catalog.
-Native lookup symbols require loader binding before analysis. Artifact objects, artifact IDs, pandas tables and
+Native lookup symbols require loader binding before analysis. Frame objects, artifact IDs, pandas tables and
 RawSqlResult are not source Metric operands. Session is the context for Catalog,
 execution owner, Store and frozen default timezone. Source-free descriptions and
 compositions at mv inherit their input owner when needed; cross-Session inputs fail.

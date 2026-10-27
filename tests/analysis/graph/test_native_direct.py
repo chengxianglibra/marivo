@@ -26,8 +26,15 @@ def _scalar_output(result: mv.AnalysisFrame, total: int | None) -> None:
     values = result.to_pandas()["value"]
     assert values.isna().all() if total is None else values.tolist() == [total]
     assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
-    assert result.artifact._manifest.data.schema.values[0].dtype == DecimalDataType(38, 0)
-    assert all(item.name != "original_state" for item in result.artifact._manifest.data.attachments)
+    assert result._local._audit_manifest(result._require_stored("artifact_id")).data.schema.values[
+        0
+    ].dtype == DecimalDataType(38, 0)
+    assert all(
+        item.name != "original_state"
+        for item in result._local._audit_manifest(
+            result._require_stored("artifact_id")
+        ).data.attachments
+    )
 
 
 def _support(work: Workload) -> mv.AnalysisFrame:
@@ -63,14 +70,20 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             assert all(item.purpose != "analysis.domain.prepare" for item in submitted)
             results.append(result)
         first, second = results
-        assert first.artifact.id != second.artifact.id
-        assert first.artifact._manifest.run_id != second.artifact._manifest.run_id
+        assert first.artifact_id != second.artifact_id
+        assert (
+            first._local._audit_manifest(first._require_stored("artifact_id")).run_id
+            != second._local._audit_manifest(second._require_stored("artifact_id")).run_id
+        )
         assert len(terminal_runs(work.session)) == 2
         assert _support(work).persist().to_pandas()["count"].tolist() == [61]
         captured = work.values().persist()
         frame = captured.to_pandas()
         assert [
-            column.dtype for column in captured.artifact._manifest.data.schema.axes[1].columns
+            column.dtype
+            for column in captured._local._audit_manifest(captured._require_stored("artifact_id"))
+            .data.schema.axes[1]
+            .columns
         ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),

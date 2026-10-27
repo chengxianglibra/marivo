@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from marivo._definition.types import Owner
-from marivo.analysis.materialization.contracts import SessionRecord, invalid
+from marivo.analysis.materialization.contracts import SessionRecord, invalid, parse_timestamp
 from marivo.analysis.materialization.store import SessionStore
 
 if TYPE_CHECKING:
+    from marivo.analysis.core.artifact_data import ArtifactManifest
     from marivo.analysis.core.frame_data import (
         CompletedFrameData,
         CompletedFrameResult,
         StoredFrameBacking,
     )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-    from marivo.analysis.dsl.artifact import Artifact
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest, FindingPage
     from marivo.analysis.materialization.graph_reading import FramePreview
 
 
@@ -44,11 +46,44 @@ class LocalFrameServices:
             raise invalid("Session is absent from its owning Store")
         return record
 
-    def artifact(self, artifact_id: str) -> Artifact:
-        """Open same-Session committed metadata without reading any payload."""
-        from marivo.analysis.materialization.graph_reading import open_artifact
+    def _audit_manifest(self, backing: StoredFrameBacking) -> ArtifactManifest:
+        """Validate the exact captured commit without opening result payloads."""
+        from marivo.analysis.core.frame_data import StoredFrameBacking
+        from marivo.analysis.materialization.graph_reading import open_manifest
 
-        return open_artifact(self.store, self.session_ref, artifact_id)
+        manifest = open_manifest(self.store, self.session_ref, backing.artifact_id)
+        selected = StoredFrameBacking(
+            manifest.artifact_id, manifest.data, manifest.metadata, manifest.method_facts
+        )
+        if selected != backing:
+            raise invalid("selected Frame commit metadata changed")
+        return manifest
+
+    def committed_at(self, backing: StoredFrameBacking) -> datetime:
+        """Read the validated commit time without result or audit payload reads."""
+        from marivo.analysis.materialization import terminal_store
+
+        manifest = self._audit_manifest(backing)
+        with self.store._read() as conn:
+            producer = terminal_store.run(self.store, conn, manifest.run_id)
+        assert producer is not None and producer.terminal_at is not None
+        return parse_timestamp(producer.terminal_at)
+
+    def findings(
+        self, backing: StoredFrameBacking, *, limit: int, cursor: str | None
+    ) -> FindingPage:
+        """Read only the selected commit's bounded Finding records."""
+        from marivo.analysis.materialization.graph_reading import TerminalReader
+
+        return TerminalReader(self.store).findings(
+            self._audit_manifest(backing), limit=limit, cursor=cursor
+        )
+
+    def evidence_digest(self, backing: StoredFrameBacking) -> ArtifactDigest:
+        """Read only the selected commit's complete audit records."""
+        from marivo.analysis.materialization.graph_reading import TerminalReader
+
+        return TerminalReader(self.store).evidence_digest(self._audit_manifest(backing))
 
     def open_frame(self, artifact_id: str) -> StoredFrameBacking:
         """Validate one same-Session committed descriptor, without payload reads."""

@@ -76,9 +76,12 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         total = logical.reduce({"value": logical["value"].sum()}).persist()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)
         assert total.to_pandas()["value"].tolist() == [expected]
-        assert work.session.persisted_frame(captured.artifact.id).to_pandas().equals(frame)
+        assert work.session.persisted_frame(captured.artifact_id).to_pandas().equals(frame)
         assert [
-            column.dtype for column in captured.artifact._manifest.data.schema.axes[1].columns
+            column.dtype
+            for column in captured._local._audit_manifest(captured._require_stored("artifact_id"))
+            .data.schema.axes[1]
+            .columns
         ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),

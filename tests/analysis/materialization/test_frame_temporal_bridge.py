@@ -164,7 +164,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
     minimum, maximum = (-(2**31), 2**31 - 1) if physical == pa.date32() else (-(2**63), 2**63 - 1)
     memory = _frame(session, dtype, physical, [minimum, 0, None, minimum, maximum])
     stored = memory.persist()
-    reopened = session.persisted_frame(stored.artifact.id)
+    reopened = session.persisted_frame(stored.artifact_id)
     # Catalog resolution is metadata only; the dependent fixed-key plan remains source free.
     catalog_value(session.catalog, "sales.facts.t", kind="field")
 
@@ -305,7 +305,7 @@ def test_cold_frame_key_bridge_keeps_minimum_separate_from_null(session: Session
             script,
             str(session.project_root),
             session._runtime.local.session_ref,
-            saved.artifact.id,
+            saved.artifact_id,
         ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
@@ -371,6 +371,6 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
         "timezone": ["str", "UTC"],
     }
     saved = computed.persist()
-    reopened = session.persisted_frame(saved.artifact.id)
+    reopened = session.persisted_frame(saved.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
     assert reopened._backing.metadata.audit.source_facts == facts

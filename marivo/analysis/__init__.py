@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-    from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.baseline import ComparisonBaseline as ComparisonBaseline
     from marivo.analysis.dsl.baseline import baseline as baseline
     from marivo.analysis.dsl.column import Column as Column

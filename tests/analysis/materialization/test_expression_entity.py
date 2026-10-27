@@ -101,7 +101,7 @@ assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [35
 assert frame['value'].sum() == 35
 """
     completed = subprocess.run(
-        [sys.executable, "-c", code, session.id, result.artifact.id, total.artifact.id],
+        [sys.executable, "-c", code, session.id, result.artifact_id, total.artifact_id],
         cwd=tmp_path,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_PROJECT_ROOT=str(tmp_path)),
         capture_output=True,

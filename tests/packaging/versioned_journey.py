@@ -236,7 +236,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         oracle = _verify(values)
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: value.artifact.id for name, value in values.items()},
+            "artifacts": {name: value.artifact_id for name, value in values.items()},
             "snapshots": {name: snapshot(value) for name, value in values.items()},
             "oracle": oracle,
         }

@@ -111,7 +111,7 @@ assert frame.loc['A', 'approximate_p95'] == 250.5
 assert run_ids(session) == before
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, session.id, output.artifact.id],
+        [sys.executable, "-c", script, session.id, output.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,

@@ -25,7 +25,7 @@ def test_completed_selection_retains_only_source_recipes_and_reopen_has_none(
     assert previous() is None
     saved = completed.persist()
     assert saved._derivation is completed._derivation
-    reopened = case.session.persisted_frame(saved.artifact.id)
+    reopened = case.session.persisted_frame(saved.artifact_id)
     assert reopened._input_id == saved._input_id
     assert reopened._derivation is None
     assert reopened.compute()._derivation is None

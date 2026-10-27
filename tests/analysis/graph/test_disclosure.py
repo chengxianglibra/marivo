@@ -52,10 +52,9 @@ REQUIRED_TARGETS = {
     "trailing_duration",
     "trailing_periods",
     "session",
-    "artifact",
-    "artifact.show",
-    "artifact.findings",
-    "artifact.evidence_digest",
+    "analysis_frame.show",
+    "analysis_frame.findings",
+    "analysis_frame.evidence_digest",
 }
 
 
@@ -64,7 +63,7 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(ANALYSIS_PUBLIC)
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
-    attribute = disclosure.resolve("analysis_frame.artifact")
+    attribute = disclosure.resolve("analysis_frame.artifact_id")
     assert attribute.kind == "attribute" and attribute.type_name == "analysis_frame"
     assert tuple(mv.__all__) == ANALYSIS_PUBLIC
     for name, entry in actual.items():

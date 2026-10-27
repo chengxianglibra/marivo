@@ -255,7 +255,7 @@ def saved_read(project: Path) -> dict[str, object]:
     assert run_count() == before
     assert session._runtime.store.resources(session.id) == ()
     artifact.show(n=0)
-    artifact.artifact.show()
+    artifact.show(n=0)
     assert not any(
         name == root or name.startswith(root + ".")
         for root in DRIVERS.values()

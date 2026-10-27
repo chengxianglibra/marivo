@@ -182,8 +182,8 @@ def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(
     result = total.persist()
     assert result.to_pandas()["total"].tolist() == [Decimal(2**63)]
     assert pa.array(result.to_pandas()["total"]).type == pa.decimal128(38, 0)
-    assert case.session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
-    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
+    assert case.session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
+    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
 
 
 def test_integer_sum_and_decimal_product_cold_read_without_sources(
@@ -220,7 +220,7 @@ with patch.object(SourceSession, 'execute', side_effect=AssertionError('source r
     assert pa.array(total).type == pa.decimal128(38, 0)
 """
     process = subprocess.run(
-        [sys.executable, "-c", code, case.session.id, product.artifact.id, total.artifact.id],
+        [sys.executable, "-c", code, case.session.id, product.artifact_id, total.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_PROJECT_ROOT": str(case.root)},
         capture_output=True,

@@ -146,12 +146,14 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
     store = case.session._runtime.store
     before = terminal_runs(case.session)
     if corruption == "rows":
-        receipt = saved.artifact._manifest.data.rows.receipt
+        receipt = saved._local._audit_manifest(
+            saved._require_stored("artifact_id")
+        ).data.rows.receipt
         (
             case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
         ).unlink()
         # Metadata opening is lazy; consuming the saved output detects the missing file.
-        reopened = case.session.persisted_frame(saved.artifact.id)
+        reopened = case.session.persisted_frame(saved.artifact_id)
         for value in (saved, reopened):
             with pytest.raises(AnalysisError):
                 value.to_pandas()
@@ -159,7 +161,7 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
         with store._write() as connection:
             row = connection.execute(
                 "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
-                (saved.artifact.id,),
+                (saved.artifact_id,),
             ).fetchone()
             assert row is not None
             value = json.loads(row[0])
@@ -169,10 +171,10 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
                 value["format"] = "marivo.terminal_output/v999"
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (json.dumps(value), saved.artifact.id),
+                (json.dumps(value), saved.artifact_id),
             )
         with pytest.raises(AnalysisError) as caught:
-            case.session.persisted_frame(saved.artifact.id)
+            case.session.persisted_frame(saved.artifact_id)
         assert caught.value.expected and caught.value.received and caught.value.repair
     assert terminal_runs(case.session) == before
 
@@ -185,12 +187,14 @@ def test_session_recovery_retains_internal_publication_safety(
     current, _ = _observations(case)
     saved = current.persist()
     session, store = case.session, case.session._runtime.store
-    run = terminal_run(session, saved.artifact._manifest.run_id)
+    run = terminal_run(
+        session, saved._local._audit_manifest(saved._require_stored("artifact_id")).run_id
+    )
     assert run.lifecycle == "succeeded"
     assert isinstance(run.dataset_input, InvocationInput)
     assert mv.session.resume(session.id).id == session.id
     assert mv.session.inspect(session.id).artifact_count == 1
-    assert run.output_artifact_ref == saved.artifact.id
+    assert run.output_artifact_ref == saved.artifact_id
     terminal_store.admit(store, session.id, "pending", run.dataset_input.result_id)
     mv.session.resume(session.id)
     assert terminal_run(session, "pending").lifecycle == "failed"
@@ -258,7 +262,7 @@ assert coefficient < .1
 assert run_ids(session) == before
 """
     process = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, saved.artifact.id],
+        [sys.executable, "-c", script, case.session.id, saved.artifact_id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -289,14 +293,10 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(terminal_storage, "read_output", forbidden)
-    with pytest.raises(AnalysisError):
-        current.compare(
-            {
-                "reference": mv.baseline(
-                    fixed.artifact, on=tuple(zip(current.axes, fixed.axes, strict=True))
-                )
-            }
-        )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+    combined = current.compare(
+        {"reference": mv.baseline(fixed, on=tuple(zip(current.axes, fixed.axes, strict=True)))}
+    )
+    assert isinstance(combined, mv.AnalysisFrame)
     with pytest.raises(AnalysisError):
         current.compare(
             {
@@ -381,5 +381,5 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
-    assert saved.artifact.evidence_digest().evidence_count > 0
+    assert saved.evidence_digest().evidence_count > 0
     assert case.session._runtime.store.layout.generation == 16

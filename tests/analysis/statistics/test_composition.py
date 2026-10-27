@@ -117,7 +117,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
     else:
         chosen = frame.loc[frame.value > 1]
         assert len(chosen) == 2
-    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact_id)), frame)
     assert run_ids(session) == before
 
 

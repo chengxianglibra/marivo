@@ -100,7 +100,7 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     rolled = core_session.observe(metrics, by=(region,)).compute().to_pandas()
     assert rolled["total"].tolist() == [100, 60]
     assert artifact.to_pandas().equals(
-        core_session.persisted_frame(artifact.artifact.id).to_pandas()
+        core_session.persisted_frame(artifact.artifact_id).to_pandas()
     )
 
 

@@ -51,9 +51,12 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     }
     assert reads
     assert not {"subject", "original_state", "coverage"}.intersection(
-        part.name for part in result.artifact._manifest.data.attachments
+        part.name
+        for part in result._local._audit_manifest(
+            result._require_stored("artifact_id")
+        ).data.attachments
     )
     total = observed.reduce({"value": observed["value"].sum()}).persist()
     assert total.to_pandas()["value"].tolist() == [1000]
-    assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
+    assert session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
     assert session._runtime.store.resources(session.id) == ()

@@ -118,8 +118,8 @@ def surface_snapshot() -> list[dict[str, object]]:
         for member in ("execute", "rollup", "drill", "share", "population")
     )
     assert all(not hasattr(mv.Session, member) for member in ("query", "artifact"))
-    assert not hasattr(mv.Artifact, "to_pandas") and not hasattr(mv.Artifact, "execute")
-    assert tuple(inspect.signature(mv.Artifact.show).parameters) == ("self",)
+    assert not hasattr(mv, "Artifact")
+    assert not hasattr(mv.AnalysisFrame, "artifact")
     assert (
         inspect.signature(mv.AnalysisFrame.show).parameters["n"].kind
         is inspect.Parameter.KEYWORD_ONLY

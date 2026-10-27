@@ -40,7 +40,6 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, CoreRuleError
-from marivo.analysis.dsl.artifact import Artifact, ArtifactReader
 from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
@@ -114,7 +113,7 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     assert query.compute().to_pandas()["revenue"].tolist() == [10]
     assert terminal_runs(session) == ()
     artifacts = [query.persist() for _ in range(2)]
-    assert len({artifact.artifact.id for artifact in artifacts}) == 2
+    assert len({artifact.artifact_id for artifact in artifacts}) == 2
     assert len(terminal_runs(session)) == 2
     assert all(run.lifecycle == "succeeded" for run in terminal_runs(session))
     assert session._sources_value is None and session._catalog_value is None
@@ -219,44 +218,27 @@ def test_observe_does_not_resolve_ids_or_other_values(
     assert terminal_runs(session) == ()
 
 
-def test_terminal_artifact_has_only_identity_and_reader(
+def test_saved_frame_owns_identity_and_rejects_invalid_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from unittest.mock import create_autospec
-
-    reader = create_autospec(ArtifactReader, instance=True)
-    artifact = Artifact._from_manifest(_manifest(), reader)
-    assert artifact.id == "artifact_exact" and artifact.session_id == "session_exact"
-    assert "Artifact id=artifact_exact" in repr(artifact) and "\n" not in repr(artifact)
-    assert tuple(f.name for f in fields(artifact)) == ("_manifest", "_reader")
-    assert not reader.mock_calls
-    for name in (
-        "execute",
-        "contract",
-        "select",
-        "observe",
-        "population",
-        "where",
-        "rollup",
-        "compare",
-    ):
-        assert not hasattr(artifact, name)
-    with pytest.raises(FrozenInstanceError):
-        artifact._manifest = artifact._manifest  # type: ignore[misc]  # Verify frozen audit handle at runtime.
-    with pytest.raises(TypeError):
-        Artifact()
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("reject-artifact")
+    session = mv.session.get_or_create("saved-identity")
+    pending = session.values(by=(), columns={"value": None}, rows=(((), {"value": 7}),))
+    saved = pending.persist()
+    assert pending.session_id == saved.session_id == session.id
+    assert saved.artifact_id.startswith("artifact_")
+    assert not hasattr(mv, "Artifact") and not hasattr(saved, "artifact")
+    assert not hasattr(mv, "Result")
+    with pytest.raises(FrozenInstanceError):
+        saved.artifact_id = "changed"
     with pytest.raises(CoreRuleError, match="Metric expression"):
-        session.observe({"bad": artifact})  # type: ignore[dict-item]  # Audit output cannot be a Metric.
+        session.observe({"bad": saved})  # type: ignore[dict-item]  # A Frame is not a Metric.
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": object()})  # type: ignore[dict-item]  # Arbitrary objects cannot be Metrics.
-    assert not hasattr(mv, "Result")
     with pytest.raises(CoreRuleError, match="ID string"):
-        session.persisted_frame(artifact)  # type: ignore[arg-type]  # This entry accepts only exact ID strings.
+        session.persisted_frame(saved)  # type: ignore[arg-type]  # Recovery requires an exact ID string.
     with pytest.raises(CoreRuleError, match="ID string"):
-        session.persisted_frame(ArtifactRef(ref="artifact_exact"))  # type: ignore[arg-type]  # Typed historical refs are not ID strings.
-    assert not reader.mock_calls
+        session.persisted_frame(ArtifactRef(ref=saved.artifact_id))  # type: ignore[arg-type]  # Refs are not ID strings.
 
 
 def test_publication_tables_and_committed_data_have_distinct_contracts() -> None:
@@ -412,14 +394,14 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(
         "analysis.session.persisted_frame",
         "analysis.session.population_from",
         "analysis.frame_axis",
-        "analysis.artifact",
-        "analysis.artifact.show",
-        "analysis.artifact.findings",
-        "analysis.artifact.evidence_digest",
+        "analysis.analysis_frame.artifact_id",
+        "analysis.analysis_frame.session_id",
+        "analysis.analysis_frame.findings",
+        "analysis.analysis_frame.evidence_digest",
     ):
         public_help(target)
         assert target in capsys.readouterr().out
-    public_help(mv.Artifact)
+    public_help(mv.AnalysisFrame)
     rendered = capsys.readouterr().out
     assert "audit" in rendered.lower() and "AnalysisFrame" in rendered
     assert "committed" in rendered
@@ -450,7 +432,7 @@ def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     from marivo._help.render import help as public_help
 
     assert marivo.help is public_help
-    for target in (f"analysis.artifact.{name}", getattr(mv.Artifact, name)):
+    for target in (f"analysis.analysis_frame.{name}", getattr(mv.AnalysisFrame, name)):
         public_help(target)
         text = capsys.readouterr().out
         assert "submission" in text or "committed" in text or "saved" in text

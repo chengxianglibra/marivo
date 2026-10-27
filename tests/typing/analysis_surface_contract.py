@@ -20,8 +20,11 @@ if TYPE_CHECKING:
     recovered = session.persisted_frame("artifact_current")
     assert_type(recovered, mv.AnalysisFrame)
     assert_type(session.population_from(recovered, on=()), mv.Population)
-    assert_type(recovered.artifact, mv.Artifact)
-    assert_type(recovered.artifact.show(), None)
+    assert_type(recovered.artifact_id, str)
+    assert_type(recovered.session_id, str)
+    assert_type(recovered.findings(), mv.FindingPage)
+    assert_type(recovered.evidence_digest(), mv.ArtifactDigest)
+    assert_type(recovered.show(n=0), None)
     revenue = session.catalog.get("metric:sales.revenue")
     assert revenue.kind == "metric"
     metric = revenue.value

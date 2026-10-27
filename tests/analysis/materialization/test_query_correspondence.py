@@ -308,7 +308,7 @@ account_match = ms.relationship(name='account_match', from_entity=crm, to_entity
     result = left.compare({"base": mv.baseline(right, on=_on(left, right))}).compute().to_pandas()
     assert result["base.absolute.m"].tolist() == [50, -100]
     assert result["base.relative.m"].tolist() == [0.5, -1.0]
-    assert session.persisted_frame(left.artifact.id).to_pandas().iloc[:, 0].tolist() == [
+    assert session.persisted_frame(left.artifact_id).to_pandas().iloc[:, 0].tolist() == [
         ("t1", "A"),
         ("t2", "A"),
     ]

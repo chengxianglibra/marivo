@@ -93,18 +93,19 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
     assert run_ids(case.session) == before
 
 
-def test_exported_subject_selection_has_no_artifact_continuation(
+def test_exported_subject_selection_does_not_mutate_saved_frame(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     artifact = orders(case).persist()
     before = run_ids(case.session)
-    scores = deviation(plain(artifact), "zscore")
+    expected = plain(artifact)
+    scores = deviation(expected.copy(deep=True), "zscore")
     selected = scores.loc[scores.score > 0]
     assert not selected.empty
-    audit = artifact.artifact
-    for name in ("population", "observe", "deviation", "to_pandas"):
-        assert not hasattr(audit, name)
+    for name in ("population", "observe", "deviation"):
+        assert not hasattr(artifact, name)
+    pd.testing.assert_frame_equal(plain(artifact), expected)
     assert run_ids(case.session) == before
 
 
@@ -132,7 +133,7 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
         with pytest.raises((AnalysisError, KeyboardInterrupt)):
             query.persist()
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(previous.artifact.id).to_pandas(), saved
+        case.session.persisted_frame(previous.artifact_id).to_pandas(), saved
     )
     assert_clean(case.session, artifacts=1)
     assert run_ids(case.session) == before
@@ -201,9 +202,12 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
     runs = terminal_runs(case.session, status="succeeded")
     assert len(runs) == 1
     assert runs[0].lifecycle == "succeeded"
-    assert runs[0].output_artifact_ref == artifact.artifact.id
-    assert artifact.artifact._manifest.run_id == runs[0].run_ref
-    assert artifact.artifact.evidence_digest().finding_count == 0
+    assert runs[0].output_artifact_ref == artifact.artifact_id
+    assert (
+        artifact._local._audit_manifest(artifact._require_stored("artifact_id")).run_id
+        == runs[0].run_ref
+    )
+    assert artifact.evidence_digest().finding_count == 0
     assert_clean(case.session, artifacts=1)
     before = run_ids(case.session)
     deviation(plain(artifact), "zscore")

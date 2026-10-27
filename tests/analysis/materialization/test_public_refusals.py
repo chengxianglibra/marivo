@@ -60,10 +60,7 @@ def test_public_composition_refuses_before_source_or_run(
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
         monkeypatch.setattr(terminal_store, "admit", tripwire("terminal_store.admit"))
-        refusals: dict[
-            str, tuple[mv.AnalysisFrame, mv.AnalysisFrame | mv.Artifact, list[Session]]
-        ] = {
-            "artifact-input": (live, previous.artifact, [session]),
+        refusals: dict[str, tuple[mv.AnalysisFrame, mv.AnalysisFrame, list[Session]]] = {
             "cross-session": (live, other, [session, foreign]),
         }
         reports: dict[str, list[Json]] = {}
@@ -73,9 +70,9 @@ def test_public_composition_refuses_before_source_or_run(
             for operation in ("align", "compare"):
                 with pytest.raises(AnalysisError) as caught:
                     if operation == "align":
-                        left.align(right)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
+                        left.align(right)
                     else:
-                        left.compare({"base": mv.baseline(right)})  # type: ignore[dict-item]  # Exercise the runtime Artifact boundary.
+                        left.compare({"base": mv.baseline(right)})
                 error = caught.value
                 assert error.expected and error.received and error.repair is not None
                 assert error.repair.action
@@ -162,7 +159,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
         assert frame["value"].sum() == 6
         assert frame["base.baseline.value"].sum() == 0
         assert frame[["current.present", "base.present"]].all().all()
-        data = previous.artifact._manifest.data
+        data = previous._local._audit_manifest(previous._require_stored("artifact_id")).data
         assert any(item.name.startswith("calendar.") for item in data.attachments)
         saved = snapshot(previous, frame=frame)
         before = run_ids(session)
@@ -181,7 +178,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
             offline = path.with_name(path.name + ".offline")
             path.rename(offline)
             try:
-                reopened = session.persisted_frame(previous.artifact.id)
+                reopened = session.persisted_frame(previous.artifact_id)
                 for value in (previous, reopened):
                     with pytest.raises(AnalysisError) as caught:
                         value.to_pandas()

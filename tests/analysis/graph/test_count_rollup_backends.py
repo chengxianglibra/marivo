@@ -170,12 +170,16 @@ def test_native_count_rollup_and_group_state(
             "value"
         ].tolist() == [first_day_count]
         if key_type == "int64":
-            data = saved_groups.artifact._manifest.data
+            data = saved_groups._local._audit_manifest(
+                saved_groups._require_stored("artifact_id")
+            ).data
             forged = mv.AnalysisFrame._from_stored(
                 saved_groups._local,
                 replace(data, rows=replace(data.rows, payload_digest="0" * 64)),
-                artifact_id=saved_groups.artifact.id,
-                metadata=saved_groups.artifact._manifest.metadata,
+                artifact_id=saved_groups.artifact_id,
+                metadata=saved_groups._local._audit_manifest(
+                    saved_groups._require_stored("artifact_id")
+                ).metadata,
             )
             with pytest.raises(AnalysisError):
                 forged.to_pandas()
@@ -196,7 +200,7 @@ def test_native_count_rollup_and_group_state(
                 pq.write_table(table, path)
                 corrupted = path.read_bytes()
                 with pytest.raises(AnalysisError):
-                    session.persisted_frame(saved_groups.artifact.id).to_pandas()
+                    session.persisted_frame(saved_groups.artifact_id).to_pandas()
                 assert path.read_bytes() == corrupted
             finally:
                 path.write_bytes(original)
@@ -224,6 +228,6 @@ def test_native_count_rollup_and_group_state(
                 tmp_path,
                 session.id,
                 first_day_count,
-                (saved_members.artifact.id, saved_groups.artifact.id, result.artifact.id),
+                (saved_members.artifact_id, saved_groups.artifact_id, result.artifact_id),
             )
         assert session._runtime.store.resources(session.id) == ()

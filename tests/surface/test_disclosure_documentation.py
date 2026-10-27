@@ -32,7 +32,7 @@ from tests.shared_fixtures import DslCaseFactory, catalog_value
                 "attributes": mv.AnalysisFrame,
                 "row_summary": mv.AnalysisFrame,
                 "variance": mv.AnalysisFrame,
-                "change.artifact": mv.Artifact,
+                "change": mv.AnalysisFrame,
             },
         ),
         ("docs/architecture/datasource/discovery.md", {"snapshot": md.DiscoverySnapshot}),

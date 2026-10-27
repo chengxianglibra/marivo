@@ -14,7 +14,7 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact',
+names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column',
          'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
@@ -27,7 +27,8 @@ assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
-assert {'analysis_frame', 'frame_axis', 'artifact', 'analysis_frame.compute'} <= set(help_targets)
+assert {'analysis_frame', 'frame_axis', 'analysis_frame.compute'} <= set(help_targets)
+assert 'artifact' not in help_targets
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)
@@ -257,4 +258,4 @@ def test_retired_result_entries_have_no_public_aliases() -> None:
         assert not hasattr(mv.Session, name)
     for name in ("execute", "population", "rollup", "drill", "share"):
         assert not hasattr(mv.AnalysisFrame, name)
-    assert not hasattr(mv.Artifact, "to_pandas")
+    assert not hasattr(mv, "Artifact")

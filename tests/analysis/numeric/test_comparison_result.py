@@ -77,17 +77,17 @@ def test_comparison_owns_independent_nullable_columns(
     card = capsys.readouterr().out
     assert "reference.absolute.value" in card and "reference.relative.value" in card
     assert (
-        result.artifact.evidence_digest()
-        == case.session.persisted_frame(result.artifact.id).artifact.evidence_digest()
+        result.evidence_digest()
+        == case.session.persisted_frame(result.artifact_id).evidence_digest()
     )
     pd.testing.assert_frame_equal(
-        case.session.persisted_frame(result.artifact.id).to_pandas(), exported
+        case.session.persisted_frame(result.artifact_id).to_pandas(), exported
     )
     # Exported values can be analyzed without constructing another execution.
     assert frame["reference.relative.value"].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare({"reference": mv.baseline(result.artifact, match=mv.ordinal())})  # type: ignore[arg-type]  # Audit views are not Frame operands.
+        current.compare({"reference": mv.baseline(result, match=mv.ordinal())})  # type: ignore[arg-type]  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
     same = (
         current.compare(

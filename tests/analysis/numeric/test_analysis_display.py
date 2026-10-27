@@ -214,7 +214,7 @@ def test_public_rank_table_source_and_fixed(
         key: index + 1 if ties == "ordinal" else distinct.index(counts[key]) + 1
         for index, key in enumerate(ordered)
     }
-    for receiver in (artifact, case.session.persisted_frame(artifact.artifact.id)):
+    for receiver in (artifact, case.session.persisted_frame(artifact.artifact_id)):
         frame = _rank(plain(receiver), order, ties)
         assert frame["key_0"].tolist() == ordered
         assert dict(zip(frame["key_0"], frame["rank"], strict=True)) == expected
@@ -281,7 +281,7 @@ def test_display_precision_matrix(
     exported = plain(artifact)
     assert dict(zip(exported["key_0"], exported["value"], strict=True)) == expected
     assert artifact.to_pandas().equals(
-        case.session.persisted_frame(artifact.artifact.id).to_pandas()
+        case.session.persisted_frame(artifact.artifact_id).to_pandas()
     )
     ranked_values = _rank(exported, ties="min")
     assert dict(zip(ranked_values["key_0"], ranked_values["value"], strict=True)) == expected
@@ -379,8 +379,8 @@ def test_cold_display_continuations(
         encode(
             {
                 "session": case.session.id,
-                "selected": {"artifact": selected.artifact.id, "snapshot": snapshot(selected)},
-                "terminal": {"artifact": terminal.artifact.id, "snapshot": snapshot(terminal)},
+                "selected": {"artifact": selected.artifact_id, "snapshot": snapshot(selected)},
+                "terminal": {"artifact": terminal.artifact_id, "snapshot": snapshot(terminal)},
             }
         )
     )
@@ -516,7 +516,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     ]
     assert str(exported["amount"].dtype) == "int64[pyarrow]"
     assert exported["amount"].isna().tolist() == [False, False, True, False]
-    assert terminal.to_pandas().equals(session.persisted_frame(terminal.artifact.id).to_pandas())
+    assert terminal.to_pandas().equals(session.persisted_frame(terminal.artifact_id).to_pandas())
     terminal.show()
     assert "NA" in capsys.readouterr().out
     numeric = exported.rename(columns={"amount": "value"})
@@ -545,7 +545,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     assert failure.value.expected is not None
     assert "complete unique stage key" in failure.value.expected
     assert failure.value.received == "null or duplicate key values"
-    assert plain(session.persisted_frame(terminal.artifact.id)).equals(exported)
+    assert plain(session.persisted_frame(terminal.artifact_id)).equals(exported)
 
 
 def test_empty_original_domain_and_numeric_view_continuations(
@@ -645,7 +645,7 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
     terminal.show()
     text = capsys.readouterr().out
     assert "NA" in text and "1.0" in text
-    assert _rank(plain(case.session.persisted_frame(terminal.artifact.id)), ties="dense").equals(
+    assert _rank(plain(case.session.persisted_frame(terminal.artifact_id)), ties="dense").equals(
         frame
     )
 

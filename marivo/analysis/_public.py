@@ -8,7 +8,6 @@ from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.baseline import ComparisonBaseline as ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as baseline
 from marivo.analysis.dsl.column import Column as Column
@@ -63,7 +62,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "to_date",
     "trailing_duration",
     "trailing_periods",
-    "Artifact",
     "ArtifactDigest",
     "ArtifactRef",
     "Finding",

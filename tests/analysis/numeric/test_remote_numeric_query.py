@@ -194,7 +194,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
             == pd.to_datetime(native.happened.dropna(), utc=True).tolist()
         )
         assert artifact.to_pandas().equals(
-            session.persisted_frame(artifact.artifact.id).to_pandas()
+            session.persisted_frame(artifact.artifact_id).to_pandas()
         )
 
 
@@ -265,7 +265,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert fine[fine.attrs["axes"][1]["name"]].tolist() == [point[1] for point in points[:-1]]
         assert fine["total"].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(
-            session.persisted_frame(artifact.artifact.id).to_pandas()
+            session.persisted_frame(artifact.artifact_id).to_pandas()
         )
 
 
@@ -298,7 +298,7 @@ def test_public_native_numeric_query(
         assert nonnull["count"].tolist() == [2]
         assert len(frame) == 2
         assert frame.loc[frame[frame.attrs["axes"][0]["name"]].isna(), "total"].isna().all()
-        assert frame.equals(session.persisted_frame(artifact.artifact.id).to_pandas())
+        assert frame.equals(session.persisted_frame(artifact.artifact_id).to_pandas())
         members = session.members(session.catalog.get("entity:sales.facts").value)
         direct_query = session.read(
             members, {"big": catalog_value(session.catalog, "sales.facts.big", kind="field")}
@@ -950,7 +950,7 @@ def test_remote_saved_values_cold_read_without_sources(
             {"total": session.catalog.get("metric:sales.total").value}, by=(category,)
         ).persist()
         saved.to_pandas().to_pickle(tmp_path / "saved-oracle.pkl")
-        artifact_id = saved.artifact.id
+        artifact_id = saved.artifact_id
     # The real source table is dropped before the independent reader starts.
     (tmp_path / "models").rename(tmp_path / "retired-models")
     code = """
@@ -972,8 +972,8 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
     assert actual.equals(expected)
     assert actual.attrs == expected.attrs
     artifact.show(n=1)
-    assert artifact.artifact.findings().items == ()
-    assert artifact.artifact.evidence_digest().items
+    assert artifact.findings().items == ()
+    assert artifact.evidence_digest().items
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, artifact_id, session.id],

@@ -74,7 +74,7 @@ def producer_recovery(
             by=session.members(session.catalog.get("entity:sales.facts").value),
         )
         captures = [values.persist(), values.persist()]
-        assert captures[0].artifact.id != captures[1].artifact.id
+        assert captures[0].artifact_id != captures[1].artifact_id
         frames: list[pd.DataFrame] = []
         for value in captures:
             frame = value.to_pandas()
@@ -89,7 +89,7 @@ def producer_recovery(
         source_trace.record(captures[0])
         state: dict[str, Json] = {
             "session": session.id,
-            "inputs": [value.artifact.id for value in captures],
+            "inputs": [value.artifact_id for value in captures],
             "input_snapshots": [
                 snapshot(value, frame=frame) for value, frame in zip(captures, frames, strict=True)
             ],

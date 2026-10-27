@@ -109,7 +109,7 @@ with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unav
                 "-c",
                 script,
                 case.session.id,
-                *(result.artifact.id for result in results),
+                *(result.artifact_id for result in results),
             ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
@@ -143,7 +143,7 @@ def test_public_numeric_difference_source_and_fixed(
     )
     saved = comparison.persist()
     source = _plain(saved).set_index("key_0")
-    recovered = _plain(case.session.persisted_frame(saved.artifact.id)).set_index("key_0")
+    recovered = _plain(case.session.persisted_frame(saved.artifact_id)).set_index("key_0")
     expected: dict[str, Fraction] = {}
     totals: dict[tuple[str, str], Fraction] = {}
     for member, occurred, amount in raw:
@@ -204,7 +204,7 @@ def test_public_numeric_difference_source_and_fixed(
         )
         assert pa.array(nulls["reference.absolute.value"]).type == pa.duration("us")
         pd.testing.assert_frame_equal(
-            null_saved.to_pandas(), session.persisted_frame(null_saved.artifact.id).to_pandas()
+            null_saved.to_pandas(), session.persisted_frame(null_saved.artifact_id).to_pandas()
         )
     # Both saved endpoints are ordinary data; their independent pandas comparison agrees.
     first, second = _plain(current.compute()), _plain(baseline.compute())
@@ -356,7 +356,7 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     assert not frame.loc["C", "presence.current.present"]
     assert frame.loc["C", "presence.reference.present"]
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), case.session.persisted_frame(saved.artifact_id).to_pandas()
     )
 
 
@@ -698,7 +698,7 @@ def test_comparison_of_float_original_expression_operands(
         {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
     ]
     pd.testing.assert_frame_equal(
-        result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
+        result.to_pandas(), session.persisted_frame(result.artifact_id).to_pandas()
     )
 
 
@@ -750,7 +750,7 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         baseline_value = frame.loc["west", "reference.baseline.value"]
         assert pd.isna(baseline_value) if empty_value is None else baseline_value == empty_value
         pd.testing.assert_frame_equal(
-            result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
+            result.to_pandas(), session.persisted_frame(result.artifact_id).to_pandas()
         )
 
 
@@ -794,7 +794,7 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
     }
     assert pa.array(result.to_pandas()["value"]).type == pa.float64()
     pd.testing.assert_frame_equal(
-        result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
+        result.to_pandas(), session.persisted_frame(result.artifact_id).to_pandas()
     )
 
 
@@ -814,7 +814,7 @@ def test_ordinary_ratio_over_untimed_numeric_read(
         amount == 0 for *_, amount in analysis_dsl_rows("j2").orders
     )
     pd.testing.assert_frame_equal(
-        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+        saved.to_pandas(), session.persisted_frame(saved.artifact_id).to_pandas()
     )
 
 

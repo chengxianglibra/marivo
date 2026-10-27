@@ -71,8 +71,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         assert publication_counts(session) == before
         state: dict[str, Json] = {
             "session": session.id,
-            "left": left.artifact.id,
-            "right": right.artifact.id,
+            "left": left.artifact_id,
+            "right": right.artifact_id,
             "left_snapshot": snapshot(left),
             "right_snapshot": snapshot(right),
             "result": result,
