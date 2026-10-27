@@ -286,7 +286,9 @@ class Session:
             An immutable pending AnalysisFrame owned by this Session.
 
         Example:
-            ``frame = session.observe((revenue, order_count)).compute()``.
+            ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
+            ``frame = session.observe(revenue, by=(period,)).compute()``;
+            ``frame.show()``.
 
         Constraints: Capture reads no source schema/data and creates no Run. compute/persist
         evaluate; persist publishes. by=() supplies no time range. Time-sample reductions generally need a finite

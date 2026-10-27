@@ -147,13 +147,25 @@ cleaned or numbered automatically. Names are fixed at capture, available through
 ### Read August revenue
 
 ```python
-regional = session.observe(revenue, by=(august, region)).compute()
-regional.show()
 overall = session.observe(revenue, by=(august,)).compute()
+overall.show()
 assert overall.to_pandas()["revenue"].tolist() == [800]
 ```
 
-The regional rows are east 200 and west 600. The overall row is 800. `observe` binds the named metric, selected period, and grouping; `compute` reads and evaluates it. Continue from the returned Frame when you need the same values later.
+This answers the August total: 800. Stop here when that is the requested result;
+no comparison, breakdown, export or persistence is needed. Continue from the
+returned Frame when you need the same values later. The selected period specifies
+the observation window; it does not prove that the source data has fully arrived.
+
+If a regional breakdown is requested, observe that grouping explicitly:
+
+```python
+regional = session.observe(revenue, by=(august, region)).compute()
+regional.show()
+```
+
+The regional rows are east 200 and west 600. `observe` binds the named Metric,
+selected period and grouping; `compute` reads and evaluates it.
 
 To read individual records, provide complete Entity identities and named fields to `session.read`. The [population guide](/docs/latest/analysis/dsl/#select-and-filter) supplies a runnable order example.
 

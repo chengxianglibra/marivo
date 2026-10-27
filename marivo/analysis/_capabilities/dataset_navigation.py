@@ -316,14 +316,13 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result.append(
         NavigationInput(
             "",
-            "Use governed definitions to answer an analytical question.",
+            "Read governed Metrics or answer an analytical question.",
             ("inputs", "operators", "sessions", "execution", "results"),
             "root",
             guidance=(
                 "Imports: import marivo.analysis as mv",
                 "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and audit.",
-                "Start with session.get_or_create; discover inputs through session.catalog. Related Frames share one Session; none is implicit.",
-                "Operators: observe, derive, filter, rank, summarize, compare, correlate, attribute; parameters link to producers.",
+                "Acquire missing context with session.get_or_create; discover inputs through session.catalog. Related Frames share one Session; none is implicit.",
                 "Enter known targets directly; otherwise choose the missing information.",
                 "Construction captures dependencies; compute fixes data; persist saves it. Continue with the returned Frame.",
                 "Read object facts or type Help; follow error repairs. The agent owns interpretation.",

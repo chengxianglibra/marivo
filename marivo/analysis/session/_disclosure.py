@@ -142,7 +142,9 @@ def provider() -> DisclosureProvider:
             Session,
             "observe",
             "AnalysisFrame",
-            "result = session.observe(revenue)",
+            "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
+            "result = session.observe(revenue, by=(period,)).compute()\n"
+            "result.show()",
             "Observe named Metrics overall, by time/classification, or both.",
         ),
         (
@@ -347,8 +349,7 @@ def provider() -> DisclosureProvider:
                     else ("session",),
                     "result",
                     output,
-                    name
-                    not in ("members", "observe", "frame", "persisted_frame", "population_from"),
+                    name not in ("members", "frame", "persisted_frame", "population_from"),
                 ),
             )
         )

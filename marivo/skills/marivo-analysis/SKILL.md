@@ -19,6 +19,16 @@ Use the host-selected verified environment, not private source or remembered
 signatures. Construction, execution support and business suitability are
 separate facts.
 
+## Bound the answer
+
+Identify the smallest result that answers the request before choosing operations.
+For a single value with established meaning and a fixed scope, observe that
+quantity and answer with its value, period and necessary qualifications. Add
+comparison windows, trends, breakdowns or explanations only when requested or
+needed to resolve a concrete doubt that could materially change the answer.
+Each additional read or transformation must close an identified answer or
+evidence gap; useful background alone is not a reason to expand the task.
+
 ## Governed inputs and question-scoped meaning
 
 Compose question-scoped quantities over governed inputs when their business
@@ -31,7 +41,8 @@ when that authority is unresolved.
 
 ## Analytical judgment
 
-Before choosing an operation, establish the distinctions that affect the answer:
+Apply only the distinctions that affect the requested answer; these are not a
+checklist requiring additional queries:
 
 - Identify the counted domain: complete distinct members or coordinate tuples,
   source contributions under the selected conditions and time, or current
@@ -83,7 +94,11 @@ captured object facts, not a fixed operator recipe.
 
 Enter at the unresolved decision. A simple question may need one round; existing
 work may already supply the inputs or results. Reuse established facts and
-completed checks instead of restarting the workflow.
+completed checks instead of restarting the workflow. Reuse relevant identities,
+definitions and evidence without inheriting an earlier task's windows, analysis
+plan or delivery checklist. Old helpers do not establish current API support;
+use current Help for missing syntax and prefer direct supported calls when a
+wrapper adds no value.
 
 ### Identify the remaining answer and evidence gap
 
@@ -147,6 +162,9 @@ comparison alignment, completeness, missingness, reconciliation,
 uncertainty, and material warnings. Consider whether few observations, extreme
 values or short-term fluctuations dominate the result before generalizing it.
 Distinguish observed differences, statistical evidence and business importance.
+An elapsed period or unchanged repeated totals do not prove source completeness.
+Use relevant coverage or arrival evidence when a concrete completeness doubt
+matters; if unavailable, qualify the answer rather than infer that data is complete.
 Do not repeat mechanical checks already owned by the DSL or treat its guarantees
 as proof of business validity.
 
@@ -260,11 +278,16 @@ Finish when every requested analytical transformation and answer is supported
 or explicitly blocked with its smallest missing evidence or definition. A saved
 result alone does not establish that comparisons, denominators or other
 required transformations were completed in typed flow. Answer in the user's business vocabulary:
-state the supported direction and magnitude or uncertainty; distinguish computed
-facts, interpretation, recommendations, and hypotheses; disclose material
-warnings, omissions, terminal exits, and unresolved semantic persistence needs.
+state the requested values or supported direction and magnitude, with material
+uncertainty; distinguish computed facts, interpretation, recommendations, and
+hypotheses; disclose material warnings, omissions, terminal exits, and unresolved
+semantic persistence needs.
 
-Keep supporting definitions, scope, Session and Artifact identities
-recoverable without exposing runtime bookkeeping unless an audit is requested.
+Retain supporting definitions, scope and available Session/Artifact identities
+without exposing runtime bookkeeping unless an audit is requested.
+Match delivery to the request: a single-value answer normally needs only the
+value, period and material limitations. Exports, reports and reusable scaffolding
+are not default deliverables; choose them only for a requested output or a
+concrete continuation need. A Session ID alone does not retain compute-only data.
 Stop exploring once answers and limitations are complete. Delivery or publication
 uses an independent capability when requested.

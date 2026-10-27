@@ -780,10 +780,14 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     overall = session.observe(metrics, by=(calendar,))
     detail = session.observe(metrics, by=(calendar, field))
     direct = overall.compute().to_pandas()
-    observed = result.compute()
+    observed = result
     assert observed.output_names == ("revenue",)
-    assert observed.axes == ()
-    assert observed.to_pandas()["revenue"].tolist() == [1176]
+    assert tuple(axis.role for axis in observed.axes) == ("interval",)
+    observed_data = observed.to_pandas()
+    assert observed_data["revenue"].tolist() == [1000]
+    assert observed_data["interval.start"].tolist() == [pd.Timestamp("2026-08-01", tz="UTC")]
+    assert observed_data["interval.end"].tolist() == [pd.Timestamp("2026-09-01", tz="UTC")]
+    assert observed_data["interval.timezone"].tolist() == ["UTC"]
     assert direct["amount"].tolist() == [1000]
     assert direct["count"].tolist() == [3]
     assert direct["average"].tolist() == pytest.approx([1000 / 3])

@@ -140,13 +140,24 @@ Entity/Population count 和未命名表达式同样需要显式名称，不读�
 ### 读取 8 月收入
 
 ```python
-regional = session.observe(revenue, by=(august, region)).compute()
-regional.show()
 overall = session.observe(revenue, by=(august,)).compute()
+overall.show()
 assert overall.to_pandas()["revenue"].tolist() == [800]
 ```
 
-地区结果为 east 200、west 600，总体为 800。`observe` 绑定命名指标、所选期间和分组，`compute` 执行读取与计算。需要以后使用相同数值时，继续使用返回的 Frame。
+这就回答了 8 月总收入：800。如果请求只需要这个总量，到此即可；无需比较、拆分、
+导出或持久化。需要以后使用相同数值时，继续使用返回的 Frame。
+所选期间规定观测窗口，并不证明来源数据已经全部到齐。
+
+如果请求需要地区拆分，再显式观测该分组：
+
+```python
+regional = session.observe(revenue, by=(august, region)).compute()
+regional.show()
+```
+
+地区结果为 east 200、west 600。`observe` 绑定命名 Metric、所选期间和分组，
+`compute` 执行读取与计算。
 
 读取单条记录时，向 `session.read` 提供完整实体身份与命名字段。[对象选择指南](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)提供可运行的订单示例。
 

@@ -118,6 +118,9 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         result = namespace["result"]
         assert isinstance(result, mv.AnalysisFrame)
         assert result.output_names == expected_names
+        if target == "session.observe":
+            # The published period-total example must produce the answer, not just a plan.
+            assert result.to_pandas()["revenue"].tolist() == [180]
         if target == "analysis_frame.compare":
             assert result._schema.values[-1].unit is None
             comparison_rows = result.compute().to_pandas()

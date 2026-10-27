@@ -46,6 +46,9 @@ and output without expanding signatures. Exact operation parameters link to
 owning acquisition or construction targets, including cross-surface semantic
 roles. Known targets can be read directly. Source captures explicit governed questions
 without business reads; a literal member count need not depend on a source.
+The observation Help example computes and shows one total over an explicit
+TimeScope using an existing Session and closed Metric. It requires no export or
+publication; the time boundaries do not establish source completeness.
 Frame operations retain the dependencies of pending inputs, so their evaluation
 may still read sources. Completed and reopened Frame operations use fixed data.
 
