@@ -540,7 +540,7 @@ def test_empty_selection_retains_nonnull_identity_checks(
     assert terminal_runs(source_query_session) == ()
 
 
-def test_cell_sum_widens_before_empty_filter(
+def test_cell_sum_uses_native_accumulator_before_empty_filter(
     source_query_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
@@ -549,7 +549,7 @@ def test_cell_sum_widens_before_empty_filter(
         db.execute("UPDATE orders SET amount=9223372036854775807 WHERE id IN (1,2)")
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    assert total.compute().to_pandas()["total"].tolist() == [2 * (2**63 - 1) + 20]
+    assert total.compute().to_pandas()["total"].tolist() == [18]
     assert total.where(total["total"] < 0).compute().to_pandas().empty
     assert len(reads) == len(outputs) == len(trace.native_sql) == 2
     assert trace.returned_rows == [4, 4]

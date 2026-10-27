@@ -46,10 +46,12 @@ Weighted means return NA when valid paired weights sum to zero,
 including signed cancellation. All backend-native numeric operations delegate
 overflow to the backend: its errors, wrapped values, Infinity and NaN are accepted
 without an overflow precheck, result rejection or local retry. Native field reads
-likewise retain backend floating values. Local numeric kernels retain their own
-checked arithmetic and domain rules. Finite local arithmetic, comparison deltas
-and paired statistics reject valid NaN/Infinity before common NULL masks; direct
-projection, is_null and persistence retain their validity without a numeric scan.
+likewise retain backend floating values. Local computation also delegates numeric behavior to its actual pandas/Arrow or
+Decimal scalar kernel: no extra overflow precheck, finite-value scan, protective
+widening, high-precision emulation or retry is added. Native errors propagate;
+wrapped values, Infinity and valid NaN remain values. Existing NULL, zero-division,
+identity, Duration and storage contracts still apply. Direct projection, is_null
+and persistence preserve validity without a numeric scan.
 An unevaluated source subexpression need not
 trigger overflow, including under empty output; explicit NULL/domain checks retain
 their demanded domains. Arrow-valid NaN is a floating value distinct from NULL.
@@ -62,10 +64,27 @@ strict rejection by native AVG.
 ## Physical numeric and temporal carriers
 
 Admitted physical columns use signed int64, float64, Decimal(p,s) with
-1 <= p <= 38 and 0 <= s <= p, boolean, string, date, exact timezone-aware timestamp
+1 <= p <= 38 and 0 <= s <= p, boolean, string, date, exact naive or timezone-aware timestamp
 and fixed-duration s/ms/us/ns ticks. Boolean is not a numeric quantity. Every
 physical route fixes its actual input and output types before business execution.
 Keys are never passed through float, including integers above 2**53.
+UInt64 source identities and quantities use Decimal(20,0), preserving the complete
+0..18446744073709551615 domain before semantic predicates, arithmetic and reductions.
+UInt8/16/32 use the admitted int64 carrier. This source normalization is a
+representation contract, not a guarantee that subsequent native arithmetic cannot
+overflow. Exact Decimal transport must not pass through float. Explicit floating
+operations retain their own precision contract. Entity body arithmetic remains
+subject to the authored Ibis expression; cast operands before potentially lossy
+arithmetic inside that body.
+
+Naive timestamp identity preserves its wall-clock ticks and exact unit with
+`timezone=None`; neither reader/Session timezone nor a TimeDimension parser
+rewrites it. Identity matching requires compatible naive/aware interpretation
+and lossless unit conversion. TimeDimension projections independently interpret
+native naive values using parser or frozen reader authority. A naive clock alone
+cannot distinguish repeated DST occurrences; use an aware/UTC source or an
+additional identity component when those are distinct business instances.
+
 `frame.coord(axis)` can supply a scalar Column only for a single-component axis.
 Construction remains source-free; preparation rejects a composite identity as a
 single quantity before Run admission and business compilation/reads. The complete
@@ -84,8 +103,13 @@ stage handoff copies its rows and attachments without repeating normalization;
 new stage results and newly read stored data retain their owning checks.
 
 Source arithmetic uses admitted native Ibis operations with bound result types
-and provider-specific casts. Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
-Both use one primary accumulation; count remains int64. Decimal add/subtract uses
+and provider-specific output bindings. Integer SUM uses native Ibis SUM without an
+input-widening cast; its declared result is int64. Decimal SUM returns
+Decimal(38,input_scale). Both use one primary accumulation; count remains int64.
+A wider backend accumulator must fit the Ibis transport result when it crosses a
+source boundary. For example, DuckDB HUGEINT SUM may fail the native Ibis int64
+conversion; Marivo does not retry with Decimal. An explicit business cast such as
+`amount.cast(ibis.dtype("decimal(38,0)"))` belongs in an Entity declaration. Decimal add/subtract uses
 p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2.
 When p exceeds 38, reduce s by the excess (minimum zero) and cap p at 38.
 Mixed Decimal/integer uses the bound integer width (int64: 19 decimal digits).
@@ -93,13 +117,16 @@ An unspecified Ibis Decimal literal binds p/s from its literal digits and expone
 an explicitly typed literal keeps that type. Business row values never select types;
 ordinary integer arithmetic remains integer. Division/ratio returns float64;
 mean retains its method-declared type, with an explicit Decimal output cast.
-Local Decimal work keeps context precision 120 and converges once per bound result
-with HALF_UP (ties away from zero), including carry at precision 38. Explicit
-round retains its own semantics. Local observation formulas, internal sample
-reducers and Frame comparison arithmetic own their Decimal context, including
-traps and exponent bounds. Caller context settings do not alter their results or
-turn permitted rounding into errors, and evaluation leaves that context unchanged.
-Invalid arithmetic and unrepresentable output still fail. Final carrier conversion
+Local Decimal scalar work uses its native context; no private precision-120 context
+or universal rounding policy is imposed. Explicit round follows its kernel.
+Dedicated quantile interpolation/output finishing, exact Duration ticks and
+Attribute closure/finite saved-method metadata retain their method and storage
+contracts; they are not a generic numeric-safety pass over ordinary results.
+Local integer SUM retains the native int64 accumulator, including wraparound;
+Decimal SUM retains Arrow's native Decimal(38,s) accumulator. Local means use the
+native Arrow mean algorithm. Result metadata describes the actual supported
+carrier, without casting an overflowing integer sum to Decimal after the fact.
+Final carrier conversion
 is safe. Float64 admits
 binary approximation, integer low-bit loss beyond 2**53 and ordinary underflow;
 backend-native nonfinite results retain their floating carrier. Identity, count,
@@ -207,10 +234,10 @@ The coefficient is nullable float64/unit 1; the count is nonnullable int64 with
 no unit. Counts remain when the coefficient is undefined. Self pair_count is
 the expression's non-NA count. No source correlation pushdown is qualified.
 
-Correlation tests constants and ties on actual input values, then uses exact
-integer/Decimal differences or binary float scaling before two-pass centered
-stable sums and residual scaling. Nonfinite intermediates or a lost nonconstant
-scale fail before clipping a finite coefficient to [-1, 1]. The numeric implementation is owned by
+Correlation retains pair selection and constant/insufficient-pair rules, then uses
+pandas' native correlation (average ranks before Pearson for Spearman). It adds no
+finite scan or precision-preserving centering conversions. Native NaN coefficients
+remain valid NaN. The numeric implementation is owned by
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 

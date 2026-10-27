@@ -230,8 +230,10 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
         )
         trace = capture_source(monkeypatch)
         if boundary == "formula_overflow":
-            assert fine.compute().to_pandas()["value"].max() == 2**63 + 78
-            assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+            with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
+                fine.compute()
+            with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
+                fine.top(0, by=fine["value"]).compute()
         else:
             with pytest.raises(AnalysisError):
                 fine.top(0, by=fine["value"]).compute()

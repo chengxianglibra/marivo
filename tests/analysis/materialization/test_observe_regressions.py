@@ -11,7 +11,7 @@ from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.mark.parametrize("formula", (False, True))
-def test_decimal_observe_ignores_caller_context(
+def test_decimal_observe_uses_actual_source_or_local_context(
     analysis_dsl_case_factory: DslCaseFactory, formula: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
@@ -30,10 +30,15 @@ def test_decimal_observe_ignores_caller_context(
         context.rounding = ROUND_DOWN
         context.traps[Inexact] = True
         context.traps[Rounded] = True
-        before = repr(context)
-        rows = query.compute().to_pandas()
-        assert rows["v"].tolist() == [Decimal("145") if formula else Decimal("235")]
-        assert repr(context) == before
+        if formula:
+            with pytest.raises(AnalysisError, match="valid demanded numeric values"):
+                query.compute()
+        else:
+            rows = query.compute().to_pandas()
+            assert rows["v"].tolist() == [235.2]
+        assert context.prec == 1
+        assert context.rounding == ROUND_DOWN
+        assert context.traps[Inexact] and context.traps[Rounded]
 
 
 @pytest.mark.parametrize("domain", ("source", "literal", "empty"))

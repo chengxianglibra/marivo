@@ -288,8 +288,7 @@ def test_native_invalid_integer_keys_and_strict_nulls_publish_nothing(
     _native_float(monkeypatch)
     source = _read(session)
     invalid = source.select({"bad": source["big"] * 1e308})
-    with pytest.raises(MaterializationError, match="finite"):
-        invalid.top(0, by=invalid["bad"]).compute()
+    assert invalid.top(0, by=invalid["bad"]).compute().to_pandas().empty
     assert terminal_runs(session) == ()
 
 
@@ -350,5 +349,9 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         # Export is an isolated copy, including the Arrow validity bitmap.
         exported.loc[:, "infinite"] = 0.0
         assert math.isinf(frame.to_pandas()["infinite"].iloc[0])
-    with pytest.raises(MaterializationError, match="finite numeric inputs"):
-        reopened.select({"computed": reopened["infinite"] + 1}).compute()
+    assert math.isinf(
+        reopened.select({"computed": reopened["infinite"] + 1})
+        .compute()
+        .to_pandas()["computed"]
+        .iloc[0]
+    )

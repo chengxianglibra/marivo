@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -164,8 +165,9 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
     fine = session.observe({"metric": metric}, by=(bucket,))
     trace = capture_source(monkeypatch)
     if failure == "overflow":
-        assert fine.compute().to_pandas()["metric"].max() == 2**63
-        assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
+        for candidate in (fine, fine.top(0, by=fine["metric"])):
+            with pytest.raises(AnalysisError, match="Integer value out of bounds"):
+                candidate.compute()
     elif failure == "null":
         with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
             expected = connection.execute(
@@ -358,7 +360,11 @@ def test_source_share_finishes_exact_integer_division_on_host(
         by=(), columns={"n": None, "d": None}, rows=(((), {"n": 2**53 + 1, "d": 3}),)
     )
     divided = exact.select({"ratio": exact["n"] / exact["d"]}).compute()
-    assert divided.to_pandas()["ratio"].tolist() == [(2**53 + 1) / 3]
+    assert divided.to_pandas()["ratio"].tolist() == [
+        (
+            pd.Series([2**53 + 1], dtype="int64[pyarrow]") / pd.Series([3], dtype="int64[pyarrow]")
+        ).iloc[0]
+    ]
 
 
 def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
@@ -405,7 +411,7 @@ def test_compact_original_prefix_keeps_outer_local_consumer(
     assert trace.uploaded_key_rows == []
 
 
-def test_source_original_keeps_widened_fused_intermediates(
+def test_source_original_retains_native_sum_transport_boundary(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
@@ -420,7 +426,10 @@ def test_source_original_keeps_widened_fused_intermediates(
     fine = session.observe({"metric": amount.sum()}, by=(bucket,))
     trace = capture_source(monkeypatch)
     before = publication_counts(session)
-    assert fine.compute().to_pandas()["metric"].tolist() == [2**63, -(2**63)]
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="Integer value out of bounds"):
+        fine.compute()
     assert publication_counts(session) == before
 
 

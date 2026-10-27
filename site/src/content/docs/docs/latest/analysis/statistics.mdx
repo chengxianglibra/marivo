@@ -118,3 +118,14 @@ paired = correlation.to_pandas()
 assert paired["n_pairs"].tolist() == [5]
 assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
 ```
+
+## Numeric kernel boundaries
+
+Local SUM and mean use Arrow's native accumulator and rounding. int64 SUM can
+wrap, while a native arithmetic kernel can raise an overflow error. Decimal scalar
+expressions use their native context. Pearson uses pandas correlation; Spearman
+uses pandas average ranks followed by correlation. These algorithms can lose low
+bits or return valid NaN for extreme inputs. Marivo adds no finite-value scan,
+protective widening or retry. `n_pairs` counts pairs present in the Arrow validity
+bitmap; it does not certify finite inputs. NULL and zero-division rules still
+apply. Saved Frames preserve valid NaN/Infinity separately from NULL.

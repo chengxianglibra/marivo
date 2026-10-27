@@ -211,7 +211,9 @@ def entity(
             Table ``columns`` maps output names to physical column names;
             types come from source metadata when execution needs them.
             Use ``md.inspect(...)`` to inspect current names and types.
-        primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
+        primary_key: Optional stable Entity output identity columns; version coordinates
+            belong only in versioning. Naive timestamps retain wall-clock values and
+            precision without a timezone. TimeDimension parsers do not rewrite identity.
         versioning: Explicit snapshot or validity representation; never inferred from source partitions.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -238,6 +240,10 @@ def entity(
 
     Constraints:
         Declare this constructor inside a semantic project loaded by ``ms.load``.
+        Entity bodies use the injected Table, inline literals and deterministic public
+        symbols from the ibis root module, excluding clock/random symbols and submodules.
+        Use ``raw['column'].cast('decimal(20,0)')`` for the full UInt64 range, or
+        ``.cast('int64')`` only for values within signed int64. ``ibis.dtype`` is supported.
         Identity and direct field columns name projected output aliases.
         >>> @ms.entity(
         ...     datasource=ms.ref.datasource("warehouse"),

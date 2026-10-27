@@ -668,7 +668,7 @@ def _combine_program(
         if keys:
             marked = frame.assign(**{"__present": True})
             merged = domain.merge(marked, on=keys, how="left", validate="one_to_one", sort=False)
-            value = merged[slot].astype(object)
+            value = merged[slot]
             if binding.zero_when_absent:
                 value = value.mask(
                     merged["__numeric_present"].astype("boolean").fillna(False).eq(False)
@@ -677,11 +677,16 @@ def _combine_program(
                     pd.Series(
                         [Decimal(0) if isinstance(binding.column.dtype, DecimalDataType) else 0]
                         * len(value),
-                        dtype=object,
+                        index=value.index,
+                        dtype=value.dtype,
                     ),
                 )
         else:
-            value = frame[slot].astype(object).reset_index(drop=True).iloc[: len(domain)]
+            value = frame[slot].reset_index(drop=True).iloc[: len(domain)]
+        if not isinstance(value.dtype, pd.ArrowDtype):
+            # Untyped internal/test inputs still need the captured NULL/type
+            # binding. Already typed stages keep their native carrier throughout.
+            value = value.astype(object)
         name = f"input_{input_index}"
         active_coverage = tuple(coverage for coverage in binding.coverage if coverage.key in keys)
         check_names = tuple(f"check_{input_index}_{i}" for i in range(len(binding.checks)))
@@ -789,7 +794,11 @@ def _combine_program(
             series = pd.Series(
                 [round(value) if pd.notna(value) else None for value in series], dtype=object
             )
-        if isinstance(column.dtype, ScalarDataType) and column.dtype.name == "float64":
+        if (
+            isinstance(column.dtype, ScalarDataType)
+            and column.dtype.name == "float64"
+            and series.dtype != pd.ArrowDtype(pa.float64())
+        ):
             series = pd.Series(
                 [None if value is None or value is pd.NA else float(value) for value in series],
                 index=series.index,

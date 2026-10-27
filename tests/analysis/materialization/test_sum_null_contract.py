@@ -54,7 +54,7 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
         .compute()
         .to_pandas()
     )
-    assert summary.iloc[0].tolist() == [100, 33, 4]
+    assert summary.iloc[0].tolist() == pytest.approx([100, 100 / 3, 4])
     pending_summary = (
         query.reduce(
             {
@@ -72,7 +72,7 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
         .compute()
         .to_pandas()
     )
-    assert samples.iloc[0].tolist() == [33, 4]
+    assert samples.iloc[0].tolist() == pytest.approx([100 / 3, 4])
     with pytest.raises(AnalysisError, match="non-NA internal samples"):
         session.observe({"mean": amount.sum().per(members).mean(nulls="error")}).compute()
     saved = fixed.persist()

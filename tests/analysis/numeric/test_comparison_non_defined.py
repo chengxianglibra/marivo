@@ -10,7 +10,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
@@ -200,6 +199,9 @@ def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
             )
         }
     )
-    with pytest.raises(MaterializationError, match="finite numeric inputs"):
-        compared.compute()
+    compared_rows = (
+        compared.compute().to_pandas().set_index(ordinary_columns(rows.reset_index())[0])
+    )
+    assert math.isnan(compared_rows.loc["A", "reference.absolute.value"])
+    assert math.isnan(compared_rows.loc["A", "reference.relative.value"])
     assert terminal_runs(case.session) == ()

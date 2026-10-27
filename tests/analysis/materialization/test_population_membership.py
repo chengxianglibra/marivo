@@ -191,7 +191,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
         .to_pandas()
     )
     assert result["aov_mean"].tolist() == [60.0]
-    assert result["fixed_revenue_mean"].tolist() == [47]
+    assert result["fixed_revenue_mean"].tolist() == pytest.approx([140 / 3])
     assert population_keys(
         full.difference(mv.coordinates(by=(customer,), keys=((2,),)))._definition
     ) == ((1,), (3,))
@@ -311,10 +311,11 @@ def test_nested_per_keeps_each_layers_membership_rule(
     )
     # Association/direct bucket pairs carry 40, 10, 100 across nine complete cells.
     # Reversing the layers preserves their sum but changes their three maxima.
-    # Bound Decimal(38,0) rounds each inner mean: direct layers produce
-    # [17,33,0], association layers [13,3,33], before the outer mean.
-    assert result["mean_of_means"].tolist() == [17 if outer_route == "direct" else 16]
-    assert result["mean_of_maxima"].tolist() == [47 if outer_route == "direct" else 50]
+    # Integer means use native Float64 outputs rather than Decimal(38,0) rounding.
+    assert result["mean_of_means"].tolist() == pytest.approx([50 / 3])
+    assert result["mean_of_maxima"].tolist() == pytest.approx(
+        [140 / 3 if outer_route == "direct" else 50]
+    )
     # The selected rectangle carries A/A=40 and B/A=10, with empty C samples.
     # Grouping by direct first yields maxima 40/0; association first yields 40/10.
     assert result["subset_maxima"].tolist() == [20 if outer_route == "direct" else 25]
@@ -621,8 +622,10 @@ def test_internal_membership_exclusion_preserves_parent_coordinates(
     for output in ((customer,), complete):
         rows = session.observe({"v": metric}, by=output).compute().to_pandas()
         assert rows.iloc[:, 0].tolist() == [1, 2]
-        expected = [25, None] if sampling == "open" else [0, 0] if sampling == "nested" else [17, 0]
-        assert rows["v"].iloc[0] == expected[0]
+        expected = (
+            [25, None] if sampling == "open" else [0, 0] if sampling == "nested" else [50 / 3, 0]
+        )
+        assert rows["v"].iloc[0] == pytest.approx(expected[0])
         assert (
             pd.isna(rows["v"].iloc[1]) if expected[1] is None else rows["v"].iloc[1] == expected[1]
         )

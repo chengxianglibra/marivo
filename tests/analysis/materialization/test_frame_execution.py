@@ -318,10 +318,10 @@ def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
             ("kept", ValueSlot(1)),
         )
     )
-    with pytest.raises(SemanticExpressionError, match="finite"):
-        _run(_data(), strict, SelectValues((("only", ValueSlot(1)),)))
-    with pytest.raises(SemanticExpressionError, match="finite"):
-        _run(_data(), strict, TopValues(0, ValueSlot(1), True))
+    assert len(_run(_data(), strict, SelectValues((("only", ValueSlot(1)),)))[1]) == len(
+        _data().copy_rows()
+    )
+    assert _run(_data(), strict, TopValues(0, ValueSlot(1), True))[1].empty
 
 
 def test_presence_paths_are_directories_and_reduce_removes_presence() -> None:

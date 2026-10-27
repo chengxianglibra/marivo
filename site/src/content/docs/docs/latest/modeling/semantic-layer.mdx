@@ -45,6 +45,36 @@ orders = ms.entity(
 
 A composite identity must include every component, such as tenant and order. Physical types come from source metadata when execution needs them; `ms.load()` does not read source rows. Declared identity is a business contract, not proof that current data obeys it. Snapshot/validity selection needs an exact temporal boundary; it never means “use the latest available row.” Help: `semantic.entity.define`.
 
+### Exact timestamp identities and UInt64 values
+
+A naive timestamp in `primary_key` retains its wall-clock value and complete
+precision. A TimeDimension parser interprets a separate time projection; it does
+not change that identity, and neither does the Session timezone. Match naive keys
+only with compatible naive identities. If two occurrences of a repeated DST clock
+are different instances, provide UTC/offset timestamps or another identity column.
+
+Analysis converts UInt64 inputs to Decimal(20,0) before semantic arithmetic,
+covering `0 .. 18446744073709551615` exactly. Subsequent overflow follows the actual numeric kernel; exact values must not
+pass through floating transport. AVG, division and
+approximate reducers keep their documented precision rules.
+
+Entity bodies accept the injected Table, inline literals and deterministic public
+symbols from the `ibis` root module, including `ibis.dtype`. Ibis submodules such
+as `ibis.expr.datatypes` are not supported body symbols. For an explicit source
+conversion, cast before arithmetic:
+
+```python
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["ts"])
+def events(raw):
+    return raw.mutate(query_duration_ms=raw.query_duration_ms.cast("decimal(20,0)"))
+```
+
+`.cast("int64")` is also supported when every value fits signed int64. If a reader
+returns Decimal as float, use a reader/source view preserving Decimal values;
+casting the rounded float back cannot restore precision. Help:
+`semantic.entity.define`, `semantic.timestamp`, `analysis.analysis_frame.compute`.
+
+
 ## Dimension — categorical attributes
 
 A Dimension is an attribute of one resolved Entity representation. Use it to group, filter, classify, or declare relationship keys. Its type and nullability follow its source binding or expression.

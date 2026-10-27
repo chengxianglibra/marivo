@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
-from decimal import ROUND_DOWN, Decimal, Inexact, Rounded, localcontext
+from decimal import ROUND_DOWN, Decimal, DecimalException, Inexact, Rounded, localcontext
 from pathlib import Path
 
 import pandas as pd
@@ -31,7 +31,7 @@ from tests.shared_fixtures import catalog_value
         ("1E-38", "2E-38", "0E-37", 0.0),
     ),
 )
-def test_decimal_compare_ignores_caller_precision_and_masks_zero(
+def test_decimal_compare_uses_native_context_and_masks_zero(
     current: str | None,
     baseline: str | None,
     absolute: str | None,
@@ -49,26 +49,37 @@ def test_decimal_compare_ignores_caller_precision_and_masks_zero(
         return source.select({"v": source["v"] / 0})
 
     left, right = endpoint(current), endpoint(baseline)
+    compared = left.compare(
+        {"base": mv.baseline(right, on=tuple(zip(left.axes, right.axes, strict=True)))}
+    )
     with localcontext() as context:
         context.prec = 1
         context.traps[Inexact] = True
         context.traps[Rounded] = True
         context.rounding = ROUND_DOWN
-        before = repr(context)
-        frame = (
-            left.compare(
-                {"base": mv.baseline(right, on=tuple(zip(left.axes, right.axes, strict=True)))}
-            )
-            .compute()
-            .to_pandas()
-        )
-        delta, change = (
-            frame["base.absolute.v"].iloc[0],
-            frame["base.relative.v"].iloc[0],
-        )
-        assert pd.isna(delta) if absolute is None else delta == Decimal(absolute)
-        assert pd.isna(change) if relative is None else change == relative
-        assert repr(context) == before
+        try:
+            with localcontext(context):
+                expected_delta = (
+                    None
+                    if current is None or baseline is None
+                    else Decimal(current) - Decimal(baseline)
+                )
+                expected_change = (
+                    None
+                    if expected_delta is None or Decimal(baseline or "0") == 0
+                    else float(expected_delta / abs(Decimal(baseline)))
+                )
+        except DecimalException:
+            with pytest.raises(AnalysisError, match="native numeric arithmetic"):
+                compared.compute()
+        else:
+            frame = compared.compute().to_pandas()
+            delta, change = frame["base.absolute.v"].iloc[0], frame["base.relative.v"].iloc[0]
+            assert pd.isna(delta) if expected_delta is None else delta == expected_delta
+            assert pd.isna(change) if expected_change is None else change == expected_change
+        assert context.prec == 1
+        assert context.rounding == ROUND_DOWN
+        assert context.traps[Inexact] and context.traps[Rounded]
 
 
 @pytest.fixture

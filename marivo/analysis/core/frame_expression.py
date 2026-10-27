@@ -374,6 +374,12 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
                 "Use matching Duration units or a numeric scale.",
                 "frame.expression",
             )
+    if isinstance(value, ValueBinary) and value.operation in ("add", "sub", "mul"):
+        left, right = expression_type(schema, value.left), expression_type(schema, value.right)
+        if isinstance(left, DecimalDataType) or isinstance(right, DecimalDataType):
+            if ScalarDataType("float64") in (left, right):
+                return ScalarDataType("float64")
+            return _decimal_column_type(left, right, multiply=value.operation == "mul")
     values = tuple(ibis.param(ibis_type(c.dtype)) for c in schema.values)
     coordinates = tuple(ibis.param(ibis_type(a.columns[0].dtype)) for a in schema.axes)
     try:
@@ -574,11 +580,8 @@ def infer_frame_schema(
                 if item.value is None
                 else expression_type(schema, item.value)
             )
-            if item.method == "sum":
-                if dtype == ScalarDataType("int64"):
-                    dtype = DecimalDataType(38, 0)
-                elif isinstance(dtype, DecimalDataType):
-                    dtype = DecimalDataType(38, dtype.scale)
+            if item.method == "sum" and isinstance(dtype, DecimalDataType):
+                dtype = DecimalDataType(38, dtype.scale)
             if item.method == "mean" and dtype == ScalarDataType("int64"):
                 dtype = ScalarDataType("float64")
             unit, nullable = (
@@ -601,6 +604,17 @@ def infer_frame_schema(
     )
 
 
+def _decimal_column_type(
+    left: DataType, right: DataType, *, multiply: bool = False
+) -> DecimalDataType:
+    """Describe the supported carrier without rounding native scalar arithmetic."""
+    p1, s1 = (left.precision, left.scale) if isinstance(left, DecimalDataType) else (19, 0)
+    p2, s2 = (right.precision, right.scale) if isinstance(right, DecimalDataType) else (19, 0)
+    scale = s1 + s2 if multiply else max(s1, s2)
+    precision = p1 + p2 if multiply else max(p1 - s1, p2 - s2) + scale + 1
+    return DecimalDataType(min(38, precision), scale)
+
+
 def _compare_type(left: DataType, right: DataType) -> DataType:
     if isinstance(left, DurationDataType) or isinstance(right, DurationDataType):
         if left == right:
@@ -615,12 +629,7 @@ def _compare_type(left: DataType, right: DataType) -> DataType:
         decimals = tuple(dtype for dtype in (left, right) if isinstance(dtype, DecimalDataType))
         if not decimals:
             return ScalarDataType("int64")
-        from marivo._numeric_types import decimal_result_type
-        from marivo.analysis.core.value_types import data_type, ibis_type
-
-        result = decimal_result_type("subtract", ibis_type(left), ibis_type(right))
-        assert result is not None
-        return data_type(result)
+        return _decimal_column_type(left, right)
     reject(
         "compatible numeric types or matching exact Duration units",
         repr((left, right)),

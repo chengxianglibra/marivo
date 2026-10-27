@@ -257,7 +257,9 @@ overflow also belongs to the backend: an error or a returned wrapped/nonfinite
 value is accepted without an overflow precheck, finite-result rejection or local
 retry. Source reads retain Infinity and valid NaN; completed Frames preserve these
 values separately from NULL through export and persistence. Local numeric kernels
-retain their own checked arithmetic and domain rules.
+use their actual pandas/Arrow or Decimal scalar behavior without extra
+overflow/finite checks or protective widening. Explicit function-domain and NULL
+contracts retain their scope.
 Division uses `/` as its only public syntax. Division and weighted mean mask
 zero denominators before arithmetic and return NA, including cancelling signed
 weights. An outer formula cannot overwrite a captured strict NULL check.
@@ -285,14 +287,16 @@ Detailed current-value and native-carrier policies belong to
 
 ## Bound numeric results
 
-Integer sums return Decimal(38,0); Decimal sums return Decimal(38,input_scale),
-using a single primary accumulation. Counts retain int64. Bound Decimal arithmetic
+Integer sums use native Ibis SUM with an int64 declared output; no input
+widening cast is added. Decimal sums return Decimal(38,input_scale), using a
+single primary accumulation. Counts retain int64. Bound Decimal arithmetic
 uses the [numeric carrier rules](../analysis/operators-and-frames.md), with explicit
-Ibis result casts and ties-away Decimal convergence. Division is float64; Decimal
+Ibis result casts and native kernel rounding. Division is float64; Decimal
 mean keeps its declared p/s without promising an exact backend AVG algorithm.
 All source-native numeric overflow follows the backend, including native errors,
 ClickHouse silent wrapping and floating Infinity/NaN. Local kernels retain their
-own checked arithmetic. Mean has the same NULL and empty-input completion on all
+actual pandas/Arrow or Decimal scalar behavior without extra overflow/finite
+checks, protective widening or high-precision emulation. Mean has the same NULL and empty-input completion on all
 admitted routes; native time-sample mean does not require scheduled sample
 coverage. Other captured
 NULL/zero/domain policies, identity and Duration contracts retain their owners.

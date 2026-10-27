@@ -364,71 +364,6 @@ def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Sess
     assert query.compute().to_pandas()["a"].tolist() == [10, 20, 30]
 
 
-def test_completed_strict_projection_cannot_be_pruned(
-    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.analysis.materialization import graph_local_execution
-
-    events: list[tuple[str, tuple[str, ...], tuple[int, ...]]] = []
-    submissions: list[CompiledRead] = []
-    run = graph_local_execution.run_local
-    execute = SourceSession.execute
-
-    def checked(stage: LocalCompute | FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        columns = tuple(column.name for column in stage.columns)
-        rows = tuple(len(output.table) for output in inputs)
-        events.append(("start", columns, rows))
-        try:
-            output = run(stage, inputs)
-        except (AnalysisError, SemanticExpressionError):
-            events.append(("failed", columns, rows))
-            raise
-        events.append(("complete", columns, rows))
-        return output
-
-    def submitted(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
-        submissions.append(read)
-        return execute(self, read)
-
-    monkeypatch.setattr(graph_local_execution, "run_local", checked)
-    monkeypatch.setattr(SourceSession, "execute", submitted)
-    source = _wide(optimization_session)
-    completed = source.select({"kept": source["a"], "bad": source["b"] * 1e308})
-    query = completed.select({"kept": completed["kept"]})
-    errors: list[tuple[type[BaseException], str]] = []
-    for optimized in (False, True):
-        events.clear()
-        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite") as caught:
-            _execute(optimization_session, query, optimized=optimized)
-        errors.append((type(caught.value), str(caught.value)))
-        assert events[-1][0] == "failed" and "bad" in events[-1][1]
-        assert events[-1][2] == (3,)
-        assert sum(event[0] == "failed" for event in events) == 1
-        assert submissions == [] and terminal_runs(optimization_session) == ()
-    assert errors[0] == errors[1]
-    selection = optimization_session.population_from(
-        completed,
-        on=(
-            (
-                completed.axes[0],
-                catalog_value(optimization_session.catalog, "sales.orders.region", kind="field"),
-            ),
-        ),
-    )
-    query = optimization_session.frame(selection)
-    errors.clear()
-    for optimized in (False, True):
-        events.clear()
-        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite") as caught:
-            _execute(optimization_session, query, optimized=optimized)
-        errors.append((type(caught.value), str(caught.value)))
-        assert events[-1][0] == "failed" and "bad" in events[-1][1]
-        assert events[-1][2] == (3,)
-        assert sum(event[0] == "failed" for event in events) == 1
-        assert submissions == [] and terminal_runs(optimization_session) == ()
-    assert errors[0] == errors[1]
-
-
 def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     optimization_session: Session,
 ) -> None:
@@ -658,8 +593,8 @@ def test_source_per_group_keeps_middle_overflow_before_cancellation(
     query = session.observe({"sum": value.sum().per(region).sum()})
     if field == "amount":
         for optimized in (False, True):
-            output, _, _, _ = _execute(session, query, optimized=optimized)
-            assert output.table["value.0"].tolist() == [Decimal(0)]
+            with pytest.raises(AnalysisError, match="Integer value out of bounds"):
+                _execute(session, query, optimized=optimized)
     else:
         errors: list[tuple[type[BaseException], str]] = []
         for optimized in (False, True):

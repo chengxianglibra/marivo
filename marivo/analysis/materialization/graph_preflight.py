@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo._numeric_types import exact_unsigned
 from marivo.datasource.adapters import (
     BoundSource,
     SourceSession,
@@ -79,4 +80,9 @@ def bind_entity_output(
             purpose="semantic.entity_schema",
             expected_schema=relation.schema().to_pyarrow(),
         )
-    return relation
+    unsigned = {
+        name: exact_unsigned(relation[name])
+        for name, dtype in relation.schema().items()
+        if name in entity.primary_key and dtype.is_unsigned_integer() and dtype.nbytes == 8
+    }
+    return relation.mutate(**unsigned) if unsigned else relation

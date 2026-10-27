@@ -1124,6 +1124,11 @@ class AnalysisFrame:
         Artifact or result files. Stored loading preserves result facts. Retain the returned
         Frame in this Python process. If another process needs these values, persist and
         output/save Session and Artifact IDs before exit. One-shot work needs no save.
+        Source UInt64 uses exact Decimal(20,0) before semantic arithmetic. Source and
+        local kernels retain native numeric behavior without extra overflow checks,
+        finite scans or protective widening. Exact Decimal transport must avoid float. Naive
+        timestamp identity preserves wall-clock values and precision independently
+        of TimeDimension parser and Session timezones.
         """
         if isinstance(self._backing, MemoryFrameBacking):
             return self

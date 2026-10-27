@@ -751,7 +751,7 @@ def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_sc
         "additive",
         FrameMethodValue(column("left.sales", dtype), Decimal("20.000000000")),
         FrameMethodValue(column("right.sales", dtype), Decimal("12.000000000")),
-        FrameMethodValue(column("absolute.sales", DecimalDataType(38, 8)), Decimal("8.00000000")),
+        FrameMethodValue(column("absolute.sales", DecimalDataType(38, 9)), Decimal("8.000000000")),
         (support(),),
     )
     scalar = Decimal("0.500")

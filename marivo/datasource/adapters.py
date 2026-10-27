@@ -73,6 +73,25 @@ def _invalid(expected: str, received: str) -> DatasourceSourceCapabilityError:
     )
 
 
+def _require_decimal_transport(frame: pd.DataFrame, schema: pa.Schema) -> None:
+    """Reject floating transport only when the actual issued SQL returns Decimal."""
+    for field in schema:
+        if pa.types.is_decimal(field.type) and pa.types.is_floating(
+            pa.array(frame[field.name], from_pandas=True).type
+        ):
+            raise DatasourceSourceCapabilityError(
+                message="Exact Decimal values arrived through floating transport.",
+                expected=f"{field.name}: exact {field.type} values",
+                received=f"{field.name}: floating carrier",
+                location="datasource adapter",
+                repair=repair(
+                    kind="inspect",
+                    canonical_id="inspect",
+                    action="Use a reader or source view preserving Decimal values. Do not cast rounded floats back to Decimal; original integer precision cannot be recovered.",
+                ),
+            )
+
+
 def provider_for(backend: str) -> EngineProfile:
     """Select one backend without loading any driver or opening a connection."""
     return require_profile_for_backend_type(backend)
@@ -680,6 +699,7 @@ class SourceSession:
                     repr(tuple(result.columns)),
                 )
             query.rows = len(result)
+            _require_decimal_transport(result, proof.schema)
             submission.state = "succeeded"
             return result
         except BaseException as error:

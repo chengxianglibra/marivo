@@ -86,7 +86,7 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
 
 
 @pytest.mark.parametrize("same_owner", (False, True))
-def test_calendar_parent_formula_uses_widened_sums(
+def test_calendar_parent_formula_retains_native_integer_boundaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -103,7 +103,10 @@ def test_calendar_parent_formula_uses_widened_sums(
     metric = one.sum(time=one_day) + two.sum(time=two_day)
     query = session.observe({"net": metric}, by=(days,))
     trace = capture_source(monkeypatch)
-    assert query.compute().to_pandas()["net"].tolist() == [2**63, -(2**63)]
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="overflow"):
+        query.compute()
     assert trace.uploaded_key_rows == []
 
 
@@ -153,7 +156,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
     assert trace.uploaded_key_rows == []
 
 
-def test_daily_formula_keeps_widened_source_sum(
+def test_daily_formula_retains_native_integer_boundaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -167,7 +170,10 @@ def test_daily_formula_keeps_widened_source_sum(
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
     query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
     trace = capture_source(monkeypatch)
-    assert query.compute().to_pandas()["value"].tolist()[:2] == [2**63, -(2**63) + 2]
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="overflow"):
+        query.compute()
 
 
 @pytest.mark.parametrize(

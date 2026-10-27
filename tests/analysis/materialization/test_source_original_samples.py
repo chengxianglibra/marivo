@@ -1,9 +1,10 @@
 """Source regrouping preserves internal samples and bound window endpoints."""
 
 import json
-from fractions import Fraction
 
 import duckdb
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
@@ -34,7 +35,7 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     trace = capture_source(monkeypatch)
     artifact = session.observe({"mean": metric}).persist()
     frame = artifact.to_pandas()
-    expected = 333 if explicit else 1000
+    expected = 1000 / 3 if explicit else 1000
     assert frame["mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
     reads = [dict(item.values) for item in artifact.evidence_digest().items if item.kind == "read"]
@@ -156,9 +157,8 @@ def test_sample_rollup_uses_original_integer_mean_and_quantile_finish(
         columns={"amount": None},
         rows=((("web",), {"amount": -1}), (("store",), {"amount": 2**53 + 1})),
     ).compute()
-    # The two-value median's exact midpoint is also their current-row mean.
-    midpoint = float(Fraction(-1 + (2**53 + 1), 2))
-    assert midpoint == 4503599627370496.0
+    # Local mean follows Arrow independently of the source AVG/median algorithm.
+    midpoint = pc.mean(pa.array([-1, 2**53 + 1], type=pa.int64())).as_py()
     reduced = fixed.reduce({"finish": fixed["amount"].mean()}).compute().to_pandas()
     assert reduced["finish"].tolist() == [midpoint]
 

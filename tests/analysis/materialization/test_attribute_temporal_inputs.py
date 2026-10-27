@@ -1043,4 +1043,4 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
     assert int(rows["detail.baseline.q"].iloc[0]) == exact - 60
     assert rows["contribution.q"].tolist() == [60, -20]
     assert rows["total.q"].tolist() == [40, 40]
-    assert str(rows["detail.current.q"].dtype) == "decimal128(38, 0)[pyarrow]"
+    assert str(rows["detail.current.q"].dtype) == "int64[pyarrow]"

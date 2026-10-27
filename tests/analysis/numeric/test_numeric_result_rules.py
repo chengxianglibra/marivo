@@ -63,11 +63,13 @@ def test_explicit_decimal_product_reaches_native_arrow_reader() -> None:
 def test_sum_has_one_decimal_primary_accumulation(dtype: str, dialect: str) -> None:
     table = ibis.table({"x": dtype}, name="amounts")
     result = _source_sum(table.x)
-    assert result.type() == dt.Decimal(38, 2 if "decimal" in dtype else 0)
+    assert result.type() == (dt.Decimal(38, 2) if "decimal" in dtype else dt.int64)
     sql = str(ibis.to_sql(table.aggregate(value=result), dialect=dialect)).upper()
     assert sql.count("SUM(") == 1
     assert "9223372036854775807" not in sql
-    assert "CAST(SUM(" in sql
+    assert ("CAST(SUM(" in sql) == ("decimal" in dtype)
+    if dtype == "int64":
+        assert "DECIMAL" not in sql
 
 
 def test_decimal_convergence_handles_ties_and_carry() -> None:
@@ -125,8 +127,8 @@ def test_internal_weighted_samples_check_nonfinite_before_pair_mask(side: str) -
         output_type=ScalarDataType("float64"),
     )
     assert result["sample.null"].tolist() == [True]
-    assert result["sample.numeric"].tolist() == [True]
-    assert result["value"].tolist() == [None]
+    assert result["sample.numeric"].tolist() == [False]
+    assert result["value"].tolist() == [4.0]
 
 
 @pytest.mark.parametrize("sign", ["", "-"])
@@ -180,8 +182,8 @@ def test_public_decimal_nodes_and_integer_sum_preserve_saved_values(
     ].tolist() == ["B"]
     total = frame.reduce({"total": frame["big"].sum()})
     result = total.persist()
-    assert result.to_pandas()["total"].tolist() == [Decimal(2**63)]
-    assert pa.array(result.to_pandas()["total"]).type == pa.decimal128(38, 0)
+    assert result.to_pandas()["total"].tolist() == [-(2**63)]
+    assert pa.array(result.to_pandas()["total"]).type == pa.int64()
     assert case.session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
     assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
 
@@ -217,7 +219,7 @@ with patch.object(SourceSession, 'execute', side_effect=AssertionError('source r
     assert product.tolist() == [Decimal('1.5129')]
     assert pa.array(product).type == pa.decimal128(6, 4)
     assert total.tolist() == [Decimal(2**62 + 1)]
-    assert pa.array(total).type == pa.decimal128(38, 0)
+    assert pa.array(total).type == pa.int64()
 """
     process = subprocess.run(
         [sys.executable, "-c", code, case.session.id, product.artifact_id, total.artifact_id],
@@ -241,5 +243,5 @@ def test_comparison_uses_bound_decimal_difference_for_relative_value(
 
     current, baseline = total("1.05"), total("1.00")
     result = current.compare({"base": mv.baseline(baseline)}).compute().to_pandas()
-    assert result["base.absolute.x"].tolist() == [Decimal("0.1")]
-    assert result["base.relative.x"].tolist() == [0.1]
+    assert result["base.absolute.x"].tolist() == [Decimal("0.05")]
+    assert result["base.relative.x"].tolist() == [0.05]

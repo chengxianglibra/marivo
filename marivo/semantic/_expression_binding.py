@@ -41,6 +41,7 @@ from marivo.semantic.errors import (
     SemanticExpressionError,
     SemanticLoadError,
     SemanticRuntimeError,
+    repair,
 )
 from marivo.semantic.validator import (
     _return_expr,
@@ -1330,9 +1331,17 @@ def _validate_entity_table_closed_symbols(
             refs=(owning_key,),
             expected=("the injected Table parameter, ibis module symbols, or inline literals"),
             received=f"{node.id}={type(value).__name__}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="entity",
+                action=f"Replace the external reference {node.id!r} with an inline expression or a deterministic ibis root symbol. For casts, use .cast('decimal(20,0)') for the full UInt64 range, or .cast('int64') only within signed int64; ibis.dtype('int64') is supported. Ibis submodules are not Entity body symbols.",
+            ),
             hint=(
-                "Replace captured values or helper callables with an inline Ibis "
-                "expression over the injected parameter."
+                "Use the injected Table, inline literals, or deterministic public symbols "
+                "from the ibis root module. Ibis submodules are not body symbols. "
+                "For casts use raw['column'].cast('decimal(20,0)') for the full UInt64 "
+                "range, or .cast('int64') only when values fit signed int64; "
+                "ibis.dtype('int64') is also admitted. Read marivo.help('semantic.entity.define')."
             ),
         )
     return symbol_tokens

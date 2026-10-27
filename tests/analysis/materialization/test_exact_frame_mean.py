@@ -1,11 +1,12 @@
 """Current-row means keep exact wide intermediates until output conversion."""
 
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import Decimal
 from fractions import Fraction
 
 import duckdb
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
@@ -14,7 +15,6 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.methods.numeric_state import checked_sum
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
@@ -42,24 +42,22 @@ def _mean(frame: AnalysisFrame) -> AnalysisFrame:
         (2**63 - 1, 1, -(2**63), 1),
     ),
 )
-def test_integer_mean_uses_exact_wide_total(
+def test_integer_mean_uses_native_arrow_accumulator(
     analysis_dsl_case_factory: DslCaseFactory, values: tuple[int, ...]
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     frame = _values(case, values).compute()
     result = _mean(frame)
-    expected = float(sum(map(Fraction, values), Fraction()) / len(values))
+    expected = pc.mean(pa.array(values, type=pa.int64())).as_py()
     exported = result.to_pandas()
     assert exported["mean"].tolist() == [expected]
     assert pa.array(exported["mean"]).type == pa.float64()
     assert isinstance(result._backing, MemoryFrameBacking)
     assert result._backing.data.schema.values[0].dtype == ScalarDataType("float64")
-    if values == (2**53 + 1, 1, 1):
-        assert expected != float(sum(values)) / len(values)
     total = frame.reduce({"sum": frame["x"].sum()}).compute()
     exported_sum = total.to_pandas()["sum"]
-    assert exported_sum.tolist() == [Decimal(sum(values))]
-    assert pa.array(exported_sum).type == pa.decimal128(38, 0)
+    assert exported_sum.tolist() == [pc.sum(pa.array(values, type=pa.int64())).as_py()]
+    assert pa.array(exported_sum).type == pa.int64()
     assert total.top(0, by=total["sum"]).compute().to_pandas().empty
     assert terminal_runs(case.session) == ()
 
@@ -73,7 +71,7 @@ def test_integer_mean_uses_exact_wide_total(
         (Decimal("999999999999999999999999999999999999.99"),) * 2,
     ),
 )
-def test_decimal_mean_finishes_only_after_exact_division(
+def test_decimal_mean_uses_native_rounding_and_storage_boundary(
     analysis_dsl_case_factory: DslCaseFactory, values: tuple[Decimal, ...]
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -81,24 +79,23 @@ def test_decimal_mean_finishes_only_after_exact_division(
     assert isinstance(frame._backing, MemoryFrameBacking)
     dtype = frame._backing.data.schema.values[0].dtype
     assert isinstance(dtype, DecimalDataType)
-    exact = sum(map(Fraction, values), Fraction()) / len(values)
-    with localcontext() as context:
-        context.prec = 120
-        expected = (Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(
-            Decimal(1).scaleb(-dtype.scale), rounding=ROUND_HALF_UP
-        )
+    expected = pc.mean(pa.array(values, type=pa.decimal128(dtype.precision, dtype.scale))).as_py()
     result = _mean(frame)
     assert isinstance(result._backing, MemoryFrameBacking)
     assert result._backing.data.schema.values[0].dtype == dtype
     assert result.to_pandas()["mean"].tolist() == [expected]
     assert expected.as_tuple().exponent == -dtype.scale
     total = frame.reduce({"sum": frame["x"].sum()})
-    if values[0].adjusted() >= 35:
-        with pytest.raises(MaterializationError, match=r"precision|decimal|Decimal"):
+    expected_sum = pc.sum(
+        pa.array(values, type=pa.decimal128(dtype.precision, dtype.scale))
+    ).as_py()
+    try:
+        pa.scalar(expected_sum, type=pa.decimal128(38, dtype.scale))
+    except pa.ArrowInvalid:
+        with pytest.raises(AnalysisError, match="lossless decimal"):
             total.compute()
     else:
-        assert total.compute().to_pandas()["sum"].tolist() == [sum(values)]
-        assert pa.array(total.compute().to_pandas()["sum"]).type == pa.decimal128(38, dtype.scale)
+        assert total.compute().to_pandas()["sum"].tolist() == [expected_sum]
     assert terminal_runs(case.session) == ()
 
 
@@ -169,7 +166,7 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     assert terminal_runs(case.session) == ()
 
 
-def test_source_read_wide_mean_retains_receipts_and_decimal_sum(
+def test_source_read_mean_retains_receipts_and_native_integer_sum(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -195,7 +192,7 @@ def test_source_read_wide_mean_retains_receipts_and_decimal_sum(
     assert mean._backing.metadata.audit.source_facts == fixed._backing.metadata.audit.source_facts
     for frame in (source, fixed):
         total = frame.reduce({"sum": frame["x"].sum()})
-        assert total.compute().to_pandas()["sum"].tolist() == [Decimal(2**63)]
+        assert total.compute().to_pandas()["sum"].tolist() == [-(2**63)]
         assert total.top(0, by=total["sum"]).compute().to_pandas().empty
     assert trace.returned_rows == [2, 2, 2]
     assert all(owner._closed for owner in trace.owners)
@@ -212,28 +209,19 @@ def test_mean_keeps_invalid_types_and_shared_stored_state_checks_strict(
         boolean.reduce({"mean": boolean["flag"].mean()}).compute()
     with pytest.raises(AnalysisError):
         frame.reduce({"mean": frame.coord(frame.axes[0]).mean()}).compute()
-    for values, physical in (
-        ([2**62, 2**62], pa.int64()),
-        ([Decimal("999.99"), Decimal("999.99")], pa.decimal128(5, 2)),
-        ([True], pa.int64()),
-        ([1.0], pa.int64()),
-        ([Decimal("NaN")], pa.decimal128(5, 2)),
-        ([float("inf")], pa.float64()),
-    ):
-        with pytest.raises((ValueError, OverflowError)):
-            checked_sum(values, physical)
     assert terminal_runs(case.session) == ()
 
 
-def test_float_mean_keeps_compensated_sum_and_finite_policy(
+def test_float_mean_keeps_native_accumulation_and_nonfinite_results(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     frame = _values(case, (1e16, 1.0, -1e16)).compute()
-    assert _mean(frame).to_pandas()["mean"].tolist() == [float(Fraction(1, 3))]
+    assert _mean(frame).to_pandas()["mean"].tolist() == [
+        pc.mean(pa.array([1e16, 1.0, -1e16])).as_py()
+    ]
     overflow = _values(case, (1e308, 1e308)).compute()
-    with pytest.raises(MaterializationError, match="overflow"):
-        _mean(overflow)
+    assert _mean(overflow).to_pandas()["mean"].tolist() == [float("inf")]
     assert terminal_runs(case.session) == ()
 
 

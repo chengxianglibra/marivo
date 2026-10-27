@@ -48,11 +48,15 @@ def stage_arrow_type(dtype: DataType) -> pa.DataType:
     return pa.duration(dtype.unit)
 
 
-def _stage_error(expected: str, received: str) -> MaterializationError:
+def _stage_error(
+    expected: str,
+    received: str,
+    repair: str = "Correct the source field type or stage layout; Marivo does not cast lossy values back.",
+) -> MaterializationError:
     return MaterializationError(
         expected=expected,
         received=received,
-        repair="Correct the source field type or stage layout; Marivo does not cast lossy values back.",
+        repair=repair,
         stage="stage_output",
         help_target="analysis_frame.compute",
     )
@@ -82,7 +86,10 @@ def _admits(source: pa.DataType, target: DataType) -> bool:
             return bool(pa.types.is_floating(source))
         return bool(pa.types.is_date(source) or pa.types.is_timestamp(source))
     if isinstance(target, DecimalDataType):
-        return bool(pa.types.is_decimal(source))
+        return bool(
+            pa.types.is_decimal(source)
+            or (source == pa.uint64() and target.precision >= 20 and target.scale == 0)
+        )
     if isinstance(target, TimestampDataType):
         return bool(pa.types.is_timestamp(source))
     return bool(pa.types.is_duration(source))
@@ -119,6 +126,7 @@ def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
         raise _stage_error(
             f"{column.slot_id}: timezone {column.dtype.timezone}",
             f"{column.slot_id}: timezone {values.type.tz} delivered",
+            "Explicitly unify naive and aware identity values in the Entity output before matching. TimeDimension parse does not rewrite primary_key; keep the exact source timestamp precision.",
         )
     if not column.nullable and values.null_count:
         raise _stage_error(

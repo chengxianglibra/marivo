@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 from trino.exceptions import TrinoUserError
 
@@ -193,9 +195,8 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
             columns={"amount": None},
             rows=tuple(((f"t{index}",), {"amount": value}) for index, value in enumerate(numbers)),
         ).compute()
-        # All weights are one, so the exact weighted mean equals this row mean.
-        exact = float(Fraction(sum(numbers), len(numbers)))
-        assert exact == (1 / 3 if samples == "cancellation" else (2**53 + 3) / 3)
+        # Local Arrow mean follows its native accumulator and rounding.
+        exact = pc.mean(pa.array(numbers, type=pa.int64())).as_py()
         finished = fixed.reduce({"mean": fixed["amount"].mean()}).compute()
         assert finished.to_pandas()["mean"].tolist() == [exact]
 

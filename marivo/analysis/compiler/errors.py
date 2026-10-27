@@ -7,10 +7,15 @@ class DatasetCompilationError(DatasetConstructionError):
     """The admitted Dataset cannot be lowered through its registered source recipe."""
 
 
-def compilation_error(expected: str, received: str) -> DatasetCompilationError:
+def compilation_error(
+    expected: str,
+    received: str,
+    *,
+    repair: str = "Use the registered typed graph source recipe and exact declared source tables.",
+) -> DatasetCompilationError:
     return DatasetCompilationError(
         expected=expected,
         received=received,
-        repair="Use the registered typed graph source recipe and exact declared source tables.",
+        repair=repair,
         location="dataset.compiler",
     )

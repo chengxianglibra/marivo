@@ -86,6 +86,12 @@ def test_native_branches_mask_source_checks_and_invalid_function_inputs() -> Non
         physical = {name: connection.execute(table)[name].astype(object) for name in table.columns}
         local = evaluate_numeric(lowered.value.op(), physical, source.index)
         assert local.tolist() == source.value.tolist()
+        mixed = lower_recipe(resolver(ibis.ifelse(x == 0, 0, y / 2)), inputs)
+        assert evaluate_numeric(mixed.value.op(), physical, source.index).tolist() == [
+            2.0,
+            0.0,
+            0.0,
+        ]
         assert not any(
             evaluate_numeric(check.violation.op(), physical, source.index)
             .astype("boolean")
@@ -158,6 +164,11 @@ def test_completed_native_nan_remains_valid_during_formula_assembly() -> None:
     actual = evaluate_numeric(expression.value.op(), values, values["x"].index)
     assert math.isnan(actual.iloc[0])
     assert actual.iloc[1:].tolist() == [7, 3]
+    rounded = lower_recipe(resolver(x.round(1)), (NumericValue(table.x),))
+    native_round = evaluate_numeric(rounded.value.op(), values, values["x"].index)
+    assert math.isnan(native_round.iloc[0])
+    assert native_round.iloc[1] is None
+    assert native_round.iloc[2] == 2.0
     missing = lower_recipe(resolver(x.isnull()), (NumericValue(table.x),))
     assert evaluate_numeric(missing.value.op(), values, values["x"].index).tolist() == [
         False,
@@ -287,9 +298,7 @@ def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys(
         assert bool(frame.loc["kept", "__numeric_present"])
         assert pd.isna(frame.loc["filtered", "__numeric_present"])
         predicate_check = next(
-            name
-            for name, check in checks
-            if "valid finite numeric function inputs" in check.expected
+            name for name, check in checks if "valid numeric function domains" in check.expected
         )
         assert not bool(frame.loc["kept", predicate_check])
         assert bool(frame.loc["filtered", predicate_check])
@@ -351,8 +360,6 @@ def test_native_function_chain_and_rounding_match_source_route() -> None:
         table = connection.create_table("functions", pd.DataFrame({"x": [2.5, -2.5, 0.0]}))
         physical = {"x": pd.Series([2.5, -2.5, 0.0], dtype=object)}
         for recipe in (
-            x.round(),
-            x.cast("int64"),
             ibis.greatest(ibis.least((x.abs() + 1).log().exp().round(2), 3), 1).clip(1, 3),
         ):
             item = lower_recipe(resolver(recipe), (NumericValue(table.x),))
@@ -405,7 +412,7 @@ def test_state_sample_coverage_is_checked_only_when_per_value_is_demanded() -> N
     assert query_combine(stage, (frame,))["value.0"].tolist() == [0]
 
 
-def test_local_sample_accumulation_uses_fsum_and_one_decimal_finish() -> None:
+def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish() -> None:
     from marivo._definition.expressions import PerReduce, PerWeightedMean
     from marivo._definition.types import AxisBinding
     from marivo.analysis.core.data_types import DecimalDataType
@@ -428,7 +435,7 @@ def test_local_sample_accumulation_uses_fsum_and_one_decimal_finish() -> None:
         (),
         output_type=ScalarDataType("float64"),
     )
-    assert result.value.tolist() == [1.0]
+    assert result.value.tolist() == [0.0]
     result, _ = reduce_samples(
         PerReduce(placeholder, (axis,), "mean"),
         pd.DataFrame({"value": [Decimal("1.01"), Decimal("1.02")]}),
@@ -583,12 +590,10 @@ def test_internal_sample_groups_keep_complete_exact_keys_and_empty_domain_order(
 
 
 @pytest.mark.parametrize("scale", (1, 2))
-def test_cancelled_sample_weights_do_not_hide_numeric_overflow(
+def test_cancelled_sample_weights_complete_as_null(
     analysis_dsl_case_factory: DslCaseFactory, scale: int
 ) -> None:
     import duckdb
-
-    from marivo.analysis.materialization.errors import MaterializationError
 
     case = analysis_dsl_case_factory("j4")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -602,9 +607,8 @@ def test_cancelled_sample_weights_do_not_hide_numeric_overflow(
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     value = amount.max()
-    # Weights are +/-scale. Products or their sum overflow despite zero total weight.
+    # Native products may overflow; the zero denominator still completes as NULL.
     metric = value.per(customer).weighted_mean(weight=value / 1e308 * scale)
     pending = session.observe({"value": metric})
-    for result in (pending, pending.top(0, by=pending["value"])):
-        with pytest.raises(MaterializationError, match="internal sample reduction overflow"):
-            result.compute()
+    assert pending.compute().to_pandas()["value"].isna().all()
+    assert pending.top(0, by=pending["value"]).compute().to_pandas().empty

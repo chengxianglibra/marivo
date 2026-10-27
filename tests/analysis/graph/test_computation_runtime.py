@@ -167,14 +167,14 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
         assert _semantic_value(computation_session, metric) == expected
 
 
-def test_runtime_linear_over_integer_sums_returns_decimal(
+def test_runtime_linear_over_integer_sums_retains_native_int64(
     computation_session: mv.Session,
 ) -> None:
     quantity = computation_session.catalog.get("metric:sales.quantity_total").value
     count = computation_session.catalog.get("metric:sales.gmv_quantity").value
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
-    assert pa.array(rows["value"]).type == pa.decimal128(38, 0)
+    assert pa.array(rows["value"]).type == pa.int64()
     assert rows["value"].iloc[0] == 2
 
 

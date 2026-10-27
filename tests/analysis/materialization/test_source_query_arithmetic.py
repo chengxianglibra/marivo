@@ -13,7 +13,6 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -79,8 +78,9 @@ def test_valid_nonfinite_source_values_keep_validity_through_projection_and_cold
             fixed.reduce({"value": fixed["amount"].sum()}),
             fixed.reduce({"value": fixed["amount"].mean()}),
         ):
-            with pytest.raises(MaterializationError, match="finite"):
-                candidate.compute()
+            native_values = pa.array(candidate.compute().to_pandas()["value"])
+            assert native_values.null_count == (1 if len(native_values) > 1 else 0)
+            assert pa.compute.is_nan(native_values).fill_null(False).to_pylist().count(True) == 1
         code = """
 import sys
 from unittest.mock import patch
@@ -315,12 +315,12 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
         query = source.select({"value": -source["amount"] if negated else source["amount"]})
         if top_zero:
             query = query.top(0, by=query["value"])
-        if negated:
-            with pytest.raises(MaterializationError, match=r"Frame\.select: output overflow"):
-                query.compute()
-        else:
-            actual = query.compute().to_pandas()
-            assert actual.empty if top_zero else actual["value"].iloc[0] == float("inf")
+        actual = query.compute().to_pandas()
+        assert (
+            actual.empty
+            if top_zero
+            else actual["value"].iloc[0] == float("-inf" if negated else "inf")
+        )
         assert terminal_runs(session) == ()
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram
@@ -340,9 +340,5 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
         )
         expression = ValueUnary("neg", ValueSlot(0)) if negated else ValueSlot(0)
         program = FrameProgram(SelectValues((("value", expression),)), input_schema, output_schema)
-        if negated:
-            with pytest.raises(SemanticExpressionError, match=r"Frame\.select: output overflow"):
-                evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
-        else:
-            selected = evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
-            assert selected["value"].tolist() == [float("inf")]
+        selected = evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))
+        assert selected["value"].tolist() == [float("-inf" if negated else "inf")]

@@ -289,10 +289,10 @@ def test_result_fixed_null_division_and_exact_input_binding(result_session: Sess
     q = session.observe({"sum": amount.sum()}, by=(region,))
     divided = q.select({"ratio": q["sum"] / 0}).compute().to_pandas()
     assert divided["ratio"].isna().all()
-    with pytest.raises(AnalysisError) as failure:
-        q.select({"ratio": q["sum"] * 1e308}).compute()
-    _assert_compute_repair(failure.value)
-    assert not hasattr(failure.value, "run_ref") and terminal_runs(session) == ()
+    overflow = q.select({"ratio": q["sum"] * 1e308}).compute().to_pandas()
+    assert overflow["ratio"].iloc[:2].tolist() == [float("inf"), float("inf")]
+    assert pd.isna(overflow["ratio"].iloc[2])
+    assert terminal_runs(session) == ()
     other = session.observe({"sum": amount.sum()}, by=(region,))
     # Independent captures require explicit Frame correspondence before composition.
     with pytest.raises(AnalysisError):
@@ -442,8 +442,7 @@ def test_frame_population_uses_selected_keys_and_preserves_checks(result_session
     result = session.frame(domain).compute().to_pandas()
     assert [None if pd.isna(value) else value for value in result.iloc[:, 0]] == ["A", None, "B"]
     strict = q.select({"bad": q["sum"] * 1e308})
-    with pytest.raises(AnalysisError):
-        session.frame(_population(session, strict, region)).compute()
+    assert len(session.frame(_population(session, strict, region)).compute().to_pandas()) == 3
 
 
 def test_explicit_members_and_member_count(result_session: Session) -> None:
@@ -1207,7 +1206,7 @@ def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
     frame = artifact.to_pandas()
     assert frame["total"].to_dict() == {0: large, 1: 20, 2: None}
     assert frame["shifted"].to_dict() == {0: large + 10, 1: 30, 2: None}
-    assert pa.array(frame["total"]).type == pa.decimal128(38, 0)
+    assert pa.array(frame["total"]).type == pa.int64()
     pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact_id).to_pandas(), frame)
     for reduced in (
         query.reduce({"total": query["total"].sum()}),

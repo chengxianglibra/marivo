@@ -24,6 +24,27 @@ description: 按 observe、compare、attribute、correlate、align、reduce 了�
 | `over` / `share` | 每个分区的总量、每行的份额是多少？ |
 | `read` / `where` / `select` / `top` | 应读取哪些属性、筛选哪些行和列？ |
 
+## 原生数值执行
+
+源端与本地计算保留实际数值内核的溢出、舍入、Infinity、NaN 和异常行为。Marivo 不额外
+添加溢出预查、有限值扫描、保护性加宽，也不换类型或引擎重算。本地整数和浮点数使用
+其 pandas／Arrow 载体；已有 Decimal 标量表达式使用原生 Decimal context。
+本地 int64 SUM 保持 int64，可能回绕；原生异常仍会导致 compute 失败。不同 backend
+或 dtype 在数值边界上的结果不保证一致。
+
+NULL 有效性、空输入／全 NULL、零除屏蔽、身份和单位继续遵守 Marivo 契约；有效 NaN
+与 NULL 不同。Frame／Store 的 schema 和无损传输约束保留；不支持的结果类型会报错，
+不会静默缩窄。显式 cast 及源端结果类型绑定继续承担各自职责。
+Help：`analysis.column.sum`、`analysis.analysis_frame.compute`。
+
+
+
+源端整数 SUM 也不自动把输入保护性转换为 Decimal；原生 Ibis 转换可能拒绝后端的更宽
+结果。业务需要更宽载体时，应在归约前的 Entity 表达式中显式使用
+`.cast(ibis.dtype("decimal(38,0)"))`；所选 Decimal 算术仍由实际内核决定。
+分位数输出完成、Duration tick、归因闭合及有限的 method 元数据仍遵循各自的方法与
+存储契约。
+
 ## Population：先确定完整域
 
 Population 是完整坐标元组的有限集合，不仅是“人群”。`session.members(...)` 选择来源身份，`mv.coordinates(...)` 指定所需键，`session.population_from(...)` 使用 Frame 已选键。`by=P` 指定输出域，`where=mv.in_population(P)` 限定来源贡献，二者不能互相替代。

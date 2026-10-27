@@ -168,7 +168,7 @@ def test_shared_query_population_remains_a_real_host_sample_domain(
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
     assert rows["direct"].tolist() == [3]
-    assert rows["sample"].tolist() == [13]
+    assert rows["sample"].tolist() == [12.5]
     assert len(plans) == 1
     assert trace.uploaded_key_rows == [4]
     # The same four-key sample input is retained for both source consumers and

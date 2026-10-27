@@ -2570,9 +2570,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             else:
                 summary += (
                     "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
-                    "Integer sum returns Decimal(38,0); Decimal sum returns Decimal(38,input_scale); count stays int64. "
-                    "Decimal results use bound p/s and ties-away convergence; divide is float64 and mean keeps its declared type. "
-                    "Source overflow follows the backend, including ClickHouse silent wrapping; local integers are checked. "
+                    "Integer SUM uses native Ibis accumulation (declared int64) without input widening; Decimal SUM returns Decimal(38,input_scale); count stays int64. "
+                    "Decimal source outputs bind p/s; rounding follows the kernel. Divide is float64 and mean keeps its declared type. "
+                    "Source and local arithmetic follow their actual kernel, including native errors, wrapping and nonfinite values; no extra overflow/finite scan or protective widening. "
                     "Unevaluated source arithmetic need not fail. Identity/count/time/Duration stay exact. "
                     "Native NaN/Infinity are retained in completed and saved Frames. "
                     "window accepts a source-free rule and rejects nested windows. "
@@ -2590,7 +2590,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         "NULL/weight policies remain unchanged; other nested reducers keep their own checks."
                     )
                 if method == "sum":
-                    summary += " MySQL retains widened SUM until safe Decimal carrier conversion; out-of-range source results fail."
+                    summary += " SUM uses native accumulation without protective integer widening. Native errors/wrapping differ by kernel; transport must fit its declared carrier. Explicit Entity casts use .cast(ibis.dtype('decimal(38,0)')). MySQL retains native widened SUM until safe Decimal transport."
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
                 summary += (
                     " nulls='ignore' adds no assertion; nulls='error' asserts no NULLs on the demanded input; "
@@ -2791,6 +2791,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "when execution needs them, not from this declaration. Use md.inspect for "
                 "current physical column names and types."
                 " Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own all downstream fields and identity/version rules."
+                " Naive timestamp identity retains wall-clock values and exact precision without a timezone; TimeDimension parse does not rewrite primary_key. Naive and aware keys require explicit compatible representations."
+                " UInt64 inputs use exact Decimal(20,0) before semantic arithmetic. Entity bodies admit the injected Table, inline literals and deterministic public ibis root symbols; ibis submodules are not admitted. Cast with raw['column'].cast('decimal(20,0)') for UInt64, or .cast('int64') only for the signed range; ibis.dtype('int64') is also supported."
             ),
             output="EntitySymbol",
             inputs=(
@@ -3186,7 +3188,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Interpret a native timestamp using parser or resolved reader authority. Projection uses native gap/fold behavior; raw local-clock membership uses wall order (later fold occurrence, gap transition instant). Aware sources reject parser timezone.",
+            "Interpret a native timestamp using parser or resolved reader authority. Projection uses native gap/fold behavior; raw local-clock membership uses wall order (later fold occurrence, gap transition instant). Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
             output="TimestampSpec",
             effects=_AUTHOR,
             example="ms.timestamp(timezone='UTC')",
@@ -3454,9 +3456,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         "Use row arithmetic within one contribution root, then reduce before Metric arithmetic. Numeric Dimensions do not gain aggregation permission. "
                         "Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. "
                         "Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); "
-                        "untyped Decimal literals bind their own digits/exponent. Convergence uses ties away from zero. "
-                        "SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. "
-                        "Source overflow follows the backend, including NaN/Infinity and ClickHouse wrapping; local integers are checked. Saved values retain committed types."
+                        "untyped Decimal literals bind their own digits/exponent. Source output casts bind p/s; rounding follows the kernel. "
+                        "Integer SUM uses native accumulation (Ibis int64); Decimal SUM returns Decimal(38,input_scale). Count stays int64; division is float64; mean keeps its declared type. "
+                        "Source and local overflow/rounding follow the actual kernel, including errors, wrapping and NaN/Infinity. No extra scans or protective widening. Saved values retain committed types."
                         if prefix == "row"
                         else "Choose an operation on the constructed receiver. Internal Metric samples must finish with a reducer before observation."
                     ),

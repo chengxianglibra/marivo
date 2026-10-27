@@ -708,6 +708,7 @@ def source_time(
                 raise compilation_error(
                     "exact native timezone conversion precision",
                     "submicrosecond conversion unsupported",
+                    repair="Expose an aware UTC timestamp retaining the original precision in the source or Entity output before using this TimeDimension. Keep the naive primary_key unchanged if wall-clock identity is intended; do not truncate its ticks to make timezone conversion pass.",
                 )
             instant = localize(adopted, value)
     if origin not in ("physical", "declared", "engine", "system_fallback"):

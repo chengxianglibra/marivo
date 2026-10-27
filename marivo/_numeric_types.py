@@ -10,6 +10,13 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 
+def exact_unsigned(value: ir.Value) -> ir.Value:
+    """Represent the complete UInt64 domain without signed overflow or floating loss."""
+    if value.type().is_unsigned_integer() and value.type().nbytes == 8:
+        return value.cast(dt.Decimal(20, 0))
+    return value
+
+
 def bind_numeric_literal(value: ir.Value) -> ir.Value:
     """Bind unspecified Ibis Decimal literals from their literal precision/scale."""
     node = value.op()

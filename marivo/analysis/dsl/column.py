@@ -478,7 +478,9 @@ class Column:
 
         Args: None. Returns: An unfinished statistic; empty input returns zero, all-NA returns NA.
         Constraints: Numeric or Duration values; reduce aggregates and over broadcasts.
-        Integer sums return Decimal(38,0); Decimal sums return Decimal(38,input_scale).
+        Local sums use the native Arrow accumulator: int64 stays int64 and Decimal
+        returns Decimal(38,input_scale). Overflow follows the actual kernel; no extra
+        finite scan, protective widening or retry is performed.
         Count and Duration keep their own carriers. Empty input is zero; nonempty
         all-NA input is NA.
 

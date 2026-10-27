@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from decimal import Decimal
 from typing import TypeAlias
 
 import pandas as pd
@@ -27,7 +26,6 @@ from marivo.analysis.core.data_schema import (
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
-    DecimalDataType,
     DurationDataType,
     ScalarDataType,
     TimestampDataType,
@@ -62,9 +60,7 @@ from marivo.analysis.core.frozen_calendar import (
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import (
-    _require_finite_values,
     duration_arithmetic,
-    finish_decimal,
     finish_float64,
     nullable_arithmetic,
 )
@@ -351,8 +347,6 @@ def _comparison_values(
     from marivo.analysis.core.data_validation import typed_null_mask
 
     x_missing, y_missing = typed_null_mask(x), typed_null_mask(y)
-    _require_finite_values(x, x_missing, "Frame.compare")
-    _require_finite_values(y, y_missing, "Frame.compare")
     valid = ~(x_missing | y_missing)
     x, y = x.mask(~valid, pd.NA), y.mask(~valid, pd.NA)
     if isinstance(absolute_type, DurationDataType):
@@ -386,13 +380,9 @@ def _comparison_values(
         )
     else:
         delta = nullable_arithmetic("subtract", x, y)
-        if isinstance(absolute_type, DecimalDataType):
-            delta = finish_decimal(delta, absolute_type.precision, absolute_type.scale)
-        elif absolute_type == ScalarDataType("float64"):
+        if absolute_type == ScalarDataType("float64"):
             delta = finish_float64(delta, "Frame.compare absolute")
-        denominator = y.map(
-            lambda v: v.copy_abs() if isinstance(v, Decimal) else abs(v) if pd.notna(v) else pd.NA
-        )
+        denominator = y.abs()
         relative = nullable_arithmetic(
             "divide",
             delta,

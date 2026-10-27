@@ -261,6 +261,10 @@ def prepare_fields(
             entity_refs=(ref.entity(owner),),
             aliases=(table,),
         )
+        from marivo._numeric_types import exact_unsigned
+
+        if target.kind is not SemanticKind.TIME_DIMENSION:
+            result = exact_unsigned(result)
         dependencies.append(result)
         if target.kind is SemanticKind.TIME_DIMENSION:
             axis = normalize_target_dimension(registry, path, prepared_column=path)

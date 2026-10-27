@@ -99,7 +99,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
     ),
     "primary_key": (
         "Primary_key",
-        "Omit for no declared stable key; otherwise use unique Entity output column names, excluding version coordinates.",
+        "Omit for no declared stable key; otherwise use unique Entity output column names, excluding version coordinates. Naive timestamp keys retain exact wall-clock values without a timezone; parser and Session timezones do not change identity.",
         _links("objects.entity"),
     ),
     "versioning": (

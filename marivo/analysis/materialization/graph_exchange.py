@@ -54,7 +54,11 @@ def source_columns(
         if pa.types.is_floating(values.type):
             dtype = ScalarDataType("float64")
         elif pa.types.is_integer(values.type):
-            dtype = ScalarDataType("int64")
+            dtype = (
+                column.dtype
+                if isinstance(column.dtype, DecimalDataType) and values.type == pa.uint64()
+                else ScalarDataType("int64")
+            )
         elif pa.types.is_decimal(values.type):
             dtype = DecimalDataType(
                 max(

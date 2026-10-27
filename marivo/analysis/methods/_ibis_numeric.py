@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import operator
 from collections.abc import Callable, Mapping
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import Decimal
 from fractions import Fraction
 
 import ibis.expr.operations as ops
@@ -13,17 +13,16 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from marivo.analysis.methods.numeric_state import _decimal_context
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def _is_null(value: object) -> bool:
     """Use captured Arrow validity rather than pandas' floating NaN convention."""
-    return value is None or value is pd.NA
+    return value is None or value is pd.NA or value is pd.NaT
 
 
 def _nulls(values: pd.Series) -> pd.Series:
-    return values.map(_is_null).astype(bool)
+    return pd.Series([_is_null(value) for value in values], index=values.index)
 
 
 def evaluate_numeric(
@@ -45,8 +44,13 @@ def evaluate_numeric(
         return evaluate_numeric(child, values, index, needed, exact_division=exact_division)
 
     def constant(value: object) -> pd.Series:
+        if value is None:
+            return pd.Series([None] * len(index), index=index, dtype=object)
         return pd.Series(
-            [value if selected else None for selected in active], index=index, dtype=object
+            pd.arrays.ArrowExtensionArray(
+                pa.array([value if selected else None for selected in active])
+            ),
+            index=index,
         )
 
     def unary(
@@ -64,23 +68,70 @@ def evaluate_numeric(
         left: ops.Value, right: ops.Value, function: Callable[[object, object], object]
     ) -> pd.Series:
         a, b = visit(left), visit(right)
-        result = constant(None)
-        with localcontext(_decimal_context()):
-            for key in index[active]:
-                x, y = a.loc[key], b.loc[key]
-                if not _is_null(x) and not _is_null(y):
-                    if isinstance(x, float) and isinstance(y, Decimal):
-                        y = float(y)
-                    elif isinstance(x, Decimal) and isinstance(y, float):
-                        x = float(x)
-                    result.loc[key] = function(x, y)
-        return result
+        if exact_division or (
+            any(
+                isinstance(series.dtype, pd.ArrowDtype)
+                and pa.types.is_decimal(series.dtype.pyarrow_dtype)
+                for series in (a, b)
+            )
+            and not any(
+                isinstance(series.dtype, pd.ArrowDtype)
+                and pa.types.is_floating(series.dtype.pyarrow_dtype)
+                for series in (a, b)
+            )
+        ):
+            return pd.Series(
+                [
+                    None if _is_null(x) or _is_null(y) else function(x, y)
+                    for x, y in zip(a, b, strict=True)
+                ],
+                index=index,
+                dtype=object,
+            )
+        computed = function(a, b)
+        if not isinstance(computed, pd.Series):
+            raise TypeError("native binary kernel must return a Series")
+        return computed.mask(~active, inplace=False)
 
     try:
         if isinstance(node, ops.Field):
-            return values[node.name].where(active, constant(None)).astype(object)
+            source = values[node.name]
+            if (
+                source.dtype == object
+                and (node.dtype.is_numeric() or node.dtype.is_boolean())
+                and not exact_division
+            ):
+                return pd.Series(
+                    pd.arrays.ArrowExtensionArray(
+                        pa.array(
+                            [
+                                None
+                                if not selected
+                                or _is_null(v)
+                                or (
+                                    not node.dtype.is_floating()
+                                    and isinstance(v, float)
+                                    and math.isnan(v)
+                                )
+                                else v
+                                for v, selected in zip(source, active, strict=True)
+                            ],
+                            type=node.dtype.to_pyarrow(),
+                        )
+                    ),
+                    index=index,
+                )
+            return source.mask(~active, None)
         if isinstance(node, ops.Literal):
-            return constant(node.value)
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(
+                        [node.value if selected else None for selected in active],
+                        type=node.dtype.to_pyarrow(),
+                    )
+                ),
+                index=index,
+            )
         if isinstance(node, ops.Alias):
             return visit(node.arg)
         if isinstance(node, ops.IfElse):
@@ -89,7 +140,14 @@ def evaluate_numeric(
                 visit(node.true_expr, active & condition),
                 visit(node.false_null_expr, active & ~condition),
             )
-            return yes.where(condition, no)
+            if exact_division:
+                return yes.astype(object).where(condition, no)
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pc.if_else(pa.array(condition), pa.array(yes), pa.array(no))
+                ),
+                index=index,
+            )
         if isinstance(node, ops.SearchedCase):
             remaining = active.copy()
             result = constant(None)
@@ -103,7 +161,14 @@ def evaluate_numeric(
                 remaining &= ~condition
             part = visit(node.default, remaining)
             result.loc[remaining] = part.loc[remaining]
-            return result
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(
+                        [None if _is_null(v) else v for v in result], type=node.dtype.to_pyarrow()
+                    )
+                ),
+                index=index,
+            )
         if isinstance(node, ops.Coalesce):
             remaining = active.copy()
             result = constant(None)
@@ -112,7 +177,14 @@ def evaluate_numeric(
                 selected = remaining & ~_nulls(part)
                 result.loc[selected] = part.loc[selected]
                 remaining &= _nulls(part)
-            return result
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(
+                        [None if _is_null(v) else v for v in result], type=node.dtype.to_pyarrow()
+                    )
+                ),
+                index=index,
+            )
         if isinstance(node, (ops.And, ops.Or)):
             # Both operands remain in the static graph. Demand short circuit here
             # also protects branch-masked NumericCheck violation expressions.
@@ -137,60 +209,50 @@ def evaluate_numeric(
             ops.Xor: operator.xor,
         }
         if isinstance(node, ops.Divide) and exact_division:
-            return binary(
-                node.left,
-                node.right,
-                lambda left, right: Fraction(str(left)) / Fraction(str(right)),
-            )
-        if isinstance(node, (ops.Add, ops.Subtract, ops.Multiply)) and node.dtype.is_integer():
-            kernel = {
-                ops.Add: pc.add_checked,
-                ops.Subtract: pc.subtract_checked,
-                ops.Multiply: pc.multiply_checked,
-            }[type(node)]
-            return binary(
-                node.left,
-                node.right,
-                lambda a, b: kernel(
-                    pa.scalar(a, type=pa.int64()), pa.scalar(b, type=pa.int64())
-                ).as_py(),
+            a, b = visit(node.left), visit(node.right)
+            return pd.Series(
+                [
+                    None if _is_null(x) or _is_null(y) else Fraction(x) / Fraction(y)
+                    for x, y in zip(a, b, strict=True)
+                ],
+                index=index,
+                dtype=object,
             )
         if type(node) in binary_functions:
             return binary(node.left, node.right, binary_functions[type(node)])
         if isinstance(node, (ops.Cast, ops.TryCast)):
-
-            def convert(value: object) -> object:
-                try:
-                    if node.to.is_floating():
-                        return float(str(value))
-                    if node.to.is_integer():
-                        integer = (
-                            int(value)
-                            if isinstance(value, bool)
-                            else round(value)
-                            if isinstance(value, float)
-                            else int(Decimal(str(value)).to_integral_value(rounding=ROUND_HALF_UP))
+            if isinstance(node.arg, ops.Literal) and (
+                node.arg.value is None
+                or (node.to.is_decimal() and isinstance(node.arg.value, (int, float)))
+            ):
+                return pd.Series(
+                    pd.arrays.ArrowExtensionArray(
+                        pa.array(
+                            [node.arg.value if selected else None for selected in active],
+                            type=node.to.to_pyarrow(),
                         )
-                        return integer if -(2**63) <= integer < 2**63 else None
-                    if node.to.is_decimal():
-                        with localcontext(_decimal_context()):
-                            decimal = Decimal(str(value)).quantize(
-                                Decimal(1).scaleb(-(node.to.scale or 0)), rounding=ROUND_HALF_UP
-                            )
-                        return pa.scalar(
-                            decimal, type=pa.decimal128(node.to.precision or 38, node.to.scale or 0)
-                        ).as_py()
-                    if node.to.is_boolean():
-                        return bool(value)
-                    if node.to.is_string():
-                        return str(value)
-                    return value
-                except (ArithmeticError, ValueError, TypeError):
-                    if isinstance(node, ops.TryCast):
-                        return None
-                    raise
-
-            return unary(node.arg, convert)
+                    ),
+                    index=index,
+                )
+            source = visit(node.arg)
+            if exact_division and node.to.is_numeric():
+                return source
+            if isinstance(node, ops.TryCast):
+                output: list[object] = []
+                for value in source:
+                    try:
+                        output.append(
+                            pa.scalar(None if _is_null(value) else value)
+                            .cast(node.to.to_pyarrow())
+                            .as_py()
+                        )
+                    except (pa.ArrowException, ArithmeticError, ValueError, TypeError):
+                        output.append(None)
+                return pd.Series(
+                    pd.arrays.ArrowExtensionArray(pa.array(output, type=node.to.to_pyarrow())),
+                    index=index,
+                )
+            return source.astype(pd.ArrowDtype(node.to.to_pyarrow()))
         if isinstance(node, ops.IsNull):
             return unary(
                 node.arg,
@@ -213,59 +275,35 @@ def evaluate_numeric(
             return unary(
                 node.arg, lambda value: isinstance(value, float) and math.isinf(value), nulls=True
             )
-        if isinstance(node, (ops.Abs, ops.Negate)) and node.dtype.is_integer():
-            kernel = pc.abs_checked if isinstance(node, ops.Abs) else pc.negate_checked
-            return unary(node.arg, lambda value: kernel(pa.scalar(value, type=pa.int64())).as_py())
-        if isinstance(node, ops.Abs):
-            return unary(
-                node.arg,
-                lambda value: (
-                    value.copy_abs()
-                    if isinstance(value, Decimal)
-                    else abs(float(str(value)))
-                    if isinstance(value, float)
-                    else abs(int(str(value)))
-                ),
-            )
-        if isinstance(node, ops.Negate):
-            return unary(
-                node.arg,
-                lambda value: (
-                    value.copy_negate()
-                    if isinstance(value, Decimal)
-                    else -float(str(value))
-                    if isinstance(value, float)
-                    else -int(str(value))
-                ),
-            )
+        if isinstance(node, (ops.Abs, ops.Negate)):
+            source = visit(node.arg)
+            return source.abs() if isinstance(node, ops.Abs) else -source
         if isinstance(node, (ops.Sqrt, ops.Exp, ops.Ln, ops.Log2, ops.Log10)):
-            functions = {
-                ops.Sqrt: math.sqrt,
-                ops.Exp: math.exp,
-                ops.Ln: math.log,
-                ops.Log2: math.log2,
-                ops.Log10: math.log10,
-            }
-            return unary(node.arg, lambda value: functions[type(node)](float(str(value))))
-        if isinstance(node, ops.Log):
-            if node.base is None:
-                return unary(node.arg, lambda value: math.log(float(str(value))))
-            return binary(
-                node.arg,
-                node.base,
-                lambda value, base: math.log(float(str(value)), float(str(base))),
+            function = {
+                ops.Sqrt: pc.sqrt,
+                ops.Exp: pc.exp,
+                ops.Ln: pc.ln,
+                ops.Log2: pc.log2,
+                ops.Log10: pc.log10,
+            }[type(node)]
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(function(pa.array(visit(node.arg)))), index=index
             )
+        if isinstance(node, ops.Log):
+            source = pa.array(visit(node.arg))
+            result = (
+                pc.ln(source) if node.base is None else pc.logb(source, pa.array(visit(node.base)))
+            )
+            return pd.Series(pd.arrays.ArrowExtensionArray(result), index=index)
         if isinstance(node, ops.Round):
+            digits = int(node.digits.value) if isinstance(node.digits, ops.Literal) else 0
 
-            def rounded(value: object, digits: object) -> object:
-                number = Decimal(str(value)).quantize(
-                    Decimal(1).scaleb(-int(str(digits))), rounding=ROUND_HALF_UP
-                )
-                if node.dtype.is_integer():
-                    return int(number)
-                return float(number) if node.dtype.is_floating() else number
+            def rounded(value: object) -> object:
+                if not isinstance(value, (int, float, Decimal)):
+                    raise TypeError("round requires a numeric value")
+                return round(value, digits)
 
-            return binary(node.arg, node.digits, rounded)
+            return unary(node.arg, rounded)
         if isinstance(node, ops.NullIf):
             left, right = visit(node.arg), visit(node.null_if_expr)
             return left.mask((left == right).fillna(False), None)

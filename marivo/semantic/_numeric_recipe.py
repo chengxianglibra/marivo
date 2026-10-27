@@ -51,6 +51,8 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
         if type(item) is Variable:
             return table[item.name]
         if type(item) is Just:
+            if type(item.value) is int and 2**63 <= item.value <= 2**64 - 1:
+                return ibis.literal(item.value, type="decimal(20,0)")
             return item.value
         if type(item) is Sequence:
             return tuple(bind(value) for value in item.values)
@@ -167,7 +169,7 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
         safe = violation.ifelse(ibis.null().cast(argument.type()), argument)
         checks = [
             *item.checks,
-            NumericCheck(violation, "valid finite numeric function inputs", type(node).__name__),
+            NumericCheck(violation, "valid numeric function domains", type(node).__name__),
         ]
         kwargs: dict[str, object] = {"arg": safe.op()}
         if isinstance(node, ops.Log) and node.base is not None:
@@ -182,19 +184,9 @@ def _lower_operation(node: ops.Value, slots: Mapping[str, NumericValue]) -> Nume
             )
         value = node.copy(**kwargs).to_expr()
         return NumericValue(value, tuple(checks))
-    # These operations have no eager invalid-value behavior. Cast is handled with
-    # TryCast so invalid demanded inputs become a structured check, not a backend exception.
     if isinstance(node, ops.Cast):
         item = visit(node.arg)
-        value = item.value.try_cast(node.to)
-        bad = item.value.notnull() & value.isnull()
-        return NumericValue(
-            value,
-            (
-                *item.checks,
-                NumericCheck(bad, f"values castable to {node.to}", "cast"),
-            ),
-        )
+        return NumericValue(item.value.cast(node.to), item.checks)
     allowed = (
         ops.Abs,
         ops.Exp,

@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -108,7 +107,7 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
             )
             frame = query.compute().to_pandas()
             if selected is source:
-                assert frame["total"].iloc[0] == 1.0
+                assert frame["total"].iloc[0] == 0.0
                 assert frame["decimal"].iloc[0] == Decimal("0.30")
             else:
                 for name in ("total", "decimal"):
@@ -161,6 +160,5 @@ def test_local_cell_sum_retains_numeric_errors_before_top_zero(
         else:
             # This Frame statistic executes locally after its source read.
             # Its finite-state policy is independent of native source SUM.
-            with pytest.raises(MaterializationError, match="finite current-row statistic"):
-                query.compute()
+            assert query.compute().to_pandas().empty
         assert trace.uploaded_key_rows == []

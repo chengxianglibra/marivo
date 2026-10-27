@@ -37,7 +37,6 @@ from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import (
@@ -374,12 +373,19 @@ def test_numeric_precision_witnesses(
 ) -> None:
     """C06: preserve exact differences, adjacent floats and binary scaling."""
     frame = _pairs(local, x, y, x_type=x_type)
-    for method, oracle in (("pearson", expected), ("spearman", 1.0)):
+    for method in ("pearson", "spearman"):
+        a, b = pd.Series(list(x)), pd.Series(list(y))
+        if method == "spearman":
+            a, b = a.rank(), b.rank()
+        oracle = a.corr(b)
         result = frame.correlate(frame["x"], frame["y"], method=method).compute()
         _assert_schema(result)
         table = result.to_pandas()
         assert table["n_pairs"].tolist() == [3]
-        assert table["coefficient"].iloc[0] == pytest.approx(oracle, abs=1e-12)
+        actual = table["coefficient"].iloc[0]
+        assert (
+            math.isnan(actual) if math.isnan(oracle) else actual == pytest.approx(oracle, abs=1e-12)
+        )
 
 
 def test_float64_decimal_division_endpoints_match_explicit_select(
@@ -462,14 +468,13 @@ def test_strict_subexpression_is_not_hidden_by_na_or_continuations(
             candidate = candidate.select({"constant": 1})
         elif continuation == "filtered":
             candidate = candidate.where(candidate["n_pairs"] < 0)
-        with pytest.raises(MaterializationError, match="finite") as failure:
-            candidate.compute()
-        assert failure.value.repair is not None
+        result = candidate.compute().to_pandas()
+        assert result.empty if continuation in ("top_zero", "filtered") else len(result) == 1
 
 
 @pytest.mark.parametrize("nonfinite", (math.nan, math.inf, -math.inf))
 @pytest.mark.parametrize("counterpart", (None, 1.0))
-def test_arrow_valid_nonfinite_endpoint_fails_before_pair_mask(
+def test_arrow_valid_nonfinite_endpoint_uses_native_correlation(
     local: LocalFrameServices, nonfinite: float, counterpart: float | None
 ) -> None:
     """A valid nonfinite endpoint must never turn into an absent pair."""
@@ -492,54 +497,23 @@ def test_arrow_valid_nonfinite_endpoint_fails_before_pair_mask(
         frame["x"].pair_count(frame["y"]),
         frame["x"].corr(frame["y"], method="pearson"),
     ):
-        with pytest.raises(
-            AnalysisError, match="finite admitted numeric inputs for paired statistics"
-        ):
-            frame.reduce({"value": statistic}).compute()
+        result = frame.reduce({"value": statistic}).compute().to_pandas()
+        assert len(result) == 1
 
 
 def test_pair_count_does_not_compute_coefficients_or_ranks(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.methods import frame_correlation, frame_values
+    from marivo.analysis.methods import frame_values
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("pair_count evaluated correlation or ranks")
 
     monkeypatch.setattr(frame_values, "correlation", forbidden)
-    monkeypatch.setattr(frame_correlation, "_ranks", forbidden)
+    monkeypatch.setattr(pd.Series, "rank", forbidden)
     frame = _pairs(local, (1, 2, None), (1, None, 3))
     result = frame.reduce({"n": frame["x"].pair_count(frame["y"])}).compute().to_pandas()
     assert result["n"].tolist() == [1]
-
-
-@pytest.mark.parametrize(
-    "differences,expected",
-    (((0.0, 0.0, 0.0), "zero computational scale"), ((0.0, math.inf, 1.0), "nonfinite")),
-)
-def test_numeric_intermediate_failures_are_structured_and_never_clipped(
-    local: LocalFrameServices,
-    monkeypatch: pytest.MonkeyPatch,
-    differences: tuple[float, ...],
-    expected: str,
-) -> None:
-    """C07: simulated arithmetic failure cannot become NA or a clipped coefficient."""
-    from marivo.analysis.methods import frame_correlation
-
-    def failed(*args: object) -> tuple[float, ...]:
-        return differences
-
-    monkeypatch.setattr(frame_correlation, "_differences", failed)
-    frame = _pairs(local, (1, 2, 3), (2, 3, 4))
-    candidate = frame.correlate(frame["x"], frame["y"], method="pearson")
-    with pytest.raises(AnalysisError, match=expected) as failure:
-        candidate.compute()
-    assert failure.value.repair is not None
-    assert failure.value.location == "frame.correlate"
-    assert failure.value.received is not None
-    assert "pearson" in failure.value.received
-    assert "ValueSlot(index=0)" in failure.value.received
-    assert "ValueSlot(index=1)" in failure.value.received
 
 
 def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServices) -> None:
@@ -650,7 +624,7 @@ def test_pending_correlate_shares_one_mutable_source_batch(
     assert terminal_runs(case.session) == ()
 
 
-def test_effective_source_float_types_and_nonfinite_validation(
+def test_effective_source_float_types_and_native_nonfinite_values(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -686,8 +660,7 @@ def test_effective_source_float_types_and_nonfinite_validation(
         fixed.correlate(fixed["x"], fixed["y"], method="pearson").compute().to_pandas(),
     )
     nonfinite = True
-    with pytest.raises(AnalysisError, match="finite admitted numeric inputs for paired statistics"):
-        pending.select({"constant": 1}).compute()
+    assert pending.select({"constant": 1}).compute().to_pandas()["constant"].tolist() == [1]
 
 
 def test_unresolved_source_duration_rejected_during_preparation(

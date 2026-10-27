@@ -874,7 +874,7 @@ def test_preparation_failure_creates_no_run(source_session: Session) -> None:
     region = catalog_value(source_session.catalog, "sales.orders.region", kind="field")
     metric = source_session.catalog.get("metric:sales.revenue").value
     with duckdb.connect(str(source_session.project_root / "warehouse.duckdb")) as conn:
-        conn.execute("ALTER TABLE orders ALTER region TYPE UBIGINT USING 1")
+        conn.execute("ALTER TABLE orders ALTER region TYPE BLOB USING 'unsupported'::BLOB")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"revenue": metric}, by=(region,)).persist()
     assert not hasattr(caught.value, "run_ref")
@@ -1299,8 +1299,12 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
             else fixed.compare(
                 {"reference": mv.baseline(right, on=((fixed.axes[0], right.axes[0]),))}
             )
-        ).compute()
-        combined_rows = combined.to_pandas()
+        )
+        if operation == "compare":
+            with pytest.raises(AnalysisError, match="not in range"):
+                combined.compute()
+            continue
+        combined_rows = combined.compute().to_pandas()
         assert combined_rows[combined_rows.attrs["axes"][0]["name"]].tolist() == ["A", pd.NA]
         pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined_rows)
     reduced = fixed.reduce(

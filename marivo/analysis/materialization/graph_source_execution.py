@@ -395,11 +395,15 @@ def qualify_original_source(
     return None
 
 
-def _preparation_error(expected: str, received: str) -> MaterializationError:
+def _preparation_error(
+    expected: str,
+    received: str,
+    repair: str = "Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
+) -> MaterializationError:
     return MaterializationError(
         expected=expected,
         received=received,
-        repair="Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
+        repair=repair,
         stage="execute_preparation",
         help_target="analysis_frame.compute",
     )
@@ -429,6 +433,7 @@ def _validate_timestamp_precision(field: pa.Field, path: str) -> None:
         raise _preparation_error(
             f"{path}: a lossless timestamp[{original_unit.decode('ascii')}] source carrier",
             f"{path}: {physical} loses source precision",
+            f"Expose {path} through a source or Entity projection retaining the original timestamp unit; do not truncate identity values. No business row was read.",
         )
 
 
@@ -458,13 +463,18 @@ def admit_source_type(field: pa.Field, path: str) -> DataType:
         return ScalarDataType("date")
     if pa.types.is_decimal128(physical):
         return DecimalDataType(physical.precision, physical.scale)
-    if pa.types.is_timestamp(physical) and physical.tz is not None:
+    if pa.types.is_timestamp(physical):
         return TimestampDataType(physical.unit, physical.tz)
     if pa.types.is_duration(physical):
         return DurationDataType(physical.unit)
     raise _preparation_error(
         f"{path}: a column type in the supported stage type families",
         f"{path}: {physical}",
+        (
+            f"Expose {path} as Decimal(20,0) in the source view or Entity body with raw[{path.rsplit('.', 1)[-1]!r}].cast('decimal(20,0)'); UInt64 requires an exact Decimal carrier, never float or unchecked int64. No business row was read."
+            if physical == pa.uint64()
+            else f"Project {path} to a supported scalar type in the Entity body using an inline cast such as raw['column'].cast('string'), preserving its identity, time and unit meaning. Read marivo.help('semantic.entity.define'). No business row was read."
+        ),
     )
 
 
@@ -707,7 +717,7 @@ def prepare_query_sources(
                     reject(
                         "compatible complete Frame and explicit target physical key types",
                         repr((columns[name].dtype, expected.dtype)),
-                        "Select an axis with the target's exact physical type, Duration unit and timestamp interpretation.",
+                        "Select an axis with the target's exact physical type, Duration unit and timestamp interpretation. Explicitly unify naive and aware identity values in the Entity output; TimeDimension parse does not rewrite primary_key.",
                         "frame.population",
                     )
     observation = graph.signature.observation
@@ -1383,7 +1393,7 @@ def read_stage(
         raise MaterializationError(
             expected="native Ibis pandas values compatible with the compiled expression types",
             received=f"{source.provider.name}: {type(error).__name__}: {error}",
-            repair="Use a method and value range supported by the backend's native Ibis pandas conversion, or author an explicit business-specific expression.",
+            repair="Inspect the native Ibis conversion error and result dtype. If a wider numeric carrier is intended, author .cast(ibis.dtype('decimal(38,0)')) in the Entity expression before reduction, or rescale inputs to the intended unit. Retry frame.compute(); Marivo does not widen or switch kernels automatically.",
             stage="source_conversion",
             help_target="analysis_frame.compute",
         ) from error
@@ -1395,7 +1405,7 @@ def read_stage(
         raise MaterializationError(
             expected="successful native source execution for the compiled expression",
             received=f"{source.provider.name}: {type(error).__name__}: {error}",
-            repair="Inspect the native backend failure and correct the input range or expression. Retry frame.compute(); source failures do not switch execution paths.",
+            repair="Inspect the native backend failure and correct the input range or expression. If a wider carrier is intended, author .cast(ibis.dtype('decimal(38,0)')) in the Entity expression before reduction, or rescale inputs to the intended unit. Decimal transport supports precision <=38. Retry frame.compute(); source failures do not switch execution paths.",
             stage="source_execution",
             help_target="analysis_frame.compute",
         ) from error

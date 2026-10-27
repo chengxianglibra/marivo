@@ -533,8 +533,7 @@ def test_compare_nonfinite_endpoint_is_not_hidden_by_null_counterpart(
     left, right = typed([float("nan"), 2.0]), typed([None, 1.0])
     for current, baseline in ((left, right), (right, left)):
         compared = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
-        with pytest.raises((AnalysisError, SemanticExpressionError), match="finite numeric inputs"):
-            compared.select({"constant": 1}).compute()
+        assert compared.select({"constant": 1}).compute().to_pandas()["constant"].tolist() == [1, 1]
 
 
 @pytest.mark.parametrize(

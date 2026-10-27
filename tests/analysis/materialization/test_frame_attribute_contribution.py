@@ -541,7 +541,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
     assert error.location == "dataset.numeric_value"
     assert error.attribute_context is not None
     assert {use.metric for use in error.attribute_context.uses} == {"bad"}
-    assert {use.endpoint for use in error.attribute_context.uses} == {"left"}
+    assert {use.endpoint for use in error.attribute_context.uses} == {"left", "right"}
     fiber = error.attribute_context.fiber
     assert isinstance(fiber, AttributeFineFiber)
     assert fiber.parent == ()
@@ -640,7 +640,7 @@ def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: P
         .compute()
         .to_pandas()
     )
-    assert rows["contribution.q"].tolist() == [Decimal("60.0"), Decimal("-20.0")]
+    assert rows["contribution.q"].tolist() == [Decimal("60.02"), Decimal("-20.01")]
     assert all(type(value) is Decimal for value in rows["contribution.q"])
 
 

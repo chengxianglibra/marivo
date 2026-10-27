@@ -24,6 +24,31 @@ The operators below follow this order. Their `by` arguments have different owner
 | `over` / `share` | What is each partition’s total or each row’s share? |
 | `read` / `where` / `select` / `top` | Which attributes, rows and values should I inspect? |
 
+## Native numeric execution
+
+Source and local calculations retain their actual numeric kernel's overflow,
+rounding, Infinity, NaN and error behavior. Marivo adds no overflow precheck,
+finite-value scan, protective widening or retry with another type/engine.
+Local integers/floats use their pandas/Arrow carrier; existing Decimal scalar
+expressions use the native Decimal context. Local int64 SUM stays int64; it can
+wrap. Native errors still fail compute. Results from different backends or dtypes
+need not agree at numeric boundaries.
+
+NULL validity, empty/all-NULL rules, zero-division masking, identity and units
+remain governed by Marivo. Native NaN is distinct from NULL. Frame/Store schema
+and lossless transport checks remain; unsupported output types fail rather than
+being silently narrowed. Explicit casts and source result-type bindings retain
+their owning purpose. Help: `analysis.column.sum`, `analysis.analysis_frame.compute`.
+
+
+
+Integer source SUM also adds no protective Decimal input cast. Native Ibis
+transport may reject a wider backend result. When the business requires a wider
+carrier, author an explicit `.cast(ibis.dtype("decimal(38,0)"))` in the Entity
+expression before reduction; the chosen Decimal arithmetic remains kernel-owned.
+Dedicated quantile output finishing, Duration ticks and Attribute closure/finite
+method metadata retain their method and storage contracts.
+
 ## Population — choose the complete domain
 
 A Population is a finite set of complete coordinate tuples, not just a group of people. Use `session.members(...)` for source identities, `mv.coordinates(...)` for requested keys, and `session.population_from(...)` for selected Frame keys. `by=P` specifies the output domain; `where=mv.in_population(P)` restricts source contributions. These choices do not replace one another.

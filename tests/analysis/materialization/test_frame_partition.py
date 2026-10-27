@@ -302,13 +302,13 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert result.to_pandas()["rows"].tolist() == [1, 1]
 
 
-def test_over_preserves_wide_integer_sum_type(local: LocalFrameServices) -> None:
+def test_over_preserves_native_integer_sum_type(local: LocalFrameServices) -> None:
     frame = _frame(local, (2**63 - 1, 1))
     result = frame.select({"total": frame.over(frame["x"].sum())}).compute()
     assert isinstance(result._schema, DataSchema)
-    assert result._schema.values[0].dtype == DecimalDataType(38, 0)
+    assert result._schema.values[0].dtype == ScalarDataType("int64")
     assert result._schema.values[0].unit == "USD"
-    assert result.to_pandas()["total"].tolist() == [Decimal(2**63), Decimal(2**63)]
+    assert result.to_pandas()["total"].tolist() == [-(2**63), -(2**63)]
 
 
 def test_share_along_subset_uses_complement_partitions_and_normalizes_axis_order(
@@ -505,9 +505,9 @@ def test_partition_cache_distinguishes_literal_carriers(local: LocalFrameService
     )
     assert rows["integer"].tolist() == [Decimal(6), Decimal(6)]
     assert rows["float"].tolist() == [6.0, 6.0]
-    assert "decimal" in str(rows["integer"].dtype)
+    assert "int64" in str(rows["integer"].dtype)
     assert "double" in str(rows["float"].dtype)
-    assert "decimal" in str(rows["decimal"].dtype)
+    assert "decimal128(38, 0)" in str(rows["decimal"].dtype)
 
 
 def test_top_zero_checks_score_without_sorting(local: LocalFrameServices) -> None:

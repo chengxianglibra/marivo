@@ -11,6 +11,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -202,7 +203,7 @@ def test_postgres_original_period_binding_preserves_selected_input(
     assert trace.returned_rows == [1]
 
 
-def test_postgres_original_parent_sum_widens_before_publication(
+def test_postgres_native_sum_transport_failure_precedes_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -223,12 +224,13 @@ def test_postgres_original_parent_sum_widens_before_publication(
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         query = session.observe({"value": amount.sum()}, by=(category,))
         before = publication_counts(session)
-        assert query.compute().to_pandas()["value"].tolist() == [2**63, -(2**63)]
+        with pytest.raises(MaterializationError, match="tried to convert to int64"):
+            query.compute()
         trace = capture_source(monkeypatch)
-        saved = query.persist()
-        assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
-        assert publication_counts(session) != before
-        assert trace.returned_rows == [2]
+        with pytest.raises(MaterializationError, match="tried to convert to int64"):
+            query.persist()
+        assert publication_counts(session) == before
+        assert trace.returned_rows == []
         assert trace.uploaded_key_rows == []
 
 
@@ -451,8 +453,8 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert actual == native == expected
         for name in fixed.output_names:
             values = rows[name]
-            assert values.dtype == pd.ArrowDtype(pa.decimal128(38, 0))
-            assert all(isinstance(value, Decimal) for value in values.dropna())
+            assert values.dtype == pd.ArrowDtype(pa.int64())
+            assert all(isinstance(value, int) for value in values.dropna())
         for name in fixed.presence_names:
             presence = rows[name]
             assert pd.api.types.is_bool_dtype(presence.dtype)
@@ -467,7 +469,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         for column in value_columns:
             assert isinstance(column, dict)
             assert (column["dtype"], column["nullable"], column["unit"]) == (
-                {"precision": 38, "scale": 0},
+                {"name": "int64"},
                 True,
                 None,
             )
@@ -566,8 +568,14 @@ def _native_scalar(
         expression = table.amount.median()
     # The oracle is also consumed by MySQL cases; submit its native dialect
     # through the actual fixture backend rather than a PostgreSQL connection.
-    with case.session._backend.raw_sql(case.session._backend.compile(expression)) as reader:
-        row = reader.fetchone()
+    if case.session.provider.name == "clickhouse":
+        native_rows = case.session._backend.raw_sql(
+            case.session._backend.compile(expression)
+        ).result_rows
+        row = native_rows[0] if native_rows else None
+    else:
+        with case.session._backend.raw_sql(case.session._backend.compile(expression)) as reader:
+            row = reader.fetchone()
     assert row is not None and len(row) == 1
     result = row[0]
     if result is None:

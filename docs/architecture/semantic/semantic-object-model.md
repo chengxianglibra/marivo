@@ -70,6 +70,21 @@ execution first needs them. Loading remains source-I/O free and checks
 projection, duplicate-key declarations, and identity/version overlap without
 requiring authored physical type facts.
 
+Naive timestamp identity retains exact wall-clock values and source precision
+without a timezone. Session/reader timezones and TimeDimension `parse` do not
+rewrite `primary_key`. An aware and a naive identity require explicit compatible
+Entity outputs before matching. Repeated DST clocks require an offset/UTC source
+or an additional identity component if they identify different instances.
+UInt64 Entity outputs and consumed fields use exact Decimal(20,0) in Analysis.
+Entity body calculations retain native Ibis semantics: cast operands before
+arithmetic when unsigned overflow is possible.
+
+Entity bodies admit the injected Table, inline literals and deterministic public
+symbols from the `ibis` root module (excluding clock/random symbols), including
+`ibis.dtype`; submodules such as `ibis.expr.datatypes` are not body symbols.
+Use `raw['value'].cast('decimal(20,0)')` for the complete UInt64 range.
+`raw['value'].cast('int64')` is valid only when values fit signed int64.
+
 ```python
 warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(

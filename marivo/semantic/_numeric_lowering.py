@@ -57,6 +57,13 @@ def numeric_failure(expected: str, received: str) -> NoReturn:
     action = "Repair the input values to satisfy the expected numeric/type constraints, then retry."
     if "non-NA" in expected:
         action = "Supply non-NA inputs, or explicitly select nulls='ignore' on this reducer."
+    elif "native" in expected or "demanded numeric" in expected:
+        action = (
+            "Inspect the native numeric error and operand dtypes. If a wider carrier is intended, "
+            "author .cast(ibis.dtype('decimal(38,0)')) in the Entity expression before reduction, "
+            "or rescale the inputs to the intended unit. Rebuild the expression and retry; "
+            "Marivo does not widen or switch kernels automatically."
+        )
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_VALUE,
         message="The numeric operation cannot produce an admitted nullable value.",
@@ -112,10 +119,9 @@ def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
             )
         if node.ref.ref.kind is SemanticKind.MEASURE and not value.type().is_numeric():
             numeric_failure(f"a numeric physical type for {node.ref.ref.path}", str(value.type()))
-        if value.type().is_integer() and value.type().nbytes < 8:
-            value = value.cast("int64")
-        elif value.type().is_floating() and value.type().nbytes < 8:
-            value = value.cast("float64")
+        from marivo._numeric_types import exact_unsigned
+
+        value = exact_unsigned(value)
         return NumericValue(value)
     if isinstance(node, MeasureAssertion):
         return lower_row(node.operand, fields)
@@ -169,9 +175,6 @@ def force_cast(value: ir.Value, dtype: dt.DataType) -> ir.Value:
 
 def _source_sum(value: ir.Value) -> ir.Value:
     dtype = value.type()
-    if dtype.is_integer():
-        value = value.cast("decimal(38,0)")
-        dtype = value.type()
     result = value.sum()
     return (
         force_cast(result, dt.Decimal(38, dtype.scale or 0))
@@ -188,6 +191,8 @@ def native_mean(value: ir.Value) -> ir.Value:
         value = force_cast(value, value.type().copy(nullable=True))
     result = value.mean()
     if value.type().is_integer() or result.type().is_decimal():
+        # Native AVG may return Decimal for integers (PostgreSQL), or Float64
+        # for Decimals (ClickHouse). Bind Ibis's declared transport result type.
         result = force_cast(result, result.type())
     return result
 

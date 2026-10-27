@@ -373,10 +373,13 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
             .to_pandas()
         )
 
-    optimized = execute()
+    # Both inverse-filter paths retain native Ibis's int64 transport boundary.
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="Integer value out of bounds"):
+        execute()
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(optimized, previous)
-    assert optimized["value"].iloc[0] == 2 * (2**63 - 1)
+        with pytest.raises(AnalysisError, match="Integer value out of bounds"):
+            execute()
     assert terminal_runs(case.session) == ()

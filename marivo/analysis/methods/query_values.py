@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import math
 import operator
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, localcontext
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from marivo._definition.query import (
     CoordinateSlot,
@@ -36,7 +34,7 @@ from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, S
 from marivo.analysis.core.data_validation import stage_arrow_type, typed_null_mask
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
-from marivo.analysis.methods.numeric_state import checked_sum, finish_division, sum_values
+from marivo.analysis.methods.numeric_state import finish_division, sum_values
 from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -178,7 +176,9 @@ def expression_series(
             if type(expression.value) is int and not -(2**63) <= expression.value < 2**63
             else expression.value
         )
-        return pd.Series([literal] * len(frame), dtype=object)
+        if isinstance(literal, (datetime, date, timedelta, pd.Timestamp, pd.Timedelta)):
+            return pd.Series([literal] * len(frame), dtype=object)
+        return pd.Series(pd.arrays.ArrowExtensionArray(pa.array([literal] * len(frame))))
     if isinstance(expression, ValueUnary):
         values = expression_series(expression.operand, frame, program, evaluation=evaluation)
         missing = typed_null_mask(values)
@@ -209,30 +209,7 @@ def expression_series(
                 pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
                 index=values.index,
             )
-        if all(
-            absent or isinstance(value, int) for value, absent in zip(values, missing, strict=True)
-        ):
-            kernel = pc.negate_checked if expression.operation == "neg" else pc.abs_checked
-            return pd.Series(
-                pd.arrays.ArrowExtensionArray(
-                    kernel(pa.array(values, type=pa.int64(), from_pandas=True))
-                )
-            )
-        return pd.Series(
-            [
-                None
-                if absent
-                else value.copy_negate()
-                if isinstance(value, Decimal) and expression.operation == "neg"
-                else value.copy_abs()
-                if isinstance(value, Decimal)
-                else -value
-                if expression.operation == "neg"
-                else abs(value)
-                for value, absent in zip(values, missing, strict=True)
-            ],
-            dtype=object,
-        )
+        return -values if expression.operation == "neg" else values.abs()
     left = expression_series(expression.left, frame, program, evaluation=evaluation)
     right = expression_series(expression.right, frame, program, evaluation=evaluation)
     if expression.operation in ("add", "sub", "mul", "div"):
@@ -260,35 +237,6 @@ def expression_series(
             left,
             right,
         )
-        import ibis
-
-        from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
-        from marivo.analysis.methods.numeric_state import finish_decimal, finish_float64
-
-        if isinstance(program, FrameProgram):
-            from marivo.analysis.core.frame_expression import expression_type
-
-            target = expression_type(program.input_schema, expression)
-        else:
-            columns = (
-                program.input_layout.values
-                if program.input_layout is not None
-                else tuple(c for c in program.columns if c.slot_id not in program.keys)
-            )
-            placeholders = tuple(ibis.param(ibis_type(c.dtype)) for c in columns)
-            by_slot = {c.slot_id: c for c in program.columns}
-            coordinates = tuple(
-                ibis.param(ibis_type(by_slot[group[0]].dtype)) for group in program.key_groups
-            )
-            target = data_type(
-                expression_value(
-                    expression, placeholders, coordinates, for_type_inference=True
-                ).type()
-            )
-        if isinstance(target, DecimalDataType):
-            return finish_decimal(computed, target.precision, target.scale)
-        if target == ScalarDataType("float64"):
-            return finish_float64(computed, "Column arithmetic")
         return computed
     if expression.operation in ("and", "or"):
         a, b = left.astype("boolean"), right.astype("boolean")
@@ -303,8 +251,7 @@ def expression_series(
     if _has_temporal_dtype(left) or _has_temporal_dtype(right):
         left, right = _temporal_comparison_values(left), _temporal_comparison_values(right)
     result: list[object] = []
-    with localcontext() as context:
-        context.prec = 120
+    with localcontext():
         for a, b, absent in zip(left, right, missing, strict=True):
             if absent:
                 result.append(None)
@@ -323,11 +270,7 @@ def expression_series(
             try:
                 value = _binary(expression.operation, a, b)
             except (TypeError, ValueError, ZeroDivisionError, OverflowError) as error:
-                numeric_failure("valid finite result arithmetic", str(error))
-            if (isinstance(value, float) and not math.isfinite(value)) or (
-                isinstance(value, Decimal) and not value.is_finite()
-            ):
-                numeric_failure("finite result arithmetic", repr(value))
+                numeric_failure("native result arithmetic", str(error))
             result.append(value)
     return pd.Series(result, dtype=object)
 
@@ -488,9 +431,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                                 else None
                             )
                         else:
-                            total = (sum_values if statistic.method == "sum" else checked_sum)(
-                                active, stage_arrow_type(input_type)
-                            )
+                            total = sum_values(active, stage_arrow_type(input_type))
                             value = (
                                 total
                                 if active and statistic.method == "sum"
@@ -505,7 +446,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                                 else None
                             )
                     except (ValueError, OverflowError) as error:
-                        numeric_failure("a qualified finite value statistic", str(error))
+                        numeric_failure("a native value statistic", str(error))
                 row[f"value.{index}"] = value
             rows.append(row)
         result = pd.DataFrame(

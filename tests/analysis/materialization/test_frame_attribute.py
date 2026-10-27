@@ -638,7 +638,7 @@ def test_native_decimal_investigation_preserves_finisher_and_parent_scope(
     rows = report.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["east", "east", "east"]
     assert set(rows.iloc[:, 1].dropna()) == {"A", "B"}
-    assert rows["reference.absolute.q"].dropna().tolist() == [Decimal(60), Decimal(-20)]
+    assert rows["reference.absolute.q"].dropna().tolist() == [Decimal("60.2"), Decimal("-19.8")]
     assert report.method_facts == ()
     assert isinstance(report._schema, DataSchema)
     assert report._schema.values[0].dtype == DecimalDataType(38, 1)

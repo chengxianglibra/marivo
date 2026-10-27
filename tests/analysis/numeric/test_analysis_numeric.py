@@ -786,7 +786,7 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
     metric = amount.mean() if case_kind == "large_mean" else amount.sum()
     customer = catalog_value(case.session.catalog, "sales.order.customer_id", kind="field")
     logical = case.session.observe({"boundary": metric}, by=(customer,))
-    if case_kind == "calendar":
+    if case_kind in {"calendar", "overflow"}:
         with pytest.raises(AnalysisError):
             logical.compute()
     else:
@@ -884,9 +884,13 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
     )
     members = session.members(session.catalog.get("entity:sales.customer").value)
     original = session.observe({"value": first + small - cancel}, by=members)
-    # Integer SUM outputs are Decimal, so this formerly overflowing int64 child
-    # is now representable without changing the equation.
-    logical = original
+    if not floating:
+        # Pandas Arrow integer addition raises at its native intermediate boundary.
+        with pytest.raises(AnalysisError, match="overflow"):
+            original.compute()
+    logical = (
+        original if floating else session.observe({"value": first - cancel + small}, by=members)
+    )
     oracle = Fraction(large) + 1 - Fraction(large)
     for result in (
         logical.compute(),

@@ -271,7 +271,11 @@ class Entity(_ExpressionDisplay):
     """Resolved Entity: one contribution root with its complete primary key."""
 
     _exact_ref: ExactRef
-    primary_key: tuple[str, ...]
+    primary_key: tuple[str, ...] = field(
+        metadata={
+            "meaning": "Ordered complete Entity output identity. Naive timestamp keys preserve wall-clock values and exact precision without a timezone; TimeDimension parser and Session timezones do not rewrite identity. Naive and aware identities require explicit compatible representations before matching."
+        }
+    )
     _default_time: ExactRef | None
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 

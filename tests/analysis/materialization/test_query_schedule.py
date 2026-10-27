@@ -22,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     plan_query,
 )
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
@@ -203,7 +203,7 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     assert output.keys == ()
     assert output.table["value.0"].tolist() == [BIG]
     assert output.columns[-1].unit == "CNY"
-    assert str(output.table["value.0"].dtype) == "decimal128(38, 0)[pyarrow]"
+    assert str(output.table["value.0"].dtype) == "int64[pyarrow]"
     assert terminal_runs(session) == ()
 
 
@@ -261,7 +261,7 @@ def test_local_program_has_no_independent_kernel_selector() -> None:
     assert {field.name for field in fields(stage)}.isdisjoint({"kernel", "result", "fused_steps"})
 
 
-def test_lossy_source_type_rejects_before_any_business_read(
+def test_uint64_prepares_exact_decimal_before_any_business_read(
     warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = warehouse_session
@@ -272,12 +272,13 @@ def test_lossy_source_type_rejects_before_any_business_read(
         raise AssertionError("preparation submitted a business read")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with (
-        pytest.raises(MaterializationError) as caught,
-        open_query_sources(session._runtime.connection_service(), graph, session.catalog._state),
-    ):
-        pass
-    assert "sales.orders.code: uint64" in str(caught.value)
+    with open_query_sources(
+        session._runtime.connection_service(), graph, session.catalog._state
+    ) as prepared:
+        code_field = next(
+            field for field in prepared.schemas[0].fields if field.field == "sales.orders.code"
+        )
+        assert code_field.dtype == DecimalDataType(20, 0)
 
 
 def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:
@@ -690,7 +691,7 @@ def test_strict_row_division_cannot_be_hidden_by_a_predicate(
     default = _compute(session, {"row": (amount / weight).mean()})
     assert default.table["value.0"].iloc[0] == -10
     strict = weight.log()
-    with pytest.raises(SemanticExpressionError, match="valid finite numeric function inputs"):
+    with pytest.raises(SemanticExpressionError, match="valid numeric function domains"):
         _compute(
             session, {"sum": amount.sum()}, where=strict > 1000, by=(region,) if grouped else ()
         )
@@ -707,9 +708,8 @@ def test_native_infinity_and_widened_integer_results_do_not_publish_a_run(
     finally:
         connection.close()
     assert _compute(session, {"mean": weight.mean()}).table["value.0"].tolist() == [float("inf")]
-    assert _compute(session, {"wide": amount.sum() * (2**62)}).table["value.0"].tolist() == [
-        60 * (2**62)
-    ]
+    with pytest.raises(SemanticExpressionError, match="overflow"):
+        _compute(session, {"wide": amount.sum() * (2**62)})
     assert terminal_runs(session) == ()
 
 
@@ -753,11 +753,8 @@ def test_preview_rejects_sample_preparation_before_opening_source(
     ):
         session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
     monkeypatch.undo()
-    from decimal import Decimal
 
-    assert _compute(session, {"sample": metric}).table["value.0"].tolist() == [
-        Decimal("4503599627370503")
-    ]
+    assert _compute(session, {"sample": metric}).table["value.0"].tolist() == [4503599627370502.0]
 
 
 def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> None:
@@ -899,7 +896,9 @@ def test_native_zero_product_can_elide_integer_overflow(warehouse_session: Sessi
 
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
-    assert _compute(session, {"v": (amount.sum() * (2**62)) * 0}).table["value.0"].tolist() == [0]
+    # The local Arrow multiply is eager; source SQL may elide its zero product.
+    with pytest.raises(SemanticExpressionError, match="overflow"):
+        _compute(session, {"v": (amount.sum() * (2**62)) * 0})
     assert _compute(session, {"v": ((amount * (2**62)) * 0).sum()}).table["value.0"].tolist() == [0]
     metric = session.catalog.get("metric:sales.masked_overflow").value
     assert isinstance(metric, Deferred)

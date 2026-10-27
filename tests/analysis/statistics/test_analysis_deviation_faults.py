@@ -73,7 +73,7 @@ def test_terminal_reader_failure_stops_pandas_scoring_without_run(
         assert_clean(case.session, artifacts=1)
 
 
-def test_decimal_output_overflow_is_rejection_not_positive_qualification(
+def test_decimal_sum_uses_arrow_native_accumulator_and_storage_boundary(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -87,10 +87,11 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
     previous = query.persist()
     before = run_ids(case.session)
     assert plain(previous).value.tolist() == [maximum] * 11
-    with pytest.raises(AnalysisError):
-        query.reduce({"total": query["value"].sum()}).persist()
-    assert_clean(case.session, artifacts=1)
-    assert run_ids(case.session) == before
+    native = pa.compute.sum(pa.array([maximum] * 11, type=pa.decimal128(38, 0))).as_py()
+    total = query.reduce({"total": query["value"].sum()}).persist()
+    assert total.to_pandas()["total"].tolist() == [native]
+    assert_clean(case.session, artifacts=2)
+    assert len(run_ids(case.session)) == len(before) + 1
 
 
 def test_exported_subject_selection_does_not_mutate_saved_frame(

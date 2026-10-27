@@ -39,6 +39,11 @@ Schema preparation captures reader timezone and origin; execution rechecks engin
 authority before business reads. Fixed-data operations and cold recovery neither
 probe readers nor resolve the current host timezone.
 
+Naive Entity identity is a wall-clock value with no implicit timezone. Identity
+retains exact ticks independently of TimeDimension parsing and Session/reader
+authority; naive and aware keys cannot be implicitly matched. A TimeDimension
+projection over that same column has its own parser/reader interpretation.
+
 Civil dates do not shift; physical instants preserve their meaning. Logical
 kind and physical precision are checked independently. Unsupported exact
 conversion fails without truncation. Projected source values retain the backend's

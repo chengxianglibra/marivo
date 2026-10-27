@@ -470,7 +470,7 @@ def test_mixed_component_attribution_source_and_fixed(
 @pytest.mark.parametrize(
     "family", ["duration", "float_negation", "float_prefix", "decimal_negation"]
 )
-def test_linear_promotes_before_signed_intermediate_arithmetic(
+def test_linear_respects_native_intermediate_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, family: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -506,11 +506,10 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     members = session.members(session.catalog.get("entity:sales.facts").value)
     logical = session.observe({"value": metric}, by=mv.product(scope, members))
-    if family == "duration":
-        with pytest.raises(AnalysisError):
+    if family in {"float_negation", "float_prefix"}:
+        with pytest.raises(AnalysisError, match=r"range|overflow"):
             logical.compute()
-        metric = (total - cancel) + weights if family == "duration" else total + (weights - cancel)
-        logical = session.observe({"value": metric}, by=mv.product(scope, members))
+        return
     fixed = logical.persist()
     for result in (
         fixed,
@@ -575,7 +574,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
 
 
 @pytest.mark.parametrize("duration", [False, True])
-def test_linear_uses_widened_sums_and_keeps_duration_overflow(
+def test_linear_preserves_native_sum_and_duration_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, duration: bool
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -614,11 +613,8 @@ def test_linear_uses_widened_sums_and_keeps_duration_overflow(
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
         where=mv.in_population(session.members(session.catalog.get("entity:sales.facts").value)),
     )
-    if duration:
-        with pytest.raises(AnalysisError):
-            overall.compute()
-    else:
-        assert _value(overall.compute()).tolist() == [Decimal(2**63)]
+    with pytest.raises(AnalysisError, match=r"overflow|int64|Duration"):
+        overall.compute()
     assert fixed.to_pandas().equals(previous)
     assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(previous)
 

@@ -511,15 +511,8 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
         by=population,
     )
     assert query.compute().to_pandas()["value"].tolist() == [1e308, 1e308]
-    with pytest.raises(AnalysisError) as failure:
-        session.observe({"value": metric}, by=(calendar.scope,)).compute()
-    from marivo.semantic.errors import SemanticExpressionError
-
-    cause = failure.value.__cause__
-    assert isinstance(cause, SemanticExpressionError)
-    assert cause.expected == "finite values in the admitted numeric type"
-    assert cause.received is not None and "internal sample reduction" in cause.received
-    assert not hasattr(failure.value, "run_ref")
+    reduced = session.observe({"value": metric}, by=(calendar.scope,)).compute().to_pandas()
+    assert reduced["value"].tolist() == [float("inf")]
     assert terminal_runs(session) == ()
 
 

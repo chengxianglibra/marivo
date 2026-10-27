@@ -14,6 +14,13 @@ from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 def test_mixed_numeric_nullable_arithmetic_preserves_object_masks(decimal: bool) -> None:
     left = pd.Series([Decimal("10.0") if decimal else 10.0, 0.0, pd.NA], dtype=object)
     right = pd.Series([2.0, 0.0, 1.0], dtype=object)
+    if decimal:
+        from marivo.semantic.errors import SemanticExpressionError
+
+        # Native Python object arithmetic rejects Decimal/float mixing.
+        with pytest.raises(SemanticExpressionError, match="unsupported operand"):
+            nullable_arithmetic("divide", left, right)
+        return
     result = nullable_arithmetic("divide", left, right)
     assert result.iloc[0] == 5.0
     assert result.iloc[1] is pd.NA and result.iloc[2] is pd.NA

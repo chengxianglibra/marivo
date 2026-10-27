@@ -116,3 +116,12 @@ paired = correlation.to_pandas()
 assert paired["n_pairs"].tolist() == [5]
 assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
 ```
+
+## 数值内核边界
+
+本地 SUM 和 mean 使用 Arrow 原生累加与舍入。int64 SUM 可能回绕，原生算术内核也可能
+抛出溢出异常。Decimal 标量表达式使用原生 context。Pearson 使用 pandas 相关性算法；
+Spearman 先用 pandas 计算平均秩，再计算相关性。极端输入可能丢失低位或返回有效 NaN。
+Marivo 不额外扫描有限值，不做保护性加宽或重算。`n_pairs` 统计 Arrow validity 位图中
+两端均存在的配对数，不证明输入有限。NULL 和除零规则仍然适用；保存后的 Frame 区分
+有效 NaN/Infinity 与 NULL。

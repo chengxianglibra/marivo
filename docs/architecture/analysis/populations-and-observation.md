@@ -278,8 +278,8 @@ remain separate. A failed target fails the whole request without residual repair
 rebalancing, or automatic rereads.
 
 The report closure owner uses zero tolerance for proved integer/count paths,
-including integer SUM widened to Decimal through lossless add/subtract/integer
-scaling, and for final Duration ticks, including rounded Duration means. Other
+including integer SUM and exactly represented Decimal paths through
+add/subtract/integer scaling, and for final Duration ticks, including rounded Duration means. Other
 Decimal results use the common final scale's `(n + 1) / 2` quantum window. Float64
 uses stable summation and accepts an absolute residual up to the greater of 1%
 of the absolute fresh final target total and the existing endpoint-rounding and

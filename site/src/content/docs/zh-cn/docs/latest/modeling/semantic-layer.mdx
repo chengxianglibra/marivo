@@ -45,6 +45,32 @@ orders = ms.entity(
 
 复合身份必须包含全部组成部分，例如租户与订单号。执行需要时才从来源元数据读取物理类型，`ms.load()` 不读取业务行。身份声明是业务契约，不是当前数据符合契约的证明。快照或有效期版本选择需要精确时间边界，不会自动取“最新可用记录”。Help：`semantic.entity.define`。
 
+### 精确的时间身份与 UInt64 值
+
+`primary_key` 中的 naive timestamp 保留本地时间值和完整精度。TimeDimension 的
+parser 解释独立的时间投影，不修改该身份；Session 时区也不修改身份。naive 键只与
+解释兼容的 naive 身份匹配。如果夏令时回拨中的两次同名时刻代表不同实例，应提供
+UTC／带偏移的时间戳，或增加其他身份列。
+
+Analysis 在语义算术前将 UInt64 输入转换为 Decimal(20,0)，精确覆盖
+`0 .. 18446744073709551615`。后续溢出沿用实际数值内核的原生行为；精确值不得经过浮点传输。AVG、除法和近似归约继续遵守各自的精度规则。
+
+Entity body 接受注入的 Table、内联字面量及 `ibis` 根模块的确定性公开符号，包括
+`ibis.dtype`；`ibis.expr.datatypes` 等子模块不是受支持的 body 符号。
+需要显式转换来源时，在算术之前转换操作数：
+
+```python
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["ts"])
+def events(raw):
+    return raw.mutate(query_duration_ms=raw.query_duration_ms.cast("decimal(20,0)"))
+```
+
+全部值都在 signed int64 范围内时，也可使用 `.cast("int64")`。如果 reader 把 Decimal
+返回为 float，应改用保留 Decimal 的读取路径或来源视图；将舍入后的 float 转回
+Decimal 无法恢复精度。Help：`semantic.entity.define`、`semantic.timestamp`、
+`analysis.analysis_frame.compute`。
+
+
 ## Dimension：维度
 
 Dimension 是实体某个确定版本上的属性，用于分组、筛选、分类或声明关系键。类型与可空性由来源绑定或表达式决定。

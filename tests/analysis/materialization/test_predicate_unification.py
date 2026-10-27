@@ -215,7 +215,7 @@ def test_boolean_membership_does_not_shield_strict_checks(
     )
     member = mv.in_population(population)
     condition = member & risky if boolean_operator == "and" else member | risky
-    with pytest.raises(AnalysisError, match="valid finite numeric function inputs"):
+    with pytest.raises(AnalysisError, match="valid numeric function domains"):
         session.observe({"amount": amount.sum()}, where=condition).compute()
     with pytest.raises(AnalysisError, match="strict arithmetic checks"):
         session.frame(session.members(entity, where=condition)).compute()
@@ -294,9 +294,12 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
     invalid = source.select({"invalid": source["amount"] * 1e308})
     empty = invalid.top(0, by=invalid["invalid"])
     producer = session.population_from(empty, on=((empty.axes[0], entity),))
-    for condition in (mv.in_population(producer) | True, mv.in_population(producer) & False):
-        with pytest.raises(AnalysisError, match="finite numeric output"):
-            session.observe({"amount": amount.sum()}, where=condition).compute()
+    for condition, expected in (
+        (mv.in_population(producer) | True, [165]),
+        (mv.in_population(producer) & False, [0]),
+    ):
+        rows = session.observe({"amount": amount.sum()}, where=condition).compute().to_pandas()
+        assert rows["amount"].tolist() == expected
 
 
 def test_native_grammar_and_consumer_repairs(predicate_session: mv.Session) -> None:

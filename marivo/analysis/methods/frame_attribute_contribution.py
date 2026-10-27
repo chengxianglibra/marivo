@@ -437,12 +437,26 @@ def attribute_contribution_data(
         *,
         output: DataType | None = None,
     ) -> _Value:
-        contexts = tuple(
-            context(
-                current_name, rule, side, scope, index, operation, (fact(a, index), fact(b, index))
+        from marivo.analysis.core.model import CoreRuleError
+        from marivo.semantic.errors import SemanticExpressionError
+
+        captured_contexts: list[AttributeFailureContext] = []
+        for index in range(len(a.values)):
+            try:
+                observed = (fact(a, index), fact(b, index))
+            except CoreRuleError as error:
+                assert error.expected is not None and error.received is not None
+                try:
+                    numeric_failure(error.expected, error.received)
+                except SemanticExpressionError as failure:
+                    failure.details["attribute_context"] = context(
+                        current_name, rule, side, scope, index, operation
+                    )
+                    raise
+            captured_contexts.append(
+                context(current_name, rule, side, scope, index, operation, observed)
             )
-            for index in range(len(a.values))
-        )
+        contexts = tuple(captured_contexts)
         return _binary(operation, a, b, output=output, contexts=contexts)
 
     def native_value(

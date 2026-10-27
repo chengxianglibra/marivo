@@ -410,8 +410,10 @@ Physical descriptors live in [source.py](../../../marivo/datasource/source.py),
 ### Typed analysis numeric results
 
 Typed analysis retains this reader and supplies explicit Ibis result casts for
-bound Decimal arithmetic, Decimal mean and SUM. Integer SUM accumulates once in
-Decimal and returns Decimal(38,0); Decimal SUM fixes Decimal(38,input_scale).
+bound Decimal arithmetic, Decimal mean and SUM. Integer SUM uses native Ibis
+accumulation with an int64 declared output, without an input-widening cast;
+Decimal SUM fixes Decimal(38,input_scale). The native Ibis transport conversion
+may reject a backend result outside the declared carrier.
 Ordinary source integer/Decimal overflow follows the actual provider, including
 ClickHouse silent wrapping and native exceptions. A wrapped value that fits the
 output carrier can be committed and influence later formulas/selection; safe

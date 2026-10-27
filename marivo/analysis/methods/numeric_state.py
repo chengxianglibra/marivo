@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
-from datetime import timedelta
 from decimal import (
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
@@ -30,7 +28,7 @@ Number: TypeAlias = int | float | Decimal
 
 
 def _decimal_context() -> Context:
-    """Own local arithmetic policy without inheriting caller traps or bounds."""
+    """Finish method-declared Decimal outputs; ordinary arithmetic uses its kernel."""
     return Context(
         prec=120,
         rounding=ROUND_HALF_EVEN,
@@ -43,40 +41,12 @@ def _decimal_context() -> Context:
     )
 
 
-def checked_sum(values: Sequence[object], physical: pa.DataType) -> Number:
-    """Accumulate exactly (or compensated float64), then check the stored type."""
-    if pa.types.is_decimal(physical):
-        if any(type(value) is not Decimal or not value.is_finite() for value in values):
-            raise ValueError("Decimal state has a non-Decimal or nonfinite component")
-        with localcontext(_decimal_context()):
-            result = sum((value for value in values if isinstance(value, Decimal)), Decimal(0))
-        pa.scalar(result, type=physical)
-        return result
-    if pa.types.is_floating(physical):
-        if any(type(value) is not float or not math.isfinite(value) for value in values):
-            raise ValueError("float64 state has a non-float or nonfinite component")
-        floating = math.fsum(value for value in values if isinstance(value, float))
-        if not math.isfinite(floating):
-            raise OverflowError("float64 state overflow")
-        return floating
-    if physical != pa.int64() or any(type(value) is not int for value in values):
-        raise ValueError("state requires its declared int64/float64/Decimal components")
-    integer = sum(value for value in values if type(value) is int)
-    pa.scalar(integer, type=pa.int64())
-    return integer
-
-
 def sum_values(values: Sequence[object], physical: pa.DataType) -> Number:
-    """Run one primary sum into the declared widened numeric output."""
-    if physical == pa.int64():
-        if any(type(value) is not int for value in values):
-            raise ValueError("integer sum requires int64 components")
-        result = Decimal(sum(value for value in values if type(value) is int))
-        pa.scalar(result, type=pa.decimal128(38, 0))
+    """Use Arrow's native accumulator without widening or overflow checks."""
+    result: object = pc.sum(pa.array(values, type=physical), min_count=0).as_py()
+    if isinstance(result, (int, float, Decimal)):
         return result
-    if pa.types.is_decimal(physical):
-        physical = pa.decimal128(38, physical.scale)
-    return checked_sum(values, physical)
+    raise TypeError("native sum did not return a numeric scalar")
 
 
 def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
@@ -118,24 +88,7 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
             pa.scalar(value, type=pa.decimal128(output.precision, output.scale))
             return value
     value_float = float(numerator) / float(denominator)
-    if not math.isfinite(value_float):
-        raise OverflowError("float64 finish overflow")
     return value_float
-
-
-def _require_finite_values(values: pd.Series, missing: pd.Series, operation: str) -> None:
-    """Validate demanded numeric values before combining nullable input domains."""
-    from marivo.semantic._numeric_lowering import numeric_failure
-
-    if any(
-        not absent
-        and (
-            (isinstance(value, float) and not math.isfinite(value))
-            or (isinstance(value, Decimal) and not value.is_finite())
-        )
-        for value, absent in zip(values, missing, strict=True)
-    ):
-        numeric_failure("finite numeric inputs", operation)
 
 
 def nullable_arithmetic(
@@ -145,110 +98,69 @@ def nullable_arithmetic(
     *,
     exact_duration: bool = False,
 ) -> pd.Series:
-    """Compute over nullable pandas values, masking zeros before division.
+    """Delegate arithmetic to the actual carrier, retaining NULL and zero division."""
+    import operator
 
-    Integer add/subtract/multiply use Arrow checked kernels. Decimal work uses
-    the existing wide context; the bound consumer owns result convergence.
-    """
     from marivo.semantic._numeric_lowering import numeric_failure
 
     left_missing, right_missing = typed_null_mask(left), typed_null_mask(right)
-    a, b = left.astype(object), right.astype(object)
-    for values, missing in ((a, left_missing), (b, right_missing)):
-        _require_finite_values(values, missing, operation)
+    a, b = left, right
     if exact_duration:
-        a = pd.Series(
-            [
-                Fraction(v) if not absent else pd.NA
-                for v, absent in zip(a, left_missing, strict=True)
-            ],
-            dtype=object,
-            index=a.index,
-        )
-        b = pd.Series(
-            [
-                Fraction(v) if not absent else pd.NA
-                for v, absent in zip(b, right_missing, strict=True)
-            ],
-            dtype=object,
-            index=b.index,
-        )
-    if any(isinstance(value, float) for value in a) or any(isinstance(value, float) for value in b):
-        a = a.map(lambda value: float(value) if isinstance(value, Decimal) else value).astype(
-            object
-        )
-        b = b.map(lambda value: float(value) if isinstance(value, Decimal) else value).astype(
-            object
-        )
+        a = left.map(lambda value: pd.NA if value is pd.NA or value is None else Fraction(value))
+        b = right.map(lambda value: pd.NA if value is pd.NA or value is None else Fraction(value))
     if operation == "divide":
-        zero = ~right_missing & ((b == 0) | (b == timedelta(0))).fillna(False)
+        zero = (b == 0).fillna(False)
         b = b.mask(zero, pd.NA)
         right_missing = right_missing | zero
     try:
-        with localcontext(_decimal_context()):
-            if (
-                operation in ("add", "subtract", "multiply")
-                and all(
-                    absent or type(value) is int
-                    for values, missing in ((a, left_missing), (b, right_missing))
-                    for value, absent in zip(values, missing, strict=True)
-                )
-                and not exact_duration
-            ):
-                kernel = {
-                    "add": pc.add_checked,
-                    "subtract": pc.subtract_checked,
-                    "multiply": pc.multiply_checked,
-                }[operation]
-                result = pd.Series(
-                    pd.arrays.ArrowExtensionArray(
-                        kernel(
-                            pa.array(a, type=pa.int64(), from_pandas=True),
-                            pa.array(b, type=pa.int64(), from_pandas=True),
-                        )
-                    ),
-                    index=a.index,
-                )
-            elif operation == "add":
-                result = a + b
-            elif operation == "subtract":
-                result = a - b
-            elif operation == "multiply":
-                result = a * b
-            elif operation == "divide":
-                result = a / b
-            else:
-                numeric_failure("an admitted nullable arithmetic operator", operation)
+        function = {
+            "add": operator.add,
+            "subtract": operator.sub,
+            "multiply": operator.mul,
+            "divide": operator.truediv,
+        }[operation]
+        decimal_operands = any(
+            isinstance(series.dtype, pd.ArrowDtype)
+            and pa.types.is_decimal(series.dtype.pyarrow_dtype)
+            for series in (a, b)
+        ) and not any(
+            isinstance(series.dtype, pd.ArrowDtype)
+            and pa.types.is_floating(series.dtype.pyarrow_dtype)
+            for series in (a, b)
+        )
+        result = (
+            pd.Series(
+                [
+                    pd.NA if missing else function(x, y)
+                    for x, y, missing in zip(a, b, left_missing | right_missing, strict=True)
+                ],
+                index=a.index,
+                dtype=object,
+            )
+            if decimal_operands
+            else function(a, b)
+        )
     except (ArithmeticError, TypeError, ValueError) as error:
-        numeric_failure("valid numeric arithmetic", f"{operation}: {error}")
-    result = result.astype(object).mask(left_missing | right_missing, pd.NA)
-    if any(
-        (isinstance(value, float) and not math.isfinite(value))
-        or (isinstance(value, Decimal) and not value.is_finite())
-        for value in result
-    ):
-        numeric_failure("finite numeric output", operation)
-    return result
+        numeric_failure("native numeric arithmetic", f"{operation}: {error}")
+    return result.mask(left_missing | right_missing, pd.NA)
 
 
 def finish_float64(values: pd.Series, operation: str) -> pd.Series:
     """Convert an exact completed expression once to its declared float carrier."""
-    from marivo.semantic._numeric_lowering import numeric_failure
+    if isinstance(values.dtype, pd.ArrowDtype) and values.dtype.pyarrow_dtype == pa.float64():
+        return values
 
-    finished: list[float | None] = []
-    for value, absent in zip(values, typed_null_mask(values), strict=True):
-        if absent:
-            finished.append(None)
-            continue
-        try:
-            converted = float(value)
-        except (ValueError, TypeError, OverflowError):
-            numeric_failure("a finite float64 output", f"{operation}: {value!r}")
-        if not math.isfinite(converted):
-            numeric_failure("a finite float64 output", f"{operation}: output overflow")
-        finished.append(converted)
     return pd.Series(
-        pd.arrays.ArrowExtensionArray(pa.array(finished, type=pa.float64())), index=values.index
+        pd.arrays.ArrowExtensionArray(
+            pa.array(
+                [
+                    None if absent else float(value)
+                    for value, absent in zip(values, typed_null_mask(values), strict=True)
+                ],
+                type=pa.float64(),
+            )
+        ),
+        index=values.index,
     )
 
 

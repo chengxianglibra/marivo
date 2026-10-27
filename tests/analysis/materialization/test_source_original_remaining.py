@@ -27,7 +27,7 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
-    assert result["value"].tolist() == [333]
+    assert result["value"].tolist() == [1000 / 3]
 
 
 @pytest.mark.parametrize("selection", ["top", "where", "empty"])

@@ -351,7 +351,7 @@ AnalysisFrame 的计算逻辑决定结果行序；物化、存储、恢复、sho
 [frame_comparison.py](../../../marivo/analysis/methods/frame_comparison.py) 拥有组合数值与行序。
 
 Numeric operations bind their result types before execution. Integer Column SUM
-returns Decimal(38,0), Decimal SUM widens to Decimal(38,input_scale), and mean keeps
+retains its native int64 carrier, Decimal SUM uses Decimal(38,input_scale), and mean keeps
 its declared result type. [Numeric carrier rules](operators-and-frames.md) own
 Decimal convergence, float approximation and source/local overflow differences.
 Persistence and cold reads preserve the committed values and types without new rounding.
@@ -361,4 +361,6 @@ keeps those values distinct from NULL. Native arithmetic overflow follows the ba
 result or error; exact carrier, complete-key and local Frame method rules still apply.
 Coordinate keys retain their finite typed-key contract.
 Selecting an existing value Column preserves its captured values and null validity;
-computed local expressions retain their arithmetic checks.
+computed local expressions use the actual pandas/Arrow or Decimal scalar kernel,
+without extra overflow/finite scans, protective widening or retries. Intrinsic
+kernel errors and lossless storage-boundary checks still fail completion.

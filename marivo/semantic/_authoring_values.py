@@ -349,6 +349,8 @@ def timestamp(
     native interpretation. Constant-bound membership of a raw local clock uses
     wall order: repeated clocks denote the later occurrence and skipped clocks
     denote the transition instant.
+    This parser affects only the TimeDimension projection; Entity primary keys retain
+    their output values, including naive timestamps without an implicit timezone.
 
     Args:
         timezone: Optional IANA source zone for naive timestamp columns. When

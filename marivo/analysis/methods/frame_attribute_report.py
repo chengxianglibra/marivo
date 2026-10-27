@@ -230,8 +230,6 @@ def _closure(
             return error
 
         try:
-            if not all(isfinite(cell) for cell in cells):
-                raise ValueError("nonfinite contribution")
             actual = fsum(cells)
             # Native endpoint rounding survives cancellation; relative targets
             # express that same budget in units of the fresh absolute baseline.
@@ -256,7 +254,7 @@ def _closure(
                 isfinite(value)
                 for value in (actual, expected, source_error, magnitude, tolerance, residual)
             ):
-                raise ValueError("nonfinite total, sum, residual or rounding budget")
+                raise ValueError("nonfinite captured closure budget")
         except (ArithmeticError, ValueError) as error:
             numeric_failure(
                 "finite Attribute closure total, sum, residual and rounding budget", str(error)

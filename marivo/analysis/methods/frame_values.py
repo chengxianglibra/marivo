@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from fractions import Fraction
-
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.query import (
     FilterValues,
@@ -19,7 +18,6 @@ from marivo._definition.query import (
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.core.data_types import (
     DataType,
-    DecimalDataType,
     DurationDataType,
     ScalarDataType,
 )
@@ -31,35 +29,22 @@ from marivo.analysis.methods.frame_correlation import correlation
 from marivo.analysis.methods.frame_evaluation import FrameEvaluation, expression_key
 from marivo.analysis.methods.numeric_state import (
     Number,
-    checked_sum,
     finish_division,
     finish_float64,
     sum_values,
 )
-from marivo.analysis.methods.physical import DecimalType, DurationType
+from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.methods.query_values import expression_series
 from marivo.semantic._numeric_lowering import numeric_failure
-from marivo.semantic.errors import SemanticExpressionError
 
 
 def _pair_values(
     values: pd.Series, dtype: DataType, *, endpoint: str, location: str
 ) -> tuple[Number | None, ...]:
-    try:
-        if dtype == ScalarDataType("float64"):
-            values = finish_float64(values, "paired endpoint")
-        return tuple(
-            None if absent else checked_sum((value,), stage_arrow_type(dtype))
-            for value, absent in zip(values.tolist(), typed_null_mask(values), strict=True)
-        )
-    except (ValueError, OverflowError, SemanticExpressionError) as error:
-        received = error.received if isinstance(error, SemanticExpressionError) else str(error)
-        reject(
-            "finite admitted numeric inputs for paired statistics",
-            f"{endpoint}: {received}",
-            "Repair the input values to satisfy their numeric types, then retry.",
-            location,
-        )
+    return tuple(
+        None if absent else value
+        for value, absent in zip(values.tolist(), typed_null_mask(values), strict=True)
+    )
 
 
 def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
@@ -245,49 +230,19 @@ def _evaluate_frame(
                             if ticks
                             else None
                         )
-                    elif statistic.method == "mean" and (
-                        dtype == ScalarDataType("int64") or isinstance(dtype, DecimalDataType)
-                    ):
-                        # Components keep their admitted type; only the temporary total is wide.
-                        exact = sum(
-                            (
-                                Fraction(checked_sum((item,), stage_arrow_type(dtype)))
-                                for item in active.tolist()
-                            ),
-                            Fraction(),
-                        )
-                        if not len(active):
-                            value = None
-                        else:
-                            exact /= len(active)
-                            value = (
-                                finish_division(
-                                    exact.numerator,
-                                    exact.denominator,
-                                    DecimalType(column.dtype.precision, column.dtype.scale),
-                                )
-                                if isinstance(column.dtype, DecimalDataType)
-                                else float(exact)
-                            )
                     else:
-                        total = (sum_values if statistic.method == "sum" else checked_sum)(
-                            active.tolist(), stage_arrow_type(dtype)
-                        )
+                        array = pa.array(active, from_pandas=False)
                         value = (
-                            None
-                            if not len(active)
-                            else total
-                            if statistic.method == "sum"
-                            else finish_division(
-                                total,
-                                len(active),
-                                DecimalType(column.dtype.precision, column.dtype.scale),
-                            )
-                            if isinstance(column.dtype, DecimalDataType)
-                            else total / len(active)
+                            (
+                                pc.sum(array, min_count=0)
+                                if statistic.method == "sum"
+                                else pc.mean(array)
+                            ).as_py()
+                            if len(active) or not positions
+                            else None
                         )
                 except (ValueError, OverflowError) as error:
-                    numeric_failure("a qualified finite current-row statistic", str(error))
+                    numeric_failure("a native current-row statistic", str(error))
             row[column.slot_id] = value
         rows.append(row)
     result = pd.DataFrame(rows, columns=[column.slot_id for column in output.values], dtype=object)

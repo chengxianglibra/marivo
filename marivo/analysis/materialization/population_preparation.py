@@ -36,6 +36,7 @@ from marivo._definition.types import (
     IntervalCoordinate,
     LiteralValue,
 )
+from marivo._numeric_types import exact_unsigned
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import data_type
@@ -204,13 +205,15 @@ def _field(read: FieldRead, table: ir.Table, state: CompiledSemanticState) -> ir
             "Load the field's owning model.",
             "population.prepare",
         )
-    return evaluate_expression_body(
-        catalog_definition_fingerprint=state.definition_fingerprint,
-        expression_sidecar=state.sidecar,
-        owning_ref=read.field.ref,
-        body=body,
-        entity_refs=(ref.entity(read.entity.ref.path),),
-        aliases=(table,),
+    return exact_unsigned(
+        evaluate_expression_body(
+            catalog_definition_fingerprint=state.definition_fingerprint,
+            expression_sidecar=state.sidecar,
+            owning_ref=read.field.ref,
+            body=body,
+            entity_refs=(ref.entity(read.entity.ref.path),),
+            aliases=(table,),
+        )
     )
 
 

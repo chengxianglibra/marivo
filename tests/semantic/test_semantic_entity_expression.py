@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import ibis
+import ibis.expr.datatypes as dt
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -595,3 +596,30 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     assert facts["definition_form"] == "direct"
     assert "expression" not in facts
     assert "definition_form: direct" in entity.contract().render()
+
+
+def _cast_string(raw: ibis.Table) -> ibis.Table:
+    return raw.mutate(amount=raw.amount.cast("decimal(20,0)"))
+
+
+def _cast_root_dtype(raw: ibis.Table) -> ibis.Table:
+    return raw.mutate(amount=raw.amount.cast(ibis.dtype("int64")))
+
+
+def _cast_submodule(raw: ibis.Table) -> ibis.Table:
+    return raw.mutate(amount=raw.amount.cast(dt.int64))
+
+
+def test_entity_cast_symbols_have_executable_repairs() -> None:
+    _compile_entity_body(_cast_string)
+    _compile_entity_body(_cast_root_dtype)
+    with pytest.raises(SemanticLoadError) as caught:
+        _compile_entity_body(_cast_submodule)
+    assert caught.value.received == "dt=module"
+    assert caught.value.hint is not None
+    assert ".cast('decimal(20,0)')" in caught.value.hint
+    assert "ibis.dtype('int64')" in caught.value.hint
+    assert "semantic.entity.define" in caught.value.hint
+    assert caught.value.repair is not None
+    assert caught.value.repair.help_target.canonical_id == "entity.define"
+    assert ".cast('decimal(20,0)')" in caught.value.repair.action
