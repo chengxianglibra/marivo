@@ -290,12 +290,12 @@ class Session:
             ``frame = session.observe(revenue, by=(period,)).compute()``;
             ``frame.show()``.
 
-        Constraints: Capture reads no source schema/data and creates no Run. compute/persist
-        evaluate; persist publishes. by=() supplies no time range. Time-sample reductions generally need a finite
-        TimeScope/CalendarAxis in by; qualified native means may omit it. Metric-specific sample
-        coverage may still reject at compute/persist. Names are valid single segments.
-        Direct named Metrics inherit local names; conflicts or expressions need a Mapping.
-        Names do not prove business identity.
+        Constraints: No source reads or Run at capture. by=() supplies no time range.
+        Time-sample reducers need a finite TimeScope/CalendarAxis in by; qualified native means
+        may omit it. Metric-specific sample coverage may still reject at compute/persist.
+        Use Mapping for conflicts; names imply no business identity. Trust semantic primary_key
+        with nullable physical metadata; no full-source NULL/uniqueness precheck. Violations may
+        pass; identity-output and operation checks remain. Use source_check.
         """
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl.source_capture import _metric_inputs

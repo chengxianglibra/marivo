@@ -768,15 +768,15 @@ def prepare_query_sources(
         )
         schema = table.schema().to_pyarrow()
 
-        def physical_identity_nonnull(relation: ir.Table, name: str, owner: SourceSession) -> bool:
+        def physical_identity_bound(relation: ir.Table, name: str, owner: SourceSession) -> bool:
             origins = physical_fields(relation[name])
             if len(origins) != 1:
                 return False
             field = origins[0]
+            # Semantic primary_key owns non-null identity integrity. Physical
+            # nullable metadata does not prevent sharing this exact source binding.
             return any(
-                field.rel == bound.relation.op()
-                and owners[path] is owner
-                and not bound.facts.schema.field(field.name).nullable
+                field.rel == bound.relation.op() and owners[path] is owner
                 for path, bound in bounds.items()
             )
 
@@ -784,7 +784,7 @@ def prepare_query_sources(
             owners[root].provider.name in ("postgres", "mysql", "trino", "clickhouse")
             and owners[root]._backend.name == owners[root].provider.name
             and all(
-                physical_identity_nonnull(table, name, owners[root])
+                physical_identity_bound(table, name, owners[root])
                 for name in registry.entities[root].primary_key
             )
         )

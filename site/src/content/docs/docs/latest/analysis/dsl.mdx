@@ -11,6 +11,9 @@ Use existing closed Metrics directly when they answer the question. Follow `sema
 
 Source construction is lazy; evaluating a pending Frame can run captured dependencies. Fixed data does not reconstruct source declarations. Same-process Frames can retain declarations for attribute; independent reopen cannot. Continue from compute/persist's returned Frame; `analysis.execution` and `analysis.results` explain evaluation and inspection, while `analysis.sessions` owns recovery.
 
+Nullable metadata alone does not disqualify a source binding or add a full-source
+NULL or uniqueness precheck. Existing identity-output and operation-specific checks remain.
+
 The operators below follow this order. Their `by` arguments have different owners: observe/attribute take semantic domains, while correlate/reduce take axes from the exact input Frame.
 
 | Operator | Question it answers |

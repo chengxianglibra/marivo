@@ -48,7 +48,13 @@ time implicitly. Literal identity coordinates state requested keys without
 proving source records exist. See [versioning](../semantic/semantic-object-model.md#versioning-snapshot-and-validity).
 
 Source analysis trusts declared identity, relationship cardinality and version
-grain. Scalar reads join directly without rechecking uniqueness or requiring a
+grain. Physical identity columns may be nullable in source metadata: semantic
+`primary_key` supplies the complete, non-null identity assumption for ordinary
+observations, shared aggregates and original Metric evaluation as well as Attribute.
+Nullable metadata alone does not disqualify an otherwise qualified source binding.
+Analysis adds no full-source NULL or uniqueness precheck; declaration violations
+are not guaranteed to raise an error in every aggregate path.
+Scalar reads join directly without rechecking uniqueness or requiring a
 matching record. Missing scalar matches produce NULL; read/classify retain the
 requested identity domain with NULL attributes. Relationship traversal uses its
 actual joins and set semantics when a source record is absent. Invalid declared

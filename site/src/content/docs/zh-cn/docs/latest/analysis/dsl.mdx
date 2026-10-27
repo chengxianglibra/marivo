@@ -11,6 +11,9 @@ description: 按 observe、compare、attribute、correlate、align、reduce 了�
 
 来源构造保持延迟，pending Frame 求值可能执行已捕获的依赖。固定数据不会重建来源声明；同进程 Frame 可以为 attribute 保留声明，独立重开则无法恢复。继续使用 compute/persist 返回的 Frame；通过 `analysis.execution` 和 `analysis.results` 了解求值及读取，通过 `analysis.sessions` 恢复上下文。
 
+nullable 元数据本身不会阻止来源绑定，也不会引入全量 NULL 或唯一性预检。
+现有身份输出边界与算子必要检查继续保留。
+
 下文按以下顺序介绍算子。它们的 `by` 参数含义不同：observe/attribute 使用语义域，correlate/reduce 使用当前输入 Frame 的轴。
 
 | 算子 | 回答的问题 |

@@ -61,6 +61,17 @@ def test_read_help_preserves_native_nonfinite_values() -> None:
     )
 
 
+def test_observe_help_discloses_semantic_primary_key_trust() -> None:
+    from marivo.analysis.session.core import Session
+
+    for target in ("analysis.session.observe", Session.observe):
+        text = render_help_text(target)[0]
+        assert "Trust semantic primary_key" in text
+        assert "nullable physical metadata" in text
+        assert "no full-source NULL/uniqueness precheck" in text
+        assert "identity-output and operation checks remain" in text
+
+
 def test_simplified_policies_have_one_public_route() -> None:
     assert not hasattr(mv.Column, "divide")
     with pytest.raises((AnalysisError, MarivoHelpTargetError)):
