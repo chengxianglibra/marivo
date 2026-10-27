@@ -84,8 +84,9 @@ def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> N
     if operation == "divide":
         zero = b == 0
         safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
-        if a.type().is_decimal() or safe.type().is_decimal():
-            a, safe = a.cast("float64"), safe.cast("float64")
+        # Cast operands before division: Trino otherwise truncates an integer
+        # quotient before the explicit float64 result cast can preserve it.
+        a, safe = a.cast("float64"), safe.cast("float64")
         # Preserve the float64 result boundary in SQL. In particular, ClickHouse
         # can rewrite AVG(x / NULL) and fail while extracting the NULL constant;
         # AVG(CAST(x / NULL AS Float64)) keeps the nullable division intact.

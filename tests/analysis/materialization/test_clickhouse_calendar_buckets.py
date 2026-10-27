@@ -4,12 +4,15 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import ibis
 import pytest
 import sqlglot
 from ibis.common.deferred import Deferred
 from sqlglot import expressions as sge
 
 import marivo.analysis as mv
+from marivo._definition.types import IntervalCoordinate
+from marivo.analysis.materialization.graph_source_execution import _attribute_calendar_value
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -17,6 +20,34 @@ from tests.datasource.environment import clickhouse_analysis
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
+
+
+@pytest.mark.parametrize("calendar", (False, True))
+def test_attribute_calendar_case_types_values_without_casting_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calendar: bool
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("attribute-calendar-sql", timezone="UTC")
+    grid = session.time_scope(start="2026-01-01", end="2026-01-04").by(mv.grain("day"))
+    coordinate = grid._binding
+    selection = (
+        coordinate
+        if calendar
+        else IntervalCoordinate("interval", coordinate.cells[0][2], coordinate.cells[-1][3], "UTC")
+    )
+    table = ibis.table({"event_time": "timestamp('UTC')"}, name="events")
+    value = _attribute_calendar_value(
+        table, {"time": "event_time"}, "time", selection, None, "key.0"
+    )
+    sql = ibis.to_sql(table.select(bucket=value), dialect="clickhouse")
+    bucket = next(sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Case))
+    assert isinstance(bucket.args["default"], sge.Null)
+    for branch in bucket.args["ifs"]:
+        typed = branch.args["true"]
+        assert isinstance(typed, sge.Cast)
+        assert typed.to.this == sge.DataType.Type.BIGINT
+        assert not typed.to.args.get("nullable")
+    assert value.type().is_int64() and value.type().nullable
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("clickhouse", "mergetree")]))
@@ -53,14 +84,14 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         points.append(None)
     amounts = (100, 10, 5, 30, 1000, 10000)
     rows: list[dict[str, object]] = [
-        {"id": index, "amount": amounts[index], "event_time": point}
+        {"id": index, "amount": amounts[index], "event_time": point, "category": "A"}
         for index, point in enumerate(points)
     ]
     column_type = f"Nullable({physical_type})" if nullable else physical_type
     data = SourceData(
         "id BIGINT, amount BIGINT, event_time TIMESTAMP",
         "",
-        f"id Int64, amount Int64, event_time {column_type}",
+        f"id Int64, amount Int64, event_time {column_type}, category String",
         rows,
     )
     monkeypatch.chdir(tmp_path)
@@ -73,12 +104,14 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
                 "sales/events.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
                 + "event_time = ms.time_dimension_column(name='event_time', entity=events, column='event_time', is_default=True)\n"
-                + "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n",
+                + "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n"
+                + "category = ms.dimension_column(name='category', entity=events, column='category')\n",
             }
         )
         session = mv.session.get_or_create("calendar-compatibility", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
         event_time = catalog_value(session.catalog, "sales.events.event_time", kind="field")
+        category = catalog_value(session.catalog, "sales.events.category", kind="field")
         assert isinstance(amount, Deferred) and isinstance(event_time, Deferred)
         metric = amount.sum(time=event_time)
         scope = session.time_scope(start="2026-01-01", end="2026-01-04")
@@ -124,8 +157,16 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         assert [row[1] for row in native] == expected_buckets
         assert {row[2] for row in native} == {"Nullable(Int64)"}
 
-        filtered = session.observe({"total": metric}, by=(scope,)).compute().to_pandas()
-        assert filtered["total"].tolist() == [45]
+        report = frame.attribute(by=(category,)).compute().to_pandas()
+        assert report["calendar:day"].tolist() == ["2026-01-01", "2026-01-03"]
+        assert report["contribution.total"].tolist() == [15, 30]
+        assert report["total.total"].tolist() == [15, 30]
+
+        filtered = session.observe({"total": metric}, by=(scope,)).compute()
+        assert filtered.to_pandas()["total"].tolist() == [45]
+        report = filtered.attribute(by=(category,)).compute().to_pandas()
+        assert report["contribution.total"].tolist() == [45]
+        assert report["total.total"].tolist() == [45]
         window = (
             session.observe(
                 {"total": metric.window(mv.trailing_duration(duration=timedelta(days=2)))},

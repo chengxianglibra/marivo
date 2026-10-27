@@ -45,12 +45,12 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     data = SourceData(
-        _columns(backend, "DECIMAL(18,2)"),
+        _columns(backend, "DECIMAL(18,2)").replace(" NOT NULL", ""),
         "(1,'east','A',1.25,9007199254740993,1,DATE '2026-07-01'),"
         "(2,'east','B',2.75,7,3,DATE '2026-07-01'),"
         "(1,'west','A',3.50,-2,1,DATE '2026-07-01'),"
         "(2,'west',NULL,0.50,3,1,DATE '2026-07-01')",
-        "id Int64, tenant String, category Nullable(String), amount Decimal(18,2), big Int64, weight Int64, day Date",
+        "id Nullable(Int64), tenant Nullable(String), category Nullable(String), amount Decimal(18,2), big Int64, weight Int64, day Date",
         [
             {
                 "id": identity,
@@ -71,13 +71,18 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
     )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        physical = case.session.bind(case.source, source_identity="nullable-identity").facts.schema
+        assert physical.field("id").nullable and physical.field("tenant").nullable
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-exact", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         big = catalog_value(session.catalog, "sales.facts.big", kind="field")
         tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        parent = session.observe({"decimal": amount.sum(), "integer": big.sum()}).compute()
+        entity = session.catalog.get("entity:sales.facts").value
+        parent = session.observe(
+            {"decimal": amount.sum(), "integer": big.sum(), "count": entity.count()}
+        ).compute()
         trace = capture_source(monkeypatch)
         report = parent.attribute(by=(tenant, category)).compute()
         rows = report.to_pandas()
@@ -88,10 +93,10 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         # Repeated id and category values distinguish complete tuples from a
         # single-column identity or a Cartesian reconstruction of classifications.
         expected = {
-            ("east", "A"): (Decimal("1.25"), 2**53 + 1),
-            ("east", "B"): (Decimal("2.75"), 7),
-            ("west", "A"): (Decimal("3.50"), -2),
-            ("west", None): (Decimal("0.50"), 3),
+            ("east", "A"): (Decimal("1.25"), 2**53 + 1, 1),
+            ("east", "B"): (Decimal("2.75"), 7, 1),
+            ("west", "A"): (Decimal("3.50"), -2, 1),
+            ("west", None): (Decimal("0.50"), 3, 1),
         }
         assert len(keys) == 4 and set(keys) == set(expected)
         for name, index, total in (
@@ -101,6 +106,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
                 Decimal("8.00"),
             ),
             ("integer", 1, 2**53 + 9),
+            ("count", 2, 4),
         ):
             contributions = [expected[key][index] for key in keys]
             values = rows[f"contribution.{name}"]
@@ -119,7 +125,8 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert all(
             purpose.replace("attribute-parent:", "", 1) in purposes for purpose in parent_reads
         )
-        assert trace.native_sql and trace.returned_rows
+        # Nullable physical keys do not introduce an identity preflight read.
+        assert len(trace.native_sql) == 2 and trace.returned_rows == [1, 4]
         submissions = tuple(trace.native_sql)
         saved = report.persist()
         facts = saved.evidence_digest().items
@@ -139,6 +146,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert {(fact["target"], fact["mode"], fact["parent_count"]) for fact in closures} == {
             ("decimal", "level", 1),
             ("integer", "level", 1),
+            ("count", "level", 1),
         }
         assert all(
             fact["policy"] == "attribute_closure/v2" and fact["result"] == "passed"
@@ -192,6 +200,9 @@ def test_native_attribute_mean_and_ratio_use_complete_parent_denominators(
         parent = session.observe(
             {"mean": amount.mean(), "ratio": amount.sum() / weight.sum()}
         ).compute()
+        original = parent.to_pandas()
+        assert original["mean"].tolist() == [25.0]
+        assert original["ratio"].tolist() == pytest.approx([float(Fraction(100, 120))])
         rows = parent.attribute(by=(category,)).compute().to_pandas()
         assert rows.iloc[:, 0].tolist() == ["A", "B"]
         # A has one valid value and B has three: the original mean is 25,

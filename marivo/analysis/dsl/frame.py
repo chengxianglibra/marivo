@@ -674,7 +674,10 @@ class AnalysisFrame:
         Pending components expose their own units. Completion freezes parent keys
         and old values; parent and fine inputs are read independently without reranking
         or a shared-snapshot guarantee. Semantic identity, cardinality and version-grain
-        declarations are trusted. Operation-specific membership/Population coverage,
+        declarations are trusted, including non-null primary keys even when physical
+        metadata marks them nullable. No full-source NULL or uniqueness precheck is
+        added; declaration violations are not guaranteed to fail. Existing identity
+        output checks remain. Operation-specific membership/Population coverage,
         overlap, distinct-value partitions, numeric validity and complete time
         correspondence remain checked. Float64 method facts preserve captured values
         without arithmetic recomputation. Only requested final targets must close within

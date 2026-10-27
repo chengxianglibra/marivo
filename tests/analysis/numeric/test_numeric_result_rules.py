@@ -27,6 +27,7 @@ from tests.shared_fixtures import DslCaseFactory, catalog_value
         ("multiply", "decimal(38,38)", "decimal(38,38)", "decimal(38,38)"),
         ("add", "int64", "int64", "int64"),
         ("add", "decimal(3,2)", "float64", "float64"),
+        ("divide", "int64", "int64", "float64"),
         ("divide", "decimal(3,2)", "decimal(3,2)", "float64"),
     ],
 )
@@ -40,7 +41,11 @@ def test_bound_result_type(operation: str, left: str, right: str, expected: str)
         assert "CAST(" in sql and expected.upper() in sql.replace(" ", "")
     if operation == "subtract" and right == "int64":
         assert "DECIMAL(19, 0)" in sql
-    if operation == "divide" and left.startswith("decimal"):
+    if operation == "divide":
+        # Integer backends must receive floating operands before arithmetic,
+        # rather than casting an already-truncated quotient to float64.
+        division = result.value.op().arg
+        assert division.left.dtype == dt.float64 and division.right.dtype == dt.float64
         assert sql.count("AS DOUBLE") == 3
 
 

@@ -3457,7 +3457,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         "Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. "
                         "Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); "
                         "untyped Decimal literals bind their own digits/exponent. Source output casts bind p/s; rounding follows the kernel. "
-                        "Integer SUM uses native accumulation (Ibis int64); Decimal SUM returns Decimal(38,input_scale). Count stays int64; division is float64; mean keeps its declared type. "
+                        "Integer SUM uses native accumulation (Ibis int64); Decimal SUM returns Decimal(38,input_scale). Count stays int64; division converts numeric operands to float64 before dividing; mean keeps its declared type. "
                         "Source and local overflow/rounding follow the actual kernel, including errors, wrapping and NaN/Infinity. No extra scans or protective widening. Saved values retain committed types."
                         if prefix == "row"
                         else "Choose an operation on the constructed receiver. Internal Metric samples must finish with a reducer before observation."

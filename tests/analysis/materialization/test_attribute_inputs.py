@@ -174,16 +174,24 @@ def test_distinct_count_requires_value_partition(session: Session, tmp_path: Pat
         )
 
 
-def test_attribute_trusts_declared_root_identity(session: Session, tmp_path: Path) -> None:
+@pytest.mark.parametrize("null_identity", (False, True))
+def test_attribute_trusts_declared_root_identity(
+    session: Session, tmp_path: Path, null_identity: bool
+) -> None:
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
-        connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
+        if null_identity:
+            connection.execute("UPDATE facts SET id=NULL")
+        else:
+            connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     result = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.sum()}, by=()), by=(channel,))
     )
     root = next(root for root in result.attribute_inputs if root.layout.scope == "parent")
-    assert root.parent[require_reduction(root.layout.leaves[0].read).value_slot].tolist() == [50]
+    assert root.parent[require_reduction(root.layout.leaves[0].read).value_slot].tolist() == [
+        40 if null_identity else 50
+    ]
 
 
 @pytest.mark.parametrize("empty", (False, True))

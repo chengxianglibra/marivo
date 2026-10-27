@@ -256,9 +256,15 @@ Python consumes aggregate keys, components and bounded diagnostics. Final closur
 neither replaces these operation checks nor proves consistency between reads.
 The existing rejection of incompatible non-temporal scopes within one root remains;
 such scopes are never merged merely because their root matches.
-Remote original-input admission still requires direct physically nonnull integer
-or string identities and qualified string collations. Connector and engine
-restrictions, including ClickHouse Distributed join topology, also remain.
+Remote Attribute original-input admission requires direct physical integer or
+string identities and qualified string collations. Physical identity columns may
+be nullable in source metadata: the semantic `primary_key` declaration supplies
+the complete, non-null identity assumption. Attribute adds no full-source NULL or
+uniqueness precheck. Violating that declaration is not guaranteed to raise an
+error; use explicit `source_check` when source-data verification is required.
+Existing identity-output integrity and operation-specific checks remain required.
+Connector and engine restrictions, including ClickHouse Distributed join topology,
+also remain.
 Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
 rules retain their owning numeric semantics. Fixed division and Metric rescale
 retain the original typed divisor and division order, including native Float64

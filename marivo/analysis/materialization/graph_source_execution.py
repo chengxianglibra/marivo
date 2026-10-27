@@ -302,7 +302,9 @@ def qualify_original_source(
                 return False
             physical = bound.facts.schema.field(field.name)
             if role == "identity":
-                return not physical.nullable and (
+                # Semantic primary_key owns identity integrity; nullable source
+                # metadata does not require an additional source-data preflight.
+                return bool(
                     pa.types.is_signed_integer(physical.type) or pa.types.is_string(physical.type)
                 )
             # Each recipe field has already passed source type admission. Its
@@ -358,9 +360,7 @@ def qualify_original_source(
             not physical_value(raw[name], role="identity")
             for _, name in require_components(read).identity
         ):
-            return (
-                "Remote original identity requires direct physically nonnull integer or string keys"
-            )
+            return "Remote original identity requires direct physical integer or string keys"
         node = reduction.node
         if isinstance(node, EntityCount):
             continue
@@ -2161,19 +2161,21 @@ def _attribute_calendar_value(
         return ibis.ifelse(
             (time >= temporal_bound(time, calendar.start, calendar.timezone))
             & (time < temporal_bound(time, calendar.end, calendar.timezone)),
-            ibis.literal(0),
-            ibis.null().cast("int64"),
+            ibis.literal(0).cast("!int64"),
+            ibis.null(),
         )
     return ibis.cases(
         *(
             (
                 (time >= temporal_bound(time, cell[2], calendar.timezone))
                 & (time < temporal_bound(time, cell[3], calendar.timezone)),
-                index,
+                ibis.literal(index).cast("!int64"),
             )
             for index, cell in enumerate(calendar.cells)
         ),
-        else_=ibis.null().cast("int64"),
+        # Match ordinary observation: ClickHouse can reject a typed NULL in
+        # a column-dependent CASE, so type the non-null values instead.
+        else_=ibis.null(),
     )
 
 

@@ -39,8 +39,10 @@ or per-reducer cleaning strategy is implied. Existing first/last include_null
 selects endpoint candidates and does not cancel strict checks.
 
 Division uses `/` and masks zero before dividing; both 0/0 and nonzero/0
-return NA. Its explicit float64 result cast survives native compilation, even
-when Ibis already infers float64. This also prevents ClickHouse aggregate
+return NA. Numeric source operands are converted to float64 before division,
+including integer operands, so backends cannot truncate an integer quotient
+before conversion. Its explicit float64 result cast survives native compilation,
+even when Ibis already infers float64. This also prevents ClickHouse aggregate
 arithmetic optimization from extracting a NULL divisor from `AVG(x / NULL)`.
 Weighted means return NA when valid paired weights sum to zero,
 including signed cancellation. All backend-native numeric operations delegate
