@@ -399,10 +399,15 @@ def prepare_fields(
         return (
             ibis.cases(
                 *(
-                    (period_condition(time, start, end, calendar.timezone), index)
+                    (
+                        period_condition(time, start, end, calendar.timezone),
+                        ibis.literal(index).cast("!int64"),
+                    )
                     for index, (_, _, start, end) in enumerate(cells)
                 ),
-                else_=ibis.null().cast("int64"),
+                # Type the non-null branches: some ClickHouse builds reject
+                # a cast of NULL to Nullable(Int64) in a column-dependent CASE.
+                else_=ibis.null(),
             )
             if cells
             else ibis.null().cast("int64")

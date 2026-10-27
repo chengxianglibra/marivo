@@ -209,14 +209,24 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     ]
     assert len(ranges) == 2
     assert all(isinstance(item.this, sge.Column) for item in ranges)
+    bucket_cases = [
+        alias.this
+        for alias in ast.find_all(sge.Alias)
+        if alias.alias.startswith("__bucket_") and isinstance(alias.this, sge.Case)
+    ]
     bucket_branches = [
         branch
-        for node in ast.find_all(sge.Case)
+        for node in bucket_cases
         for branch in node.args["ifs"]
-        if isinstance(branch.args["true"], sge.Literal) and branch.args["true"].this in {"0", "1"}
+        if isinstance(branch.args["true"], sge.Cast)
+        and isinstance(branch.args["true"].this, sge.Literal)
+        and branch.args["true"].this.this in {"0", "1"}
     ]
-    bucket_branches.sort(key=lambda branch: int(branch.args["true"].this))
-    assert [branch.args["true"].this for branch in bucket_branches] == ["0", "1"]
+    bucket_branches.sort(key=lambda branch: int(branch.args["true"].this.this))
+    assert [branch.args["true"].this.this for branch in bucket_branches] == ["0", "1"]
+    assert all(
+        branch.args["true"].to.this == sge.DataType.Type.BIGINT for branch in bucket_branches
+    )
     # Selection and bucket assignment use the same typed raw encoding bounds.
     quote = "" if integer else "'"
     expected_bounds = tuple(
@@ -229,14 +239,8 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
         assert isinstance(lower.this, sge.Column) and lower.this == upper.this
         assert lower.expression.sql(dialect="duckdb") == start
         assert upper.expression.sql(dialect="duckdb") == end
-    for node in ast.find_all(sge.Case):
-        if any(branch in bucket_branches for branch in node.args["ifs"]):
-            default = node.args.get("default")
-            assert (
-                default is None
-                or isinstance(default, (sge.Null, sge.Case))
-                or (isinstance(default, sge.Cast) and isinstance(default.this, sge.Null))
-            )
+    for node in bucket_cases:
+        assert isinstance(node.args.get("default"), sge.Null)
     assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
     reads.clear()
     with monkeypatch.context() as baseline:

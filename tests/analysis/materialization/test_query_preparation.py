@@ -460,3 +460,99 @@ def test_version_axis_precision_is_checked_before_read(
     assert isinstance(metric, Deferred)
     with pytest.raises(MaterializationError, match="loses source precision"):
         compute(prepared_session, {"sum": metric})
+
+
+@pytest.mark.parametrize("bucket_count", (0, 1, 3, 129))
+def test_calendar_bucket_keeps_nullable_int64_without_casting_case_null(
+    prepared_session: Session, bucket_count: int
+) -> None:
+    from dataclasses import replace
+    from datetime import date, timedelta, timezone
+
+    import ibis
+    import ibis.expr.datatypes as dt
+    import sqlglot
+    from sqlglot import expressions as sge
+
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.datasource.timezone import DatasourceEngineTimezone
+
+    session = prepared_session
+    start = date(2026, 1, 1)
+    end = start + timedelta(days=bucket_count)
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    assert isinstance(amount, Deferred) and isinstance(day, Deferred)
+    grid = session.time_scope(
+        start=start.isoformat(), end=(start + timedelta(days=max(1, bucket_count))).isoformat()
+    ).by(mv.grain("day"))
+    graph = _source_graph(session.observe({"total": amount.sum(time=day)}, by=(grid,)))
+    observation = graph.signature.observation
+    assert observation is not None
+    contribution = observation.contributions[0]
+    key, calendar = contribution.calendars[0]
+    assert isinstance(calendar, CalendarCoordinate)
+    if not bucket_count:
+        calendar = replace(calendar, cells=(), civil_bounds=())
+    # A window input must classify rows outside the output grid as NULL instead
+    # of filtering them away; exercise that preparation path without a read mask.
+    contribution = replace(
+        contribution, calendars=((key, calendar),), period=None, window_key=0, sample_axes=()
+    )
+    points = [
+        start - timedelta(days=1),
+        start,
+        start + timedelta(days=1),
+        end - timedelta(days=1),
+        end,
+        None,
+    ]
+    expected = (
+        [None] * 6
+        if not bucket_count
+        else [None, 0, 1 if bucket_count > 1 else None, bucket_count - 1, None, None]
+    )
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "bucket_events",
+            ibis.memtable(
+                {"id": list(range(6)), "amount": [1] * 6, "day": points},
+                schema={"id": "int64", "amount": "int64", "day": "date"},
+            ),
+        )
+        prepared = prepare_fields(
+            contribution,
+            {"sales.orders": table},
+            session.catalog._state,
+            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
+        )
+        buckets = [value for name, value in prepared.originals if name.startswith("__bucket_")]
+        assert len(buckets) == 1
+        bucket = buckets[0]
+        assert bucket.type() == dt.Int64(nullable=True)
+        projection = prepared.table.select("id", bucket=bucket).order_by("id")
+        assert backend.to_pyarrow(projection).column("bucket").to_pylist() == expected
+        for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
+            ast = sqlglot.parse_one(ibis.to_sql(projection, dialect=dialect), read=dialect)
+            cases = [
+                alias.this
+                for alias in ast.find_all(sge.Alias)
+                if (alias.alias == "bucket" or alias.alias.startswith("__bucket_"))
+                and isinstance(alias.this, sge.Case)
+            ]
+            if not bucket_count:
+                assert not cases
+                continue
+            assert cases
+            for case in cases:
+                assert isinstance(case.args["default"], sge.Null)
+                assert len(case.args["ifs"]) == bucket_count
+                for branch in case.args["ifs"]:
+                    result = branch.args["true"]
+                    assert isinstance(result, sge.Cast)
+                    assert result.to.this == sge.DataType.Type.BIGINT
+                    assert not result.to.args.get("nullable")
+    finally:
+        backend.disconnect()
