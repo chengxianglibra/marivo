@@ -18,7 +18,7 @@ if TYPE_CHECKING:
         StoredFrameBacking,
     )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-    from marivo.analysis.evidence._dataset_types import ArtifactDigest, FindingPage
+    from marivo.analysis.evidence._dataset_types import EvidencePage, FindingPage
     from marivo.analysis.materialization.graph_reading import FramePreview
 
 
@@ -70,20 +70,24 @@ class LocalFrameServices:
         return parse_timestamp(producer.terminal_at)
 
     def findings(
-        self, backing: StoredFrameBacking, *, limit: int, cursor: str | None
+        self, backing: StoredFrameBacking, *, input_id: str, limit: int, cursor: str | None
     ) -> FindingPage:
         """Read only the selected commit's bounded Finding records."""
         from marivo.analysis.materialization.graph_reading import TerminalReader
 
         return TerminalReader(self.store).findings(
-            self._audit_manifest(backing), limit=limit, cursor=cursor
+            self._audit_manifest(backing), input_id=input_id, limit=limit, cursor=cursor
         )
 
-    def evidence_digest(self, backing: StoredFrameBacking) -> ArtifactDigest:
-        """Read only the selected commit's complete audit records."""
+    def evidence(
+        self, backing: StoredFrameBacking, *, input_id: str, limit: int, cursor: str | None
+    ) -> EvidencePage:
+        """Read only the selected commit's bounded Evidence records."""
         from marivo.analysis.materialization.graph_reading import TerminalReader
 
-        return TerminalReader(self.store).evidence_digest(self._audit_manifest(backing))
+        return TerminalReader(self.store).evidence(
+            self._audit_manifest(backing), input_id=input_id, limit=limit, cursor=cursor
+        )
 
     def open_frame(self, artifact_id: str) -> StoredFrameBacking:
         """Validate one same-Session committed descriptor, without payload reads."""

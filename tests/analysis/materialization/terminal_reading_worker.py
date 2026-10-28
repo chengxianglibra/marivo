@@ -12,6 +12,7 @@ import pandas as pd
 
 import marivo.analysis as mv
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import catalog_value, terminal_runs
@@ -155,7 +156,7 @@ def main() -> None:
         session = mv.session.resume(name)
         before = len(terminal_runs(session))
         artifact = session.persisted_frame(sys.argv[4])
-        assert artifact.artifact_id in repr(artifact)
+        assert artifact.artifact_id == sys.argv[4]
         assert "backing=stored" in repr(artifact) and ".show()" in repr(artifact)
         artifact.show(n=1)
         frame = artifact.to_pandas()
@@ -167,7 +168,7 @@ def main() -> None:
         } == {None: 5, "A": 9007199254740993}
         assert dict(frame.attrs["units"])["total"] == "CNY"
         assert artifact.findings().items == ()
-        facts = artifact.evidence_digest()
+        facts = artifact.evidence(limit=100)
         assert any(item.kind == "read" for item in facts.items)
         facts.show()
         published = terminal_runs(session, status="succeeded")
@@ -189,7 +190,7 @@ def main() -> None:
         copied = fixed.persist()
         assert isinstance(copied._backing, StoredFrameBacking)
         assert isinstance(fixed._backing, MemoryFrameBacking)
-        assert copied._backing.metadata == fixed._backing.metadata
+        assert copied._backing.metadata == describe(fixed._backing.metadata)
         assert len(terminal_runs(session)) == before + 1
         print("public-cold-ok")
 

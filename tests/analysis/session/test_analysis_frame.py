@@ -151,15 +151,21 @@ def test_select_rejects_non_mapping_with_structured_repair(
 def test_show_is_metadata_only_for_pending_and_n_zero(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    from marivo.analysis.materialization import frame_paging
+    from marivo.analysis.materialization.graph_reading import FramePreview
+
     root = _memory(local)
     calls: list[int] = []
-    original = CompletedFrameData.preview_rows
+    copied: list[pd.DataFrame] = []
+    original = frame_paging.memory_preview
 
-    def preview(self: CompletedFrameData, n: int) -> pd.DataFrame:
+    def preview(data: CompletedFrameData, n: int) -> FramePreview:
         calls.append(n)
-        return original(self, n)
+        result = original(data, n)
+        copied.append(result.rows)
+        return result
 
-    monkeypatch.setattr(CompletedFrameData, "preview_rows", preview)
+    monkeypatch.setattr(frame_paging, "memory_preview", preview)
     root.show(n=0)
     pending = root.select({"new": root["value"] + 1})
     pending.show(n=10)
@@ -173,6 +179,10 @@ def test_show_is_metadata_only_for_pending_and_n_zero(
     assert calls == []
     root.show(n=1)
     assert calls == [1]
+    assert len(copied[0]) == 1
+    assert copied[0]["key.0"].tolist() == ["B"]
+    assert copied[0]["value.0"].tolist() == [10]
+    assert copied[0]["presence.0"].tolist() == [False]
     assert "pending" in capsys.readouterr().out
 
 

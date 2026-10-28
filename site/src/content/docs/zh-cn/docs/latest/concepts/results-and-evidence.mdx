@@ -25,7 +25,7 @@ head:
 ## 结合上下文阅读证据
 
 已保存的审计信息分别记录来源读取与范围（如有）、计算及其检查，以及提交信息（`Session` 和
-`Artifact`）。`evidence_digest()` 读取已保存的 Evidence 事实；`findings()` 读取此次提交关联的
+`Artifact`）。`evidence()` 读取已保存的 Evidence 事实；`findings()` 读取此次提交关联的
 `Finding`。普通观测可以包含来源和计算事实，但不一定产生 Finding。
 
 来源读取、计算完成和提交时间彼此独立。判断数据是否新鲜时，应查看记录的来源范围和读取时间；

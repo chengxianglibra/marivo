@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from marivo._definition.query import FilterValues, SelectValues, TopValues
 from marivo.analysis.core.artifact_data import (
     DataSchema,
-    OutputEvidence,
 )
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_audit import (
@@ -51,7 +50,6 @@ class CapturedFrameInputs:
     collected: dict[str, FrameKeyInput]
     dependencies: dict[str, tuple[str, ...]]
     requested: dict[str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]]
-    inherited: tuple[OutputEvidence, ...]
     operations: tuple[FrameOperationName, ...]
 
 
@@ -64,7 +62,6 @@ def capture_frame_inputs(
     expressions: dict[str, FrameExpression] = {}
     collected: dict[str, FrameKeyInput] = {}
     dependencies: dict[str, tuple[str, ...]] = {}
-    inherited: list[OutputEvidence] = []
     operations: list[FrameOperationName] = []
     contribution_requests: dict[
         str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]
@@ -137,7 +134,6 @@ def capture_frame_inputs(
             assert isinstance(current._schema, DataSchema)
             dependencies[current._input_id] = ()
             fixed_frames[current._input_id] = current
-            inherited.extend(backing.metadata.audit.source_facts)
             expression = FixedFrameInput(current._input_id, current._schema)
         expressions[current._input_id] = expression
         return expression
@@ -169,6 +165,5 @@ def capture_frame_inputs(
         collected,
         dependencies,
         requested,
-        tuple(inherited),
         tuple(operations),
     )

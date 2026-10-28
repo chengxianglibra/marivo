@@ -16,6 +16,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.artifact_data import (
+    ArtifactManifest,
     OutputEvidence,
     OutputFinding,
 )
@@ -168,14 +169,24 @@ def test_multiple_findings_read_once_and_keep_owned_paging(
         kind: Literal["finding", "evidence"],
         limit: int = 20,
         cursor: str | None = None,
-    ) -> tuple[tuple[OutputFinding | OutputEvidence, ...], str | None]:
+        input_id: str | None = None,
+        expected_manifest: ArtifactManifest | None = None,
+    ) -> terminal_store.RecordRead:
         nonlocal calls
         calls += 1
-        return page_reader(store, ref, kind=kind, limit=limit, cursor=cursor)
+        return page_reader(
+            store,
+            ref,
+            kind=kind,
+            limit=limit,
+            cursor=cursor,
+            input_id=input_id,
+            expected_manifest=expected_manifest,
+        )
 
     monkeypatch.setattr(terminal_store, "records_page", counted)
-    assert artifact.evidence_digest().finding_count == 8
-    assert calls == 0
+    assert artifact.findings(limit=100).total_count == 8
+    assert calls == 1
     seen: list[str] = []
     cursor = None
     while True:

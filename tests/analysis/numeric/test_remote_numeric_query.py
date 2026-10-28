@@ -973,7 +973,7 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
     assert actual.attrs == expected.attrs
     artifact.show(n=1)
     assert artifact.findings().items == ()
-    assert artifact.evidence_digest().items
+    assert artifact.evidence(limit=100).items
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, artifact_id, session.id],

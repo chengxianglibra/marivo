@@ -56,6 +56,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.terminal_store import describe
 
 NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 
@@ -393,7 +394,7 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
             service,
             saved,
             artifact_id=artifact_id,
-            metadata=replace(metadata("r"), lineage=empty_lineage(saved.schema)),
+            metadata=describe(replace(metadata("r"), lineage=empty_lineage(saved.schema))),
         )
 
     first, second = reopen(local, "artifact_1"), reopen(local, "artifact_1")

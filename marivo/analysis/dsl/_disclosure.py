@@ -68,7 +68,9 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.method_facts",
                 "analysis_frame.lineage",
                 "analysis_frame.findings",
-                "analysis_frame.evidence_digest",
+                "analysis_frame.evidence",
+                "analysis_frame.schema",
+                "analysis_frame.read_page",
             ),
             constraints=(
                 "Ordinary operations consume current data. An instance may retain a source declaration for explicit attribute rereads; independent reopen has no declaration.",
@@ -586,7 +588,7 @@ def provider() -> DisclosureProvider:
                 P("limit", "Page size from 1 through 100."),
                 P(
                     "cursor",
-                    "Previous page cursor or None for this exact Frame commit and selection.",
+                    "Previous page cursor or None; repeat the same limit for this exact Frame commit.",
                 ),
             ),
             "FindingPage",
@@ -601,15 +603,18 @@ def provider() -> DisclosureProvider:
         (
             AnalysisFrame,
             "analysis_frame",
-            "evidence_digest",
-            (),
-            "ArtifactDigest",
-            "Read all saved Evidence facts and collection digests.",
-            "result = frame.evidence_digest()",
+            "evidence",
+            (
+                P("limit", "Page size from 1 through 100, excluding bool."),
+                P("cursor", "Previous cursor; repeat the same limit."),
+            ),
+            "EvidencePage",
+            "Read a bounded page of saved Evidence with collection count and commit identity.",
+            "result = frame.evidence(limit=20)",
             ("frame",),
             "results.evidence",
             (
-                "Requires a stored Frame root. No result-table, attachment or method-payload reads or current-source freshness claim; .items contains all saved facts.",
+                "Requires a stored Frame root. No result-table, attachment, other audit collection or method-payload reads. Only selected records are checked; no current-source freshness claim.",
             ),
         ),
     )
@@ -683,13 +688,15 @@ def provider() -> DisclosureProvider:
             )
         )
     from marivo.analysis.dsl._population_disclosure import provider as population_provider
+    from marivo.analysis.dsl._read_disclosure import provider as read_provider
     from marivo.analysis.dsl._result_disclosure import provider as result_provider
 
     populations = population_provider()
     results = result_provider()
+    reads = read_provider()
     return DisclosureProvider(
         "analysis.dsl",
-        (*descriptors, *populations.descriptors, *results.descriptors),
+        (*descriptors, *populations.descriptors, *results.descriptors, *reads.descriptors),
         (
             ExportInput("AnalysisFrame", AnalysisFrame, "analysis_frame"),
             ExportInput("FrameAxis", FrameAxis, "frame_axis"),
@@ -703,5 +710,6 @@ def provider() -> DisclosureProvider:
             ),
             *populations.exports,
             *results.exports,
+            *reads.exports,
         ),
     )

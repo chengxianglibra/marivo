@@ -54,7 +54,7 @@ REQUIRED_TARGETS = {
     "session",
     "analysis_frame.show",
     "analysis_frame.findings",
-    "analysis_frame.evidence_digest",
+    "analysis_frame.evidence",
 }
 
 

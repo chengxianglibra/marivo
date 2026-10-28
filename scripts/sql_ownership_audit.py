@@ -119,7 +119,7 @@ def _manifest() -> Manifest:
     add("analysis/materialization/store", ("SessionStore._initialize",), ("read.execute",), store)
     add(
         "analysis/materialization/terminal_store",
-        ("admit", "records_page"),
+        ("admit",),
         ("conn.execute",),
         store,
     )

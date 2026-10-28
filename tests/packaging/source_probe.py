@@ -486,7 +486,7 @@ def cold(project: Path) -> dict[str, object]:
             result.show(n=1)
             result.show(n=0)
             result.findings()
-            result.evidence_digest()
+            result.evidence(limit=100)
             continued = result.select({"value": result["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])
         assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before

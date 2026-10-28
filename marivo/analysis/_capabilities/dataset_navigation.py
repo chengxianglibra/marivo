@@ -222,14 +222,17 @@ _PAGES = (
     ),
     NavigationInput(
         "results.inspect",
-        "Inspect Frame facts or export complete fixed values.",
+        "Inspect Frame structure, read pages or export complete fixed values.",
         (),
+        related=("analysis_frame.schema",),
         guidance=(
-            "Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; to_pandas exports complete fixed data with readable coordinates, string columns and isolated axis metadata, without evaluation. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys and layout without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, and to_pandas exports complete fixed data with isolated axis metadata. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(
             ("analysis_frame.show", "Inspect captured facts or a bounded fixed-data prefix."),
+            ("analysis_frame.schema", "Inspect captured fields, exact types, keys and layout."),
+            ("analysis_frame.read_page", "Read a projected page of fixed data and complete keys."),
             ("analysis_frame.to_pandas", "Export complete fixed data as an isolated DataFrame."),
         ),
     ),
@@ -252,7 +255,7 @@ _PAGES = (
         route_summaries=(
             ("analysis_frame.show", "Inspect saved submission identity and audit summaries."),
             ("analysis_frame.findings", "Read a bounded page of saved Findings."),
-            ("analysis_frame.evidence_digest", "Read saved Evidence facts and collection digests."),
+            ("analysis_frame.evidence", "Read a bounded page of saved Evidence."),
             ("analysis_frame.method_facts", "Access captured original method facts on this Frame."),
             (
                 "analysis_frame.lineage",
@@ -329,7 +332,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             guidance=(
                 "Imports: import marivo.analysis as mv",
                 "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and audit.",
-                "Acquire missing context with session.get_or_create; discover inputs through session.catalog. Related Frames share one Session; none is implicit.",
+                "Use session.get_or_create for missing context and session.catalog for inputs. Related Frames share one explicit Session.",
                 "Enter known targets directly; otherwise choose the missing information.",
                 "Construction captures dependencies; compute fixes data; persist saves it. Continue with the returned Frame.",
                 "Read object facts or type Help; follow error repairs. The agent owns interpretation.",

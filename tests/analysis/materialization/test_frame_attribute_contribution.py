@@ -1243,7 +1243,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert method.left.value==Decimal('240.500000000')
     assert method.change.value==Decimal('41')
     assert saved.compute().method_facts==saved.method_facts
-    checks=[dict(item.values) for item in saved.evidence_digest().items if item.kind=='check']
+    checks=[dict(item.values) for item in saved.evidence(limit=100).items if item.kind=='check']
     ids={item.get('check') for item in checks}
     assert {'attribute.complete_key_mapping','attribute_closure'} <= ids
     assert not {'attribute.scoped_identity_coverage','attribute.disjoint_joint_partition'} & ids
@@ -1564,9 +1564,10 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         assert len(mappings) == 1 and mappings[0]["result"] == "passed"
         saved = report.persist()
         reopened = session.persisted_frame(saved.artifact_id)
-        assert reopened._backing.metadata.audit == audit
+        completed = reopened.compute()
+        assert _memory(completed).metadata.audit == audit
         before = roles.copy()
-        assert reopened.compute().to_pandas().equals(rows)
+        assert completed.to_pandas().equals(rows)
         assert roles == before
 
 

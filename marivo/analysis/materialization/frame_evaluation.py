@@ -213,6 +213,7 @@ def _evaluate_frame(
     expressions = captured.expressions
     collected = captured.collected
     fixed_method_facts: dict[str, tuple[FrameMethodFacts, ...]] = {}
+    fixed_source_facts: dict[str, tuple[OutputEvidence, ...]] = {}
     method_productions: list[tuple[str, AttributeMethodPayload]] = []
 
     def read_input(input_id: str) -> CompletedFrameResult:
@@ -223,6 +224,7 @@ def _evaluate_frame(
         else:
             assert isinstance(backing, StoredFrameBacking)
             result = current._local.read_complete(backing)
+        fixed_source_facts[input_id] = result.metadata.audit.source_facts
         for facts in result.method_facts:
             validate_method_facts(facts)
         if declaration_keys is not None:
@@ -240,7 +242,7 @@ def _evaluate_frame(
         # Scheduled inputs already supplied facts; retain no data for this late path.
         return read_input(input_id).method_facts
 
-    source_facts: list[OutputEvidence] = list(captured.inherited)
+    source_facts: list[OutputEvidence] = []
     checks: list[OutputEvidence] = []
     evaluated_keys: dict[str, str] = {}
     with _SourceContexts() as stack:
@@ -617,6 +619,13 @@ def _evaluate_frame(
         completed_method_productions,
         metadata.result_id,
         input_facts,
+    )
+    inherited = tuple(fact for input_id in fixed_frames for fact in fixed_source_facts[input_id])
+    metadata = replace(
+        metadata,
+        audit=replace(
+            metadata.audit, source_facts=tuple(dict.fromkeys((*inherited, *source_facts)))
+        ),
     )
     return CompletedFrameResult(data, metadata, method_facts)
 

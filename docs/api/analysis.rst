@@ -51,13 +51,24 @@ Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
 Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
 must be a string. Every Frame exposes its captured ``session_id``. Stored roots
-expose ``artifact_id``, ``findings()`` and ``evidence_digest()`` directly.
+expose ``artifact_id``, ``findings()`` and ``evidence()`` directly.
 Pending and memory Frames require ``persist()`` for commit identity and audit reads.
 Identity attributes perform no Store reads. There is no public Artifact wrapper.
 ``show(n=20, max_output_bytes=8192)`` combines metadata, audit summaries and a
 whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
 ``max_output_bytes=None`` removes the byte limit while preserving the row limit.
-Full data export uses ``to_pandas()``.
+``schema`` returns captured immutable fields, exact types, complete axis keys and
+export layout without Store or payload I/O. ``read_page(columns=None, limit=1000,
+cursor=None, axis_names=None)`` reads complete fixed data in ordered projected
+pages, retaining complete coordinate keys. Limits are integers 1..10000, excluding
+bool. FramePage exposes input_id, layout, coordinates, limit, total_count,
+has_more, next_cursor and read_stats; its ``to_pandas()`` copies only this page
+and has empty attrs. Repeat the same selection, aliases and limit when continuing.
+``findings(limit=20, cursor=None)`` and ``evidence(limit=20, cursor=None)`` read
+independent saved audit collections with limits 1..100. Both return exact input,
+Session and Artifact identity, collection count and continuation state. No public
+digest or second complete Evidence reader exists. Full data export uses
+``to_pandas()`` and preserves its existing attrs snapshots and full validation.
 
 Public classes describe returned values; they do not authorize direct construction
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
@@ -307,7 +318,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 17 writer transaction. Memory persist never reevaluates. Stored
+single Store 18 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -319,15 +330,15 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 17 uses ``marivo.frame_output/v6``, ``frame.v6`` and ``frame-output-v6`` for
-all Frames, under ``.marivo/analysis/generations/v17/``. Owned method files share
+Store 18 uses ``marivo.frame_output/v7``, ``frame.v7`` and ``frame-output-v7`` for
+all Frames, under ``.marivo/analysis/generations/v18/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 17 refuses older-generation Session/result/audit data unchanged, without
+Store 18 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
-empty; create cannot bypass an old-only project. Preserve required
-old results by exporting with their original version or retaining a compatible
-environment. Create a new named Session in a fresh project for current work;
-there is no same-project bypass. RawSqlResult keeps its independent datasource
+empty. Current work may create a new named Session in the same project while
+older generations coexist unchanged; discovery warns about older paths. Preserve
+required old results by exporting with their original version or retaining a
+compatible environment. RawSqlResult keeps its independent datasource
 reader and does not enter Frame Store. Static Help, actual local evidence, provider Runtime and
 release acceptance are separate contracts.
 
@@ -354,7 +365,12 @@ Canonical public exports
    TimeScope
    InstantAnchor
    CalendarAxis
-   ArtifactDigest
+   EvidencePage
+   FrameSchema
+   FrameField
+   FrameAxisSchema
+   FramePage
+   FrameReadStats
    ArtifactRef
    Finding
    FindingPage

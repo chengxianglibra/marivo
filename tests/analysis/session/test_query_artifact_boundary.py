@@ -45,6 +45,7 @@ from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError, Session
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_metric
@@ -69,12 +70,15 @@ def _manifest() -> ArtifactManifest:
         "session_exact",
         "run_exact",
         ArtifactData(schema, ParquetHandle(receipt)),
-        FrameResultMetadata(
-            "result_exact",
-            lineage=empty_lineage(schema),
-            audit=FrameAudit(
-                (), EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ("literal",))
-            ),
+        describe(
+            FrameResultMetadata(
+                "result_exact",
+                lineage=empty_lineage(schema),
+                audit=FrameAudit(
+                    (),
+                    EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
+                ),
+            )
         ),
     )
 
@@ -247,7 +251,14 @@ def test_publication_tables_and_committed_data_have_distinct_contracts() -> None
     manifest = _manifest()
     frame = pd.DataFrame({"v0": pd.Series([10], dtype="Int64")})
     publication = CompletedFrameResult(
-        CompletedFrameData(manifest.data.schema, frame), manifest.metadata
+        CompletedFrameData(manifest.data.schema, frame),
+        FrameResultMetadata(
+            manifest.metadata.result_id,
+            audit=FrameAudit(
+                (), EvaluationRecord(manifest.metadata.evaluated_at, (), ("literal",))
+            ),
+            lineage=manifest.metadata.lineage,
+        ),
     )
     pd.testing.assert_frame_equal(publication.data.copy_rows().astype("Int64"), frame)
     assert isinstance(manifest.data.rows, ParquetHandle)
@@ -301,7 +312,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id)
     named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 17
+    assert MaterializationLayout(tmp_path).generation == 18
     assert terminal_runs(resumed) == ()
 
 
@@ -350,7 +361,7 @@ def test_old_session_is_not_found_without_rewriting_files(
     assert caught.value.repair is not None
     assert "v11" in caught.value.repair.action
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
-    assert not (path.parent.parent / "v17").exists()
+    assert not (path.parent.parent / "v18").exists()
 
 
 @pytest.mark.parametrize("columns", (None, False, 0, {}))
@@ -399,7 +410,7 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(
         "analysis.analysis_frame.artifact_id",
         "analysis.analysis_frame.session_id",
         "analysis.analysis_frame.findings",
-        "analysis.analysis_frame.evidence_digest",
+        "analysis.analysis_frame.evidence",
     ):
         public_help(target)
         assert target in capsys.readouterr().out
@@ -427,7 +438,7 @@ def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
         assert "stored" in text and "returns itself" in text
 
 
-@pytest.mark.parametrize("name", ("show", "findings", "evidence_digest"))
+@pytest.mark.parametrize("name", ("show", "findings", "evidence"))
 def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     capsys: pytest.CaptureFixture[str], name: str
 ) -> None:

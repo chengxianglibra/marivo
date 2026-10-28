@@ -8,9 +8,9 @@ import pytest
 
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.evidence._dataset_types import (
-    ArtifactDigest,
     AssociationFindingValueV1,
     AssociationLagV1,
+    EvidencePage,
     Finding,
     FindingPage,
     ForecastPointFindingValueV1,
@@ -28,7 +28,7 @@ def _finding(
 ) -> Finding:
     return Finding(
         finding_id="finding-1",
-        artifact_ref=ArtifactRef("artifact-1"),
+        artifact_ref=ArtifactRef(ref="artifact-1"),
         session_id="session-1",
         value=value,
         coordinates=coordinates,
@@ -106,7 +106,7 @@ def test_association_finding_owns_pair_counts_and_lag_shape() -> None:
         )
 
 
-def test_finding_page_preserves_bounds_and_terminal_fact_digest_shape() -> None:
+def test_record_pages_preserve_bounds_and_commit_identity() -> None:
     finding = _finding(
         ForecastPointFindingValueV1(
             model="naive@v1",
@@ -119,26 +119,55 @@ def test_finding_page_preserves_bounds_and_terminal_fact_digest_shape() -> None:
         ),
         (OutputCoordinate("key.0", "CN"),),
     )
-    page = FindingPage(items=(finding,), limit=1, has_more=True, next_cursor="next")
+    page = FindingPage(
+        items=(finding,),
+        limit=1,
+        has_more=True,
+        next_cursor="next",
+        input_id="input-1",
+        session_id="session-1",
+        artifact_ref=ArtifactRef(ref="artifact-1"),
+        total_count=2,
+    )
     assert page.items == (finding,)
     assert page.next_cursor == "next"
-    assert "FindingPage items=1" in repr(page)
+    assert "FindingPage artifact=artifact-1 items=1" in repr(page)
 
     with pytest.raises(IntegrityError):
-        FindingPage(items=(object(),), limit=1, has_more=False, next_cursor=None)  # type: ignore[arg-type]
+        FindingPage(
+            items=(object(),),
+            limit=1,
+            has_more=False,
+            next_cursor=None,
+            input_id="input-1",
+            session_id="session-1",
+            artifact_ref=ArtifactRef(ref="artifact-1"),
+            total_count=2,
+        )  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="has_more"):
-        FindingPage(items=(), limit=1, has_more=True, next_cursor=None)
+        FindingPage(
+            items=(),
+            limit=1,
+            has_more=True,
+            next_cursor=None,
+            input_id="input-1",
+            session_id="session-1",
+            artifact_ref=ArtifactRef(ref="artifact-1"),
+            total_count=2,
+        )
 
-    digest = ArtifactDigest(
-        artifact_ref=ArtifactRef("artifact-1"),
-        quality_summary_digest="a" * 64,
-        typed_issue_digest="b" * 64,
-        evidence_digest="c" * 64,
-        finding_count=1,
-        finding_set_digest="d" * 64,
+    evidence_page = EvidencePage(
+        input_id="input-1",
+        session_id="session-1",
+        artifact_ref=ArtifactRef(ref="artifact-1"),
+        total_count=1,
+        limit=20,
+        has_more=False,
+        next_cursor=None,
         items=(
             OutputEvidence(kind="read", summary="value", values=(("amount", Decimal("2.50")),)),
         ),
     )
-    assert digest.evidence_count == 1
-    assert digest.items[0].values == (("amount", Decimal("2.50")),)
+    assert evidence_page.total_count == 1
+    assert evidence_page.items[0].values == (("amount", Decimal("2.50")),)
+    assert not hasattr(evidence_page, "evidence_digest")

@@ -22,7 +22,7 @@ complete method payloads. See [Frame lineage](analysis-frame.md#静态语义对�
 ## Saved audit access
 
 A persisted Frame exposes its captured session_id and artifact_id, plus
-findings(limit=20, cursor=None) and evidence_digest(). There is no separate
+findings(limit=20, cursor=None) and evidence(). There is no separate
 public Artifact view. Pending and memory Frames require persist before commit
 identity or audit reads; session_id is available on every carrier.
 
@@ -33,22 +33,43 @@ result rows, coordinate attachments, complete method facts or full audit payload
 
 ```python
 saved = pending.persist()
-saved.show(n=20)
 saved.show(n=0)
-digest = saved.evidence_digest()
-print(digest.items)
-print(digest.finding_count)
-page = saved.findings(limit=20)
-for finding in page.items:
-    finding.show()
+page = saved.evidence(limit=20)
+assert page.input_id == saved.schema.input_id
+print(page.total_count)
+for item in page.items:
+    item.show()
+if page.has_more:
+    page = saved.evidence(limit=20, cursor=page.next_cursor)
+findings = saved.findings(limit=20)
 ```
 
-The digest takes no limit/cursor. Its items contain every saved Evidence fact;
-show is bounded and deterministic. FindingPage has immutable items, limit,
-has_more and next_cursor. Its cursor belongs to that commit/read. Consume
-paged typed items; there is no independent finding(id) lookup. An empty set is
-distinct from unavailable or corrupt records. Audit access reads no result rows
-or coordinate attachments.
+FindingPage and EvidencePage contain immutable items, input_id, session_id,
+artifact_ref, limit, total_count, has_more and next_cursor. Both accept integer
+limits 1..100, excluding bool, and preserve saved order. Evidence retains source
+facts first and current evaluation checks second, using saved partition counts.
+There is no public digest, complete-Evidence alternative, record lookup or filter.
+Counts belong to each collection; absent Findings do not imply absent Evidence.
+
+Opaque cursors bind exact input, collection kind/version and limit. Repeat the
+same parameters; mismatches fail before record reads. Independent reopen in the
+same Runtime version can continue a stored cursor. Empty sets return total_count=0,
+no cursor and no further page. They remain distinct from unavailable or corrupt
+records. Each page reads its own collection in one SQLite snapshot, checks only
+its ordered range and a bounded next-record probe, and validates per-record
+identity, body digest, concrete types and current-schema slot constraints.
+It does not recompute the collection digest, count all records or check coordinate
+values against result rows. Full audit consumption and transaction confirmation
+retain complete collection integrity checks.
+
+Resolve OutputCoordinate.slot_id through the same input's schema.slots. Field
+layout entries identify projected value/presence display columns; axis key fields
+identify the whole axis and its display columns. Data-page coordinates hold exact
+complete keys. A coordinate may reference a value without complete row keys;
+empty coordinates do not mean global applicability, and identities do not grant
+an automatic unique-row or chart-point association. Inherited source facts cannot
+reference current output slots; current checks and Findings use unique valid
+current slots. Page reads do not trace ancestors or prove coordinate membership.
 
 ## Source and evaluation facts
 
@@ -123,9 +144,13 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 17 uses marivo.frame_output/v6,
-frame.v6 and frame-output-v6. Stored manifests carry bounded target/schema,
-origin/count/digest and owned-payload descriptors. The explicit getter validates
+Memory roots retain the complete records. Store 18 uses marivo.frame_output/v7,
+frame.v7 and frame-output-v7. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+source/check/Finding counts, internal collection digests and owned-payload
+descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
+opening a manifest never loads either collection. Atomic publication writes both
+description and records. Full consumption reconstructs the original audit using
+the saved source/check partition and verifies complete collections. The explicit getter validates
 complete method files without reading primary rows, Catalog, model or sources.
 Pending access requires compute/persist. facts.show(n=0) controls only display
 after that read. Native Help at analysis.frame_method_facts owns nested fields.

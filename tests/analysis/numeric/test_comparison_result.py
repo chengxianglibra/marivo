@@ -76,9 +76,8 @@ def test_comparison_owns_independent_nullable_columns(
     result.show()
     card = capsys.readouterr().out
     assert "reference.absolute.value" in card and "reference.relative.value" in card
-    assert (
-        result.evidence_digest()
-        == case.session.persisted_frame(result.artifact_id).evidence_digest()
+    assert result.evidence(limit=100) == case.session.persisted_frame(result.artifact_id).evidence(
+        limit=100
     )
     pd.testing.assert_frame_equal(
         case.session.persisted_frame(result.artifact_id).to_pandas(), exported

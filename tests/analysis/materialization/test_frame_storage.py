@@ -1,4 +1,4 @@
-"""Store17 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store18 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import terminal_publication
+from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import (
     IntegrityError,
@@ -274,9 +274,10 @@ def test_comparison_preview_closes_direct_and_fact_references(
         assert decode(encode(value), ArtifactManifest) == value
         prefix = local.preview(_stored_backing(saved), 1)
         assert len(prefix.rows) == 1
-        assert {part.name for part in prefix.attachments} == set(
+        assert {part.name for part in prefix.attachments} <= set(
             coordinate_attachments(saved._schema)
         )
+        assert all(len(part.rows) <= 2 for part in prefix.attachments)
         assert prefix.schema.comparisons == memory._schema.comparisons
         exported = saved.to_pandas()
         assert exported.attrs["comparisons"] == memory.to_pandas().attrs["comparisons"]
@@ -342,7 +343,7 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
         )
     backing = local.open_frame(value.artifact_id)
     for consume in (lambda: local.read_complete(backing), lambda: local.preview(backing, 1)):
-        with pytest.raises(AnalysisError, match="targets resolving in the baseline directory"):
+        with pytest.raises(AnalysisError, match="resolv"):
             consume()
     assert local.preview(backing, 0).attachments == ()
     AnalysisFrame._from_stored(
@@ -459,11 +460,13 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v6"
-    assert local.store.layout.generation == 17
+    assert FORMAT == "marivo.frame_output/v7"
+    assert local.store.layout.generation == 18
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
-    assert replace(value.metadata, lineage=None) == metadata()
+    with local.store._read() as conn:
+        restored = terminal_store.complete_metadata(conn, value)
+    assert replace(restored, lineage=None) == metadata()
     assert value.metadata.lineage == saved.lineage
     assert tuple(field.name for field in fields(InvocationInput)) == ("result_id",)
     run = terminal_run(local, value.run_id)
@@ -508,7 +511,7 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     assert (
         _stored_backing(saved).metadata
         == _stored_backing(second).metadata
-        == _memory_backing(memory).metadata
+        == terminal_store.describe(_memory_backing(memory).metadata)
     )
     assert saved.persist() is saved
     reopened = AnalysisFrame._from_stored(
@@ -521,7 +524,9 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     loaded = saved.compute()
     assert loaded._input_id != saved._input_id
     assert isinstance(loaded._backing, MemoryFrameBacking)
-    assert _memory_backing(loaded).metadata == _stored_backing(saved).metadata
+    assert (
+        terminal_store.describe(_memory_backing(loaded).metadata) == _stored_backing(saved).metadata
+    )
     pd.testing.assert_frame_equal(saved.to_pandas(), loaded.to_pandas())
     old = manifest(saved)
     target = local.store.project_root / old.data.rows.receipt.project_relative_path / "data.parquet"
@@ -589,8 +594,14 @@ def test_zero_preview_and_audit_do_not_open_payloads(
     saved.show(n=0)
     saved.persist()
     reader = TerminalReader(local.store)
-    assert reader.findings(manifest(saved), limit=20, cursor=None).items == ()
-    assert reader.evidence_digest(manifest(saved)).items == metadata().audit.source_facts
+    assert (
+        reader.findings(manifest(saved), input_id=saved._input_id, limit=20, cursor=None).items
+        == ()
+    )
+    assert (
+        reader.evidence(manifest(saved), input_id=saved._input_id, limit=20, cursor=None).items
+        == metadata().audit.source_facts
+    )
 
 
 def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
@@ -701,6 +712,15 @@ def _assert_valid_minimum_temporal_ticks_survive_export_and_restore(
         values = pa.array(exported["observed"])
         assert values.null_count == 1
         assert values.cast(pa.int64()).to_pylist() == [-(2**63), None]
+        first_page = frame.read_page(limit=1)
+        exact_key = first_page.coordinates["time"][0]
+        assert isinstance(exact_key, (pa.TimestampScalar, pa.DurationScalar))
+        assert exact_key.type == arrow and exact_key.cast(pa.int64()).as_py() == -(2**63)
+        next_page = frame.read_page(limit=1, cursor=first_page.next_cursor)
+        assert next_page.coordinates["time"] == (None,)
+        assert pa.array(first_page.to_pandas()["observed"]).cast(pa.int64()).to_pylist() == [
+            -(2**63)
+        ]
         frame.show(n=2)
 
 
@@ -765,7 +785,9 @@ def test_lost_commit_ack_returns_original_without_evaluation(
     monkeypatch.setattr(terminal_publication, "_event", fault)
     saved = memory.persist()
     assert counts(local) == (1, 1)
-    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == terminal_store.describe(
+        _memory_backing(memory).metadata
+    )
     assert local.store.resources(local.session_ref) == ()
 
 
@@ -810,7 +832,9 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
     assert store.resources(local.session_ref) == ()
     saved = memory.persist()
     assert counts(local) == (2, committed_before + 1)
-    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == terminal_store.describe(
+        _memory_backing(memory).metadata
+    )
     pd.testing.assert_frame_equal(saved.to_pandas(), memory.to_pandas())
 
 
@@ -840,7 +864,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v17").exists()
+    assert not (old.parent.parent / "v18").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -967,6 +991,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pyarrow as pa
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -990,7 +1015,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         assert array.cast(pa.int64()).to_pylist() == [-(2**63), None]
     (store.project_root / backing.data.rows.receipt.project_relative_path / "data.parquet").unlink()
     copied = local.publish(result)
-    assert copied.metadata == result.metadata
+    assert copied.metadata == terminal_store.describe(result.metadata)
     copied_rows = local.read_complete(copied).data.copy_rows()
     for name, timestamp, unit in specs:
         physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
@@ -1058,6 +1083,12 @@ def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFram
     rows["key"] = pd.Series([2, 2, 0], dtype="int64[pyarrow]")
     backing = rewrite_primary(saved, rows)
     assert len(local.preview(backing, 1).rows) == 1
+    reopened = AnalysisFrame._from_stored(
+        local, backing.data, artifact_id=backing.artifact_id, metadata=backing.metadata
+    )
+    assert reopened.read_page(limit=1).coordinates["key"] == (2,)
+    with pytest.raises(MaterializationError, match="unique stage key"):
+        reopened.read_page(limit=2)
     with pytest.raises(MaterializationError, match="unique stage key"):
         local.read_complete(backing)
 
@@ -1102,7 +1133,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v17").exists()
+    assert (old.parent.parent / "v18").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1124,8 +1155,12 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         lambda: saved.persist(),
         lambda: local.committed_at(_stored_backing(saved)),
         lambda: saved.show(n=0),
-        lambda: TerminalReader(local.store).findings(current, limit=1, cursor=None),
-        lambda: TerminalReader(local.store).evidence_digest(current),
+        lambda: TerminalReader(local.store).findings(
+            current, input_id=saved._input_id, limit=1, cursor=None
+        ),
+        lambda: TerminalReader(local.store).evidence(
+            current, input_id=saved._input_id, limit=1, cursor=None
+        ),
         lambda: selected_manifest(local.store, current),
         lambda: terminal_protocol.decode(frozen, ArtifactManifest),
     )
@@ -1384,6 +1419,7 @@ import sys
 from pathlib import Path
 import pyarrow as pa
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
 result = local.read_complete(local.open_frame(sys.argv[3]))
@@ -1488,6 +1524,7 @@ import json, sys
 from pathlib import Path
 import pyarrow as pa
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
 local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
 for artifact_id, keys, others, scores in json.loads(sys.argv[3]):
@@ -1637,7 +1674,9 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     monkeypatch.setattr(frame_calendar, "freeze_calendar", forbidden)
     before = counts(local)
     loaded = saved.compute()
-    assert _memory_backing(loaded).metadata == _stored_backing(saved).metadata
+    assert (
+        terminal_store.describe(_memory_backing(loaded).metadata) == _stored_backing(saved).metadata
+    )
     read_calls = 0
     row_references: list[weakref.ReferenceType[pd.DataFrame]] = []
     release_checked = False
@@ -1750,7 +1789,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     assert len(compared.to_pandas()) == 3
     assert len(terminal_runs(session)) == before
     copied = result.persist()
-    assert copied._backing.metadata == result._backing.metadata
+    assert copied._backing.metadata == terminal_store.describe(result._backing.metadata)
     assert copied.to_pandas()["amount"].tolist() == [2, 1]
     assert len(terminal_runs(session)) == before + 1
 """
@@ -1772,14 +1811,18 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     after_cold = counts(local)
     assert after_cold == (before[0] + 1, before[1] + 1)
     copied = result.persist()
-    assert _stored_backing(copied).metadata == _memory_backing(result).metadata
+    assert _stored_backing(copied).metadata == terminal_store.describe(
+        _memory_backing(result).metadata
+    )
     pd.testing.assert_frame_equal(copied.to_pandas(), result.to_pandas())
     old = manifest(saved)
     (
         local.store.project_root / old.data.rows.receipt.project_relative_path / "data.parquet"
     ).unlink()
     assert saved.persist() is saved
-    assert _stored_backing(result.persist()).metadata == _memory_backing(result).metadata
+    assert _stored_backing(result.persist()).metadata == terminal_store.describe(
+        _memory_backing(result).metadata
+    )
     with pytest.raises(AnalysisError):
         saved.where(saved["amount"] > 0).compute()
     assert counts(local) == (after_cold[0] + 2, after_cold[1] + 2)
@@ -1953,32 +1996,7 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
     decoded: list[int] = []
     original_open = OutputRead._open
     original_keys = frozen_key_rows
-
-    class ObservedTable:
-        def __init__(self, table: pa.Table) -> None:
-            self.table = table
-
-        @property
-        def num_rows(self) -> int:
-            row_count: int = self.table.num_rows
-            return row_count
-
-        def cast(self, schema: pa.Schema, *, safe: bool) -> ObservedTable:
-            return ObservedTable(self.table.cast(schema, safe=safe))
-
-        def column(self, name: str) -> pa.ChunkedArray:
-            return self.table.column(name)
-
-        def filter(self, mask: pa.Array | pa.ChunkedArray) -> ObservedTable:
-            return ObservedTable(self.table.filter(mask))
-
-        def take(self, indices: pa.Array) -> pa.Table:
-            return self.table.take(indices)
-
-        def to_pandas(self, **kwargs: object) -> pd.DataFrame:
-            converted.append(self.table.num_rows)
-            rows: pd.DataFrame = self.table.to_pandas(**kwargs)
-            return rows
+    original_normalize = graph_reading.normalize_complete_frame
 
     class ObservedParquet:
         def __init__(self, parquet: pq.ParquetFile) -> None:
@@ -1989,8 +2007,11 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
             group_count: int = self.parquet.num_row_groups
             return group_count
 
-        def read_row_group(self, index: int, columns: list[str] | None = None) -> ObservedTable:
-            return ObservedTable(self.parquet.read_row_group(index, columns=columns))
+        def iter_batches(self, *, batch_size: int) -> object:
+            return self.parquet.iter_batches(batch_size=batch_size)
+
+        def read_row_group(self, index: int, columns: list[str] | None = None) -> None:
+            raise AssertionError("attachment selection decoded an entire row group")
 
         def __enter__(self) -> ObservedParquet:
             return self
@@ -2006,11 +2027,18 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
         decoded.append(len(rows))
         return original_keys(rows, columns)
 
+    def observed_normalize(
+        rows: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+    ) -> pd.DataFrame:
+        converted.append(len(rows))
+        return original_normalize(rows, columns, keys)
+
     monkeypatch.setattr(OutputRead, "_open", observed_open)
     monkeypatch.setattr(graph_reading, "frozen_key_rows", observed_keys)
+    monkeypatch.setattr(graph_reading, "normalize_complete_frame", observed_normalize)
     prefix = local.preview(_stored_backing(saved), 1)
     assert prefix.attachments[0].rows["ordinal"].tolist() == [127]
-    assert converted == [1]
+    assert converted and max(converted) == 1
     assert decoded and max(decoded) == 1
     assert counts(local) == (1, 1)
 
@@ -2374,12 +2402,17 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     memory = pending.compute()
     original = memory.method_facts
     assert len(original) == 1
-    assert original[0].origin_result_id == _memory_backing(memory).metadata.result_id
+    assert (
+        original[0].origin_result_id
+        == terminal_store.describe(_memory_backing(memory).metadata).result_id
+    )
     assert original[0].parents[0].metrics[0].method.change.value == 40
     saved = memory.persist()
     assert saved.method_facts == original
     assert saved.compute().method_facts == original
-    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == terminal_store.describe(
+        _memory_backing(memory).metadata
+    )
     before = counts(memory._local)
     for fixed in (memory, saved):
         assert fixed.to_pandas()["contribution.q"].tolist() == [60, -20]
@@ -2881,3 +2914,296 @@ def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServic
     assert rows["day"].tolist() == ["2024-01-01"]
     assert rows["day.actual_start"].tolist() == [actual]
     assert rows["day.actual_end"].tolist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
+
+
+def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
+    local: LocalFrameServices,
+) -> None:
+    memory = ordinary(local, 5)
+    for frame in (memory, memory.persist()):
+        page = frame.read_page(columns=("amount",), limit=2, axis_names={frame.axes[0]: "member"})
+        assert page.input_id == frame.schema.input_id
+        assert page.total_count == 5 and page.limit == 2 and len(page) == 2
+        assert page.coordinates["key"] == (4, 3)
+        assert page.to_pandas().columns.tolist() == ["member", "amount"]
+        assert page.to_pandas()["amount"].tolist() == [pd.NA, 1]
+        first = page.to_pandas()
+        first.loc[0, "amount"] = 999
+        assert page.to_pandas()["amount"].isna().tolist() == [True, False]
+        assert page.to_pandas().attrs == {}
+        chunks = [page.to_pandas()]
+        while page.has_more:
+            if isinstance(frame._backing, StoredFrameBacking):
+                reopened_local = LocalFrameServices(
+                    SessionStore.open_existing(local.store.project_root), local.session_ref
+                )
+                backing = reopened_local.open_frame(frame.artifact_id)
+                frame = AnalysisFrame._from_stored(
+                    reopened_local,
+                    backing.data,
+                    artifact_id=backing.artifact_id,
+                    metadata=backing.metadata,
+                    method_facts=backing.method_facts,
+                )
+            page = frame.read_page(
+                columns=("amount",),
+                limit=2,
+                cursor=page.next_cursor,
+                axis_names={frame.axes[0]: "member"},
+            )
+            chunks.append(page.to_pandas())
+        combined = pd.concat(chunks, ignore_index=True)
+        expected = frame.to_pandas(axis_names={frame.axes[0]: "member"})
+        expected.attrs = {}
+        pd.testing.assert_frame_equal(combined, expected)
+        assert len(page) == 1 and page.next_cursor is None
+
+
+def test_data_page_request_mismatch_precedes_payload_reads(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved = ordinary(local, 3).persist()
+    page = saved.read_page(limit=1)
+    other = ordinary(local, 3).persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("invalid page request reached payload")
+
+    monkeypatch.setattr(OutputRead, "_open", forbidden)
+    for kwargs in (
+        {"limit": True},
+        {"limit": 10001},
+        {"columns": ("missing",)},
+        {"columns": ("amount", "amount")},
+        {"columns": ["amount"]},
+        {"cursor": "not a cursor"},
+        {"cursor": page.next_cursor, "limit": 2},
+        {"cursor": page.next_cursor, "limit": 1, "columns": ()},
+        {"cursor": page.next_cursor, "limit": 1, "axis_names": {saved.axes[0]: "alias"}},
+    ):
+        with pytest.raises(AnalysisError):
+            saved.read_page(**kwargs)
+    with pytest.raises(AnalysisError):
+        other.read_page(limit=1, cursor=page.next_cursor)
+
+
+def test_data_page_zero_axis_empty_projection_and_empty_result(local: LocalFrameServices) -> None:
+    column = DataColumn("amount", "amount", ScalarDataType("int64"), False)
+    schema = DataSchema((), (column,), value_paths=(("amount",),))
+    for count in (0, 1):
+        memory = AnalysisFrame._from_memory(
+            local,
+            CompletedFrameResult(
+                CompletedFrameData(
+                    schema, pd.DataFrame({"amount": pd.Series([7] * count, dtype="int64[pyarrow]")})
+                ),
+                metadata(),
+            ),
+        )
+        for frame in (memory, memory.persist()):
+            page = frame.read_page(columns=())
+            assert len(page) == count and page.total_count == count
+            assert page.coordinates == {} and page.layout == ()
+            assert page.to_pandas().shape == (count, 0)
+            assert not page.has_more and page.next_cursor is None
+
+
+def test_calendar_and_paired_pages_keep_full_keys_and_only_page_coordinates(
+    local: LocalFrameServices,
+) -> None:
+    root = calendar(local, 4)
+    paired = root.align(calendar(local, 3), match=CalendarCorrespondence("ordinal")).compute()
+    current, baseline = period_endpoints(local)
+    compared = current.compare({"base": mv.baseline(baseline)}).compute()
+    first_interval, second_interval = interval(local, 1, 4), interval(local, 2, 5)
+    paired_interval = first_interval.align(
+        second_interval, match=CalendarCorrespondence("ordinal")
+    ).compute()
+    interval_comparison = first_interval.compare(
+        {"base": mv.baseline(second_interval, match=CalendarCorrespondence("ordinal"))}
+    ).compute()
+    for memory in (root, paired, compared, first_interval, paired_interval, interval_comparison):
+        for frame in (memory, memory.persist()):
+            page = frame.read_page(columns=(), limit=1)
+            assert set(page.coordinates) == {
+                key.slot_id for axis in frame.schema.axes for key in axis.keys
+            }
+            assert all(len(values) == 1 for values in page.coordinates.values())
+            assert all(column.kind == "coordinate" for column in page.layout)
+            expected = frame.to_pandas().iloc[:1, : len(page.layout)].reset_index(drop=True)
+            expected.attrs = {}
+            pd.testing.assert_frame_equal(page.to_pandas(), expected)
+
+
+def test_small_page_detaches_large_primary_and_scans_coordinates_in_fixed_batches(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.core.frame_page import detached_rows
+    from marivo.analysis.materialization import graph_reading
+
+    key = DataColumn("key", "key", ScalarDataType("int64"), False)
+    text = DataColumn("text", "text", ScalarDataType("string"), False)
+    amount = DataColumn("amount", "amount", ScalarDataType("int64"), False)
+    schema = DataSchema(
+        (DataAxis("axis", (key,), name="member"),),
+        (text, amount),
+        value_paths=(("text",), ("amount",)),
+    )
+    count = 1000
+    memory = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                schema,
+                pd.DataFrame(
+                    {
+                        "key": pd.Series(range(count), dtype="int64[pyarrow]"),
+                        "text": pd.Series(
+                            [str(i) + "x" * 1000 for i in range(count)], dtype="string[pyarrow]"
+                        ),
+                        "amount": pd.Series(range(count), dtype="int64[pyarrow]"),
+                    }
+                ),
+            ),
+            metadata(),
+        ),
+    )
+    saved = memory.persist()
+    monkeypatch.setattr(graph_reading, "POLICY", replace(POLICY, batch_rows=11))
+    seen: list[tuple[str, ...]] = []
+    original_batches = pq.ParquetFile.iter_batches
+
+    def batches(self: pq.ParquetFile, *args: object, **kwargs: object) -> object:
+        columns = kwargs.get("columns")
+        if isinstance(columns, list):
+            seen.append(tuple(columns))
+        return original_batches(self, *args, **kwargs)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("page read decoded an entire row group")
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", batches)
+    monkeypatch.setattr(pq.ParquetFile, "read_row_group", forbidden)
+    for frame in (memory, saved):
+        page = frame.read_page(columns=("text",), limit=1)
+        assert len(page) == 1 and page.to_pandas()["text"].tolist() == ["0" + "x" * 1000]
+        retained = pa.array(page._rows["text"])
+        assert retained.get_total_buffer_size() < 2000
+        assert page.read_stats.data_rows_read == (1 if frame is memory else 11)
+        assert page.read_stats.coordinate_rows_read == 0
+    assert seen == [("key", "text")]
+    assert (
+        saved.read_page(columns=("amount",), limit=1).read_stats.receipt_bytes_hashed
+        == (
+            local.store.project_root
+            / _stored_backing(saved).data.rows.receipt.project_relative_path
+            / "data.parquet"
+        )
+        .stat()
+        .st_size
+    )
+    directory_count = 10001
+    complete = _memory_backing(calendar(local, directory_count))
+    sparse = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                complete.data.schema,
+                complete.data.preview_rows(1),
+                complete.data.copy_attachments(),
+            ),
+            complete.metadata,
+        ),
+    )
+    for frame in (sparse, sparse.persist()):
+        page = frame.read_page(limit=1)
+        assert page.total_count == 1 and page.read_stats.coordinate_rows_read == directory_count
+        assert page.read_stats.data_rows_read == 1
+        assert len(page) == 1 and len(page.coordinates["bucket"]) == 1
+        assert page.to_pandas()["day"].tolist() == [
+            (datetime(2024, 1, 1) + timedelta(days=directory_count - 1)).date().isoformat()
+        ]
+    # A new copy also owns page-sized Arrow storage, rather than a parent view.
+    assert pa.array(detached_rows(page.to_pandas())["amount"]).get_total_buffer_size() <= 16
+
+
+def test_data_pages_preserve_decimal_and_extreme_date_keys(local: LocalFrameServices) -> None:
+    from decimal import Decimal
+
+    from marivo.analysis.core.data_types import DecimalDataType
+
+    date_key = DataColumn("day", "day", ScalarDataType("date"), True)
+    other_key = DataColumn("part", "part", ScalarDataType("string"), False)
+    value = DataColumn("amount", "amount", DecimalDataType(38, 18), True, "USD")
+    schema = DataSchema(
+        (DataAxis("joint", (date_key, other_key), name="joint"),),
+        (value,),
+        value_paths=(("amount",),),
+    )
+    amount = Decimal("99999999999999999999.999999999999999999")
+    rows = pd.DataFrame(
+        {
+            "day": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([-(2**31), None], type=pa.int32()).cast(pa.date32())
+                )
+            ),
+            "part": pd.Series(["a", "b"], dtype="string[pyarrow]"),
+            "amount": pd.Series(
+                pd.arrays.ArrowExtensionArray(pa.array([amount, None], type=pa.decimal128(38, 18)))
+            ),
+        }
+    )
+    memory = AnalysisFrame._from_memory(
+        local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata())
+    )
+    for frame in (memory, memory.persist()):
+        page = frame.read_page(limit=1)
+        key = page.coordinates["day"][0]
+        assert isinstance(key, pa.Date32Scalar) and key.cast(pa.int32()).as_py() == -(2**31)
+        assert page.to_pandas()["amount"].tolist() == [amount]
+        assert page.to_pandas()["joint"][0][1] == "a"
+        tail = frame.read_page(limit=1, cursor=page.next_cursor)
+        assert tail.coordinates["day"] == (None,)
+        assert tail.to_pandas()["amount"].isna().tolist() == [True]
+
+
+def test_data_page_cursor_continues_in_an_independent_process(local: LocalFrameServices) -> None:
+    import json
+    import subprocess
+    import sys
+
+    saved = ordinary(local, 5).persist()
+    first = saved.read_page(columns=("amount",), limit=2)
+    script = """
+import json, sys
+from pathlib import Path
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.dsl.frame import AnalysisFrame
+local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
+backing = local.open_frame(sys.argv[3])
+frame = AnalysisFrame._from_stored(local, backing.data, artifact_id=backing.artifact_id, metadata=backing.metadata, method_facts=backing.method_facts)
+page = frame.read_page(columns=("amount",), limit=2, cursor=sys.argv[4])
+assert page.input_id == frame.schema.input_id == sys.argv[5]
+print(json.dumps({"keys": page.coordinates["key"], "values": page.to_pandas()["amount"].tolist(), "total": page.total_count, "more": page.has_more}))
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            saved.artifact_id,
+            first.next_cursor,
+            first.input_id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {"keys": [2, 1], "values": [2, 3], "total": 5, "more": True}

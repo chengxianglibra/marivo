@@ -171,10 +171,11 @@ def records(
     items: list[OutputFinding | OutputEvidence] = []
     cursor = None
     while True:
-        page, cursor = terminal_store.records_page(
+        page = terminal_store.records_page(
             session._runtime.store, artifact.artifact_id, kind=kind, limit=1, cursor=cursor
         )
-        items.extend(page)
+        cursor = page.next_cursor
+        items.extend(page.items)
         if cursor is None:
             return tuple(items)
 
@@ -199,8 +200,8 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         assert artifact.to_pandas()["answer"].tolist() == [7]
         artifact.show()
         assert artifact.findings().items == ()
-        digest = artifact.evidence_digest()
-        assert digest.digest_version == "frame-output-v6"
+        digest = artifact.evidence()
+        assert digest.input_id == artifact.schema.input_id
         assert not any(item.kind == "read" for item in digest.items)
     published = terminal_runs(session, status="succeeded")
     assert all(run.lifecycle == "succeeded" for run in published)
@@ -284,7 +285,7 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
             "session",
             "run",
             ArtifactData(schema, handle),
-            replace(result_metadata(), lineage=empty_lineage(schema)),
+            terminal_store.describe(replace(result_metadata(), lineage=empty_lineage(schema))),
         )
         from marivo.analysis.materialization.pandas_export import export_frame
 
@@ -328,7 +329,9 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
         "session",
         "run",
         ArtifactData(DataSchema((), ()), handle),
-        replace(result_metadata(), lineage=empty_lineage(DataSchema((), ()))),
+        terminal_store.describe(
+            replace(result_metadata(), lineage=empty_lineage(DataSchema((), ())))
+        ),
     )
     exported = export_frame(manifest.data.schema, output)
     assert exported.shape == (count, 0)
@@ -384,8 +387,12 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     assert records(session, artifact_handle, "finding") == saved_findings
     assert records(session, artifact_handle) == evidence
     public = session.persisted_frame(artifact)
-    assert public.evidence_digest().items == evidence
-    assert public.evidence_digest().evidence_count == 101
+    evidence_page = public.evidence(limit=100)
+    evidence_tail = public.evidence(limit=100, cursor=evidence_page.next_cursor)
+    assert (*evidence_page.items, *evidence_tail.items) == evidence
+    assert evidence_page.total_count == 101
+    assert evidence_tail.total_count == 101
+    assert evidence_page.input_id == public.schema.input_id
     page = public.findings(limit=1)
     assert page.items[0].value == finding.value
     assert page.items[0].coordinates == finding.coordinates
@@ -402,9 +409,9 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     foreign = constant(session).persist()
     with pytest.raises(IntegrityError):
         foreign.findings(limit=1, cursor=page.next_cursor)
-    public.evidence_digest().show()
+    public.evidence().show()
 
-    _, cursor = terminal_store.records_page(store, artifact, kind="evidence", limit=1)
+    cursor = terminal_store.records_page(store, artifact, kind="evidence", limit=1).next_cursor
     with pytest.raises(IntegrityError):
         terminal_store.records_page(store, artifact, kind="finding", cursor=cursor)
     with store._write() as conn:
@@ -691,7 +698,7 @@ def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
         assert record is not None
         assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert (old.parent.parent / "v17").exists()
+    assert (old.parent.parent / "v18").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -707,8 +714,8 @@ store=SessionStore.open_existing(Path(sys.argv[1]))
 with store._read() as conn:
     manifest=terminal_store.manifest(store,conn,sys.argv[2])
 assert read_output(store.project_root,manifest.data.schema,manifest.data.rows)["value.0"].tolist()==[7]
-assert terminal_store.records_page(store,sys.argv[2],kind="finding")[0]==()
-assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
+assert terminal_store.records_page(store,sys.argv[2],kind="finding").items==()
+assert terminal_store.records_page(store,sys.argv[2],kind="evidence").items
 """
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path), artifact.artifact_id],
@@ -982,7 +989,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     reopened.show(n=0)
     assert "rows" in capsys.readouterr().out
     assert reopened.findings().items == ()
-    facts = reopened.evidence_digest().items
+    facts = reopened.evidence().items
     assert any(item.kind == "read" for item in facts)
     publishing = terminal_run(session, committed(artifact).run_id)
     assert publishing.lifecycle == "succeeded"
@@ -1090,9 +1097,9 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     with pytest.raises(IntegrityError):
         artifact.to_pandas()
     assert artifact.findings().items == ()
-    artifact.evidence_digest()
+    artifact.evidence()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store17 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store18 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1105,10 +1112,10 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
     text = capsys.readouterr().out
     assert "omitted" in text or "truncated" in text
     assert "max_output_bytes=None" in text
-    assert ".to_pandas()" in text and ".evidence_digest()" in text
+    assert ".to_pandas()" in text and ".evidence(limit=20)" in text
     assert len(text.encode()) <= 8192
     assert artifact.to_pandas().shape == (1, 60)
-    artifact.evidence_digest()
+    artifact.evidence()
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
@@ -1168,9 +1175,9 @@ region = catalog_value(session.catalog, 'sales.orders.region', kind='field')
 frame = session.observe({'total': amount.sum(), 'mean': amount.mean()}, by=(region,))
 def forbidden(*args, **kwargs):
     raise AssertionError('The producer must retain identities without a show call')
-mv.AnalysisFrame.show = forbidden
 example = prepare().by_canonical_id('analysis_frame.persist')
 assert isinstance(example, CallableInput)
+mv.AnalysisFrame.show = forbidden
 exec(compile(example.example.code, '<persist-help>', 'exec'))
 """,
             str(root),
@@ -1180,8 +1187,7 @@ exec(compile(example.example.code, '<persist-help>', 'exec'))
         capture_output=True,
     )
     assert produced.returncode == 0, produced.stdout + produced.stderr
-    identities = json.loads(produced.stdout.strip().splitlines()[-1])
-    session_id, artifact_id = identities["session_id"], identities["artifact_id"]
+    session_id, artifact_id = produced.stdout.strip().splitlines()[-2:]
     (root / "warehouse.duckdb").unlink()
     shutil.rmtree(root / "models")
     reopened = subprocess.run(
@@ -1277,7 +1283,7 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
         "session",
         "run",
         ArtifactData(schema, handle),
-        replace(result_metadata(), lineage=empty_lineage(schema)),
+        terminal_store.describe(replace(result_metadata(), lineage=empty_lineage(schema))),
     )
     exported = export_frame(schema, read_output(tmp_path, schema, handle))
     assert exported[exported.attrs["axes"][0]["name"]].tolist() == [
@@ -1371,7 +1377,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v6"
+    assert value.semantics_version == "frame.v7"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0
@@ -1486,3 +1492,177 @@ def test_manifest_rejects_foreign_duplicate_internal_producer(session: Session) 
         )
     with pytest.raises(IntegrityError, match="duplicate producer"):
         session.persisted_frame(value.artifact_id)
+
+
+def test_metadata_and_audit_pages_do_not_scan_other_collections(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    count = 10001
+    checks = tuple(OutputEvidence("check", f"saved check {i}") for i in range(count))
+    fixed = constant(session).compute()
+    assert isinstance(fixed._backing, MemoryFrameBacking)
+    original = fixed._backing.result
+    metadata = replace(
+        original.metadata,
+        audit=replace(
+            original.metadata.audit,
+            evaluation=replace(original.metadata.audit.evaluation, checks=checks),
+        ),
+    )
+    saved = AnalysisFrame._from_memory(
+        session._runtime.local, replace(original, metadata=metadata)
+    ).persist()
+    queries: list[str] = []
+    from contextlib import contextmanager
+
+    read = SessionStore._read
+
+    @contextmanager
+    def traced(store: SessionStore) -> Iterator[sqlite3.Connection]:
+        with read(store) as conn:
+            conn.set_trace_callback(queries.append)
+            yield conn
+
+    monkeypatch.setattr(SessionStore, "_read", traced)
+    reopened = session.persisted_frame(saved.artifact_id)
+    reopened.show(n=0)
+    assert not any("FROM findings" in sql or "FROM output_evidence" in sql for sql in queries)
+    queries.clear()
+    page = reopened.evidence(limit=2)
+    assert page.items == checks[:2]
+    assert page.total_count == count
+    assert not any("FROM findings" in sql or "count(*)" in sql.lower() for sql in queries)
+    assert all(
+        "LIMIT 3" in sql or "evidence_ordinal<2" in sql
+        for sql in queries
+        if "FROM output_evidence" in sql
+    )
+    assert "saved check" not in encode(committed(saved))
+    with pytest.raises(IntegrityError, match="page size") as mismatch:
+        reopened.evidence(limit=3, cursor=page.next_cursor)
+    assert "cursor=None" in mismatch.value.repair.action
+    assert "evidence" in mismatch.value.repair.action
+    with pytest.raises(IntegrityError, match="collection"):
+        reopened.findings(limit=2, cursor=page.next_cursor)
+    cold = session.persisted_frame(saved.artifact_id)
+    assert cold.evidence(limit=2, cursor=page.next_cursor).items == checks[2:4]
+    script = """
+import os, sys
+os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
+import marivo.analysis as mv
+session = mv.session.resume(sys.argv[2])
+frame = session.persisted_frame(sys.argv[3])
+page = frame.evidence(limit=2, cursor=sys.argv[4])
+assert page.input_id == sys.argv[5]
+assert tuple(item.summary for item in page.items) == ("saved check 2", "saved check 3")
+print("cold-audit-cursor")
+"""
+    cold_process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(session.project_root),
+            session.id,
+            saved.artifact_id,
+            page.next_cursor or "",
+            page.input_id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert cold_process.returncode == 0, cold_process.stdout + cold_process.stderr
+    assert "cold-audit-cursor" in cold_process.stdout
+
+
+def test_unread_audit_corruption_is_deferred_until_consumption(session: Session) -> None:
+    checks = tuple(OutputEvidence("check", f"check {i}") for i in range(5))
+    fixed = constant(session).compute()
+    assert isinstance(fixed._backing, MemoryFrameBacking)
+    result = fixed._backing.result
+    metadata = replace(
+        result.metadata,
+        audit=replace(
+            result.metadata.audit,
+            evaluation=replace(result.metadata.audit.evaluation, checks=checks),
+        ),
+    )
+    saved = AnalysisFrame._from_memory(
+        session._runtime.local, replace(result, metadata=metadata)
+    ).persist()
+    with session._runtime.store._write() as conn:
+        conn.execute(
+            "UPDATE output_evidence SET body_payload=? WHERE artifact_ref=? AND evidence_ordinal=4",
+            (encode(OutputEvidence("check", "changed")), saved.artifact_id),
+        )
+    reopened = session.persisted_frame(saved.artifact_id)
+    assert reopened.evidence(limit=2).items == checks[:2]
+    assert reopened.findings().total_count == 0
+    assert reopened.to_pandas()["answer"].tolist() == [7]
+    with pytest.raises(IntegrityError):
+        reopened.compute()
+    second = reopened.evidence(limit=2, cursor=reopened.evidence(limit=2).next_cursor)
+    with pytest.raises(IntegrityError):
+        reopened.evidence(limit=2, cursor=second.next_cursor)
+
+
+@pytest.mark.parametrize("damage", ("gap", "extra"))
+def test_record_page_rejects_declared_range_gaps_and_extra_tail(
+    session: Session, damage: str
+) -> None:
+    saved = constant(session).persist()
+    with session._runtime.store._write() as conn:
+        if damage == "gap":
+            conn.execute(
+                "DELETE FROM output_evidence WHERE artifact_ref=? AND evidence_ordinal=0",
+                (saved.artifact_id,),
+            )
+        else:
+            metadata = committed(saved).metadata
+            ordinal = metadata.source_fact_count + metadata.check_count
+            body = encode(OutputEvidence("check", "extra undeclared check"))
+            from marivo.analysis.materialization.contracts import digest
+
+            conn.execute(
+                "INSERT INTO output_evidence VALUES(?,?,?,?)",
+                (saved.artifact_id, ordinal, body, digest(body)),
+            )
+    with pytest.raises(IntegrityError, match="missing, duplicate, out-of-order or extra"):
+        saved.evidence(limit=100)
+
+
+@pytest.mark.parametrize("stored_side", ("left", "right"))
+@pytest.mark.parametrize("empty_projection", (False, True))
+def test_mixed_fixed_carriers_preserve_source_fact_encounter_order(
+    session: Session, stored_side: str, empty_projection: bool
+) -> None:
+    def with_fact(name: str) -> AnalysisFrame:
+        computed = constant(session).compute()
+        assert isinstance(computed._backing, MemoryFrameBacking)
+        result = computed._backing.result
+        metadata = replace(
+            result.metadata,
+            audit=replace(result.metadata.audit, source_facts=(OutputEvidence("read", name),)),
+        )
+        return AnalysisFrame._from_memory(
+            session._runtime.local, replace(result, metadata=metadata)
+        )
+
+    left, right = with_fact("left source"), with_fact("right source")
+    if stored_side == "left":
+        left = left.persist()
+    else:
+        right = right.persist()
+    pending = left.align(right)
+    completed = (pending.select({}) if empty_projection else pending).compute()
+    assert isinstance(completed._backing, MemoryFrameBacking)
+    assert tuple(fact.summary for fact in completed._backing.metadata.audit.source_facts) == (
+        "left source",
+        "right source",
+    )
+    saved = completed.persist()
+    assert tuple(fact.summary for fact in saved.evidence().items[:2]) == (
+        "left source",
+        "right source",
+    )

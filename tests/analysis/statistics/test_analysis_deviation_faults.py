@@ -208,7 +208,7 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
         artifact._local._audit_manifest(artifact._require_stored("artifact_id")).run_id
         == runs[0].run_ref
     )
-    assert artifact.evidence_digest().finding_count == 0
+    assert artifact.findings(limit=100).total_count == 0
     assert_clean(case.session, artifacts=1)
     before = run_ids(case.session)
     deviation(plain(artifact), "zscore")

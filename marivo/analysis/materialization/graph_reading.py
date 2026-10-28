@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 import pandas as pd
@@ -20,11 +21,13 @@ from marivo.analysis.core.artifact_data import (
     ParquetHandle,
 )
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
-    DataAxis,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
 )
+from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
@@ -32,32 +35,34 @@ from marivo.analysis.core.frame_data import (
     StoredFrameBacking,
 )
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.core.frame_page import FrameReadStats, detached_rows
 from marivo.analysis.core.frozen_calendar import (
-    FrozenAttachment,
     FrozenCalendarBucket,
+    FrozenCalendarDirectory,
+    FrozenComparisonAbsent,
     FrozenIntervalBucket,
+    FrozenIntervalDirectory,
     FrozenKey,
     frozen_key_rows,
     frozen_key_table,
     read_calendar_records,
+    read_comparison_mapping,
     read_interval_directory,
-    validate_frozen_coordinates,
     validate_paired_presence,
     validate_paired_records,
     validate_presence,
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.errors import ArtifactNotFoundError
-from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+from marivo.analysis.evidence._dataset_types import EvidencePage, Finding, FindingPage
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.contracts import digest, parse_timestamp
+from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _manifest_bytes,
     _open_payload,
-    payload_digest,
 )
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
@@ -104,14 +109,34 @@ class OutputRead:
     def __init__(self, root: Path) -> None:
         self.root = root
         self._validated: set[ParquetHandle] = set()
+        self.data_rows_read = 0
+        self.coordinate_rows_read = 0
+        self.receipt_bytes_hashed = 0
+
+    @property
+    def stats(self) -> FrameReadStats:
+        return FrameReadStats(
+            self.data_rows_read, self.coordinate_rows_read, self.receipt_bytes_hashed
+        )
 
     def _open(self, layout: ReadLayout) -> pq.ParquetFile:
         handle, receipt = layout.handle, layout.handle.receipt
         directory = _checked_path(self.root, Path(receipt.project_relative_path))
         if handle not in self._validated:
-            if payload_digest(self.root, directory, receipt) != handle.payload_digest:
+            hashed = sha256()
+            for entry in receipt.file_manifest:
+                path = _checked_path(self.root, directory / entry.relative_path)
+                hashed.update(entry.relative_path.encode())
+                with path.open("rb") as stream:
+                    while block := stream.read(1024 * 1024):
+                        self.receipt_bytes_hashed += len(block)
+                        hashed.update(block)
+            if hashed.hexdigest() != handle.payload_digest:
                 raise invalid("Frame payload digest differs from its committed receipt")
-            if (directory / "manifest.json").read_bytes() != _manifest_bytes(receipt.file_manifest):
+            expected_manifest = _manifest_bytes(receipt.file_manifest)
+            with (directory / "manifest.json").open("rb") as manifest_stream:
+                saved_manifest = manifest_stream.read(len(expected_manifest) + 1)
+            if saved_manifest != expected_manifest:
                 raise invalid("Frame file manifest differs from its receipt")
             self._validated.add(handle)
         parquet, path = _open_payload(self.root, receipt)
@@ -125,6 +150,65 @@ class OutputRead:
             parquet.close()
             raise invalid("Frame payload schema, rows or bytes differ from its receipt")
         return parquet
+
+    def range(
+        self,
+        layout: ReadLayout,
+        start: int,
+        limit: int,
+        columns: tuple[DataColumn, ...],
+    ) -> pd.DataFrame:
+        """Decode fixed-size batches of selected columns and retain only the range."""
+        count = layout.handle.receipt.realized_row_count
+        if not layout.schema.axes and count > 1:
+            raise invalid("zero-axis terminal output must contain zero or one row")
+        end = min(start + limit, count)
+        if not columns and layout.schema.columns:
+            # A zero-axis scalar can project no values. Its row count is fixed
+            # metadata; there is no synthetic __unit field in this payload.
+            with self._open(layout):
+                pass
+            return pd.DataFrame(index=pd.RangeIndex(max(0, end - start)))
+        selected: list[pa.Table] = []
+        names = [column.slot_id for column in columns] or ["__unit"]
+        with self._open(layout) as parquet:
+            position = 0
+            for group in range(parquet.num_row_groups):
+                group_count = parquet.metadata.row_group(group).num_rows
+                if position + group_count <= start:
+                    position += group_count
+                    continue
+                if position >= end:
+                    break
+                for batch in parquet.iter_batches(
+                    batch_size=POLICY.batch_rows, row_groups=[group], columns=names
+                ):
+                    self.data_rows_read += batch.num_rows
+                    lower, upper = max(start - position, 0), min(end - position, batch.num_rows)
+                    if upper > lower:
+                        # take allocates new buffers instead of retaining a decoded row group.
+                        selected.append(
+                            pa.Table.from_batches([batch]).take(
+                                pa.array(range(lower, upper), type=pa.int64())
+                            )
+                        )
+                    position += batch.num_rows
+                    if position >= end:
+                        break
+        physical = physical_schema(layout.schema)
+        wanted = pa.schema([physical.field(name) for name in names])
+        table = pa.concat_tables(selected) if selected else pa.Table.from_batches([], schema=wanted)
+        if table.num_rows != max(0, end - start):
+            raise invalid("selected Frame range contains fewer rows than its committed count")
+        if not columns:
+            if count > 1 or any(value != 1 for value in table["__unit"].to_pylist()):
+                raise invalid("invalid zero-axis unit output")
+            return pd.DataFrame(index=pd.RangeIndex(table.num_rows))
+        target = arrow_schema(layout.schema)
+        table = table.cast(pa.schema([target.field(name) for name in names]), safe=True)
+        return normalize_complete_frame(
+            table.to_pandas(types_mapper=pd.ArrowDtype), columns, layout.schema.key_fields
+        )
 
     def read(self, layout: ReadLayout, request: PreviewRead | ExportRead) -> pd.DataFrame:
         schema = layout.schema
@@ -172,15 +256,10 @@ class OutputRead:
         )
         if keys:
             with self._open(layout) as parquet:
-                for group in range(parquet.num_row_groups):
-                    key_table = parquet.read_row_group(
-                        group, columns=[column.slot_id for column in columns]
-                    ).cast(
-                        pa.schema(
-                            [arrow_schema(schema).field(column.slot_id) for column in columns]
-                        ),
-                        safe=True,
-                    )
+                for batch in parquet.iter_batches(batch_size=POLICY.batch_rows):
+                    self.coordinate_rows_read += batch.num_rows
+                    decoded = pa.Table.from_batches([batch]).cast(arrow_schema(schema), safe=True)
+                    key_table = decoded.select([column.slot_id for column in columns])
                     mask = pc.is_valid(pa.nulls(key_table.num_rows))
                     for index in range(requested.num_rows):
                         match = pc.is_null(pa.nulls(key_table.num_rows))
@@ -203,12 +282,7 @@ class OutputRead:
                             if key in found:
                                 raise invalid("duplicate selected frozen coordinate key")
                             found.add(key)
-                        # Parquet supplies row groups; take before pandas conversion.
-                        chunks.append(
-                            parquet.read_row_group(group)
-                            .cast(arrow_schema(schema), safe=True)
-                            .take(pc.indices_nonzero(mask))
-                        )
+                        chunks.append(decoded.take(pc.indices_nonzero(mask)))
         if found != keys:
             raise invalid("selected coordinate does not resolve in its saved attachment")
         table = (
@@ -286,9 +360,13 @@ class FrameReader:
         return value
 
     def complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
-        return CompletedFrameResult(
-            self.data(backing), backing.metadata, self.method_facts(backing)
-        )
+        value = self.manifest(backing)
+        with self.store._read() as conn:
+            selected = terminal_store.manifest(self.store, conn, value.artifact_id)
+            if selected != value:
+                raise invalid("selected Frame metadata changed before complete consumption")
+            metadata = terminal_store.complete_metadata(conn, value)
+        return CompletedFrameResult(self.data(backing), metadata, self.method_facts(backing))
 
     def method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
         value = self.manifest(backing)
@@ -318,110 +396,185 @@ class FrameReader:
             )
             return CompletedFrameData(value.data.schema, rows, parts)
 
-    def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
-        request = PreviewRead(n)
+    def range(
+        self,
+        backing: StoredFrameBacking,
+        start: int,
+        limit: int,
+        columns: tuple[DataColumn, ...],
+    ) -> tuple[FramePreview, FrameReadStats]:
         value = self.manifest(backing)
         with _frame_read_boundary():
             reader = OutputRead(self.store.project_root)
             schema = value.data.schema
-            rows = reader.read(ReadLayout(schema, value.data.rows), request)
-            validate_presence(schema, rows)
-            parts: dict[str, OutputAttachment] = {}
+            rows = reader.range(ReadLayout(schema, value.data.rows), start, limit, columns)
             saved = {part.name: part for part in value.data.attachments}
-
-            def direct(axis: DataAxis) -> bool:
-                if isinstance(axis, PairedDataAxis):
-                    return direct(axis.left) or direct(axis.right)
-                return (
-                    isinstance(axis, CalendarDataAxis)
-                    and axis.frozen is not None
-                    and axis.frozen.direct is not None
-                )
-
-            if n and (schema.comparisons or any(direct(axis) for axis in schema.axes)):
-                # Direct and consumed maps certify complete finite domains. Read
-                # that authority while keeping the primary payload a prefix.
-                required = tuple(
-                    OutputAttachment(
-                        part.name,
-                        part.schema,
-                        reader.read(ReadLayout(part.schema, part.rows), ExportRead()),
-                    )
-                    for part in value.data.attachments
-                )
-                validate_frozen_coordinates(
-                    schema,
-                    rows,
-                    tuple(FrozenAttachment(part.name, part.schema, part.rows) for part in required),
-                )
-                return FramePreview(schema, rows, required)
 
             def select(name: str, keys: set[FrozenKey]) -> OutputAttachment:
                 part = saved[name]
-                selected = OutputAttachment(
+                return OutputAttachment(
                     name, part.schema, reader.select(ReadLayout(part.schema, part.rows), keys)
                 )
-                if name in parts:
-                    # Shared endpoints may be needed by more than one axis.
-                    previous = parts[name]
-                    merged = pd.concat([previous.rows, selected.rows], ignore_index=True)
-                    keys_seen: set[FrozenKey] = set()
-                    indices = []
-                    columns = tuple(c for axis in part.schema.axes for c in axis.columns)
-                    for i, key in enumerate(frozen_key_rows(merged, columns)):
-                        if key not in keys_seen:
-                            keys_seen.add(key)
-                            indices.append(i)
-                    selected = OutputAttachment(
-                        name, part.schema, merged.iloc[indices].reset_index(drop=True)
-                    )
-                parts[name] = selected
-                return selected
 
-            def calendar(
-                axis: CalendarDataAxis | IntervalDataAxis, keys: set[FrozenKey]
-            ) -> tuple[FrozenCalendarBucket, ...] | tuple[FrozenIntervalBucket, ...]:
-                assert axis.frozen is not None
-                part = select(axis.frozen.directory_name, keys)
-                return (
-                    read_interval_directory(axis, part.schema, part.rows).buckets
-                    if isinstance(axis, IntervalDataAxis)
-                    else read_calendar_records(axis, part.schema, part.rows)
+            parts = selected_coordinates(schema, rows, select)
+            return FramePreview(schema, rows, parts), reader.stats
+
+    def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
+        request = PreviewRead(n)
+        if not request.n:
+            value = self.manifest(backing)
+            return FramePreview(
+                value.data.schema,
+                pa.Table.from_batches([], schema=arrow_schema(value.data.schema)).to_pandas(
+                    types_mapper=pd.ArrowDtype
                 )
+                if value.data.schema.columns
+                else pd.DataFrame(),
+                (),
+            )
+        preview, _ = self.range(backing, 0, request.n, backing.data.schema.columns)
+        return preview
 
-            if n:
-                for axis in schema.axes:
-                    keys = set(frozen_key_rows(rows, axis.columns))
-                    if isinstance(axis, PairedDataAxis):
-                        mapping = select(axis.mapping_name, keys)
-                        width = len(axis.left.columns)
-                        endpoint_records = []
-                        for endpoint, columns in (
-                            (axis.left, mapping.schema.values[:width]),
-                            (axis.right, mapping.schema.values[width:]),
-                        ):
-                            endpoint_keys = frozen_key_rows(mapping.rows, columns)
-                            endpoint_records.append(
-                                calendar(
-                                    endpoint,
-                                    {
-                                        key
-                                        for key in endpoint_keys
-                                        if all(value is not None for _, value in key)
-                                    },
-                                )
-                            )
-                        validate_paired_records(
-                            axis,
-                            mapping.schema,
-                            mapping.rows,
-                            endpoint_records[0],
-                            endpoint_records[1],
-                        )
-                        validate_paired_presence(axis, schema, rows, mapping.schema, mapping.rows)
-                    elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
-                        calendar(axis, keys)
-            return FramePreview(schema, rows, tuple(parts.values()))
+
+def selected_coordinates(
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    read: Callable[[str, set[FrozenKey]], OutputAttachment],
+) -> tuple[OutputAttachment, ...]:
+    """Resolve only coordinates consumed by these rows, without finite-domain claims."""
+    validate_presence(schema, rows)
+    parts: dict[str, OutputAttachment] = {}
+
+    def select(name: str, keys: set[FrozenKey]) -> OutputAttachment:
+        selected = read(name, keys)
+        if name in parts:
+            previous = parts[name]
+            merged = pd.concat([previous.rows, selected.rows], ignore_index=True)
+            seen: set[FrozenKey] = set()
+            indices: list[int] = []
+            columns = tuple(c for axis in selected.schema.axes for c in axis.columns)
+            for index, key in enumerate(frozen_key_rows(merged, columns)):
+                if key not in seen:
+                    seen.add(key)
+                    indices.append(index)
+            selected = OutputAttachment(
+                name, selected.schema, detached_rows(merged.iloc[indices].reset_index(drop=True))
+            )
+        parts[name] = selected
+        return selected
+
+    def calendar(
+        axis: CalendarDataAxis | IntervalDataAxis, keys: set[FrozenKey]
+    ) -> tuple[FrozenCalendarBucket, ...] | tuple[FrozenIntervalBucket, ...]:
+        assert axis.frozen is not None
+        part = select(axis.frozen.directory_name, keys)
+        return (
+            read_interval_directory(axis, part.schema, part.rows).buckets
+            if isinstance(axis, IntervalDataAxis)
+            else read_calendar_records(axis, part.schema, part.rows)
+        )
+
+    for axis in schema.axes:
+        keys = set(frozen_key_rows(rows, axis.columns))
+        if isinstance(axis, PairedDataAxis):
+            mapping = select(axis.mapping_name, keys)
+            width = len(axis.left.columns)
+            endpoint_records = []
+            for endpoint, columns in (
+                (axis.left, mapping.schema.values[:width]),
+                (axis.right, mapping.schema.values[width:]),
+            ):
+                endpoint_keys = frozen_key_rows(mapping.rows, columns)
+                endpoint_records.append(
+                    calendar(
+                        endpoint,
+                        {
+                            key
+                            for key in endpoint_keys
+                            if all(value is not None for _, value in key)
+                        },
+                    )
+                )
+            validate_paired_records(
+                axis, mapping.schema, mapping.rows, endpoint_records[0], endpoint_records[1]
+            )
+            validate_paired_presence(axis, schema, rows, mapping.schema, mapping.rows)
+        elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
+            calendar(axis, keys)
+
+    for fact in schema.comparisons:
+        binding = fact.binding
+        if not isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            continue
+        current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+        assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
+        primary_keys = frozen_key_rows(rows, current.columns)
+        mapping = select(binding.mapping_name, set(primary_keys))
+        mapped_keys = frozen_key_rows(mapping.rows, current.columns)
+        current_buckets = {bucket.key: bucket for bucket in calendar(current, set(mapped_keys))}
+        baseline_columns = mapping.schema.values[:-1]
+        baseline_keys = frozen_key_rows(mapping.rows, baseline_columns)
+        baseline_buckets = calendar(
+            binding.baseline,
+            {key for key in baseline_keys if all(value is not None for _, value in key)},
+        )
+        current_directory: FrozenCalendarDirectory | FrozenIntervalDirectory
+        baseline_directory: FrozenCalendarDirectory | FrozenIntervalDirectory
+        if isinstance(current, CalendarDataAxis):
+            assert isinstance(binding.baseline, CalendarDataAxis)
+            calendar_current = tuple(current_buckets[key] for key in mapped_keys)
+            assert all(isinstance(bucket, FrozenCalendarBucket) for bucket in calendar_current)
+            assert all(isinstance(bucket, FrozenCalendarBucket) for bucket in baseline_buckets)
+            current_directory = FrozenCalendarDirectory(
+                current,
+                tuple(
+                    bucket
+                    for bucket in calendar_current
+                    if isinstance(bucket, FrozenCalendarBucket)
+                ),
+            )
+            baseline_directory = FrozenCalendarDirectory(
+                binding.baseline,
+                tuple(
+                    bucket
+                    for bucket in baseline_buckets
+                    if isinstance(bucket, FrozenCalendarBucket)
+                ),
+            )
+        else:
+            assert isinstance(binding.baseline, IntervalDataAxis)
+            interval_current = tuple(current_buckets[key] for key in mapped_keys)
+            assert all(isinstance(bucket, FrozenIntervalBucket) for bucket in interval_current)
+            assert all(isinstance(bucket, FrozenIntervalBucket) for bucket in baseline_buckets)
+            current_directory = FrozenIntervalDirectory(
+                current,
+                tuple(
+                    bucket
+                    for bucket in interval_current
+                    if isinstance(bucket, FrozenIntervalBucket)
+                ),
+            )
+            baseline_directory = FrozenIntervalDirectory(
+                binding.baseline,
+                tuple(
+                    bucket
+                    for bucket in baseline_buckets
+                    if isinstance(bucket, FrozenIntervalBucket)
+                ),
+            )
+        entries = read_comparison_mapping(
+            binding, mapping.schema, mapping.rows, current_directory, baseline_directory
+        )
+        absent = {
+            entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
+        }
+        presence = schema.presence[schema.presence_paths.index(fact.baseline_presence.path)]
+        flags = pa.array(rows[presence.slot_id], from_pandas=True)
+        if any(
+            key in absent and flags[index].as_py() is True for index, key in enumerate(primary_keys)
+        ):
+            raise invalid("row presence contradicts an absent comparison endpoint")
+    return tuple(parts.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,23 +584,20 @@ class TerminalReader:
     store: SessionStore
 
     def findings(
-        self, manifest: ArtifactManifest, *, limit: int, cursor: str | None
+        self, manifest: ArtifactManifest, *, input_id: str, limit: int, cursor: str | None
     ) -> FindingPage:
-        selected_manifest(self.store, manifest)
-        items, next_cursor = terminal_store.records_page(
-            self.store, manifest.artifact_id, kind="finding", limit=limit, cursor=cursor
+        page = terminal_store.records_page(
+            self.store,
+            manifest.artifact_id,
+            kind="finding",
+            limit=limit,
+            cursor=cursor,
+            input_id=input_id,
+            expected_manifest=manifest,
         )
-        with self.store._read() as conn:
-            row = _one(
-                conn,
-                "SELECT committed_at FROM dataset_artifacts WHERE artifact_ref=?",
-                (manifest.artifact_id,),
-            )
-            if row is None:
-                raise invalid("selected terminal Artifact disappeared")
-            committed_at = parse_timestamp(_text(row, "committed_at"))
+        committed_at = parse_timestamp(page.committed_at)
         findings: list[Finding] = []
-        for item in items:
+        for item in page.items:
             if not isinstance(item, OutputFinding):
                 raise invalid("terminal Finding page contains another record kind")
             findings.append(
@@ -460,17 +610,43 @@ class TerminalReader:
                     committed_at=committed_at,
                 )
             )
-        return FindingPage(tuple(findings), limit, next_cursor is not None, next_cursor)
-
-    def evidence_digest(self, manifest: ArtifactManifest) -> ArtifactDigest:
-        selected_manifest(self.store, manifest)
-        saved, items = terminal_store.evidence(self.store, manifest.artifact_id)
-        return ArtifactDigest(
+        return FindingPage(
+            items=tuple(findings),
+            limit=limit,
+            has_more=page.next_cursor is not None,
+            next_cursor=page.next_cursor,
+            input_id=input_id,
+            session_id=manifest.session_id,
             artifact_ref=ArtifactRef(ref=manifest.artifact_id),
+            total_count=page.total_count,
+        )
+
+    def evidence(
+        self, manifest: ArtifactManifest, *, input_id: str, limit: int, cursor: str | None
+    ) -> EvidencePage:
+        page = terminal_store.records_page(
+            self.store,
+            manifest.artifact_id,
+            kind="evidence",
+            limit=limit,
+            cursor=cursor,
+            input_id=input_id,
+            expected_manifest=manifest,
+        )
+        items = []
+        from marivo.analysis.core.artifact_data import OutputEvidence
+
+        for item in page.items:
+            if not isinstance(item, OutputEvidence):
+                raise invalid("terminal Evidence page contains another record kind")
+            items.append(item)
+        return EvidencePage(
             items=tuple(items),
-            quality_summary_digest=saved.evidence_digest,
-            typed_issue_digest=digest(()),
-            evidence_digest=saved.evidence_digest,
-            finding_count=saved.finding_count,
-            finding_set_digest=saved.finding_set_digest,
+            limit=limit,
+            has_more=page.next_cursor is not None,
+            next_cursor=page.next_cursor,
+            input_id=input_id,
+            session_id=manifest.session_id,
+            artifact_ref=ArtifactRef(ref=manifest.artifact_id),
+            total_count=page.total_count,
         )

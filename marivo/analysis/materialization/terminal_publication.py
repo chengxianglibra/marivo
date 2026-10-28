@@ -74,11 +74,12 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
         for run in runs:
             assert run is not None
             if run.lifecycle == "succeeded":
-                if (
-                    run.output_artifact_ref is None
-                    or terminal_store.manifest(store, conn, run.output_artifact_ref) is None
-                ):
+                if run.output_artifact_ref is None:
                     raise invalid("succeeded Run lacks committed terminal output")
+                saved = terminal_store.manifest(store, conn, run.output_artifact_ref)
+                if saved is None:
+                    raise invalid("succeeded Run lacks committed terminal output")
+                terminal_store.complete_metadata(conn, saved)
             elif (
                 _one(
                     conn,
@@ -183,7 +184,7 @@ def publish_completed(
                 session,
                 run_ref,
                 ArtifactData(data.schema, primary, tuple(attachments)),
-                result.metadata,
+                terminal_store.describe(result.metadata),
                 tuple(saved_methods),
             )
             _fsync_directory(staging)
@@ -195,7 +196,7 @@ def publish_completed(
             _event("terminal_files_published")
             phase = "publication"
             committing = True
-            terminal_store.publish(store, value, resources, _event)
+            terminal_store.publish(store, value, result.metadata, resources, _event)
             return StoredFrameBacking(
                 value.artifact_id, value.data, value.metadata, value.method_facts
             )
@@ -212,7 +213,12 @@ def publish_completed(
                             )
                             if saved is None or saved != value:
                                 raise invalid("original publication read-back differs")
-                            # manifest validates exact metadata and record projections.
+                            terminal_store.confirm_records(
+                                conn,
+                                saved.artifact_id,
+                                result.metadata.findings,
+                                terminal_store.audit_evidence(result.metadata),
+                            )
                             return StoredFrameBacking(
                                 saved.artifact_id, saved.data, saved.metadata, saved.method_facts
                             )

@@ -54,7 +54,9 @@ class SourceTrace:
             "session": result._local.session_ref,
             "input_id": result._input_id,
             "schema": _scalar(asdict(backing.data.schema)),
-            "metadata": _result_facts(backing.metadata),
+            "metadata": _scalar(asdict(backing.metadata))
+            if isinstance(backing, StoredFrameBacking)
+            else _result_facts(backing.metadata),
         }
         if isinstance(backing, StoredFrameBacking):
             record["artifact"] = backing.artifact_id

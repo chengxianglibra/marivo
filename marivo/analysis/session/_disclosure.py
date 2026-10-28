@@ -17,6 +17,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
+from marivo.analysis.core.frame_page import FramePage, FrameReadStats
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
@@ -24,7 +25,7 @@ from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
 
 READ_TYPES: tuple[type[object], ...] = (
-    e.ArtifactDigest,
+    e.EvidencePage,
     ArtifactRef,
     e.Finding,
     e.FindingPage,
@@ -35,16 +36,16 @@ def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     acquisitions = {
-        "ArtifactDigest": (
-            "Call saved.evidence_digest(); .items contains all saved output facts.",
-            ("analysis_frame.evidence_digest",),
+        "EvidencePage": (
+            "Call saved.evidence(); .items contains one bounded page of saved output facts.",
+            ("analysis_frame.evidence",),
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read finding.artifact_ref or digest.artifact_ref; pass its .ref string to session.persisted_frame; read the Frame audit directly.",
+            "Read finding.artifact_ref or page.artifact_ref; pass its .ref string to session.persisted_frame; read the Frame audit directly.",
             (
                 "finding.artifact_ref",
-                "artifact_digest.artifact_ref",
+                "evidence_page.artifact_ref",
             ),
             ("session.persisted_frame",),
         ),
@@ -358,8 +359,8 @@ def provider() -> DisclosureProvider:
     nested_reads = (
         (
             e.OutputEvidence,
-            "Read artifact.evidence_digest().items; each item is a saved declaration, read or check fact.",
-            ("artifact_digest.items",),
+            "Read artifact.evidence().items; each item is a saved declaration, read or check fact.",
+            ("evidence_page.items",),
             ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
         ),
         (
@@ -397,6 +398,8 @@ def provider() -> DisclosureProvider:
             bind(getattr(value, method_name), value)
             for value in (
                 *READ_TYPES,
+                FramePage,
+                FrameReadStats,
                 r.SessionSummaryPage,
                 r.SessionSummary,
                 e.OutputEvidence,
@@ -424,8 +427,8 @@ def provider() -> DisclosureProvider:
                 effects="Pure value rendering.",
                 failures=("ValueError: use a valid output byte bound.",),
                 example=ExampleInput(
-                    f"result = artifact_digest.{method_name}()",
-                    ("artifact_digest",),
+                    f"result = page.{method_name}()",
+                    ("page",),
                     "result",
                     output,
                     True,

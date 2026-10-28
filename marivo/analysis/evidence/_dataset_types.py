@@ -83,10 +83,9 @@ class _Value(RenderableResult):
         identity: object = getattr(self, "finding_id", getattr(self, "artifact_ref", None))
         if identity is not None:
             return type(self).__name__ + f" ref={str(identity)[:100]}"
-        for name in ("evidence_digest", "kind"):
-            value: object = getattr(self, name, None)
-            if isinstance(value, str):
-                return type(self).__name__ + f" {name}={value[:100]}"
+        kind: object = getattr(self, "kind", None)
+        if isinstance(kind, str):
+            return type(self).__name__ + f" kind={kind[:100]}"
         return type(self).__name__ + " immutable"
 
     def _card(self) -> Card:
@@ -94,30 +93,6 @@ class _Value(RenderableResult):
         for field in fields(self):
             card.field(field.name, repr(getattr(self, field.name))[:256])
         return card
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactEvidenceSummary(_Value):
-    quality_summary_digest: str
-    typed_issue_digest: str
-    evidence_digest: str
-    finding_count: int
-    finding_set_digest: str
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        _count(self.finding_count)
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactIssueCounts(_Value):
-    warning: int
-    blocking: int
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        _count(self.warning)
-        _count(self.blocking)
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -299,60 +274,98 @@ class Finding(_Value):
         return card
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class FindingPage(_BoundedPage[Finding]):
-    """Exact Artifact-scoped bounded page of self-contained output Findings."""
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _RecordPage(_BoundedPage[Finding]):
+    input_id: str
+    session_id: str
+    artifact_ref: ArtifactRef
+    total_count: int
 
     def __post_init__(self) -> None:
         if (
-            type(self.limit) is not int
+            type(self.input_id) is not str
+            or not self.input_id
+            or type(self.session_id) is not str
+            or not self.session_id
+            or type(self.artifact_ref) is not ArtifactRef
+            or type(self.total_count) is not int
+            or self.total_count < len(self.items)
+            or type(self.limit) is not int
             or type(self.items) is not tuple
             or type(self.has_more) is not bool
             or (self.next_cursor is not None and type(self.next_cursor) is not str)
         ):
-            raise invalid("invalid output Finding page type")
+            raise invalid("invalid committed record page")
         _BoundedPage.__post_init__(self)
+
+    def _repr_identity(self) -> str:
+        return (
+            f"{type(self).__name__} artifact={self.artifact_ref.ref[:64]} "
+            f"items={len(self.items)} total={self.total_count} has_more={self.has_more}"
+        )
+
+    def _card(self) -> Card:
+        return (
+            _BoundedPage._card(self)
+            .field("input_id", self.input_id)
+            .field("session_id", self.session_id)
+            .field("artifact_ref", str(self.artifact_ref))
+            .field("total_count", str(self.total_count))
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FindingPage(_RecordPage):
+    """Exact commit page with Finding identities and captured collection count."""
+
+    def __post_init__(self) -> None:
+        _RecordPage.__post_init__(self)
         if any(type(item) is not Finding for item in self.items):
             raise invalid("invalid output Finding page item")
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactDigest(ArtifactEvidenceSummary):
-    """Committed collection digests and all actual output Evidence facts."""
+class EvidencePage(_BoundedPage[OutputEvidence]):
+    """Exact commit page of saved source facts followed by evaluation checks."""
 
+    input_id: str
+    session_id: str
     artifact_ref: ArtifactRef
-    items: tuple[OutputEvidence, ...]
-    digest_version: Literal["frame-output-v6"] = "frame-output-v6"
+    total_count: int
 
     def __post_init__(self) -> None:
-        for value in (
-            self.quality_summary_digest,
-            self.typed_issue_digest,
-            self.evidence_digest,
-            self.finding_set_digest,
-        ):
-            _text(value)
-        _count(self.finding_count)
         if (
-            type(self.artifact_ref) is not ArtifactRef
+            type(self.input_id) is not str
+            or not self.input_id
+            or type(self.session_id) is not str
+            or not self.session_id
+            or type(self.artifact_ref) is not ArtifactRef
+            or type(self.total_count) is not int
+            or self.total_count < len(self.items)
+            or type(self.limit) is not int
             or type(self.items) is not tuple
+            or type(self.has_more) is not bool
+            or (self.next_cursor is not None and type(self.next_cursor) is not str)
             or any(type(item) is not OutputEvidence for item in self.items)
-            or self.digest_version != "frame-output-v6"
         ):
-            raise invalid("invalid complete output Evidence digest")
+            raise invalid("invalid output Evidence page")
+        _BoundedPage.__post_init__(self)
 
-    @property
-    def evidence_count(self) -> int:
-        return len(self.items)
+    def _repr_identity(self) -> str:
+        return (
+            f"EvidencePage artifact={self.artifact_ref.ref[:64]} "
+            f"items={len(self.items)} total={self.total_count} has_more={self.has_more}"
+        )
 
     def _card(self) -> Card:
         card = (
-            Card(identity=self._repr_identity(), available=(".items", ".show()"))
-            .field("evidence_count", str(self.evidence_count))
-            .field("finding_count", str(self.finding_count))
-            .field("evidence_digest", self.evidence_digest)
+            Card(identity=self._repr_identity(), available=(".items", ".next_cursor", ".show()"))
+            .field("input_id", self.input_id)
+            .field("session_id", self.session_id)
+            .field("artifact_ref", str(self.artifact_ref))
+            .field("total_count", str(self.total_count))
         )
-        for index, item in enumerate(self.items[:20]):
+        for index, item in enumerate(self.items):
             card.field(f"fact.{index}", f"{item.kind}: {item.summary}"[:512])
             card.field(f"values.{index}", repr(item.values)[:1024])
             if item.coordinates:
@@ -365,8 +378,6 @@ class ArtifactDigest(ArtifactEvidenceSummary):
                         )
                     )[:1024],
                 )
-        if len(self.items) > 20:
-            card.field(
-                "remaining_facts", f"{len(self.items) - 20}; read .items for all saved facts"
-            )
+        if self.next_cursor is not None:
+            card.field("next_cursor", self.next_cursor)
         return card

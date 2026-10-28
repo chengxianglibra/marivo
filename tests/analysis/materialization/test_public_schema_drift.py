@@ -39,7 +39,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
     frame = previous.to_pandas()
     assert frame["value"].tolist() == [1000]
     manifest = previous._local._audit_manifest(previous._require_stored("artifact_id"))
-    evidence = previous.evidence_digest()
+    evidence = previous.evidence(limit=100)
     # A compatible physical carrier is requalified for this invocation.
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
@@ -70,7 +70,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         assert _publications(session) == published_before
         assert calls == []
         assert previous._local._audit_manifest(previous._require_stored("artifact_id")) == manifest
-        assert previous.evidence_digest() == evidence
+        assert previous.evidence(limit=100) == evidence
         assert session.persisted_frame(previous.artifact_id).to_pandas().equals(frame)
         assert session._runtime.store.resources(session.id) == ()
     finally:

@@ -34,9 +34,9 @@ from marivo._definition.types import DefinitionGraphError, LiteralValue, check_l
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
 from marivo.analysis.core.frame_audit import (
-    FrameResultMetadata,
     MemoryInput,
     SourceInput,
+    StoredFrameMetadata,
     StoredInput,
 )
 from marivo.analysis.core.frame_data import (
@@ -69,6 +69,8 @@ from marivo.analysis.core.frame_expression import (
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+from marivo.analysis.core.frame_page import FramePage
+from marivo.analysis.core.frame_schema import FrameSchema, capture_schema
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
     axis_role,
@@ -82,11 +84,11 @@ from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.evidence._dataset_types import ArtifactDigest, FindingPage
+from marivo.analysis.evidence._dataset_types import EvidencePage, FindingPage
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
-FrameSchema: TypeAlias = DataSchema | PendingDataSchema
+CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 
 
 if TYPE_CHECKING:
@@ -106,7 +108,7 @@ class AnalysisFrame:
 
     _local: LocalFrameServices
     _input_id: str
-    _schema: FrameSchema
+    _schema: CapturedSchema
     _backing: FrameBacking
     _derivation: FrameDerivation | None
     _lineage: FrameLineage
@@ -116,7 +118,7 @@ class AnalysisFrame:
 
     @classmethod
     def _from_expression(
-        cls, local: LocalFrameServices, schema: FrameSchema, root: FrameExpressionRoot
+        cls, local: LocalFrameServices, schema: CapturedSchema, root: FrameExpressionRoot
     ) -> AnalysisFrame:
         if (
             isinstance(root, (SourceFrameBinding, LiteralFrameBinding))
@@ -162,7 +164,7 @@ class AnalysisFrame:
         data: ArtifactData,
         *,
         artifact_id: str,
-        metadata: FrameResultMetadata,
+        metadata: StoredFrameMetadata,
         method_facts: tuple[SavedFrameMethodFacts, ...] = (),
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
@@ -177,7 +179,7 @@ class AnalysisFrame:
     def _bind(
         cls,
         local: LocalFrameServices,
-        schema: FrameSchema,
+        schema: CapturedSchema,
         backing: FrameBacking,
         input_id: str,
         derivation: FrameDerivation | None = None,
@@ -213,6 +215,18 @@ class AnalysisFrame:
             else "stored"
         )
         return f"<AnalysisFrame input={self._input_id[:16]} backing={kind} outputs={len(self._schema.values)}; use .show()>"
+
+    @property
+    def schema(self) -> FrameSchema:
+        """Return immutable captured output structure without payload or Store reads.
+
+        Args: None.
+        Returns: FrameSchema with full fields, axes, slots and default export layout.
+        Example: ``field = frame.schema.values['revenue']``.
+        Constraints: Pending types may be explicitly unresolved. Identities apply
+        only to this exact input; schema grants no computation or freshness proof.
+        """
+        return capture_schema(self._input_id, self._schema)
 
     @property
     def lineage(self) -> FrameLineage:
@@ -1304,18 +1318,103 @@ class AnalysisFrame:
                 "frame.findings",
                 canonical_id="analysis_frame.findings",
             )
-        return self._local.findings(backing, limit=limit, cursor=cursor)
+        return self._local.findings(backing, input_id=self._input_id, limit=limit, cursor=cursor)
 
-    def evidence_digest(self) -> ArtifactDigest:
-        """Read all committed Evidence facts and collection digests for this Frame.
+    def evidence(self, limit: int = 20, cursor: str | None = None) -> EvidencePage:
+        """Read an ordered bounded page of this commit's saved Evidence.
 
-        Args: None.
-        Returns: ArtifactDigest containing every saved Evidence fact in output order.
-        Example: ``digest = saved.evidence_digest()``.
-        Constraints: Requires a stored root. No result rows, coordinate attachments,
-        method payloads, current semantic checks or source-freshness claims.
+        Args: limit: Integer 1..100, excluding bool. cursor: Previous cursor or None.
+        Returns: EvidencePage with commit identity, immutable items and total_count.
+        Example: ``page = saved.evidence(limit=20)``.
+        Constraints: Requires persist. Repeat the same limit when continuing.
+        Reads only this audit collection, without data, methods or source access.
         """
-        return self._local.evidence_digest(self._require_stored("evidence_digest"))
+        backing = self._require_stored("evidence")
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 100
+            or (cursor is not None and type(cursor) is not str)
+        ):
+            reject(
+                "limit 1..100 and a cursor string or None",
+                repr((limit, cursor)),
+                "Use the preceding page cursor with the same limit.",
+                "frame.evidence",
+                canonical_id="analysis_frame.evidence",
+            )
+        return self._local.evidence(backing, input_id=self._input_id, limit=limit, cursor=cursor)
+
+    def _export_axis_names(
+        self, axis_names: Mapping[FrameAxis, str] | None, member: str
+    ) -> tuple[str, ...]:
+        if axis_names is not None and not isinstance(axis_names, Mapping):
+            reject(
+                "a mapping from current Frame axes to export names",
+                type(axis_names).__name__,
+                "Pass axis_names={frame.axes[0]: 'name'} or omit axis_names.",
+                f"frame.{member}",
+                canonical_id=f"analysis_frame.{member}",
+            )
+        names = [axis.name for axis in self.axes]
+        for axis, name in (axis_names or {}).items():
+            index = self._axis_index(
+                axis, location=f"frame.{member}", canonical_id=f"analysis_frame.{member}"
+            )
+            if type(name) is not str or not name or name != name.strip() or not name.isprintable():
+                reject(
+                    "a nonempty printable export name without surrounding whitespace",
+                    repr(name),
+                    "Assign a distinct readable name to each renamed axis.",
+                    f"frame.{member}",
+                    canonical_id=f"analysis_frame.{member}",
+                )
+            names[index] = name
+        return tuple(names)
+
+    def read_page(
+        self,
+        *,
+        columns: tuple[str, ...] | None = None,
+        limit: int = 1000,
+        cursor: str | None = None,
+        axis_names: Mapping[FrameAxis, str] | None = None,
+    ) -> FramePage:
+        """Read one projected ordered page from complete fixed data.
+
+        Args:
+            columns: Full value/presence names in output order; None selects all,
+                an empty tuple selects coordinates only.
+            limit: Integer 1..10000, excluding bool; default 1000.
+            cursor: Previous page cursor or None; repeat the same request parameters.
+            axis_names: Optional aliases bound to axes of this exact Frame.
+        Returns: Immutable FramePage with complete keys, layout and read statistics.
+        Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
+        Constraints: Does not execute or persist expressions. Stored pages validate
+        consumed receipts and selected data/coordinates, not unread semantic data
+        or complete audit collections. Page exports are isolated and have no attrs.
+        """
+        from marivo.analysis.materialization.frame_paging import read_frame_page
+
+        if isinstance(self._backing, ExpressionFrameBacking):
+            reject(
+                "a complete memory or stored Frame",
+                "expression",
+                "Call compute() or persist() and read the returned Frame.",
+                "frame.read_page",
+                canonical_id="analysis_frame.read_page",
+            )
+        names = self._export_axis_names(axis_names, "read_page")
+        assert isinstance(self._schema, DataSchema)
+        return read_frame_page(
+            input_id=self._input_id,
+            schema=self._schema,
+            backing=self._backing,
+            local=self._local,
+            columns=columns,
+            limit=limit,
+            cursor=cursor,
+            axis_names=names,
+        )
 
     def to_pandas(self, *, axis_names: Mapping[FrameAxis, str] | None = None) -> pd.DataFrame:
         """Export complete fixed data as a readable, isolated flat table.
@@ -1359,28 +1458,7 @@ class AnalysisFrame:
                 "frame.to_pandas",
                 canonical_id="analysis_frame.to_pandas",
             )
-        if axis_names is not None and not isinstance(axis_names, Mapping):
-            reject(
-                "a mapping from current Frame axes to export names",
-                type(axis_names).__name__,
-                "Pass axis_names={frame.axes[0]: 'name'} or omit axis_names.",
-                "frame.to_pandas",
-                canonical_id="analysis_frame.to_pandas",
-            )
-        names = [axis.name for axis in self.axes]
-        for axis, name in (axis_names or {}).items():
-            index = self._axis_index(
-                axis, location="frame.to_pandas", canonical_id="analysis_frame.to_pandas"
-            )
-            if type(name) is not str or not name or name != name.strip() or not name.isprintable():
-                reject(
-                    "a nonempty printable export name without surrounding whitespace",
-                    repr(name),
-                    "Assign a distinct readable name to each renamed axis.",
-                    "frame.to_pandas",
-                    canonical_id="analysis_frame.to_pandas",
-                )
-            names[index] = name
+        names = self._export_axis_names(axis_names, "to_pandas")
         assert isinstance(self._schema, DataSchema)
         export_names(self._schema, tuple(names))
         data = (
@@ -1428,23 +1506,25 @@ class AnalysisFrame:
         available = (
             (".compute()", ".persist()")
             if isinstance(self._backing, ExpressionFrameBacking)
-            else (".to_pandas()", ".persist()")
+            else (".read_page()", ".to_pandas()", ".persist()")
             if isinstance(self._backing, MemoryFrameBacking)
-            else (".to_pandas()",)
-            + ((".findings(limit=20)",) if self._backing.metadata.findings else ())
+            else (
+                ".read_page()",
+                ".to_pandas()",
+            )
+            + ((".findings(limit=20)",) if self._backing.metadata.finding_count else ())
             + (
-                (".evidence_digest()",)
-                if self._backing.metadata.audit.source_facts
-                or self._backing.metadata.audit.evaluation.checks
+                (".evidence(limit=20)",)
+                if self._backing.metadata.source_fact_count or self._backing.metadata.check_count
                 else ()
             )
         )
         card = Card(
             identity=repr(self),
             available=available,
-            omission_recovery="max_output_bytes=None; .output_names/.axes/.lineage for metadata; compute() for data"
+            omission_recovery="max_output_bytes=None; .schema/.lineage for metadata; compute() for data"
             if isinstance(self._backing, ExpressionFrameBacking)
-            else "max_output_bytes=None; .output_names/.lineage for metadata; .to_pandas() for data",
+            else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
         declaration = self._derivation
@@ -1549,7 +1629,20 @@ class AnalysisFrame:
                 card.field("session_id", self.session_id)
                 card.field("artifact_id", self.artifact_id)
                 card.field("committed_at", self._local.committed_at(self._backing).isoformat())
-            audit = self._backing.metadata.audit
+            if isinstance(self._backing, StoredFrameBacking):
+                stored_metadata = self._backing.metadata
+                inputs, operations = stored_metadata.inputs, stored_metadata.operations
+                source_count, check_count = (
+                    stored_metadata.source_fact_count,
+                    stored_metadata.check_count,
+                )
+                finding_count = stored_metadata.finding_count
+            else:
+                memory_metadata = self._backing.metadata
+                audit = memory_metadata.audit
+                inputs, operations = audit.evaluation.inputs, audit.evaluation.operations
+                source_count, check_count = len(audit.source_facts), len(audit.evaluation.checks)
+                finding_count = len(memory_metadata.findings)
             input_kinds = tuple(
                 "stored"
                 if isinstance(item, StoredInput)
@@ -1558,19 +1651,21 @@ class AnalysisFrame:
                 else "source"
                 if isinstance(item, SourceInput)
                 else "literal"
-                for item in audit.evaluation.inputs
+                for item in inputs
             )
             card.field("inputs", repr(input_kinds))
-            card.field("operations", repr(audit.evaluation.operations))
-            card.field("source_facts", str(len(audit.source_facts)))
-            card.field("checks", str(len(audit.evaluation.checks)))
-            card.field("findings", str(len(self._backing.metadata.findings)))
+            card.field("operations", repr(operations))
+            card.field("source_facts", str(source_count))
+            card.field("checks", str(check_count))
+            card.field("findings", str(finding_count))
             card.field("rows", str(total))
             if n and total:
                 count = min(n, total)
                 if isinstance(self._backing, MemoryFrameBacking):
-                    rows = self._backing.data.preview_rows(count)
-                    attachments = self._backing.data.copy_attachments()
+                    from marivo.analysis.materialization.frame_paging import memory_preview
+
+                    prefix = memory_preview(self._backing.data, count)
+                    rows, attachments = prefix.rows, prefix.attachments
                 else:
                     prefix = self._local.preview(self._backing, count)
                     rows, attachments = prefix.rows, prefix.attachments

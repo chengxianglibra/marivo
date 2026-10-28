@@ -42,12 +42,10 @@ from marivo.analysis.core.data_schema import (
     OrdinaryComparisonBinding,
 )
 from marivo.analysis.core.frame_audit import (
-    EvaluationRecord,
-    FrameAudit,
-    FrameResultMetadata,
     LiteralInput,
     MemoryInput,
     SourceInput,
+    StoredFrameMetadata,
     StoredInput,
 )
 from marivo.analysis.core.frame_method_facts import (
@@ -93,7 +91,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 17 Frame output v6 value",
+        expected="a complete Store 18 Frame output v7 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -167,9 +165,7 @@ _RECORDS = (
     OutputFinding,
     OutputEvidence,
     InvocationInput,
-    FrameResultMetadata,
-    FrameAudit,
-    EvaluationRecord,
+    StoredFrameMetadata,
     SourceInput,
     LiteralInput,
     MemoryInput,
@@ -181,9 +177,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v6"
+FORMAT = "marivo.frame_output/v7"
 
-# One closed Store17 field inventory. No older field set or dataclass fallback.
+# One closed Store18 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "SemanticObjectIdentity": ("kind", "path", "definition_id"),
     "ColumnLineage": ("value_origins", "context_origins"),
@@ -316,9 +312,18 @@ _FIELDS = {
     "OutputFinding": ("finding_id", "value", "coordinates"),
     "OutputEvidence": ("kind", "summary", "values", "coordinates"),
     "InvocationInput": ("result_id",),
-    "FrameResultMetadata": ("result_id", "audit", "findings", "lineage"),
-    "FrameAudit": ("source_facts", "evaluation"),
-    "EvaluationRecord": ("completed_at", "inputs", "operations", "checks"),
+    "StoredFrameMetadata": (
+        "result_id",
+        "evaluated_at",
+        "inputs",
+        "operations",
+        "source_fact_count",
+        "check_count",
+        "finding_count",
+        "evidence_digest",
+        "finding_set_digest",
+        "lineage",
+    ),
     "SourceInput": ("input_id",),
     "LiteralInput": ("input_id",),
     "MemoryInput": ("input_id", "result_id"),
@@ -451,7 +456,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v6; obsolete output format received")
+            raise invalid("expected Frame output v7; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
@@ -477,7 +482,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v6 method record")
+            raise invalid("expected Frame output v7 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

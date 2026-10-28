@@ -181,3 +181,46 @@ class FrameResultMetadata:
     @property
     def evaluated_at(self) -> datetime:
         return self.audit.evaluation.completed_at
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFrameMetadata:
+    """Captured bounded commit description; audit bodies live only in SQLite."""
+
+    result_id: str
+    evaluated_at: datetime
+    inputs: tuple[EvaluationInput, ...]
+    operations: tuple[FrameOperationName, ...]
+    source_fact_count: int
+    check_count: int
+    finding_count: int
+    evidence_digest: str
+    finding_set_digest: str
+    lineage: FrameLineage
+
+    def __post_init__(self) -> None:
+        _identity(self.result_id)
+        # The existing closed evaluation record owns input and operation validation.
+        EvaluationRecord(self.evaluated_at, self.inputs, self.operations)
+        if any(
+            type(count) is not int or count < 0
+            for count in (self.source_fact_count, self.check_count, self.finding_count)
+        ) or any(
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in (self.evidence_digest, self.finding_set_digest)
+        ):
+            reject(
+                "nonnegative audit counts and exact collection digests",
+                type(self).__name__,
+                "Preserve the committed collection descriptors.",
+                "frame.stored",
+            )
+        if type(self.lineage) is not FrameLineage:
+            reject(
+                "complete saved lineage",
+                type(self.lineage).__name__,
+                "Preserve the captured lineage.",
+                "frame.stored",
+            )

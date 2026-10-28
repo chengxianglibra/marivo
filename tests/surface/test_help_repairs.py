@@ -312,7 +312,7 @@ def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
         ("to_pandas", "read_data"),
         ("persist", "open_frame"),
         ("findings", "findings"),
-        ("evidence_digest", "evidence_digest"),
+        ("evidence", "evidence"),
         ("method_facts", "read_method_facts"),
         ("show", "preview"),
     ),

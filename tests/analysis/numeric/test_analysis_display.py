@@ -91,12 +91,8 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
 ) -> None:
     import duckdb
 
-    from marivo.analysis.materialization.graph_reading import (
-        ExportRead,
-        OutputRead,
-        PreviewRead,
-        ReadLayout,
-    )
+    from marivo.analysis.core.data_types import DataColumn
+    from marivo.analysis.materialization.graph_reading import OutputRead, ReadLayout
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
@@ -116,20 +112,24 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     assert plain(ratio)["value"].isna().sum() == 4
     assert plain(category)["value"].tolist() == ["retained" * 200] * 11
     runs = len(terminal_runs(session))
-    read = OutputRead.read
+    read = OutputRead.range
     decoded: list[int] = []
 
     def counted(
-        self: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
+        self: OutputRead,
+        layout: ReadLayout,
+        start: int,
+        limit: int,
+        columns: tuple[DataColumn, ...],
     ) -> pd.DataFrame:
-        frame = read(self, layout, request)
+        frame = read(self, layout, start, limit, columns)
         decoded.append(len(frame))
         return frame
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("show queried a source or called the complete pandas export")
 
-    monkeypatch.setattr(OutputRead, "read", counted)
+    monkeypatch.setattr(OutputRead, "range", counted)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(type(values), "to_pandas", forbidden)
     for result in (values, table):

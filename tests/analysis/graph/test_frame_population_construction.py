@@ -66,6 +66,7 @@ from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
@@ -480,7 +481,7 @@ def _stored(session: Session, schema: DataSchema, *, digest: str = "same") -> An
         session._runtime.local,
         ArtifactData(schema, ParquetHandle(receipt, digest)),
         artifact_id="committed-selection",
-        metadata=replace(_metadata("stored-result"), lineage=empty_lineage(schema)),
+        metadata=describe(replace(_metadata("stored-result"), lineage=empty_lineage(schema))),
     )
 
 

@@ -575,7 +575,19 @@ def test_construction_type_families_and_retired_surface() -> None:
         "time_scope",
         "calendar_correspondence",
         "comparison_baseline",
-        "artifact_digest",
+        "evidence_page",
+        "frame_schema",
+        "frame_field",
+        "frame_axis_schema",
+        "field_export_column",
+        "coordinate_export_column",
+        "scalar_data_type",
+        "decimal_data_type",
+        "timestamp_data_type",
+        "duration_data_type",
+        "unresolved_data_type",
+        "frame_page",
+        "frame_read_stats",
         "artifact_ref",
         "finding",
         "finding_page",
@@ -616,7 +628,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 20
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 25
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -691,3 +703,52 @@ def test_fix_help_matches_callable_and_runs_public_example(
     exec(descriptor.example.code, namespace)
     assert namespace["result"].compute().to_pandas()["value"].tolist() == [120]
     assert "analysis.analysis_frame.fix" in render_help_text("analysis.operators")[0]
+
+
+def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
+    registry = prepare()
+    targets = (
+        "analysis_frame.schema",
+        "analysis_frame.read_page",
+        "analysis_frame.findings",
+        "analysis_frame.evidence",
+        "frame_schema.input_id",
+        "frame_schema.values",
+        "frame_schema.presence",
+        "frame_schema.slots",
+        "frame_schema.axes",
+        "frame_schema.layout",
+        "frame_field.dtype",
+        "frame_axis_schema.keys",
+        "field_export_column.slot_id",
+        "coordinate_export_column.endpoint",
+        "frame_page.coordinates",
+        "frame_page.layout",
+        "frame_page.read_stats",
+        "frame_page.total_count",
+        "frame_page.to_pandas",
+        "finding_page.total_count",
+        "finding_page.input_id",
+        "evidence_page.total_count",
+        "evidence_page.input_id",
+        "frame_read_stats.receipt_bytes_hashed",
+        "timestamp_data_type.timezone",
+        "unresolved_data_type.kind",
+    )
+    for target in targets:
+        text = render_help_text("analysis." + target)[0]
+        assert "Target: analysis." + target in text
+    for target in (
+        "analysis_frame.evidence_digest",
+        "artifact_digest",
+        "artifact_evidence_summary",
+    ):
+        with pytest.raises((AnalysisError, MarivoHelpTargetError)):
+            render_help_text("analysis." + target)
+    assert not hasattr(mv.AnalysisFrame, "evidence_digest")
+    assert not hasattr(mv, "ArtifactDigest")
+    assert "analysis_frame.read_page" in registry.discovery_ids()
+    inspect = render_help_text("analysis.results.inspect")[0]
+    assert "analysis.analysis_frame.schema" in inspect
+    assert "analysis.analysis_frame.read_page" in inspect
+    assert "same limit" in render_help_text("analysis.analysis_frame.evidence")[0]

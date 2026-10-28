@@ -127,8 +127,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 17 is under `<project_root>/.marivo/analysis/generations/v17/`. One closed
-`marivo.frame_output/v6` protocol stores values, complete axes, independent presence, typed
+Store 18 is under `<project_root>/.marivo/analysis/generations/v18/`. One closed
+`marivo.frame_output/v7` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and audit directly.
@@ -226,23 +226,49 @@ counts; stored cards add commit time. Summaries never load complete audit or
 method payloads. Frame Findings and Evidence reads do not read Parquet or
 coordinate attachments.
 
-Positive show renders the actual prefix in result order and resolves required
-frozen labels, nominal/actual bounds and endpoint maps. Direct/calendar-comparison
-preview validates the finite required origin, target and mapping authority while
-primary rows remain bounded by n. Ordinary/paired-only preview keeps its selected
-coordinate boundary. It cannot use full
-export/head, sample, silently fall back on metadata, or cache a prefix as complete
-data. Receipt hashing or Parquet decompression may consume more bytes than n;
-preview success says nothing about unread payload integrity.
+Positive show and read_page share the internal ordered range reader and resolve
+only necessary coordinates. They validate consumed file receipts, selected field
+physical types/nullability/numeric constraints, page-local complete keys,
+unique required coordinate resolution and required presence relations. They do
+not certify cross-page uniqueness, unread semantic fields/rows or the complete
+calendar domain/mapping. A consumed file's receipt mismatch fails even when the
+changed bytes belong to an unreturned row. No full-export/head, sampling, silent
+fallback or cached prefix may replace a bounded read. show's nonnegative n is
+independent of read_page's 10000-row page limit.
 
-Stored to_pandas validates complete current values/keys/presence and
-attachments: receipts, types, nullability, finite values, uniqueness, directory
-references, direct/comparison/paired maps and exact endpoint-presence implications. Missing/corrupt records never become legitimate
-unmatched endpoints. Full export is an isolated readable flat table with interpreted coordinates,
-full value names and independent presence columns. Typed
-attrs contain axis descriptions, units and isolated frozen coordinate tables;
-no reader, Frame, Store, semantic object or executable calendar is retained.
-Attrs cannot be reimported as computation authority.
+read_page always retains full axis keys and readable coordinates, with optional
+full-name value/presence projection. Primary reads use selected columns and
+bounded batches; coordinate lookup scans fixed batches and retains only required
+records. Detached pages retain no whole parent Arrow buffer, coordinate directory,
+reader, audit or method facts. Stored totals come from receipts; audit counts come
+from saved collection descriptors. Receipt hashing and coordinate lookup may
+scan whole files, so bounded memory does not imply bounded total I/O. Captured
+read_stats records actual decoded/checked data rows, coordinate rows and receipt
+hash bytes. It does not measure peak memory or all disk I/O.
+
+Persisted descriptors include structure, lineage, evaluation/input/operation facts,
+collection counts/digests and owned payload descriptors, without audit bodies.
+Opening and show(n=0) check commit ownership/version, bounded descriptors, receipt
+locations and collection metadata in SQLite, without complete records or method
+files. Findings and Evidence each read their own ordered page in a single SQLite
+snapshot, checking each body's digest/types/identity/slots plus a bounded next
+record probe. They never scan count(*) or recompute full collection digests.
+Expected missing, duplicate, disordered or extra tail records fail explicitly.
+Publication atomically writes descriptors and records. Full audit consumers,
+transaction confirmation and required recovery retain complete-record and
+collection checks, reconstructing source facts and checks from saved partitions.
+Saved derived results remain self-contained without ancestor or source reads.
+
+`to_pandas()` validates all current data, complete key uniqueness, all related
+coordinates and mapping authority. It does not consume complete audit or method
+payloads. It returns isolated flat coordinates, full value names and independent
+presence columns. Its existing attrs snapshot contains axes, units, comparisons
+and isolated frozen coordinate tables; it is not a stable deserialization
+protocol. FramePage.to_pandas only copies this page, with empty attrs. Both use
+the same layout and coordinate decoding. Stable clients use schema/layout and
+exact coordinates instead of attrs. Complete stored compute/fixed-input evaluation
+consumes data, required method facts and complete audit. Neither boundary proves
+business completeness or current source state.
 
 `method_facts` explicitly consumes complete immutable explanation payloads only,
 validating the owned descriptors, structure, digest and numerical consistency;
@@ -253,8 +279,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v6`, `frame.v6` and `frame-output-v6` under
-`.marivo/analysis/generations/v17/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v7`, `frame.v7` and `frame-output-v7` under
+`.marivo/analysis/generations/v18/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -337,7 +363,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage. Pending Frames derive it from explicit inputs at construction; compute,
-publication and cold recovery preserve it. Store 17 / output v6 requires the
+publication and cold recovery preserve it. Store 18 / output v7 requires the
 complete value/axis/presence directories and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved
 derivative owns its complete lineage without requiring ancestor artifacts or the

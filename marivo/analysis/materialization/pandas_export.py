@@ -18,9 +18,9 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
+from marivo.analysis.core.frame_schema import axis_export_layout, export_layout, selected_columns
 from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
-from marivo.analysis.core.model import reject
 
 
 def _coordinate_scalar(array: pa.Array, index: int, column: DataColumn) -> object:
@@ -39,33 +39,12 @@ def _coordinate_scalar(array: pa.Array, index: int, column: DataColumn) -> objec
 
 
 def _axis_names(axis: DataAxis, name: str) -> tuple[str, ...]:
-    if isinstance(axis, PairedDataAxis):
-        return (*_axis_names(axis.left, f"{name}.left"), *_axis_names(axis.right, f"{name}.right"))
-    if isinstance(axis, CalendarDataAxis):
-        return (name, f"{name}.actual_start", f"{name}.actual_end", f"{name}.timezone")
-    if isinstance(axis, IntervalDataAxis):
-        return (f"{name}.start", f"{name}.end", f"{name}.timezone")
-    return (name,)
+    return tuple(column.name for column in axis_export_layout(axis, name))
 
 
 def export_names(schema: DataSchema, axis_names: tuple[str, ...]) -> tuple[str, ...]:
     """Validate the flat namespace before reading a stored payload."""
-    names = tuple(
-        name
-        for axis, alias in zip(schema.axes, axis_names, strict=True)
-        for name in _axis_names(axis, alias)
-    ) + tuple(column.name for column in (*schema.values, *schema.presence))
-    duplicates = tuple(name for name, count in Counter(names).items() if count > 1)
-    if duplicates:
-        reject(
-            "unique flat export column names",
-            repr(duplicates),
-            "Pass axis_names={axis: 'unique_name'} using this Frame's axes; "
-            "rename conflicting values with select().",
-            "frame.to_pandas",
-            canonical_id="analysis_frame.to_pandas",
-        )
-    return names
+    return tuple(column.name for column in export_layout(schema, axis_names, validate_names=True))
 
 
 def _coordinate_rows(
@@ -150,9 +129,13 @@ def export_frame(
     attachments: tuple[OutputAttachment, ...] = (),
     *,
     axis_names: tuple[str, ...] | None = None,
+    columns: tuple[str, ...] | None = None,
+    include_attrs: bool = True,
 ) -> pd.DataFrame:
     """Copy readable coordinates, exact value arrays and inert interpretation."""
-    names = export_names(schema, axis_names or tuple(axis.name for axis in schema.axes))
+    names = tuple(
+        column.name for column in export_layout(schema, axis_names, columns, validate_names=True)
+    )
     parts = {part.name: part for part in attachments}
     series = [
         column.copy(deep=True)
@@ -161,10 +144,12 @@ def export_frame(
     ]
     series.extend(
         rows[column.slot_id].reset_index(drop=True).copy(deep=True)
-        for column in (*schema.values, *schema.presence)
+        for column in selected_columns(schema, columns)
     )
     result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(rows)))
     result.columns = pd.Index(names, dtype=object)
+    if not include_attrs:
+        return result
     result.attrs = {
         "axes": tuple(
             {

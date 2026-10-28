@@ -373,4 +373,6 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     saved = computed.persist()
     reopened = session.persisted_frame(saved.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
-    assert reopened._backing.metadata.audit.source_facts == facts
+    completed = reopened.compute()
+    assert isinstance(completed._backing, MemoryFrameBacking)
+    assert completed._backing.metadata.audit.source_facts == facts

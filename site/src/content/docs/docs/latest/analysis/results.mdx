@@ -41,7 +41,7 @@ The two absolute changes remain -100 because this reads the saved comparison. Co
 
 An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
 
-On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays metadata and audit summaries without reading result rows. Use `findings()` to read committed Findings and `evidence_digest()` to read saved Evidence. A plain observation's saved audit records source and evaluation facts; it may have no Findings. Supported contribution analyses retain their method explanations in `method_facts`.
+On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays metadata and audit summaries without reading result rows. Use `findings()` to read committed Findings and `evidence()` to read saved Evidence. A plain observation's saved audit records source and evaluation facts; it may have no Findings. Supported contribution analyses retain their method explanations in `method_facts`.
 
 Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope describes the period, filters, and source constraints used for the read; it does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.
 
@@ -72,3 +72,41 @@ For direct ratios, each component retains its own named Metric origins.
 These are static logical dependencies, including all declared conditional branches;
 they do not prove row-level contribution, successful reads, or causation. Display
 is bounded; typed mappings and origin tuples retain the complete captured facts.
+
+## Inspect structure and read pages
+
+`schema` describes captured fields, exact types, units, complete axis keys and the
+default export layout without reading result files. It is available even before
+execution; pending fields may have an explicit unresolved type.
+
+```python
+schema = saved.schema
+page = saved.read_page(columns=("reference.absolute.revenue",), limit=1000)
+assert page.input_id == schema.input_id
+rows = page.to_pandas()
+if page.has_more:
+    page = saved.read_page(
+        columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
+    )
+```
+
+Pages keep every complete axis key in `coordinates`, keyed by schema slot ID,
+and readable coordinates before selected fields. Use full value/presence names;
+`columns=()` reads coordinates only. Limits are integers 1..10000, excluding bool.
+Repeat the same limit, columns and axis aliases with a continuation cursor. Saved
+cursors can continue after reopening the same commit with the same Runtime
+version; memory cursors belong to the same fixed input in the current process.
+
+`layout` explains the actual export columns. Page exports are isolated copies
+with empty attrs; the page retains no full parent table. `read_stats` counts
+inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
+peak memory. Receipts and coordinate lookup may scan whole files. A page validates
+selected data and necessary coordinates; full `to_pandas()` additionally validates
+complete keys, data and mappings. Reading never executes or saves a pending Frame.
+
+Evidence and Findings each return `items`, `input_id`, `session_id`, `artifact_ref`,
+`limit`, `total_count`, `has_more` and `next_cursor`. Their limits are 1..100,
+default 20; repeat the same limit to continue. Each collection is read independently.
+A result can have saved Evidence and no Findings. Resolve record coordinate slots
+through the matching `schema.slots`; slots do not identify rows across results
+or automatically locate a unique row.

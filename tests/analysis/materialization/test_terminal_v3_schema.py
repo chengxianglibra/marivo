@@ -1,4 +1,4 @@
-"""The sole Store17 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store18 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields, replace
 from datetime import datetime, timezone
@@ -25,6 +25,7 @@ from marivo.analysis.materialization.contracts import (
     parse_json,
 )
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.terminal_store import describe
 
 FROZEN = Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip()
 
@@ -50,7 +51,7 @@ def manifest() -> ArtifactManifest:
         "session",
         "run",
         data,
-        replace(metadata, lineage=empty_lineage(schema)),
+        describe(replace(metadata, lineage=empty_lineage(schema))),
     )
 
 
@@ -62,13 +63,14 @@ def manifest() -> ArtifactManifest:
         "marivo.frame_output/v3",
         "marivo.frame_output/v4",
         "marivo.frame_output/v5",
+        "marivo.frame_output/v6",
     ],
 )
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v6"):
+    with pytest.raises(IntegrityError, match="expected Frame output v7"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -106,6 +108,8 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     saved = manifest()
     assert protocol.decode(protocol.encode(saved), ArtifactManifest) == saved
     assert saved.result_id == saved.metadata.result_id
+    assert saved.semantics_version == "frame.v7"
+    assert protocol.FORMAT == "marivo.frame_output/v7"
 
 
 @pytest.mark.parametrize(

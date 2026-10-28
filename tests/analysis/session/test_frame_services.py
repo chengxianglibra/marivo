@@ -96,7 +96,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     saved.show(n=0)
     reopened.show(n=0)
     assert reopened.findings().items == ()
-    assert reopened.evidence_digest() == artifact.evidence_digest()
+    assert reopened.evidence(limit=100) == artifact.evidence(limit=100)
     assert saved.persist() is saved
 
 
@@ -295,7 +295,7 @@ def test_frame_identity_and_audit_availability_follow_exact_carrier(
         with pytest.raises(CoreRuleError, match="persist"):
             frame.findings()
         with pytest.raises(CoreRuleError, match="persist"):
-            frame.evidence_digest()
+            frame.evidence(limit=100)
 
 
 def test_show_zero_combines_audit_summary_without_reading_payloads(
@@ -309,7 +309,7 @@ def test_show_zero_combines_audit_summary_without_reading_payloads(
         "read_complete",
         "read_method_facts",
         "findings",
-        "evidence_digest",
+        "evidence",
     ):
         monkeypatch.setattr(LocalFrameServices, member, _forbidden)
     saved.show(n=0)
@@ -327,7 +327,7 @@ def test_show_zero_combines_audit_summary_without_reading_payloads(
     ):
         assert field in text
     assert "preview: omitted by n=0" in text
-    assert ".evidence_digest()" in text
+    assert ".evidence(limit=20)" in text
     assert ".findings(limit=20)" not in text
 
 

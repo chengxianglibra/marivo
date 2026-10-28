@@ -157,8 +157,8 @@ def test_busy_contender_preserves_real_producer(
     assert completed["dataset_artifacts"] == 2
     assert completed["dataset_evidence"] == 2
     assert (
-        committed.evidence_digest().evidence_count > 0
-        and produced.evidence_digest().evidence_count > 0
+        committed.evidence(limit=100).total_count > 0
+        and produced.evidence(limit=100).total_count > 0
     )
     assert completed["action_resource_journal"] == 0
     produced_reads = len(reads) - initial_reads

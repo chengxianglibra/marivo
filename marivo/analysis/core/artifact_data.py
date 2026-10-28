@@ -27,7 +27,7 @@ from marivo.analysis.core.data_types import DurationDataType as DurationDataType
 from marivo.analysis.core.data_types import ScalarDataType as ScalarDataType
 from marivo.analysis.core.data_types import TimestampDataType as TimestampDataType
 from marivo.analysis.core.data_types import require_data_text
-from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_audit import StoredFrameMetadata
 from marivo.analysis.core.frame_method_facts import FrameMethodTarget
 from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
@@ -219,9 +219,9 @@ class ArtifactManifest:
     session_id: str
     run_id: str
     data: ArtifactData
-    metadata: FrameResultMetadata
+    metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
-    semantics_version: Literal["frame.v6"] = "frame.v6"
+    semantics_version: Literal["frame.v7"] = "frame.v7"
 
     @property
     def result_id(self) -> str:
@@ -242,8 +242,8 @@ class ArtifactManifest:
             require_data_text(getattr(self, name), f"artifact.{name}")
         if (
             type(self.data) is not ArtifactData
-            or type(self.metadata) is not FrameResultMetadata
-            or self.semantics_version != "frame.v6"
+            or type(self.metadata) is not StoredFrameMetadata
+            or self.semantics_version != "frame.v7"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

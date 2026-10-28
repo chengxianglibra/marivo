@@ -98,7 +98,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     # Complete output coordinates retain the two groups without selected facts;
     # their fixed sum is additive zero.
     assert output["revenue"].tolist() == [180, 0, 0]
-    reads = tuple(item for item in artifact.evidence_digest().items if item.kind == "read")
+    reads = tuple(item for item in artifact.evidence(limit=100).items if item.kind == "read")
     assert reads
     scoped_reads = tuple(
         item for item in reads if {"source_scopes", "filters"} <= dict(item.values).keys()
@@ -118,7 +118,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     assert (
         tuple(
             item
-            for item in session.persisted_frame(artifact.artifact_id).evidence_digest().items
+            for item in session.persisted_frame(artifact.artifact_id).evidence(limit=100).items
             if item.kind == "read"
         )
         == reads
@@ -216,7 +216,7 @@ def test_long_captured_output_facts_are_explicitly_omitted(
     assert query.output_names == (name,)
     query.show()
     card = capsys.readouterr().out
-    assert "omitted" in card and "output_names" in card
+    assert "omitted" in card and ".schema" in card
     assert len(card.encode()) <= 8192
     assert len(repr(query[name])) < 200
     query[name].show()

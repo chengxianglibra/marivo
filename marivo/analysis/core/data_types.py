@@ -21,8 +21,10 @@ def require_data_text(value: str, location: str) -> None:
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class ScalarDataType:
+    """Exact scalar type, acquired through a completed Frame schema field."""
+
     name: Literal["boolean", "string", "int64", "float64", "date"]
 
     def __post_init__(self) -> None:
@@ -34,9 +36,22 @@ class ScalarDataType:
                 "data.dtype",
             )
 
+    def __repr__(self) -> str:
+        return f"<ScalarDataType name={self.name}; use .show()>"
 
-@dataclass(frozen=True, slots=True)
+    def show(self) -> None:
+        """Print the captured type. Args: None. Returns: None.
+
+        Example: ``frame.schema.values['revenue'].dtype.show()``.
+        Constraints: Metadata only; no conversion or data lookup.
+        """
+        print(repr(self))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class DecimalDataType:
+    """Exact Decimal precision and scale, acquired through a Frame schema field."""
+
     precision: int
     scale: int
 
@@ -54,9 +69,22 @@ class DecimalDataType:
                 "data.dtype",
             )
 
+    def __repr__(self) -> str:
+        return f"<DecimalDataType precision={self.precision} scale={self.scale}; use .show()>"
 
-@dataclass(frozen=True, slots=True)
+    def show(self) -> None:
+        """Print precision and scale. Args: None. Returns: None.
+
+        Example: ``frame.schema.values['revenue'].dtype.show()``.
+        Constraints: Describes the exact physical carrier without converting it.
+        """
+        print(repr(self))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class TimestampDataType:
+    """Exact timestamp unit and optional timezone, acquired through a schema field."""
+
     unit: Literal["s", "ms", "us", "ns"]
     timezone: str | None
 
@@ -65,13 +93,38 @@ class TimestampDataType:
         if self.timezone is not None:
             require_data_text(self.timezone, "data.timezone")
 
+    def __repr__(self) -> str:
+        zone = None if self.timezone is None else self.timezone[:80]
+        return f"<TimestampDataType unit={self.unit} timezone={zone!r}; use .show()>"
 
-@dataclass(frozen=True, slots=True)
+    def show(self) -> None:
+        """Print timestamp facts. Args: None. Returns: None.
+
+        Example: ``frame.schema.axes[0].keys[0].dtype.show()``.
+        Constraints: timezone=None retains naive time identity; no conversion occurs.
+        """
+        print(repr(self))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class DurationDataType:
+    """Exact duration unit, acquired through a Frame schema field."""
+
     unit: Literal["s", "ms", "us", "ns"]
 
     def __post_init__(self) -> None:
         _time_unit(self.unit)
+
+    def __repr__(self) -> str:
+        return f"<DurationDataType unit={self.unit}; use .show()>"
+
+    def show(self) -> None:
+        """Print the duration unit. Args: None. Returns: None.
+
+        Example: ``frame.schema.values['elapsed'].dtype.show()``.
+        Constraints: Captured precision only; no lossy datetime conversion.
+        """
+        print(repr(self))
 
 
 def _time_unit(unit: str) -> None:

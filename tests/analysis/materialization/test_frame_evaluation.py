@@ -39,6 +39,7 @@ from marivo.analysis.materialization import (
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
@@ -1049,12 +1050,14 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert terminal_runs(session) == ()
     saved = fixed.persist()
     assert isinstance(saved._backing, StoredFrameBacking)
-    assert saved._backing.metadata == metadata
+    assert saved._backing.metadata == describe(metadata)
     assert len(terminal_runs(session)) == 1
     reopened = session.persisted_frame(saved._backing.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
-    assert reopened._backing.metadata == metadata
+    assert reopened._backing.metadata == describe(metadata)
     loaded = reopened.compute()
+    # Complete consumption reconstructs the original source/check partition and Findings.
     assert _memory(loaded).metadata == metadata
+    assert _memory(loaded).metadata.audit == metadata.audit
     assert loaded.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert len(terminal_runs(session)) == 1

@@ -41,7 +41,7 @@ rows.to_csv("comparison.csv", index=False)
 
 `AnalysisFrame` 可以表示待执行表达式、完整内存数据或保存结果。`compute()` 完成 Frame 并将其保留在内存中；`persist()` 保存完成结果。`show()` 是有界预览，`to_pandas()` 可导出完整的固定数据。
 
-保存的 Frame 上，`session_id` 和 `artifact_id` 标识已提交结果。`show(n=0)` 展示元数据和审计摘要，不读取结果行。使用 `findings()` 读取已提交的 Finding，使用 `evidence_digest()` 读取保存的 Evidence。普通观测的已保存审计会记录来源与评估事实，但可能没有 Finding。受支持的贡献分析会通过 `method_facts` 保留方法说明。
+保存的 Frame 上，`session_id` 和 `artifact_id` 标识已提交结果。`show(n=0)` 展示元数据和审计摘要，不读取结果行。使用 `findings()` 读取已提交的 Finding，使用 `evidence()` 读取保存的 Evidence。普通观测的已保存审计会记录来源与评估事实，但可能没有 Finding。受支持的贡献分析会通过 `method_facts` 保留方法说明。
 
 来源读取、计算完成和提交保存的时间各不相同。判断结果是否新鲜时，应查看记录中的来源范围和时间；后续观测可能读到变化后的数据。记录的范围说明本次读取使用的时间段、筛选条件和来源约束；它不能证明来源包含所有相关数据，也不能证明多个来源使用了一致快照。贡献拆分说明所选方法如何分配变化，但本身不能证明变化原因。
 
@@ -68,3 +68,34 @@ for origin in origins:
 直接比值的分子与分母分别保留各自的命名 Metric 来源。
 这些是静态逻辑依赖，包含所有声明的条件分支，不证明逐行实际贡献、已成功读取或
 因果关系。显示有界，typed mappings 和 origins tuple 保留完整捕获事实。
+
+## 查看结构并分页读取
+
+`schema` 描述捕获的字段、精确类型、单位、完整轴键和默认导出布局，不读取结果文件。
+待执行 Frame 也能查看；尚未解析的类型使用明确的 unresolved 分支。
+
+```python
+schema = saved.schema
+page = saved.read_page(columns=("reference.absolute.revenue",), limit=1000)
+assert page.input_id == schema.input_id
+rows = page.to_pandas()
+if page.has_more:
+    page = saved.read_page(
+        columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
+    )
+```
+
+页面在 `coordinates` 中按 schema slot ID 保留每个完整轴键，可读坐标位于所选字段之前。
+使用完整 value/presence 名；`columns=()` 只读坐标。limit 是 1..10000 的整数，不接受
+bool。续读时重复相同 limit、columns 和轴别名。保存游标可在相同 Runtime 版本重新打开
+同一提交后继续；内存游标限当前进程的同一固定输入。
+
+`layout` 解释实际导出列。页面导出是 attrs 为空的隔离副本，页面不保留完整父表。
+`read_stats` 统计实际检查的数据行、坐标行和收据哈希字节，不表示全部磁盘 I/O 或峰值
+内存；收据与坐标查找可能扫描完整文件。页面校验所选数据和必要坐标，完整 `to_pandas()`
+还会校验完整键、数据和映射。读取不会执行或保存待执行 Frame。
+
+Evidence 和 Finding 页面各自提供 `items`、`input_id`、`session_id`、`artifact_ref`、
+`limit`、`total_count`、`has_more` 和 `next_cursor`。limit 为 1..100，默认 20；续读
+重复相同 limit。两个集合独立读取，没有 Finding 仍可能有 Evidence。通过同输入的
+`schema.slots` 解析记录的坐标槽位；槽位不是跨结果行身份，也不会自动定位唯一行。

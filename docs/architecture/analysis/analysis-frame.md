@@ -26,7 +26,7 @@ Frame 实例可另持有捕获时的不可变来源声明与输出映射，用�
 compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢复该引用。
 声明不写入 Store，不从同 artifact ID 的其它实例或全局缓存取回。
 
-| 载体 | compute | persist | artifact_id / findings / evidence_digest | to_pandas |
+| 载体 | compute | persist | artifact_id / findings / evidence | to_pandas |
 | --- | --- | --- | --- | --- |
 | 表达式 | 求值并返回完整内存根 | 完整求值后发布 | 要求先 persist | 要求先 compute/persist |
 | 内存 | 返回自身 | 发布已有完成结果 | 要求先 persist | 隔离副本 |
@@ -42,9 +42,48 @@ Session/Artifact ID；仅导出 DataFrame、打印内存卡片或恢复 Session 
 保留声明不改变当前数据操作的读取基础，原值与本次新读父值分别通过 observed_total 与 total 展示。
 
 session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅对持久根返回提交 ID，
-两个属性均不读取 Store。未保存根的 artifact_id、findings 和 evidence_digest 给出 persist 修复。
+两个属性均不读取 Store。未保存根的 artifact_id、findings 和 evidence 给出 persist 修复。
 持久根 compute 返回的内存根没有提交身份。show 展示有界输入、操作和来源事实/检查/Finding
 数量，持久根另展示提交时间；show(n=0) 不读取结果行、坐标附件或完整方法/审计载荷。
+
+## 稳定结构与有界读取
+
+`frame.schema` 返回不可执行的 `FrameSchema`，不持有 Frame、Store 或回调。它在所有
+载体上只读取捕获结构，不证明保存文件仍然可用。`input_id` 标识精确输入；`values`、
+`presence`、`slots` 是同一组只读 `FrameField` 的索引，`axes` 保留完整轴和键分量顺序。
+字段包括 slot_id、完整名称或键分量名、精确 dtype、nullable 和 unit。未声明单位
+`None` 与无量纲 `"1"` 不同。待执行类型使用 `UnresolvedDataType(kind)`，只有待执行
+字段允许 nullable 未知。具体类型保留 Decimal precision/scale 及时间 unit/timezone。
+
+`schema.layout` 仅由结构派生。字段变体携带 name/kind="field"/slot_id，坐标变体携带
+name/kind="coordinate"/axis_token/endpoint/part。endpoint 为 self/left/right；part 为
+key/label/start/end/actual_start/actual_end/timezone，组合由轴角色决定。复合身份只导出
+一个 tuple；paired 左右坐标属于同一完整轴。默认布局允许重名，实际导出在载荷读取前
+检查唯一性；使用精确 FrameAxis 的 axis_names 或 select 修复。别名不修改 schema。
+
+`read_page(*, columns=None, limit=1000, cursor=None, axis_names=None)` 只读取已完成数据。
+columns 接受完整 value/presence 名，None 为全部，() 为仅坐标；重复或未知名在读载荷前
+拒绝并给出真实候选。始终保留所有轴完整键和可读坐标，所选字段按声明顺序排列；内部
+可读取必要 presence 辅助列。limit 是 1..10000 的整数，不接受 bool。派生表达式仍需
+显式 compute/persist；读取不执行分析、不创建 Run、不自动保存或访问来源/Catalog。
+
+FramePage 携带 input_id、实际 layout、以全部键 slot 为索引的只读 coordinates、limit、
+total_count、has_more、next_cursor 和 read_stats。len(page) 是本页行数；零轴空结果和
+单行结果依靠行数区分。坐标标量保留 Decimal、Arrow Date32/Timestamp/Duration 精度和
+NULL None。页内 RangeIndex 不承担业务键身份。页面不持有完整父数据、附件目录、审计、
+方法事实、连接或 reader；小页数据脱离父 Arrow 缓冲。page.to_pandas() 不再读文件，
+返回与 layout 一致且 attrs 为空的隔离副本。frame.to_pandas() 保留完整校验及既有
+attrs 快照；二者使用同一布局和坐标解码规则，attrs 不构成稳定导入协议。
+
+游标不可解析，绑定精确输入、读取种类、集合版本、limit、规范化投影和轴别名；续读
+重复同一请求。持久输入在同版本 Runtime 独立 reopen 后可续读；内存游标限当前进程
+同一固定输入。转换或派生取得新 input_id 后重新开始；返回自身的幂等操作不使游标
+失效。空集无后续游标；总数来自已存行数，无全表扫描。
+
+FrameReadStats 仅提供 data_rows_read、coordinate_rows_read、receipt_bytes_hashed。
+行数统计实际解码或检查量，包括跳过前缀和重复坐标扫描；字节数只统计 receipt 哈希。
+持久读取按列与范围分批解码，附件以固定批次扫描，只保留所需完整记录。收据哈希可能
+扫描全文件，坐标查找可能扫描全附件，因此页大小不保证字节、I/O 或延迟上限。
 
 ## 静态语义对象血缘
 
@@ -276,7 +315,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 17 / marivo.frame_output/v6 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
+Store 18 / marivo.frame_output/v7 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
 
 ### Calendar matching
 

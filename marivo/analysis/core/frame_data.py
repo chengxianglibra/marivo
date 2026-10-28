@@ -14,7 +14,7 @@ from marivo.analysis.core.artifact_data import (
     SavedFrameMethodFacts,
 )
 from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_audit import FrameResultMetadata, StoredFrameMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceTime
 from marivo.analysis.core.frame_expression import FrameOperationKind
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
@@ -214,7 +214,7 @@ class StoredFrameBacking:
 
     artifact_id: str
     data: ArtifactData
-    metadata: FrameResultMetadata
+    metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
 
     def __post_init__(self) -> None:
@@ -222,7 +222,7 @@ class StoredFrameBacking:
             type(self.artifact_id) is not str
             or not self.artifact_id
             or type(self.data) is not ArtifactData
-            or type(self.metadata) is not FrameResultMetadata
+            or type(self.metadata) is not StoredFrameMetadata
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
             or len({item.origin_result_id for item in self.method_facts}) != len(self.method_facts)

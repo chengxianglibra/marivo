@@ -44,7 +44,7 @@ def test_three_quantity_search_and_forecast_views(
         assert (output.lower <= output.prediction).all() and (
             output.upper >= output.prediction
         ).all()
-    assert artifact.evidence_digest().finding_count == 0
+    assert artifact.findings(limit=100).total_count == 0
     assert run_ids(session) == before
 
 
@@ -83,6 +83,6 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     assert predictions.customer.nunique() == 1001
     assert (predictions.prediction == 0).all()
     assert predictions.loc[predictions.prediction < 0].empty
-    assert artifact.evidence_digest().finding_count == 0
+    assert artifact.findings(limit=100).total_count == 0
     assert artifact.findings().items == ()
     assert run_ids(session) == before

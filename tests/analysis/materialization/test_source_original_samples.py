@@ -38,7 +38,9 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     expected = 1000 / 3 if explicit else 1000
     assert frame["mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
-    reads = [dict(item.values) for item in artifact.evidence_digest().items if item.kind == "read"]
+    reads = [
+        dict(item.values) for item in artifact.evidence(limit=100).items if item.kind == "read"
+    ]
     assert [item["returned_rows"] for item in reads] == trace.returned_rows
     assert all(item["physical_stage"] for item in reads)
     assert {item["source"] for item in reads} == {"sales.order"}
@@ -115,7 +117,9 @@ def test_multi_root_read_evidence_keeps_each_contribution_scope(
     metric = amount.sum().where(amount > 0) / count
     trace = capture_source(monkeypatch)
     artifact = session.observe({"ratio": metric}).persist()
-    reads = [dict(item.values) for item in artifact.evidence_digest().items if item.kind == "read"]
+    reads = [
+        dict(item.values) for item in artifact.evidence(limit=100).items if item.kind == "read"
+    ]
     assert len(reads) == 2
     assert len({item["source"] for item in reads}) == 2
     assert len({item["physical_stage"] for item in reads}) == 1

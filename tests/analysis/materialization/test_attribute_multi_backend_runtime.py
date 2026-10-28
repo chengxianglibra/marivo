@@ -129,7 +129,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert len(trace.native_sql) == 2 and trace.returned_rows == [1, 4]
         submissions = tuple(trace.native_sql)
         saved = report.persist()
-        facts = saved.evidence_digest().items
+        facts = saved.evidence(limit=100).items
         role_reads = [
             dict(fact.values)
             for fact in facts

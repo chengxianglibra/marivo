@@ -110,6 +110,10 @@ def snapshot(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> 
     return {
         **_table(rows),
         "schema": _scalar(asdict(backing.data.schema)),
-        "metadata": _result_facts(backing.metadata),
+        "metadata": _result_facts(
+            result._local.read_complete(backing).metadata
+            if isinstance(backing, StoredFrameBacking)
+            else backing.metadata
+        ),
         "attrs": _scalar(rows.attrs),
     }

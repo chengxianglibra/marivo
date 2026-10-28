@@ -94,7 +94,7 @@ if TYPE_CHECKING:
         assert_type(session.observe({"value": revenue}, by=complete), mv.AnalysisFrame)
         return session.frame(complete)
 
-    def terminal_reads(artifact: mv.AnalysisFrame) -> mv.ArtifactDigest:
+    def terminal_reads(artifact: mv.AnalysisFrame) -> mv.EvidencePage:
         from pandas import DataFrame
 
         assert_type(session.persisted_frame(artifact.artifact_id), mv.AnalysisFrame)
@@ -103,9 +103,17 @@ if TYPE_CHECKING:
         fixed = session.persisted_frame(artifact.artifact_id)
         assert_type(fixed.to_pandas(axis_names={fixed.axes[0]: "region"}), DataFrame)
         assert_type(artifact.findings(limit=20, cursor=None), mv.FindingPage)
-        digest = artifact.evidence_digest()
-        assert_type(digest, mv.ArtifactDigest)
-        assert_type(digest.evidence_count, int)
+        digest = artifact.evidence(limit=100)
+        assert_type(digest, mv.EvidencePage)
+        assert_type(digest.total_count, int)
+        assert_type(artifact.schema, mv.FrameSchema)
+        assert_type(artifact.schema.values["value"], mv.FrameField)
+        assert_type(artifact.schema.axes, tuple[mv.FrameAxisSchema, ...])
+        page = artifact.read_page(columns=(), limit=100)
+        assert_type(page, mv.FramePage)
+        assert_type(page.read_stats, mv.FrameReadStats)
+        assert_type(page.total_count, int)
+        assert_type(page.to_pandas(), DataFrame)
         return digest
 
     def result_algebra(

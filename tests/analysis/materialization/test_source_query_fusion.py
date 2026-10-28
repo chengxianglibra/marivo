@@ -880,7 +880,7 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
     )
     trace = capture_source(monkeypatch)
     saved = query.persist()
-    reads = [dict(item.values) for item in saved.evidence_digest().items if item.kind == "read"]
+    reads = [dict(item.values) for item in saved.evidence(limit=100).items if item.kind == "read"]
     assert len(reads) == 2
     assert len({(read["period_start"], read["period_end"]) for read in reads}) == 2
     starts = set()

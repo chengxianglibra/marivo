@@ -8,6 +8,11 @@ from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
+from marivo.analysis.core.frame_page import FramePage as FramePage
+from marivo.analysis.core.frame_page import FrameReadStats as FrameReadStats
+from marivo.analysis.core.frame_schema import FrameAxisSchema as FrameAxisSchema
+from marivo.analysis.core.frame_schema import FrameField as FrameField
+from marivo.analysis.core.frame_schema import FrameSchema as FrameSchema
 from marivo.analysis.core.lineage import ColumnLineage as ColumnLineage
 from marivo.analysis.core.lineage import FrameLineage as FrameLineage
 from marivo.analysis.core.lineage import SemanticObjectIdentity as SemanticObjectIdentity
@@ -31,7 +36,7 @@ from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
-from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
+from marivo.analysis.evidence._dataset_types import EvidencePage as EvidencePage
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
 from marivo.analysis.refs import ArtifactRef as ArtifactRef
@@ -68,7 +73,12 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "to_date",
     "trailing_duration",
     "trailing_periods",
-    "ArtifactDigest",
+    "FrameSchema",
+    "FrameField",
+    "FrameAxisSchema",
+    "FramePage",
+    "FrameReadStats",
+    "EvidencePage",
     "ArtifactRef",
     "Finding",
     "FindingPage",
