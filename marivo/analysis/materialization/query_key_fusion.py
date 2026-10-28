@@ -928,20 +928,7 @@ def native_query_relation(
                 or reduction.window_key is not None
                 or (
                     isinstance(reduction.node, SourceAggregate)
-                    and (
-                        reduction.node.reducer.startswith("approx_")
-                        or (
-                            reduction.node.reducer in ("median", "quantile")
-                            and (
-                                reduction.provider in ("mysql", "trino", "clickhouse")
-                                or reduction.retain_quantile_bounds
-                                or any(
-                                    isinstance(column.dtype, DecimalDataType)
-                                    for column in stage.columns
-                                )
-                            )
-                        )
-                    )
+                    and reduction.node.reducer.startswith("approx_")
                 )
             ):
                 return "aggregate producer retains an unqualified source finish"
@@ -1791,26 +1778,6 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
             or require_reduction(lowered.plan.source_read(read.stage_id)).calendars
             or require_reduction(lowered.plan.source_read(read.stage_id)).window_key is not None
             or require_reduction(lowered.plan.source_read(read.stage_id)).preserve_sample_presence
-            or (
-                isinstance(
-                    (node := require_reduction(lowered.plan.source_read(read.stage_id)).node),
-                    SourceAggregate,
-                )
-                and (
-                    node.reducer in ("median", "quantile")
-                    and (
-                        require_reduction(lowered.plan.source_read(read.stage_id)).provider
-                        in ("mysql", "trino", "clickhouse")
-                        or require_reduction(
-                            lowered.plan.source_read(read.stage_id)
-                        ).retain_quantile_bounds
-                        or any(
-                            isinstance(column.dtype, DecimalDataType)
-                            for column in lowered.plan.source_read(read.stage_id).columns
-                        )
-                    )
-                )
-            )
             or lowered.plan.source_read(read.stage_id).inputs != (producer,)
             or len(lowered.plan.source_read(read.stage_id).parameters) != 1
             or candidate.consumers_of(read.stage_id) != (final.stage_id,)

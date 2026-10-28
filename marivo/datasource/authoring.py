@@ -767,8 +767,8 @@ def trino(
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
         Marivo never infers credential environment-variable names.
-        Exact ``median()`` and ``quantile(q)`` use source-ranked bounds and
-        linear interpolation. Explicit ``approx_median()`` and
+        Exact ``median()`` and ``quantile(q)`` fail source compilation because
+        Trino has no qualified native exact quantile algorithm. Explicit ``approx_median()`` and
         ``approx_quantile(q)`` use native ``approx_percentile``. Analysis
         preparation qualifies the actual input types; semantic readiness does
         not qualify execution. Exact and approximate algorithms are never

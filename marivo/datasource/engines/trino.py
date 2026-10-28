@@ -23,7 +23,6 @@ from marivo.datasource.engines.base import (
     MetadataInspectRequest,
     PartitionProbeRequest,
     PartitionProbeResult,
-    QuantileCapability,
     TableRefRequest,
     identity_read_only_kwargs,
     require_field,
@@ -733,8 +732,5 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="local_naive_label",
-    exact_count_distinct=True,
-    quantile=QuantileCapability(mode="approximate", method="approx_percentile"),
-    percentile_uses_approx_quantile=True,
     native_query_timeout=native_query_timeout,
 )

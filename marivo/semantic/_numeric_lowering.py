@@ -202,8 +202,6 @@ def lower_source_reduction(
     node: SourceAggregate | SourceWeightedMean | EntityCount,
     table: ir.Table,
     fields: Mapping[str, ir.Value],
-    *,
-    quantile_bounds: bool = False,
 ) -> NumericValue:
     """Reduce one contribution. Checks returned here are scalar aggregates."""
     if isinstance(node, EntityCount):
@@ -268,10 +266,6 @@ def lower_source_reduction(
         result = value.cast("float64").approx_quantile(q)
         if value.type().is_decimal():
             result = force_cast(result, value.type())
-    elif quantile_bounds and node.reducer in ("median", "quantile"):
-        # Only the declared result type and source checks are needed here. The
-        # observation compiler supplies bounds without a native quantile call.
-        result = value.min().cast(value.quantile(0.5).type())
     elif node.reducer == "mean":
         result = native_mean(value)
     elif node.reducer == "min":
@@ -283,6 +277,10 @@ def lower_source_reduction(
     else:
         assert node.q is not None
         result = value.quantile(node.q)
+    if node.reducer in ("median", "quantile") and value.type().is_decimal():
+        # PostgreSQL percentile_cont returns double precision for numeric input.
+        # Bind the declared Decimal transport explicitly without changing its algorithm.
+        result = force_cast(result, result.type())
     if node.reducer not in ("count", "count_distinct", "approx_nunique", "mean"):
         result = (value.count() == 0).ifelse(
             ibis.null().cast(result.type().copy(nullable=True)), result

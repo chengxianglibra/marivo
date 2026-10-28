@@ -226,6 +226,13 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
         quantile = amount.quantile(0.95, time=point)
         median = amount.median(time=point)
         trace = capture_source(monkeypatch)
+        if backend == "trino":
+            from marivo.analysis.errors import AnalysisStageUnavailableError
+
+            with pytest.raises(AnalysisStageUnavailableError, match="trino: quantile"):
+                session.observe({"q": quantile.per(point).mean()}, by=(scope, category)).compute()
+            assert trace.returned_rows == []
+            return
         rows = (
             session.observe(
                 {"q": quantile.per(point).mean(), "median": median.per(point).mean()},
@@ -241,11 +248,8 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             assert actual == [Decimal(expected) if amount_type != "DOUBLE" else float(expected)]
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
-        assert all("__quantile_count" in columns for columns in trace.returned_columns)
+        assert all("__quantile_count" not in columns for columns in trace.returned_columns)
         assert trace.returned_rows == [3, 3]
-        if backend == "trino":
-            assert all("ROW_NUMBER()" in sql.upper() for sql in trace.native_sql)
-            assert all("APPROX_PERCENTILE" not in sql.upper() for sql in trace.native_sql)
         for metric in (
             amount.quantile(0.95, time=point, nulls="error").per(point).mean(),
             median.per(point).mean(nulls="error"),

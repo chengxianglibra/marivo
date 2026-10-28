@@ -658,8 +658,5 @@ PROFILE = EngineProfile(
     ),
     translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="local_naive_label",
-    exact_count_distinct=True,
-    quantile=None,
-    percentile_uses_approx_quantile=False,
     native_query_timeout=native_query_timeout,
 )

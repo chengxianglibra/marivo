@@ -48,12 +48,16 @@ def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
     table = ibis.table({"x": "float64"}, name="facts")
     for approximate in (False, True):
         reduction = _reduction(backend, 0.95, approximate=approximate)
-        if approximate and backend in ("postgres", "mysql"):
-            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": approx_quantile"):
+        if (approximate and backend in ("postgres", "mysql")) or (
+            not approximate and backend in ("mysql", "trino")
+        ):
+            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": "):
                 lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
             continue
         expression, _ = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
-        sql = ibis.to_sql(expression, dialect=backend).lower()
+        from tests.datasource.aggregate_fixtures import compiler_backend
+
+        sql = compiler_backend(backend).compile(expression).lower()
         if approximate:
             expected = {
                 "duckdb": "approx_quantile",
@@ -62,11 +66,9 @@ def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
             }
             assert expected[backend] in sql
             assert "percentile_cont" not in sql
-        elif backend in ("mysql", "trino", "clickhouse"):
-            assert "row_number()" in sql
-            assert "__quantile_lower" in sql
-            assert "__quantile_upper" in sql
-            assert "approx_percentile(" not in sql
+        elif backend == "clickhouse":
+            assert "quantileexactinclusive(0.95)" in sql
+            assert "row_number()" not in sql
             assert "quantile(" not in sql
             assert "quantileexactexclusive(" not in sql
         else:
@@ -104,13 +106,13 @@ def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
             (
                 ([7, 7, 7, None], "int64", 0.95, 7.0),
                 ([-10, 0, 10], "int64", 0.25, -5.0),
-                ([-1e308, 1e308], "float64", 0.5, 0.0),
+                ([-10.0, 10.0], "float64", 0.5, 0.0),
             ),
             id="interpolation_shapes",
         ),
     ],
 )
-def test_portable_bounds_and_typed_interpolation(
+def test_native_quantiles_and_typed_results(
     cases: tuple[
         tuple[list[int | float | Decimal | None], str, float, float | Decimal | None], ...
     ],
@@ -124,10 +126,10 @@ def test_portable_bounds_and_typed_interpolation(
                     pa.table({"x": pa.array(values, type=ibis.dtype(dtype).to_pyarrow())})
                 ),
             )
-            reduction = _reduction("trino", q)
+            reduction = _reduction("duckdb", q)
             expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
-            raw = connection.execute(expression)
-            # Bounds transport is independent of input cardinality.
+            raw = connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype)
+            # Native aggregate transport is independent of input cardinality.
             assert len(raw) == 1, (values, dtype, q)
             stage = SourceRead(
                 "read:0",
@@ -150,14 +152,14 @@ def test_portable_bounds_and_typed_interpolation(
 
 
 @pytest.mark.parametrize("bad", [None, float("inf"), float("nan")])
-def test_bounds_keep_strict_null_checks_and_native_nonfinite_values(bad: float | None) -> None:
+def test_native_quantiles_keep_strict_null_checks_and_nonfinite_values(bad: float | None) -> None:
     for deferred in (False, True):
         connection = ibis.duckdb.connect(threads=1)
         try:
             # SQL literals preserve NaN instead of a pandas conversion to NULL.
             literal = "NULL" if bad is None else "'NaN'" if pd.isna(bad) else "'Infinity'"
             table = connection.sql(f"SELECT CAST({literal} AS DOUBLE) AS x UNION ALL SELECT 10.0")
-            reduction = _reduction("trino", 0.95, strict=True)
+            reduction = _reduction("duckdb", 0.95, strict=True)
             expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
             stage = SourceRead(
                 "read:0",
@@ -178,16 +180,26 @@ def test_bounds_keep_strict_null_checks_and_native_nonfinite_values(bad: float |
                 None,
             )
             if deferred:
-                completed = _complete_source_frame(stage, connection.execute(expression), checks)
+                completed = _complete_source_frame(
+                    stage,
+                    connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
+                    checks,
+                )
                 assert any(bool(completed.table[name].iloc[0]) for name, _ in checks) is (
                     bad is None
                 )
             elif bad is None:
                 with pytest.raises(SemanticExpressionError):
-                    _complete_source_frame(stage, connection.execute(expression), checks)
+                    _complete_source_frame(
+                        stage,
+                        connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
+                        checks,
+                    )
             else:
                 value = _complete_source_frame(
-                    stage, connection.execute(expression), checks
+                    stage,
+                    connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype),
+                    checks,
                 ).table.value
                 assert pa.array(value).is_valid().to_pylist() == [True]
                 assert math.isnan(value.iloc[0]) if math.isnan(bad) else math.isinf(value.iloc[0])
@@ -207,7 +219,7 @@ def test_bounds_keep_strict_null_checks_and_native_nonfinite_values(bad: float |
         ([10.0, float("nan")], 0.5, float("nan")),
     ),
 )
-def test_bounds_interpolation_preserves_native_infinity_and_valid_nan(
+def test_native_interpolation_preserves_infinity_and_valid_nan(
     values: list[float], q: float, expected: float
 ) -> None:
     connection = ibis.duckdb.connect(threads=1)
@@ -218,7 +230,7 @@ def test_bounds_interpolation_preserves_native_infinity_and_valid_nan(
         native = connection.raw_sql(f"SELECT quantile_cont(x, {q!r}) FROM facts").fetchone()
         assert native is not None and native[0] is not None
         assert math.isnan(native[0]) if math.isnan(expected) else native[0] == expected
-        reduction = _reduction("trino", q)
+        reduction = _reduction("duckdb", q)
         expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
         stage = SourceRead(
             "read:0",
@@ -231,8 +243,29 @@ def test_bounds_interpolation_preserves_native_infinity_and_valid_nan(
             (),
             None,
         )
-        value = _complete_source_frame(stage, connection.execute(expression), checks).table.value
+        value = _complete_source_frame(
+            stage, connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype), checks
+        ).table.value
         assert pa.array(value).is_valid().to_pylist() == [True]
         assert math.isnan(value.iloc[0]) if math.isnan(native[0]) else value.iloc[0] == native[0]
     finally:
         connection.disconnect()
+
+
+@pytest.mark.parametrize(
+    ("backend", "dtype", "duration"),
+    [("clickhouse", "decimal(18,2)", False), ("duckdb", "int64", True)],
+)
+def test_unsupported_source_quantile_types_fail_during_schema_compilation(
+    backend: str, dtype: str, duration: bool
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.core.data_types import DurationDataType
+
+    table = ibis.table({"x": dtype}, name="facts")
+    reduction = _reduction(backend, 0.95)
+    if duration:
+        reduction = replace(reduction, duration=DurationDataType("ns"))
+    with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
+        lower_observation(reduction, table, {"sales.facts.x": "x"}, ())

@@ -51,12 +51,6 @@ def structured_exception_chain(exc: Exception) -> tuple[BaseException, ...]:
 
 
 @dataclass(frozen=True)
-class QuantileCapability:
-    mode: Literal["exact", "approximate"]
-    method: str
-
-
-@dataclass(frozen=True)
 class CursorFrame:
     columns: tuple[str, ...]
     rows: tuple[dict[str, object], ...]
@@ -138,13 +132,9 @@ class EngineProfile:
     authoring_capabilities: AuthoringCapabilities
     translate_strptime_format: Callable[[str], str]
     datetime_decode_policy: BackendDatetimeDecodePolicy
-    quantile: QuantileCapability | None
-    percentile_uses_approx_quantile: bool
     native_query_timeout: NativeQueryTimeout | None
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
-    exact_count_distinct: bool = False
-    exact_quantile: bool = False
 
     def __post_init__(self) -> None:
         timeout_enforced = self.native_query_timeout is not None
@@ -352,7 +342,5 @@ GENERIC_PROFILE = EngineProfile(
     ),
     translate_strptime_format=identity_str,
     datetime_decode_policy="local_naive_label",
-    quantile=None,
-    percentile_uses_approx_quantile=False,
     native_query_timeout=None,
 )

@@ -299,17 +299,32 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         "mean": elapsed.mean(),
         "min": elapsed.min(),
         "max": elapsed.max(),
-        "median": elapsed.median(),
-        "quantile": elapsed.quantile(0.25),
         "twice": elapsed.sum() + elapsed.sum(),
         "half": elapsed.sum() / 2,
     }
     result = compute(session, metrics)
-    expected = [2 * big + 2, big + 1, big, big + 2, big + 1, big + 1, 4 * big + 4, big + 1]
+    expected = [2 * big + 2, big + 1, big, big + 2, 4 * big + 4, big + 1]
     for index, ticks in enumerate(expected):
         column = result.table[f"value.{index}"]
         assert str(column.dtype) == "duration[ns][pyarrow]"
         assert pa.array(column).cast(pa.int64()).to_pylist() == [ticks]
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+    from marivo.datasource.adapters import SourceSession
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Unsupported source Duration quantile read business data")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(SourceSession, "execute", forbidden)
+        for metric in (elapsed.median(), elapsed.quantile(0.25)):
+            with pytest.raises(AnalysisStageUnavailableError, match=r"duration\[ns\]"):
+                compute(session, {"value": metric})
+    # Explicitly completed member samples retain their local exact tick kernel.
+    members = session.members(session.catalog.get("entity:sales.facts").value)
+    samples = elapsed.sum().per(members)
+    local = compute(session, {"median": samples.median(), "q": samples.quantile(0.25)})
+    for name in ("value.0", "value.1"):
+        assert pa.array(local.table[name]).cast(pa.int64()).to_pylist() == [big + 1]
     with pytest.raises(SemanticExpressionError, match="non-NA"):
         compute(session, {"strict": elapsed.mean(nulls="error")})
 

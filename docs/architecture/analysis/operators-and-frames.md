@@ -166,23 +166,28 @@ Exact median/quantile uses linear interpolation h=(n-1)q; [0,10] at q=.95 gives
 qualified actual type/backend and algorithm identity. An unavailable exact route
 never falls back to approximation, and the reverse is also prohibited.
 
-Source quantile and median execute on DuckDB, PostgreSQL, MySQL, Trino and
-ClickHouse. MySQL, Trino and ClickHouse sort and extract the two interpolation
-bounds and valid count on the source; only that bounded summary crosses the
-source boundary. Decimal paths retain their declared precision/scale through
-the shared interpolation finisher. Integer and floating quantiles return
-float64. Empty and all-NULL inputs return NA; strict NULL checks remain attached
-to the complete demanded input. Bounds must complete before
-downstream numeric fusion consumes their values.
+Source quantile and median use only native exact algorithms: DuckDB
+`quantile_cont`, PostgreSQL `percentile_cont`, and ClickHouse
+`quantileExactInclusive`. MySQL and Trino reject exact source quantiles during
+schema-bound compilation; no ranked-bounds or local interpolation substitutes for
+an unavailable native operation. ClickHouse admits integer and floating inputs;
+Decimal exact quantiles are supported on DuckDB and PostgreSQL. Source Duration
+quantiles requiring tick interpolation are unavailable. Integer and floating
+results are float64; admitted Decimal routes retain the declared carrier.
+Empty and all-NULL inputs return NA; strict NULL checks retain their demanded input.
 
 Explicit source approximation uses DuckDB `approx_quantile`, Trino
 `approx_percentile`, or ClickHouse `quantileTDigest`; approximate median uses
 q=0.5 on that same algorithm. Sketches consume floating inputs and Decimal
 results explicitly converge to the declared Decimal carrier. PostgreSQL and
-MySQL have no admitted approximate source route. Algorithms and results may
-differ across backends; no universal error bound is promised. This source
-matrix does not expand Duration, original-input attribution or physical join
-topology qualification.
+MySQL reject approximate quantiles and distinct counts during compilation.
+Approximate distinct uses DuckDB `approx_count_distinct`, Trino `approx_distinct`,
+or ClickHouse `uniqHLL12`. Exact distinct uses `COUNT(DISTINCT ...)`, with
+ClickHouse mapped to `uniqExact`. Native aggregate mapping and admission share one
+policy across preview and analysis; compilation success alone never qualifies an
+algorithm. Algorithms and results may differ across backends; no universal error
+bound is promised. These routes do not expand original-input attribution or
+physical join topology qualification.
 
 Ordered first/last uses a unique declared time order after completing each child
 sample. It must not substitute an unordered backend first/last. include_null and

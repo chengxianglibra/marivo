@@ -26,16 +26,20 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 只支持未参数化 GET 路线的本地 JSON 文件。其他 HTTP JSON 形式仍可通过数据源 API 声明
 和预览，但不能作为 Analysis Session 输入。
 
-五类后端均可对数值输入执行精确来源端 `median` 和 `quantile`。DuckDB 和 PostgreSQL
-使用原生精确算法；MySQL、Trino 和 ClickHouse 在来源查询中取得精确排序边界，再据此
-插值。线性插值使用 `h=(n-1)q`，所以 `[0, 10]` 在 `q=0.95` 时结果为 `9.5`。整数和
-浮点结果使用 `float64`；Decimal 遵循声明的精度与小数位数。默认 NULL 政策下，空输入
-或全为 NULL 时返回 NA；显式严格 NULL 检查仍作用于本次需求的输入。
+源侧精确 `median()` 与 `quantile(q)` 使用 DuckDB `quantile_cont`、PostgreSQL
+`percentile_cont` 或 ClickHouse `quantileExactInclusive` 原生函数。MySQL 和 Trino
+在编译时拒绝精确源侧分位数。ClickHouse 接受整数与浮点输入；DuckDB/PostgreSQL
+也支持 Decimal。源侧 Duration 分位数不可用，不通过排序模拟或本地插值补偿。
+线性插值采用 `h=(n-1)q`，所以 `[0, 10]` 在 `q=0.95` 时得到 `9.5`。
+整数和浮点结果使用 `float64`；获准的 Decimal 路线保留声明的载体。空输入或全 NULL
+输入返回 NA；严格 NULL 检查仍作用于其输入。
 
-数值近似方法必须显式声明。DuckDB 使用 `approx_quantile`，Trino 使用 `approx_percentile`，
-ClickHouse 使用 `quantileTDigest`；PostgreSQL 和 MySQL 没有近似来源端路线。各算法结果
-可能不同，没有统一误差界限。其他常见规约——计数、去重计数、求和、最小/最大值、
-均值和加权均值——仍须满足实际类型与表达式的准入条件。
+近似方法必须显式声明。分位数使用 DuckDB `approx_quantile`、Trino `approx_percentile`
+或 ClickHouse `quantileTDigest`；去重估算分别使用 `approx_count_distinct`、
+`approx_distinct` 或 `uniqHLL12`。PostgreSQL 和 MySQL 在编译时拒绝这两类近似操作。
+精确去重使用 `COUNT(DISTINCT ...)` 或 ClickHouse `uniqExact`。不支持的操作与类型
+在读取业务数据前报错，精确与近似算法不会相互替换。近似结果可能因后端而异，没有
+统一误差界限；其他规约仍须满足类型与表达式的准入条件。
 
 贡献分析使用五类后端的合格来源路线，但仍受方法、类型、键和来源限制。父级总量与
 细分贡献独立读取，可能来自不同来源快照。`Attribute` 信任实体身份、关系基数和版本

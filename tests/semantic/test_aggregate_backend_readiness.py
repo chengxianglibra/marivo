@@ -103,10 +103,10 @@ assert not report.blockers
 @pytest.mark.parametrize(
     ("backend", "aggregate", "unsupported"),
     (
-        ("trino", ("percentile", 0.95), False),
+        ("trino", ("percentile", 0.95), True),
         ("trino", ("approx_percentile", 0.95), False),
         ("duckdb", ("percentile", 0.95), False),
-        ("clickhouse", "count_distinct", True),
+        ("clickhouse", "count_distinct", False),
     ),
 )
 def test_aggregate_accuracy_remains_owned_by_execution(

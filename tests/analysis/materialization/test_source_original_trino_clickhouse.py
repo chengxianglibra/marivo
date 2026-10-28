@@ -53,7 +53,8 @@ DATA = SourceData(
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize(
-    "method", ("sum", "count", "min", "max", "count_distinct", "mean", "weighted_mean")
+    "method",
+    ("sum", "count", "min", "max", "count_distinct", "mean", "weighted_mean", "median", "quantile"),
 )
 def test_remote_original_recompute_uses_qualified_integer_results(
     tmp_path: Path,
@@ -83,9 +84,19 @@ def test_remote_original_recompute_uses_qualified_integer_results(
         metric = (
             amount.weighted_mean(weight=weight)
             if method == "weighted_mean"
+            else amount.quantile(0.9)
+            if method == "quantile"
             else getattr(amount, method)()
         )
         query = session.observe({"value": metric})
+        if backend == "trino" and method in ("median", "quantile"):
+            from marivo.analysis.errors import AnalysisStageUnavailableError
+
+            trace = capture_source(monkeypatch)
+            with pytest.raises(AnalysisStageUnavailableError, match="trino: " + method):
+                query.compute()
+            assert trace.returned_rows == []
+            return
         native = (
             _native_clickhouse_weighted_scalar(case)
             if backend == "clickhouse" and method == "weighted_mean"

@@ -203,8 +203,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "trino",
             "marivo.datasource.authoring.trino",
-            "Build a Trino datasource specification. Exact median/quantile uses source-ranked "
-            "bounds and linear interpolation. Explicit approx_median/approx_quantile uses "
+            "Build a Trino datasource specification. Exact median/quantile fails source "
+            "compilation because Trino has no qualified native exact algorithm. Explicit approx_median/approx_quantile uses "
             "native approx_percentile. Execution qualifies actual types and never substitutes "
             "exact and approximate algorithms; semantic readiness does not qualify execution.",
             output="DatasourceSpec",

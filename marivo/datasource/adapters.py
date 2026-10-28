@@ -217,6 +217,9 @@ class SourceSession:
             raise _invalid(provider.name, backend.name)
         if backend_lease is not None and (not owns_backend or backend_lease.backend is not backend):
             raise _invalid("an owned lease for this exact backend", "borrowed or mismatched lease")
+        from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+
+        configure_aggregate_compiler(backend)
         self._log_context = _execution_log.snapshot(project_root)
         self._log_root = self._log_context.root
         self.provider = provider
@@ -405,6 +408,21 @@ class SourceSession:
         self._bindings_by_identity[source_identity] = (source, supplied_source_params)
         self._bound_sources[source_identity] = binding
         return binding
+
+    def duration_units(self, value: ir.Value) -> tuple[str, ...]:
+        """Recover fixed Duration units from consumed, already-bound source fields."""
+        from marivo.datasource._expression_fields import physical_fields
+
+        origins = set(physical_fields(value))
+        units: set[str] = set()
+        for bound in self._bound_sources.values():
+            for field in bound.facts.schema:
+                unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
+                if unit is not None and origins.intersection(
+                    physical_fields(bound.relation[field.name])
+                ):
+                    units.add(unit.decode("ascii"))
+        return tuple(sorted(units))
 
     def binding_for(self, source_identity: str) -> BoundSource:
         """Return this session's exact typed binding for a governed consumer."""

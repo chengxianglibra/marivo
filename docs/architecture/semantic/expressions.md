@@ -327,12 +327,17 @@ checks on both; multiplication by zero and coalesce do not catch strict failures
 Exact and approximate reductions are distinct authored operations. An unavailable
 route fails instead of substituting the other. Exact quantiles use the native
 qualified arithmetic and precision; they do not promise arbitrary-precision
-interpolation. DuckDB and PostgreSQL retain their qualified native exact routes;
-MySQL, Trino and ClickHouse use source-ranked bounds and typed local interpolation.
+interpolation. DuckDB and PostgreSQL use qualified native exact quantiles; ClickHouse uses
+`quantileExactInclusive` for integer and floating inputs. MySQL and Trino reject
+exact source quantiles during schema-bound compilation. Unsupported input types,
+including ClickHouse Decimal exact quantiles and source Duration quantiles,
+also fail compilation instead of using ranked bounds or local interpolation.
 Explicit approximate quantiles use DuckDB `approx_quantile`, Trino
-`approx_percentile` and ClickHouse TDigest. Approximate median uses the same
-algorithm at q=0.5. PostgreSQL and MySQL reject approximation instead of using an
-exact replacement. Backend translation, load and readiness do not qualify a method.
+`approx_percentile` and ClickHouse `quantileTDigest`; approximate median uses
+q=0.5. Approximate distinct uses DuckDB `approx_count_distinct`, Trino
+`approx_distinct` or ClickHouse `uniqHLL12`. PostgreSQL and MySQL reject both
+approximate families. Exact distinct maps to `COUNT(DISTINCT ...)` or ClickHouse
+`uniqExact`. Backend translation, load and readiness do not qualify a method.
 Detailed current-value and native-carrier policies belong to
 [Operators and Frames](../analysis/operators-and-frames.md).
 

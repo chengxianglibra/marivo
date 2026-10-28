@@ -52,8 +52,8 @@ Trino requires an explicit `user_env` declaration so connection identity never
 falls through to a backend-library default. `auth_env` remains optional for
 Trino deployments that do not require an authentication token or password.
 
-Trino exact `.median()` and `.quantile(q)` use source-ranked bounds and typed
-linear interpolation. Explicit `.approx_median()` and `.approx_quantile(q)` use
+Trino exact `.median()` and `.quantile(q)` fail source compilation because no
+qualified native exact algorithm is available. Explicit `.approx_median()` and `.approx_quantile(q)` use
 native `approx_percentile` when approximation is acceptable. Analysis preparation qualifies the selected
 operation and physical types against its backend. Semantic readiness checks physical declarations and temporal certification;
 loading alone grants no backend execution support.

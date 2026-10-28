@@ -339,8 +339,14 @@ def test_public_native_numeric_methods(
                 name: catalog_value(session.catalog, "sales." + name, kind="metric")
                 for name in ("average", "weighted", "distinct")
             }
+            | (
+                {"q": (amount / 1).quantile(0.5)}
+                if backend == "clickhouse"
+                else {"q": session.catalog.get("metric:sales.quantile").value}
+                if backend not in ("mysql", "trino")
+                else {}
+            )
             | {
-                "q": session.catalog.get("metric:sales.quantile").value,
                 "row_zero": (amount / 0).mean(),
                 "integer_zero": (weight / 0).mean(),
                 "floating_zero": ((amount / 1) / 0.0).mean(),
@@ -382,7 +388,8 @@ def test_public_native_numeric_methods(
             "cancelled_weight",
         ):
             assert frame[name].isna().tolist() == [True]
-        assert float(frame["q"].iloc[0]) == 2.0
+        if backend not in ("mysql", "trino"):
+            assert float(frame["q"].iloc[0]) == 2.0
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -430,48 +437,65 @@ def test_public_native_quantile_algorithms(
             return result
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        result = (
-            session.observe(
-                {
-                    "q0": amount.quantile(0),
-                    "q95": amount.quantile(0.95),
-                    "q1": amount.quantile(1),
-                    "median": amount.median(),
-                    "floating": (amount / 1).quantile(0.95),
-                    "integer": catalog_value(
-                        session.catalog, "sales.facts.weight", kind="field"
-                    ).quantile(0.5),
-                    "empty": amount.quantile(0.95).where(amount > 100),
-                    "null": amount.quantile(0.95).where(amount.isnull()),
-                }
+        exact_amount = amount / 1 if backend == "clickhouse" else amount
+        if backend in ("mysql", "trino", "clickhouse"):
+            for metric in (
+                amount.quantile(0.95),
+                amount.median(),
+                amount.quantile(0.95).per(category).mean(),
+            ):
+                before = len(statements)
+                with pytest.raises(AnalysisStageUnavailableError, match=backend + ": "):
+                    session.observe({"q": metric}).compute()
+                assert len(statements) == before
+        if backend not in ("mysql", "trino"):
+            result = (
+                session.observe(
+                    {
+                        "q0": exact_amount.quantile(0),
+                        "q95": exact_amount.quantile(0.95),
+                        "q1": exact_amount.quantile(1),
+                        "median": exact_amount.median(),
+                        "floating": (amount / 1).quantile(0.95),
+                        "integer": catalog_value(
+                            session.catalog, "sales.facts.weight", kind="field"
+                        ).quantile(0.5),
+                        "empty": exact_amount.quantile(0.95).where(amount > 100),
+                        "null": exact_amount.quantile(0.95).where(amount.isnull()),
+                    }
+                )
+                .compute()
+                .to_pandas()
             )
-            .compute()
-            .to_pandas()
-        )
-        for name, expected in (
-            ("q0", 0),
-            ("q95", 9.5),
-            ("q1", 10),
-            ("median", 5),
-            ("floating", 9.5),
-            ("integer", 3),
-        ):
-            assert float(result[name].iloc[0]) == expected
-        assert isinstance(result["q95"].iloc[0], Decimal)
-        assert result["empty"].isna().all()
-        assert result["null"].isna().all()
-        assert sizes and max(sizes) == 1
-        grouped = (
-            session.observe({"q": amount.quantile(0.95)}, by=(category,)).compute().to_pandas()
-        )
-        assert sorted(float(v) for v in grouped["q"].dropna()) == [9.5]
-        folded = (
-            session.observe({"q": amount.quantile(0.95).per(category).mean()}).compute().to_pandas()
-        )
-        assert float(folded["q"].iloc[0]) == 9.5
-        samples = mv.coordinates(by=(category,), keys=(("x",), ("missing",)))
-        sampled = session.observe({"q": amount.quantile(0.95).per(samples).mean()})
-        assert float(sampled.compute().to_pandas()["q"].iloc[0]) == 9.5
+            for name, expected in (
+                ("q0", 0),
+                ("q95", 9.5),
+                ("q1", 10),
+                ("median", 5),
+                ("floating", 9.5),
+                ("integer", 3),
+            ):
+                assert float(result[name].iloc[0]) == expected
+            if backend != "clickhouse":
+                assert isinstance(result["q95"].iloc[0], Decimal)
+            assert result["empty"].isna().all()
+            assert result["null"].isna().all()
+            assert sizes and max(sizes) == 1
+            grouped = (
+                session.observe({"q": exact_amount.quantile(0.95)}, by=(category,))
+                .compute()
+                .to_pandas()
+            )
+            assert sorted(float(v) for v in grouped["q"].dropna()) == [9.5]
+            folded = (
+                session.observe({"q": exact_amount.quantile(0.95).per(category).mean()})
+                .compute()
+                .to_pandas()
+            )
+            assert float(folded["q"].iloc[0]) == 9.5
+            samples = mv.coordinates(by=(category,), keys=(("x",), ("missing",)))
+            sampled = session.observe({"q": exact_amount.quantile(0.95).per(samples).mean()})
+            assert float(sampled.compute().to_pandas()["q"].iloc[0]) == 9.5
         approximate = session.observe(
             {
                 "q": amount.approx_quantile(0.95),
@@ -560,11 +584,21 @@ def test_native_quantile_edge_groups(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         big = catalog_value(session.catalog, "sales.facts.big", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        if backend in ("mysql", "trino"):
+            from marivo.analysis.errors import AnalysisStageUnavailableError
+            from tests.support.source_trace import capture_source
+
+            trace = capture_source(monkeypatch)
+            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
+                session.observe({"q": amount.quantile(0.95)}, by=(category,)).compute()
+            assert trace.returned_rows == []
+            return
+        exact_amount = amount / 1 if backend == "clickhouse" else amount
         frame = (
             session.observe(
                 {
-                    "q": amount.quantile(0.95),
-                    "tiny": amount.quantile(5e-324),
+                    "q": exact_amount.quantile(0.95),
+                    "tiny": exact_amount.quantile(5e-324),
                     "integer": big.quantile(0.5),
                 },
                 by=(category,),
@@ -577,11 +611,35 @@ def test_native_quantile_edge_groups(
             ("single", "7.00"),
             ("ties", "7.00"),
             ("negative", "9.00"),
-            ("large", "9007199254740994.90"),
         ):
-            assert frame.loc[group, "q"] == Decimal(expected)
+            assert float(frame.loc[group, "q"]) == (
+                8.99 if backend == "duckdb" and group == "negative" else float(expected)
+            )
         assert frame.loc["negative", "tiny"] == Decimal("-10.00")
-        assert frame.loc["large", "integer"] == 9007199254740994.0
+        native_table = case.session.bind(case.source, source_identity="edge-oracle").relation
+        source_sql = case.session._backend.compile(native_table)
+        native_q, native_integer = {
+            "duckdb": ("quantile_cont(amount, 0.95)", "quantile_cont(big, 0.5)"),
+            "postgres": (
+                "percentile_cont(0.95) WITHIN GROUP (ORDER BY amount)",
+                "percentile_cont(0.5) WITHIN GROUP (ORDER BY big)",
+            ),
+            "clickhouse": (
+                "quantileExactInclusive(0.95)(toFloat64(amount))",
+                "quantileExactInclusive(0.5)(big)",
+            ),
+        }[backend]
+        if backend in ("duckdb", "postgres"):
+            native_q = f"CAST({native_q} AS DECIMAL(18,2))"
+        native_sql = f"SELECT {native_q} AS q, {native_integer} AS middle FROM ({source_sql}) AS native_values WHERE category = 'large'"
+        if backend == "clickhouse":
+            oracle_row = case.session._backend.raw_sql(native_sql).result_rows[0]
+        else:
+            with case.session._backend.raw_sql(native_sql) as cursor:
+                oracle_row = cursor.fetchone()
+        assert oracle_row is not None
+        assert float(frame.loc["large", "q"]) == float(oracle_row[0])
+        assert frame.loc["large", "integer"] == oracle_row[1]
         assert frame.loc["null"].isna().all()
 
 
@@ -983,3 +1041,44 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_public_native_distinct_algorithms(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+    from tests.support.source_trace import capture_source
+
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("native_distinct", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        trace = capture_source(monkeypatch)
+        frame = session.observe({"value": amount.count_distinct()}).compute().to_pandas()
+        assert frame["value"].tolist() == [2]
+        if backend == "clickhouse":
+            assert any("uniqExact(" in sql for sql in trace.native_sql)
+            assert all("uniq(" not in sql for sql in trace.native_sql)
+        before = len(trace.returned_rows)
+        approximate = amount.approx_nunique()
+        if backend in ("postgres", "mysql"):
+            # A permitted sibling and outer formula must not cause a partial read.
+            query = session.observe({"value": approximate + amount.count_distinct()})
+            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": approx_nunique"):
+                query.compute()
+            assert len(trace.returned_rows) == before
+        else:
+            frame = session.observe({"value": approximate}).compute().to_pandas()
+            assert frame["value"].tolist() == [2]
+            expected = {
+                "duckdb": "approx_count_distinct",
+                "trino": "approx_distinct",
+                "clickhouse": "uniqhll12",
+            }[backend]
+            assert any(expected in sql.lower() for sql in trace.native_sql)

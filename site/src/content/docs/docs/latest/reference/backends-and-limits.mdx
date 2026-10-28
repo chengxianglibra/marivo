@@ -27,19 +27,23 @@ Analysis Session supports local JSON files through the unparameterized GET route
 HTTP JSON forms can be declared and previewed through datasource APIs but are not Analysis
 Session inputs.
 
-Exact source `median` and `quantile` are available for numeric inputs on all five backends.
-DuckDB and PostgreSQL use native exact algorithms; MySQL, Trino and ClickHouse select exact
-rank bounds in source queries and interpolate from them. Linear interpolation uses
-`h=(n-1)q`; for `[0, 10]` at `q=0.95`, the result is `9.5`. Integer and floating results
-use `float64`; Decimal follows its declared precision and scale. Under the default NULL
-policy, empty or all-NULL input returns NA; strict NULL checks still apply to the demanded
-input.
+Exact source `median()` and `quantile(q)` use native DuckDB `quantile_cont`,
+PostgreSQL `percentile_cont`, or ClickHouse `quantileExactInclusive`. MySQL and Trino
+reject exact source quantiles during compilation. ClickHouse accepts integer/float
+inputs; DuckDB/PostgreSQL also support Decimal. Source Duration quantiles are
+unavailable. No sorting simulation or local interpolation is used as a fallback.
+Linear interpolation uses `h=(n-1)q`; `[0, 10]` at `q=0.95` gives `9.5`.
+Integer/floating results use `float64`; admitted Decimal routes retain their declared
+carrier. Empty/all-NULL input returns NA, and strict NULL checks retain their input.
 
-Approximate numeric methods must be explicit. DuckDB uses `approx_quantile`, Trino uses
-`approx_percentile`, and ClickHouse uses `quantileTDigest`; PostgreSQL and MySQL have no
-approximate source route. Algorithms can differ, with no universal error bound. Other
-common reductions—count, distinct count, sum, min, max, mean and weighted mean—remain
-subject to type and expression qualification.
+Approximate methods must be explicit. Quantiles use DuckDB `approx_quantile`, Trino
+`approx_percentile`, or ClickHouse `quantileTDigest`; distinct estimates use
+`approx_count_distinct`, `approx_distinct`, or `uniqHLL12` respectively. PostgreSQL
+and MySQL reject both approximate families during compilation. Exact distinct uses
+`COUNT(DISTINCT ...)`, or ClickHouse `uniqExact`. Unsupported operations and types
+fail before business reads; exact and approximate algorithms never substitute.
+Approximate results can differ, with no universal error bound. Other reductions
+remain subject to type and expression qualification.
 
 Contribution analysis uses qualified source routes on all five backends, subject to method,
 type, key and source restrictions. Parent totals and fine contributions are read

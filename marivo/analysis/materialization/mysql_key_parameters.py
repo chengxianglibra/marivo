@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def qualifies_strings(values: dict[str, ir.Value], source: SourceSession | None) -> bool:
     """Keep native collated group membership on its established comparison route."""
-    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.engines.mysql import original_string_column
     from marivo.datasource.ir import TableSourceIR
 

@@ -171,8 +171,8 @@ rows after its authored relation. Aggregation, sorting or deduplication inside a
 Entity can therefore process more physical rows. The unordered subset is not a
 representative sample, a full-source estimate or a basis for scaling totals.
 Exact and explicit approximate reducers retain their algorithm contracts on that
-subset. Exact median/quantile use linear interpolation over native order statistics
-where a native exact aggregate is unavailable. Population/internal-sample, window
+subset. Reducers require a qualified native backend algorithm and input type; unsupported
+exact or approximate operations fail during compilation before preview reads. Population/internal-sample, window
 and path/attribute preparation remain unavailable; use an Analysis observation.
 All dependency Entities must share one datasource.
 

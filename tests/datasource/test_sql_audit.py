@@ -134,3 +134,24 @@ def test_current_product_has_only_classified_submitters() -> None:
         "store_sqlite_persistence",
         "ibis_governed_read_check_probe",
     } <= categories
+
+
+def test_native_aggregate_compiler_allowance_does_not_allow_another_patch(tmp_path: Path) -> None:
+    _module(
+        tmp_path,
+        "datasource/engines/_aggregate_compilers.py",
+        "def configure_aggregate_compiler(backend, compiler):\n"
+        "    backend.compiler = compiler\n"
+        "def another_patch(backend, compiler):\n"
+        "    backend.compiler = compiler\n",
+    )
+    report = audit(tmp_path)
+    assert [(row.symbol, row.call) for row in report.failures] == [
+        ("another_patch", "backend.compiler")
+    ]
+    assert any(
+        row.symbol == "configure_aggregate_compiler"
+        and row.category == "ibis_compilation"
+        and not row.failed
+        for row in report.records
+    )

@@ -5,16 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from fractions import Fraction
 
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-from ibis.common.deferred import Resolver
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.deferred import attribute_name
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -51,6 +48,7 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
 )
 from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -76,8 +74,6 @@ class ReductionInput:
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     sampled: bool = False
-    retain_quantile_bounds: bool = False
-    native_quantile_value: bool = False
     coverage: tuple[SampleCoverage, ...] = ()
     provider: str = "duckdb"
     mean_fold: tuple[str, str, str] | None = None
@@ -297,10 +293,10 @@ def lower_observation(
     if window_slot is not None:
         fields[window_slot] = filtered[window_slot]
     axes = _reduction_axes(prepared, fields, window_slot)
-    from marivo.analysis.compiler.quantiles import quantile_bounds
+    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 
-    bounds = quantile_bounds(prepared, fields)
-    item = lower_source_reduction(prepared.node, filtered, fields, quantile_bounds=bounds)
+    admit_source_aggregate(prepared, fields)
+    item = lower_source_reduction(prepared.node, filtered, fields)
     metrics = {
         prepared.value_slot: item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},
@@ -322,60 +318,7 @@ def lower_observation(
         if node.reducer == "mean":
             metrics[prepared.value_slot] = ops.Cast(ticks.sum().fill_null(0), to=dt.int64).to_expr()
             metrics["__duration_count"] = ticks.count()
-    if isinstance(prepared.node, SourceAggregate) and prepared.node.reducer in (
-        "median",
-        "quantile",
-    ):
-        node = prepared.node
-        value = lower_row(node.operand, fields).value
-        if bounds:
-            q = 0.5 if node.reducer == "median" else node.q
-            assert q is not None
-            probability = Fraction(str(q))
-            prefix = "__duration" if prepared.duration is not None else "__quantile"
-            filtered = filtered.mutate(__quantile_value=value, **axes)
-            window = ibis.window(group_by=[filtered[name] for name in axes])
-            value = filtered["__quantile_value"]
-            filtered = filtered.mutate(
-                __quantile_rank=ibis.row_number().over(
-                    ibis.window(
-                        group_by=[filtered[name] for name in axes],
-                        order_by=value.asc(nulls_first=False),
-                    )
-                ),
-                __quantile_n=value.count().over(window),
-            )
-            value = filtered["__quantile_value"]
-            rank = filtered["__quantile_rank"]
-            if probability.denominator >= 10**38:
-                # Every positive such probability has h < 1 for int64 counts.
-                lower = rank == 0
-                upper = rank >= (filtered["__quantile_n"] > 1).ifelse(1, 0)
-            else:
-                # Clamp multiplication to a proven int64-count upper bound for
-                # h. This keeps even tiny decimal probabilities within Decimal38
-                # without rounding an integer rank or using floating division.
-                bound = -(-((2**63 - 2) * probability.numerator) // probability.denominator)
-                scaled = rank.clip(upper=bound).cast("decimal(38,0)") * ibis.literal(
-                    str(probability.denominator)
-                ).cast("decimal(38,0)")
-                position = (filtered["__quantile_n"] - 1).cast(
-                    "decimal(38,0)"
-                ) * probability.numerator
-                lower = (rank <= bound) & (scaled <= position)
-                upper = (rank > bound) | (scaled >= position)
-            metrics[prepared.value_slot] = (
-                value.max(where=lower)
-                if prepared.duration is not None
-                else ibis.null().cast(item.value.type())
-            )
-            if prepared.duration is None:
-                metrics[f"{prefix}_lower"] = value.max(where=lower)
-            metrics[f"{prefix}_upper"] = value.min(where=upper)
-            metrics[f"{prefix}_count"] = filtered["__quantile_n"].max().fill_null(0)
-            axes = {name: filtered[name] for name in axes}
     if inline_presence:
-        # Bind to the final relation, including any quantile ranking projections.
         # Its numeric groups already contain precisely the presence domain.
         metrics["__sample_present"] = filtered.count() > 0
         metrics["__numeric_present"] = ibis.literal(True)
@@ -515,7 +458,10 @@ def lower_common_observations(
     axes = _reduction_axes(first, fields)
     metrics: dict[str, ir.Value] = {}
     checks: list[tuple[str, NumericCheck]] = []
+    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
+
     for index, reduction in enumerate(reductions):
+        admit_source_aggregate(reduction, fields)
         item = lower_source_reduction(reduction.node, filtered, fields)
         metrics[reduction.value_slot] = ops.Cast(item.value, to=item.value.type()).to_expr()
         for position, check in enumerate(item.checks):
@@ -652,91 +598,10 @@ def duration_type(
         )
     ]
     if isinstance(node, (RowExpression, MetricExpression)):
-        return _recipe_duration(node.recipe, tuple(parts))
+        return recipe_duration(node.recipe, tuple(parts))
     active = [part for part in parts if part is not None]
     if not active:
         return None
     if len(set(active)) != 1:
         numeric_failure("matching fixed Duration units", repr(active))
     return active[0]
-
-
-def _recipe_duration(
-    recipe: Resolver, inputs: tuple[DurationDataType | None, ...]
-) -> DurationDataType | None:
-    """Propagate fixed tick units through the admitted native recipe structure."""
-    import operator
-
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Just,
-        Sequence,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import RescaleResolver
-
-    def combine(parts: tuple[DurationDataType | None, ...]) -> DurationDataType | None:
-        present = tuple(part for part in parts if part is not None)
-        if len(set(present)) > 1:
-            numeric_failure("matching fixed Duration units", repr(present))
-        return present[0] if present else None
-
-    def visit(item: Resolver) -> DurationDataType | None:
-        if isinstance(item, RescaleResolver):
-            return arithmetic(True, False, visit(item.recipe), None)
-        if type(item) is Variable:
-            return inputs[int(item.name.removeprefix("slot_"))]
-        if type(item) is Just:
-            return None
-        if type(item) is Sequence:
-            return combine(tuple(visit(child) for child in item.values))
-        if type(item) is UnaryOperator:
-            return None if item.func is operator.invert else visit(item.arg)
-        if type(item) is BinaryOperator:
-            left, right = visit(item.left), visit(item.right)
-            if item.func in (
-                operator.eq,
-                operator.ne,
-                operator.lt,
-                operator.le,
-                operator.gt,
-                operator.ge,
-                operator.and_,
-                operator.or_,
-                operator.xor,
-            ):
-                return None
-            return arithmetic(item.func is operator.truediv, item.func is operator.mul, left, right)
-        if type(item) is Call:
-            if type(item.func) is Attr:
-                name = attribute_name(item.func)
-                parts = (visit(item.func.obj), *(visit(arg) for arg in item.args))
-            else:
-                name = item.func.value.__name__
-                parts = tuple(visit(arg) for arg in item.args)
-            if name in ("isnull", "notnull"):
-                return None
-            if name == "divide":
-                return arithmetic(True, False, parts[0], parts[1])
-            if name in ("sqrt", "log", "ln", "exp") and any(part is not None for part in parts):
-                numeric_failure("a dimensionless input to nonlinear numeric functions", "Duration")
-            return combine((*parts, *(visit(value) for value in item.kwargs.values())))
-        numeric_failure("an admitted Duration recipe", type(item).__name__)
-
-    def arithmetic(
-        divide: bool, multiply: bool, left: DurationDataType | None, right: DurationDataType | None
-    ) -> DurationDataType | None:
-        common = combine((left, right))
-        if divide and right is not None:
-            if left is None:
-                numeric_failure("a numeric or fixed Duration quotient", "inverse Duration")
-            return None
-        if multiply and left is not None and right is not None:
-            numeric_failure("one Duration operand in multiplication", "two Duration operands")
-        return common
-
-    return visit(recipe)

@@ -20,6 +20,77 @@ from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.execution_logs import execution_records
 
+
+@pytest.mark.parametrize("ticks", [[1, 3, None], [], [None, None]])
+def test_duration_quantile_preview_rejects_before_business_reads(
+    ticks: list[int | None],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from marivo.datasource.adapters import SourceSession
+
+    path = tmp_path / "durations.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "id": pa.array(range(len(ticks)), type=pa.int64()),
+                "elapsed": pa.array(ticks, type=pa.duration("ns")),
+                "amount": pa.array([10] * len(ticks), type=pa.int64()),
+            }
+        ),
+        path,
+    )
+    reducers = {
+        "middle": "elapsed.median()",
+        "quantile": "elapsed.quantile(0.95)",
+        "approx_middle": "elapsed.approx_median()",
+        "approx_quantile": "elapsed.approx_quantile(0.95)",
+        "scaled": "(elapsed / 2).quantile(0.5)",
+        "strict": "elapsed.quantile(0.5, nulls='error')",
+        "composite": "amount.sum() + elapsed.quantile(0.5)",
+    }
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
+            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"
+            + "elapsed=ms.measure_column(name='elapsed',entity=facts,column='elapsed',additivity=ms.additive_all())\n"
+            + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
+            + "@ms.metric()\ndef ordinary():\n    return amount.quantile(0.5)\n"
+            + "@ms.metric()\ndef ratio():\n    return (elapsed / elapsed).quantile(0.5)\n"
+            + "\n".join(
+                f"@ms.metric()\ndef {name}():\n    return {expression}\n"
+                for name, expression in reducers.items()
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+    scope = md.unpruned(max_rows=10, timeout_seconds=30)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Unsupported Duration preview submitted a business read")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(SourceSession, "execute", forbidden)
+        for name in reducers:
+            with pytest.raises(SemanticExpressionError, match=r"duckdb: .*duration\[ns\]"):
+                catalog.preview(catalog.get(f"metric:sales.{name}"), scope=scope)
+    assert not any(
+        record.get("purpose") == "semantic.preview"
+        for record in execution_records(catalog.workspace_dir)
+    )
+    if ticks and ticks[0] is not None:
+        # A Duration elsewhere in the source does not taint ordinary fields, and
+        # dividing matching Durations produces a dimensionless quantile input.
+        for name, expected in (("ordinary", 10.0), ("ratio", 1.0)):
+            result = catalog.preview(catalog.get(f"metric:sales.{name}"), scope=scope)
+            assert result.rows == ({"value": expected},)
+
+
 _DATA = SourceData(
     columns="id BIGINT, amount BIGINT, day DATE, precise DECIMAL(20,2), wide DECIMAL(20,2)",
     values="(1,2,DATE '2026-07-10',2.10,0),(2,NULL,DATE '2026-07-10',NULL,NULL),(3,8,DATE '2026-07-11',8.90,999999999999999999.00)",
@@ -117,6 +188,7 @@ def test_native_metric_preview(
             "tiny_quantile": "wide.quantile(1e-20)",
             "strict": "amount.sum(nulls='error')",
             "approximate": "amount.approx_median()",
+            "approx_distinct": "amount.approx_nunique()",
         }
         definitions = {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -137,7 +209,25 @@ def test_native_metric_preview(
         }
         project = semantic_project_factory(definitions)
         catalog = SemanticCatalog(project)
-        names = [name for name in metrics if name not in {"strict", "approximate"}]
+        unsupported = (
+            {
+                "middle",
+                "row_middle",
+                "quarter",
+                "decimal_middle",
+                "decimal_quarter",
+                "tiny_quantile",
+            }
+            if backend in ("mysql", "trino")
+            else {"decimal_middle", "decimal_quarter", "tiny_quantile"}
+            if backend == "clickhouse"
+            else set()
+        )
+        names = [
+            name
+            for name in metrics
+            if name not in {"strict", "approximate", "approx_distinct"} | unsupported
+        ]
         results = catalog.preview_many(
             [catalog.get(f"metric:sales.{name}") for name in names],
             scope=md.unpruned(max_rows=10, timeout_seconds=30),
@@ -159,6 +249,14 @@ def test_native_metric_preview(
             Decimal("3.80"),
             Decimal("0.01"),
         ]
+        all_names = [
+            name for name in metrics if name not in {"strict", "approximate", "approx_distinct"}
+        ]
+        expected = [
+            value
+            for name, value in zip(all_names, expected, strict=True)
+            if name not in unsupported
+        ]
         for result, value in zip(results, expected, strict=True):
             assert result.rows[0]["value"] == pytest.approx(value)
             assert result.coverage.entity_rows == (("sales.facts", 3),)
@@ -177,7 +275,32 @@ def test_native_metric_preview(
             ]
             assert statements
             assert not any("uniq(" in sql for sql in statements)
-            assert any("distinct" in sql for sql in statements)
+            assert any("uniqexact(" in sql for sql in statements)
+        for name in unsupported:
+            before = len(execution_records(catalog.workspace_dir))
+            with pytest.raises(SemanticExpressionError, match="qualified native compilation"):
+                catalog.preview(
+                    catalog.get(f"metric:sales.{name}"),
+                    scope=md.unpruned(max_rows=10, timeout_seconds=30),
+                )
+            after = execution_records(catalog.workspace_dir)[before:]
+            assert not any(record.get("purpose") == "semantic.preview" for record in after)
+        approximate_distinct = catalog.get("metric:sales.approx_distinct")
+        if backend in ("postgres", "mysql"):
+            before = len(execution_records(catalog.workspace_dir))
+            with pytest.raises(SemanticExpressionError, match=backend + ": approx_nunique"):
+                catalog.preview(
+                    approximate_distinct, scope=md.unpruned(max_rows=10, timeout_seconds=30)
+                )
+            assert not any(
+                record.get("purpose") == "semantic.preview"
+                for record in execution_records(catalog.workspace_dir)[before:]
+            )
+        else:
+            result = catalog.preview(
+                approximate_distinct, scope=md.unpruned(max_rows=10, timeout_seconds=30)
+            )
+            assert result.rows == ({"value": 2},)
         total = catalog.get("metric:sales.total")
         for start, end, expected_value in (
             ("2026-07-10", "2026-07-11", 2),
@@ -195,7 +318,7 @@ def test_native_metric_preview(
                 scope=md.unpruned(max_rows=10, timeout_seconds=30),
             )
         if backend in {"postgres", "mysql"}:
-            with pytest.raises(SemanticExpressionError, match="declared quantile algorithm"):
+            with pytest.raises(SemanticExpressionError, match="qualified native compilation"):
                 catalog.preview(
                     catalog.get("metric:sales.approximate"),
                     scope=md.unpruned(max_rows=10, timeout_seconds=30),
@@ -206,7 +329,7 @@ def test_native_metric_preview(
                 scope=md.unpruned(max_rows=10, timeout_seconds=30),
             )
             assert 2 <= approximate.rows[0]["value"] <= 8
-        for name in ("middle", "row_middle"):
+        for name in () if backend in ("mysql", "trino") else ("middle", "row_middle"):
             empty_middle = catalog.preview(
                 catalog.get(f"metric:sales.{name}"),
                 scope=md.time_range(

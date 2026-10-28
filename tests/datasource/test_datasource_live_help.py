@@ -30,8 +30,7 @@ def test_trino_help_matches_source_native_quantile_capability() -> None:
     from marivo.semantic._aggregate_accuracy import aggregate_repair
 
     profile = require_profile_for_backend_type("trino")
-    assert not profile.exact_quantile
-    assert aggregate_repair(("percentile", 0.95), profile.name) is None
+    assert aggregate_repair(("percentile", 0.95), profile.name) is not None
     assert aggregate_repair(("approx_percentile", 0.95), profile.name) is None
     text, _, _ = render_help_text("datasource.trino")
     callable_text, _, _ = render_help_text(md.trino)

@@ -188,6 +188,9 @@ def _build_backend_from_effective(
         kwargs = profile.apply_read_only_kwargs(kwargs)
     try:
         backend = profile.connect(datasource.name, kwargs)
+        from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+
+        configure_aggregate_compiler(backend)
     except ImportError as exc:
         raise DatasourceConnectionError(
             message="The selected datasource driver could not be imported.",

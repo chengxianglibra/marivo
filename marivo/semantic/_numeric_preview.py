@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import ibis
-import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.common.deferred import Deferred
@@ -16,6 +14,7 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
+    MeasureAssertion,
     MemberCount,
     MetricExpression,
     MetricNode,
@@ -23,16 +22,20 @@ from marivo._definition.expressions import (
     PerReduce,
     PerWeightedMean,
     PredicateExpression,
+    RowExpression,
     RowField,
+    RowNode,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.graph import children, direct_refs, walk
 from marivo._definition.relations import PopulationContains
-from marivo._quantiles import source_quantile_algorithm
-from marivo.datasource.engines import require_profile_for_backend_type
+from marivo._definition.types import field_read_key
+from marivo._source_aggregates import aggregate_operation, aggregate_repair_action, native_aggregate
+from marivo.datasource.adapters import SourceSession
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic._numeric_duration import recipe_duration
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
@@ -40,7 +43,6 @@ from marivo.semantic._numeric_lowering import (
     lower_predicate,
     lower_row,
     lower_source_reduction,
-    numeric_binary,
     numeric_failure,
 )
 
@@ -93,11 +95,11 @@ def lower_preview_metric(
     closure = walk((metric.node,), resolve=declared.get)
     refs = {exact.ref for node in closure.order for exact in direct_refs(node)}
     tables: dict[str, ir.Table] = {}
+    durations: dict[str, str] = {}
     registry = resolver.catalog._state.registry
     backend = registry.datasources[
         registry.entities[metric.roots[0].ref.path].datasource
     ].backend_type
-    profile = require_profile_for_backend_type(backend)
     for root in metric.roots:
         table = resolver.entity(ref.entity(root.ref.path))
         fields: dict[str, ir.Value] = {}
@@ -118,6 +120,18 @@ def lower_preview_metric(
                     else ref.dimension(target.path)
                 )
                 fields[target.path] = resolver.dimension_on(field_ref, table)
+        source: SourceSession = resolver.connections.source_session(
+            registry.entities[root.ref.path].datasource,
+            registry.datasources[registry.entities[root.ref.path].datasource],
+        )
+        for name, expression in fields.items():
+            units = source.duration_units(expression)
+            if len(units) > 1:
+                numeric_failure("one exact Duration unit", f"{name}: {units}")
+            if units:
+                durations[name] = units[0]
+            elif expression.type().is_interval():
+                durations[name] = "us"
         tables[root.ref.path] = table.mutate(**fields)
     values: dict[tuple[int, ...], NumericValue] = {}
     reductions: list[ir.Table] = []
@@ -157,24 +171,26 @@ def lower_preview_metric(
             )
             filtered = table.filter(*(item.value for item in selected)) if selected else table
             fields = {name: filtered[name] for name in filtered.columns}
-            rank_quantile = False
-            if isinstance(node, SourceAggregate) and node.reducer in (
-                "median",
-                "quantile",
-                "approx_median",
-                "approx_quantile",
-                "approx_nunique",
-            ):
-                algorithm = source_quantile_algorithm(
-                    backend, approximate=node.reducer.startswith("approx_")
-                )
-                if algorithm is None:
-                    numeric_failure(
-                        "a backend supporting the declared quantile algorithm",
-                        f"{backend}: {node.reducer}; no business row was read",
+            if isinstance(node, SourceAggregate) and aggregate_operation(node.reducer) is not None:
+                dtype = lower_row(node.operand, fields).value.type()
+                duration = _row_duration(node.operand, durations)
+                if (
+                    native_aggregate(backend, node.reducer, dtype, duration=duration is not None)
+                    is None
+                ):
+                    from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+
+                    input_type = f"duration[{duration}]" if duration is not None else str(dtype)
+                    raise SemanticExpressionError(
+                        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                        message="The source aggregate has no qualified native compilation.",
+                        expected="a native algorithm preserving the declared accuracy and input type",
+                        received=f"{backend}: {node.reducer}({input_type})",
+                        action=aggregate_repair_action(
+                            backend, node.reducer, dtype, duration=duration is not None
+                        ),
                     )
-                rank_quantile = algorithm == "rank_bounds"
-            item = lower_source_reduction(node, filtered, fields, quantile_bounds=rank_quantile)
+            item = lower_source_reduction(node, filtered, fields)
             slot = f"preview_value.{len(reductions)}"
             names = tuple(f"preview_check.{len(reductions)}.{i}" for i in range(len(item.checks)))
             result = filtered.aggregate(
@@ -186,32 +202,6 @@ def lower_preview_metric(
                     },
                 }
             )
-            if rank_quantile:
-                assert isinstance(node, SourceAggregate)
-                q = 0.5 if node.reducer == "median" else node.q
-                assert q is not None
-                quantile = _rank_quantile(
-                    filtered, lower_row(node.operand, fields).value, q, item.value.type()
-                )
-                result = result.drop(slot).cross_join(quantile.select(**{slot: quantile.value}))
-            if (
-                isinstance(node, SourceAggregate)
-                and node.reducer == "count_distinct"
-                and not profile.exact_count_distinct
-            ):
-                distinct = filtered.select(value=lower_row(node.operand, fields).value)
-                distinct = distinct.filter(distinct.value.notnull()).distinct()
-                exact = distinct.aggregate(**{slot: distinct.count()})
-                result = (
-                    filtered.aggregate(
-                        **{
-                            name: check.violation
-                            for name, check in zip(names, item.checks, strict=True)
-                        }
-                    ).cross_join(exact)
-                    if names
-                    else exact
-                )
             slot_checks = list(zip(names, item.checks, strict=True))
             if predicate_summary is not None:
                 result = result.cross_join(predicate_summary)
@@ -286,38 +276,18 @@ def lower_preview_metric(
     )
 
 
-def _rank_quantile(table: ir.Table, value: ir.Value, q: float, dtype: dt.DataType) -> ir.Table:
-    """Interpolate exact order statistics over the already bounded Entity input."""
-    ordered = table.select(value=value).filter(lambda rows: rows.value.notnull())
-    ordered = ordered.mutate(
-        rank=ibis.row_number().over(ibis.window(order_by=ordered.value)),
-        count=ordered.value.count().over(),
+def _row_duration(node: RowNode, durations: Mapping[str, str]) -> str | None:
+    """Keep source units through row recipes, including dimensionless quotients."""
+    if isinstance(node, RowField):
+        return durations.get(
+            field_read_key(node.read) if node.read is not None else node.ref.ref.path
+        )
+    if isinstance(node, MeasureAssertion):
+        return _row_duration(node.operand, durations)
+    assert isinstance(node, RowExpression)
+    return recipe_duration(
+        node.recipe, tuple(_row_duration(item, durations) for item in node.inputs)
     )
-    position = (ordered["count"] - 1).cast("float64") * q
-    bounds = ordered.aggregate(
-        lower=ordered.value.max(where=ordered["rank"] <= position.floor()),
-        upper=ordered.value.min(where=ordered["rank"] >= position.ceil()),
-        count=ordered["count"].max().fill_null(0),
-    )
-    position = (bounds["count"] - 1).cast("float64") * q
-    weight = position - position.floor()
-    if dtype.is_decimal():
-        exponent = Decimal(str(q)).as_tuple().exponent
-        assert isinstance(exponent, int)
-        scale = min(38, max(0, -exponent))
-        weight = weight.cast(dt.Decimal(max(1, scale), scale))
-    fraction = NumericValue(weight)
-    complement = numeric_binary("subtract", NumericValue(ibis.literal(1)), fraction)
-    interpolated = numeric_binary(
-        "add",
-        numeric_binary("multiply", NumericValue(bounds.lower), complement),
-        numeric_binary("multiply", NumericValue(bounds.upper), fraction),
-    )
-    result = (bounds.lower == bounds.upper).ifelse(
-        ops.Cast(bounds.lower, to=dtype).to_expr(),
-        ops.Cast(interpolated.value, to=dtype).to_expr(),
-    )
-    return bounds.select(value=(bounds["count"] == 0).ifelse(ibis.null().cast(dtype), result))
 
 
 def _source_root(node: SourceAggregate | SourceWeightedMean, roots: Mapping[str, str]) -> str:

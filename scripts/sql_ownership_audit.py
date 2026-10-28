@@ -247,11 +247,37 @@ def _manifest() -> Manifest:
         ("source.compile",),
         compile_owner,
     )
+    native_aggregates = Owner(
+        "ibis_compilation",
+        "Instance-scoped native aggregate mappings and rejection rules inherit Ibis relational compilation; they add no SQL submission or compiled-text rewrite authority.",
+    )
     add(
-        "semantic/_aggregate_accuracy",
-        ("aggregate_repair.supported",),
-        ("ibis.to_sql",),
-        compile_owner,
+        "datasource/engines/_aggregate_compilers",
+        ("<module>",),
+        (
+            "sqlglot.expressions",
+            "ibis.backends.sql.compilers.clickhouse",
+            "ibis.backends.sql.compilers.clickhouse.ClickHouseCompiler",
+            "ibis.backends.sql.compilers.mysql",
+            "ibis.backends.sql.compilers.mysql.MySQLCompiler",
+            "ibis.backends.sql.compilers.postgres",
+            "ibis.backends.sql.compilers.postgres.PostgresCompiler",
+            "ibis.backends.sql.compilers.trino",
+            "ibis.backends.sql.compilers.trino.TrinoCompiler",
+        ),
+        native_aggregates,
+    )
+    add(
+        "datasource/engines/_aggregate_compilers",
+        ("_MySQLCompiler",),
+        ("_MySQLCompiler",),
+        native_aggregates,
+    )
+    add(
+        "datasource/engines/_aggregate_compilers",
+        ("configure_aggregate_compiler",),
+        ("backend.compiler",),
+        native_aggregates,
     )
 
     provider = Owner(

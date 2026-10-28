@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import ibis
-from ibis.common.exceptions import OperationNotDefinedError, UnsupportedOperationError
-
-from marivo._quantiles import source_quantile_algorithm
-from marivo.datasource.engines import require_profile_for_backend_type
+from marivo._source_aggregates import native_aggregate
 from marivo.semantic.ir import DIRECT_ONLY_AGGREGATES, AggKind
 
 
@@ -26,33 +22,10 @@ def aggregate_repair(agg: AggKind, backend: str) -> str | None:
     name = agg[0] if isinstance(agg, tuple) else agg
     if name not in DIRECT_ONLY_AGGREGATES:
         return None
-    profile = require_profile_for_backend_type(backend)
-    column = ibis.table({"value": "float64"}, name="aggregate_capability").value
 
     def supported(kind: AggKind) -> bool:
         operation = kind[0] if isinstance(kind, tuple) else kind
-        if operation == "count_distinct" and not profile.exact_count_distinct:
-            return False
-        if operation in ("median", "percentile", "approx_median", "approx_percentile"):
-            return (
-                source_quantile_algorithm(backend, approximate=operation.startswith("approx_"))
-                is not None
-            )
-        q = kind[1] if isinstance(kind, tuple) else 0.5
-        expression = (
-            column.nunique()
-            if operation == "count_distinct"
-            else column.approx_nunique()
-            if operation == "approx_count_distinct"
-            else column.approx_quantile(q)
-            if operation in ("approx_median", "approx_percentile")
-            else column.quantile(q)
-        )
-        try:
-            ibis.to_sql(expression, dialect=profile.name)
-        except (OperationNotDefinedError, UnsupportedOperationError):
-            return False
-        return True
+        return native_aggregate(backend, operation) is not None
 
     if supported(agg):
         return None
@@ -61,4 +34,4 @@ def aggregate_repair(agg: AggKind, backend: str) -> str | None:
         return f"Use a datasource with a qualified source-native implementation of agg={agg!r}."
     if supported(approximate):
         return f"If approximation is acceptable, redefine this Metric with agg={approximate!r}; otherwise use a datasource supporting agg={agg!r}. Execution never substitutes the definition."
-    return f"The corresponding approximate definition is agg={approximate!r}, but {profile.name} does not support that source operation either. Use a datasource supporting the chosen definition; no local computation or automatic substitution is available."
+    return f"The corresponding approximate definition is agg={approximate!r}, but {backend} does not support that source operation either. Use a datasource supporting the chosen definition; no local computation or automatic substitution is available."

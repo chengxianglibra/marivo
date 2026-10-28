@@ -241,13 +241,17 @@ def approximate_p95():
     return amount.approx_quantile(0.95, time=order_date)
 ```
 
-`median()` 与 `approx_median()` 分别对应 q=0.5。精确分位采用线性插值：
-`[0, 10]` 在 q=0.95 时得到 9.5。DuckDB、PostgreSQL、MySQL、Trino 和
-ClickHouse 支持精确数值分位。显式近似计算分别使用 DuckDB `approx_quantile`、
-Trino `approx_percentile` 或 ClickHouse TDigest；PostgreSQL 和 MySQL 拒绝近似源端方法。
-近似结果可能因 backend 而不同，也可能与旧 ClickHouse reservoir 算法的结果不同。
-执行不会静默替换算法。空输入或全 NULL 输入返回 NA；`nulls="error"` 拒绝 NULL 贡献。
-`metric.per(time).mean()` 仍表示各时间键结果的等权均值，并非整个窗口的分位数。
+`median()` 与 `approx_median()` 分别对应 q=0.5。精确分位使用原生 inclusive
+线性插值：`[0, 10]` 在 q=0.95 时得到 9.5。DuckDB/PostgreSQL 支持精确数值分位；
+ClickHouse 对整数和浮点输入使用 `quantileExactInclusive`。MySQL/Trino 精确分位、
+ClickHouse Decimal 精确分位以及源侧 Duration 分位均在编译时拒绝。
+显式近似分位使用 DuckDB `approx_quantile`、Trino `approx_percentile` 或 ClickHouse
+`quantileTDigest`。精确去重使用 `count_distinct()`，显式估算使用 `approx_nunique()`；
+原生估算分别使用 DuckDB `approx_count_distinct`、Trino `approx_distinct` 或
+ClickHouse `uniqHLL12`。PostgreSQL/MySQL 拒绝这两类近似操作。算法不会相互替换，
+不支持的操作在读取业务数据前编译报错。空输入或全 NULL 输入返回 NA；
+`nulls="error"` 拒绝 NULL 贡献。近似结果可因后端而异，没有统一误差界限。
+`metric.per(time).mean()` 仍表示各时间键结果的等权均值。
 
 ### 显式缩放：`ms.rescale`
 

@@ -140,7 +140,7 @@ def qualify_original_strings(
     prepared: PreparedSources, table: ir.Table, columns: tuple[str, ...]
 ) -> str | None:
     """Require qualified native collations for consumed remote string keys."""
-    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.engines.postgres import deterministic_collation
     from marivo.datasource.ir import TableSourceIR
 
@@ -252,7 +252,7 @@ def qualify_original_source(
         SourceAggregate,
         SourceWeightedMean,
     )
-    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.ir import TableSourceIR
     from marivo.semantic._numeric_lowering import lower_row
 
@@ -490,7 +490,7 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
 
 def _bound_physical_field(physical: ops.Field, bound: BoundSource) -> pa.Field | None:
     """Recover captured carrier metadata through the source's declared projection."""
-    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource._expression_fields import physical_fields
 
     for captured in bound.facts.schema:
         if physical in physical_fields(bound.relation[captured.name]):
@@ -502,7 +502,7 @@ def _population_field(
     table: ir.Table, column: str, bounds: Mapping[str, BoundSource]
 ) -> SourceField:
     """Restore fixed Duration metadata through selected attribute projections."""
-    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource._expression_fields import physical_fields
 
     admitted = _admitted(table.schema().to_pyarrow(), column, column)
     if admitted.dtype != ScalarDataType("int64"):
@@ -638,7 +638,8 @@ def prepare_query_sources(
             frame_schemas=frame_schemas,
         )
 
-    from marivo.analysis.materialization.query_preparation import physical_fields, prepare_fields
+    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.timezone import probe_engine_timezone
 
     available = sources or {source.datasource.semantic_id: source}
@@ -1194,7 +1195,7 @@ def _qualify_clickhouse_joins(
 
 def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
-    from marivo._quantiles import source_quantile_algorithm
+    from marivo._source_aggregates import native_aggregate
 
     if source.provider.name == "duckdb":
         return
@@ -1216,13 +1217,7 @@ def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: Lowere
             "max",
             "mean",
         ):
-            if (
-                node.reducer in ("median", "quantile", "approx_median", "approx_quantile")
-                and source_quantile_algorithm(
-                    source.provider.name, approximate=node.reducer.startswith("approx_")
-                )
-                is not None
-            ):
+            if native_aggregate(source.provider.name, node.reducer) is not None:
                 continue
             _route_gap(
                 "a qualified native algorithm for this source reduction",
@@ -1270,10 +1265,6 @@ def _native_query_expression(
         expression = rewritten
     if source.provider.name == "clickhouse":
         import ibis
-        import ibis.expr.datatypes as dt
-
-        def declaration(value: object) -> int:
-            raise NotImplementedError("native ClickHouse uniqExact")
 
         exact_nodes: dict[ops.Node, ops.Node] = {}
         for node in expression.op().find((ops.IsNan, ops.IsInf)):
@@ -1291,13 +1282,6 @@ def _native_query_expression(
                 # float64. Decimal has no NaN/infinity; native overflow still
                 # fails the statement, and zero/error checks remain separate.
                 exact_nodes[node] = ibis.literal(False).op()
-        for node in expression.op().find(ops.CountDistinct):
-            exact = ibis.udf.agg.builtin(name="uniqExact", signature=((node.arg.dtype,), dt.int64))(
-                declaration
-            )
-            exact_nodes[node] = exact(
-                node.arg.to_expr(), where=node.where.to_expr() if node.where is not None else None
-            ).op()
         rewritten = expression.op().replace(exact_nodes).to_expr()
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
@@ -1676,91 +1660,16 @@ def _complete_source_frame(
         and isinstance(reduction.node, SourceAggregate)
     ):
         node = reduction.node
-        if node.reducer in ("mean", "median", "quantile"):
+        if node.reducer == "mean":
             finished: list[int | None] = []
             for row in frame.to_dict("records"):
                 count = int(row["__duration_count"])
-                if count == 0:
-                    finished.append(None)
-                    continue
-                lower = int(row[reduction.value_slot])
-                if node.reducer == "mean":
-                    exact = Fraction(lower, count)
-                else:
-                    q = 0.5 if node.reducer == "median" else node.q
-                    assert q is not None
-                    position = Fraction(str(q)) * (count - 1)
-                    fraction = position - (position.numerator // position.denominator)
-                    exact = lower + fraction * (int(row["__duration_upper"]) - lower)
-                finished.append(round(exact))
+                finished.append(
+                    None if count == 0 else round(Fraction(int(row[reduction.value_slot]), count))
+                )
             frame[reduction.value_slot] = pd.Series(
                 finished, dtype="int64[pyarrow]", index=frame.index
             )
-    if reduction is not None and "__quantile_count" in frame.columns:
-        import math
-        from decimal import Decimal
-
-        from marivo.analysis.methods.numeric_state import finish_division
-        from marivo.analysis.methods.physical import DecimalType
-
-        assert isinstance(reduction.node, SourceAggregate)
-        node = reduction.node
-        dtype = next(
-            column.dtype for column in stage.columns if column.slot_id == reduction.value_slot
-        )
-        q = 0.5 if node.reducer == "median" else node.q
-        assert q is not None
-        quantile_values: list[int | float | Decimal | None] = []
-        for row in frame.to_dict("records"):
-            raw_count = row["__quantile_count"]
-            # Coverage-only rows and predicate groups without numeric inputs
-            # carry no bounds. Keep their presence/checks for local completion.
-            if pd.isna(raw_count) or raw_count == 0:
-                quantile_values.append(None)
-                continue
-            count = int(raw_count)
-            position = Fraction(str(q)) * (count - 1)
-            fraction = position - (position.numerator // position.denominator)
-            lower = row["__quantile_lower"]
-            upper = row["__quantile_upper"]
-            assert isinstance(lower, (int, float, Decimal))
-            assert isinstance(upper, (int, float, Decimal))
-            if any(
-                isinstance(bound, float) and not math.isfinite(bound) for bound in (lower, upper)
-            ):
-                # Keep native nonfinite bounds as values. Exact rational
-                # interpolation applies only to finite carriers.
-                left, right = float(lower), float(upper)
-                if math.isnan(left) or math.isnan(right):
-                    interpolated = float("nan")
-                elif fraction == 0 or left == right:
-                    interpolated = left
-                elif math.isinf(left) and math.isinf(right):
-                    interpolated = float("nan")
-                else:
-                    interpolated = left if math.isinf(left) else right
-                quantile_values.append(interpolated)
-                continue
-            exact = Fraction(lower) + fraction * (Fraction(upper) - Fraction(lower))
-            quantile_values.append(
-                finish_division(
-                    exact.numerator,
-                    exact.denominator,
-                    DecimalType(dtype.precision, dtype.scale),
-                )
-                if isinstance(dtype, DecimalDataType)
-                else float(exact)
-            )
-        frame[reduction.value_slot] = (
-            pd.Series(
-                pd.arrays.ArrowExtensionArray(
-                    pa.array(quantile_values, type=pa.float64(), from_pandas=False)
-                ),
-                index=frame.index,
-            )
-            if dtype == ScalarDataType("float64")
-            else pd.Series(quantile_values, dtype=object, index=frame.index)
-        )
     if (
         reduction is not None
         and reduction.duration is not None

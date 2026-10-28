@@ -250,14 +250,19 @@ def approximate_p95():
 ```
 
 `median()` and `approx_median()` are the corresponding q=0.5 operations. Exact
-quantiles use linear interpolation: `[0, 10]` at q=0.95 gives 9.5. DuckDB,
-PostgreSQL, MySQL, Trino and ClickHouse support exact numeric quantiles. Explicit
-approximation uses DuckDB `approx_quantile`, Trino `approx_percentile`, or
-ClickHouse TDigest; PostgreSQL and MySQL reject approximate source methods.
-Approximate values can differ across backends and from older ClickHouse reservoir
-results. No algorithm is silently substituted. Empty/all-null inputs return NA;
-`nulls="error"` rejects null contributions. `metric.per(time).mean()` still means
-an equal-weight mean of time-key results, not a quantile over the whole window.
+quantiles use native inclusive linear interpolation: `[0, 10]` at q=0.95 gives 9.5.
+DuckDB/PostgreSQL support numeric exact quantiles; ClickHouse uses
+`quantileExactInclusive` for integer/float inputs. MySQL/Trino exact quantiles,
+ClickHouse Decimal exact quantiles, and source Duration quantiles fail compilation.
+Explicit approximation uses DuckDB `approx_quantile`, Trino `approx_percentile`, or
+ClickHouse `quantileTDigest`. Distinct counts use `count_distinct()` for exact
+results, or `approx_nunique()` for explicit estimates. Native estimates use DuckDB
+`approx_count_distinct`, Trino `approx_distinct` or ClickHouse `uniqHLL12`;
+PostgreSQL/MySQL reject both approximate families. Algorithms never substitute,
+and unavailable operations fail compilation before business reads. Empty/all-null
+inputs return NA; `nulls="error"` rejects null contributions. Approximate results
+can differ across backends without a universal error bound.
+`metric.per(time).mean()` remains an equal-weight mean of time-key results.
 
 ### Explicit scaling: `ms.rescale`
 

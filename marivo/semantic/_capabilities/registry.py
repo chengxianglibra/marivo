@@ -2572,8 +2572,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "approx_quantile",
             }:
                 summary += (
-                    "Exact median/quantile uses linear interpolation h=(n-1)q on DuckDB, PostgreSQL, "
-                    "MySQL, Trino and ClickHouse. Explicit approximate methods use DuckDB approx_quantile, "
+                    "Exact median/quantile uses native linear interpolation h=(n-1)q on DuckDB, PostgreSQL "
+                    "and ClickHouse; MySQL/Trino reject exact source quantiles at compilation. "
+                    "ClickHouse exact inputs must be integer/float; source Duration quantiles are unavailable. Explicit approximate methods use DuckDB approx_quantile, "
                     "Trino approx_percentile or ClickHouse TDigest; PostgreSQL/MySQL reject approximation. "
                     "Median uses q=0.5; quantile requires q in [0, 1]. Empty/all-NULL inputs return NA; nulls='error' rejects NULL inputs. "
                     "Native nonfinite values follow the backend. Integer/float results are float64; Decimal retains its declared "
@@ -2617,8 +2618,17 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 ) + "Empty input returns zero; the result is an int64 count with unit '1'."
             elif method == "count_distinct":
                 summary += "Count distinct non-NULL values exactly; empty input returns zero. The result is an int64 count with unit '1'."
+                if prefix == "row":
+                    summary += (
+                        " Native source compilation uses COUNT(DISTINCT), or ClickHouse uniqExact."
+                    )
             elif method == "approx_nunique":
-                summary += "Estimate the distinct non-NULL count explicitly; backend support is checked at execution. The result is an int64 count with unit '1'."
+                summary += "Estimate the distinct non-NULL count explicitly. The result is an int64 count with unit '1'. "
+                summary += (
+                    "Native source compilation uses DuckDB approx_count_distinct, Trino approx_distinct or ClickHouse uniqHLL12; PostgreSQL/MySQL reject this operation."
+                    if prefix == "row"
+                    else "Internal samples have no qualified local approximate distinct kernel."
+                )
             else:
                 summary += (
                     "Reduce internal sample values with "

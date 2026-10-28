@@ -425,8 +425,6 @@ def _probe_profile() -> EngineProfile:
         ),
         translate_strptime_format=identity_str,
         datetime_decode_policy="local_naive_label",
-        quantile=None,
-        percentile_uses_approx_quantile=False,
         native_query_timeout=None,
     )
 

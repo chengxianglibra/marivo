@@ -31,7 +31,7 @@ def qualify_query_source(
     if owner.provider.name not in ("mysql", "trino", "clickhouse"):
         return "this remote provider has no qualified Query relation route"
     if owner.provider.name == "clickhouse":
-        from marivo.analysis.materialization.query_preparation import physical_fields
+        from marivo.datasource._expression_fields import physical_fields
         from marivo.datasource.engines.clickhouse import decoded_string_columns
 
         leaves = set(read.expression.op().find(ops.DatabaseTable))
@@ -102,7 +102,7 @@ def qualify_query_source(
     ):
         return "remote aggregate producer numeric coordinates retain their pandas key boundary"
     if owner.provider.name == "mysql" and stage.keys:
-        from marivo.analysis.materialization.query_preparation import physical_fields
+        from marivo.datasource._expression_fields import physical_fields
         from marivo.datasource.engines.mysql import original_string_column
 
         for key in stage.keys:

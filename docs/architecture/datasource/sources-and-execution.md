@@ -239,6 +239,15 @@ remain outside that route. A successful datasource read does not expand it.
 
 ### Ibis-owned analysis reads and terminal raw SQL
 
+Marivo-managed backend instances inherit Ibis relational compilation with narrow
+native aggregate corrections. A shared source aggregate policy qualifies accuracy
+and actual input types before business reads. ClickHouse exact distinct/quantile
+map to `uniqExact`/`quantileExactInclusive`; PostgreSQL/MySQL reject unsupported
+approximation, and MySQL/Trino reject exact quantiles. These private compiler
+adapters do not mutate upstream global compilers, rewrite compiled SQL text, or
+add submission authority. Filtering, joins, grouping and scalar expressions
+continue through Ibis; issued and executed SQL use the same instance compiler.
+
 Provider operation support and exact Analysis method qualification are separate.
 The selected engine provider registry is lazy. `SourceSession` binds table and
 view relations on DuckDB, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB

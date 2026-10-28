@@ -959,7 +959,7 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
 
 
 @pytest.mark.parametrize("precision", (12, 38))
-def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
+def test_decimal_source_quantile_keeps_native_precision_through_windows(
     optimization_session: Session,
     precision: int,
 ) -> None:
@@ -970,7 +970,6 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
             Decimal("0") if precision == 12 else Decimal("123456789012345678901234567890123400.00")
         )
         values = [base + value for value in (1, 1, 1, 100)]
-        expected = base + Decimal(Fraction(1703, 20).numerator) / Decimal(20)
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(f"ALTER TABLE orders ALTER exact TYPE DECIMAL({precision},2)")
@@ -984,10 +983,10 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
     time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     quantile = value.quantile(0.95, time=time)
     direct = session.observe({"p95": quantile}, by=(region,))
-    # Original recomputation accepts the native Decimal quantile and handoff;
-    # ordinary local endpoint interpolation keeps its exact rational finish.
+    # Ordinary observations and windows retain the same native Decimal arithmetic
+    # as original recomputation, including backend precision loss.
     native = Decimal("85.14" if precision == 12 else "123456789012345675254913246067970539.52")
-    for query, target in ((direct, expected),):
+    for query, target in ((direct, native),):
         _same(session, query)
         result = query.compute().to_pandas()
         assert result["p95"].tolist() == [target]
@@ -996,11 +995,11 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
     windowed = session.observe(
         {"p95": quantile.window(mv.trailing_periods(count=2))}, by=(days, region)
     )
-    assert windowed.compute().to_pandas()["p95"].tolist() == [expected, expected]
+    assert windowed.compute().to_pandas()["p95"].tolist() == [native, native]
 
 
 @pytest.mark.parametrize(("first", "expected"), (("1.00", "1.01"), ("1.01", "1.02")))
-def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
+def test_native_decimal_median_and_local_mean_keep_their_rounding(
     optimization_session: Session,
     first: str,
     expected: str,
@@ -1014,7 +1013,7 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
         )
     exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
     source = session.observe({"value": exact.median()})
-    assert source.compute().to_pandas()["value"].tolist() == [Decimal(expected)]
+    assert source.compute().to_pandas()["value"].tolist() == [Decimal(first)]
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     values = session.values(
         by=(region,),
@@ -1028,8 +1027,9 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
     assert mean.compute().to_pandas()["mean"].tolist() == [Decimal(expected)]
 
 
-def test_nanosecond_quantile_preserves_exact_half_even_finish(
+def test_source_nanosecond_quantile_is_rejected_before_business_reads(
     analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -1056,7 +1056,16 @@ def test_nanosecond_quantile_preserves_exact_half_even_finish(
     value = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     time = catalog_value(case.session.catalog, "sales.order.ordered_at", kind="field")
     query = case.session.observe({"p95": value.quantile(0.95, time=time)})
-    assert query.compute().to_pandas()["p95"].tolist() == [pd.Timedelta(26, unit="ns")]
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Unsupported source Duration quantile read business data")
+
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    before = terminal_runs(case.session)
+    with pytest.raises(AnalysisStageUnavailableError, match=r"duration\[ns\]"):
+        query.compute()
+    assert terminal_runs(case.session) == before
 
 
 def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
@@ -1080,7 +1089,7 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
         Decimal("100.00"),
         Decimal("1.00"),
         Decimal("1.00"),
-        Decimal("85.15"),
+        Decimal("85.14"),
     ]
     sampled = session.observe(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
