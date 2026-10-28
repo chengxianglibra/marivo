@@ -35,6 +35,7 @@ class GameLeaf:
     source: SourceAggregate | SourceWeightedMean | EntityCount
     q: float | None = None
     nulls: Literal["ignore", "error"] = "ignore"
+    state_eligible: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +66,7 @@ def build_game(
     metric: str,
     by: tuple[ComparisonAxis, ...] = (),
 ) -> AttributeGame:
-    """Bind a state route without reading business data or changing the formula."""
+    """Describe the original game and optional state requests without source reads."""
     leaves: list[GameLeaf] = []
     quantities: list[tuple[str, MetricNode]] = [("target", node)]
 
@@ -74,7 +75,7 @@ def build_game(
             reason="unsupported_state",
             metric=metric,
             occurrence=occurrence,
-            received=f"{type(current).__name__}: no qualified replacement-game state route",
+            received=f"{type(current).__name__}: no qualified replacement-game route",
         )
 
     def visit(
@@ -92,6 +93,7 @@ def build_game(
             return
         states: tuple[MetricNode, ...]
         kind: Literal["sum", "count", "mean", "weighted_mean", "min", "max", "quantile", "distinct"]
+        state_eligible = True
         if isinstance(current, EntityCount):
             kind, states = "count", (current, current)
         elif isinstance(current, SourceAggregate) and current.reducer in (
@@ -104,8 +106,7 @@ def build_game(
             if current.reducer == "sum":
                 from marivo.analysis.binding.attribute_rules import _row_allows
 
-                if not by or not all(_row_allows(current.operand, axis) for axis in by):
-                    unsupported(current, occurrence)
+                state_eligible = bool(by) and all(_row_allows(current.operand, axis) for axis in by)
             kind = current.reducer
             if current.reducer == "count":
                 states = (
@@ -126,11 +127,14 @@ def build_game(
             "median",
             "quantile",
             "count_distinct",
+            "approx_median",
+            "approx_quantile",
         ):
             kind, states = (
                 ("distinct" if current.reducer == "count_distinct" else "quantile"),
                 (replace(current, nulls="ignore"),),
             )
+            state_eligible = current.reducer not in ("approx_median", "approx_quantile")
         elif isinstance(current, SourceWeightedMean):
             kind = "weighted_mean"
             from marivo._definition.expressions import MeasureAssertion
@@ -187,6 +191,7 @@ def build_game(
                 current.nulls
                 if isinstance(current, (SourceAggregate, SourceWeightedMean))
                 else "ignore",
+                state_eligible,
             )
         )
 

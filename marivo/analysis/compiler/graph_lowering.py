@@ -10,6 +10,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import PredicateExpression
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
+    AttributeCoalitionRead,
     AttributeFrequencyRead,
     AttributeRead,
     NativeRead,
@@ -91,6 +92,8 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
     for stage in plan.stages:
         if not isinstance(stage, SourceRead):
             continue
+        if isinstance(stage.program, AttributeCoalitionRead):
+            continue
         if isinstance(stage.program, NativeRead):
             raise compilation_error(
                 "a native source payload supplied by its physical rewrite",
@@ -140,25 +143,6 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 operand_types = tuple(
                     lower_row(operand, fields).value.type() for operand in operands
                 )
-                if isinstance(node, SourceAggregate) and node.reducer == "mean":
-                    raise AnalysisStageUnavailableError(
-                        stage="attribute_state_binding",
-                        expected="a qualified original native AVG state and finisher",
-                        received=f"mean input types: {', '.join(map(str, operand_types))}",
-                        repair="Inspect the original observations with observe/compare. Native mean replacement games have no qualified fixed-state finisher; no business row was read.",
-                        target="analysis_frame.attribute",
-                    )
-                if (
-                    (isinstance(node, SourceAggregate) and node.reducer == "sum")
-                    or isinstance(node, SourceWeightedMean)
-                ) and any(dtype.is_floating() for dtype in operand_types):
-                    raise AnalysisStageUnavailableError(
-                        stage="attribute_state_binding",
-                        expected="exact Integer/Decimal sufficient SUM components",
-                        received=f"{type(node).__name__} input types: {', '.join(map(str, operand_types))}",
-                        repair="Inspect the original observations with observe/compare. Floating SUM components have no qualified fixed-state merge preserving the original accumulation order; no business row was read.",
-                        target="analysis_frame.attribute",
-                    )
                 if any(not dtype.is_numeric() for dtype in operand_types):
                     raise AnalysisStageUnavailableError(
                         stage="attribute_state_binding",

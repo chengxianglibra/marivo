@@ -507,3 +507,100 @@ def test_native_shapley_fixed_states_keep_original_finishing_and_capture_cost(
             )
         assert costs[0] == costs[1]
         assert costs[0][0] > 0
+
+
+@pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table"), *CASES]))
+def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    data = SourceData(
+        _columns(backend, "DOUBLE PRECISION" if backend == "postgres" else "DOUBLE"),
+        "(1,'base','A',1,1,1,DATE '2026-07-01'),"
+        "(2,'base','B',3,3,3,DATE '2026-07-01'),"
+        "(3,'current','A',3,3,1,DATE '2026-07-01'),"
+        "(4,'current','B',3,3,3,DATE '2026-07-01')",
+        "id Int64, tenant String, category String, amount Float64, big Int64, weight Int64, day Date",
+        [
+            {
+                "id": identity,
+                "tenant": phase,
+                "category": category,
+                "amount": float(amount),
+                "big": amount,
+                "weight": weight,
+                "day": date(2026, 7, 1),
+            }
+            for identity, phase, category, amount, weight in (
+                (1, "base", "A", 1, 1),
+                (2, "base", "B", 3, 3),
+                (3, "current", "A", 3, 1),
+                (4, "current", "B", 3, 3),
+            )
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("native-shapley-queries", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        metrics = {
+            "mean": big.mean() * weight.sum(),
+            "float_condition": (amount.sum() > 4).ifelse(1, 0),
+            "quantile": amount.quantile(0.5) * weight.sum(),
+            "native_distinct": category.count_distinct() * amount.sum(),
+        }
+        current = session.observe(metrics, where=phase == "current")
+        baseline = session.observe(metrics, where=phase == "base")
+        compared = current.compare({"base": mv.baseline(baseline, on=())}).compute()
+        selected = compared.select({name: compared[f"base.absolute.{name}"] for name in metrics})
+        trace = capture_source(monkeypatch, measure_cost=True)
+        report = selected.attribute(by=(category,), permutations=16, seed=23).compute()
+        rows = report.to_pandas()
+        # B's input rows are unchanged. Only A changes any coalition value.
+        for name, change in (
+            ("mean", 4),
+            ("float_condition", 1),
+            ("quantile", 4),
+            ("native_distinct", 4),
+        ):
+            assert rows[f"contribution.{name}"].tolist() == [float(change), 0.0]
+            assert rows[f"total.{name}"].tolist() == [change, change]
+            assert rows[f"contribution_std_error.{name}"].tolist() == [0.0, 0.0]
+        methods = {
+            item.target: item.method
+            for fact in report.method_facts
+            for parent in fact.parents
+            for item in parent.metrics
+        }
+        assert methods[("mean",)].state_route != "native_queries/v1"
+        assert methods[("float_condition",)].state_route != "native_queries/v1"
+        captures = {
+            capture.capture_id: capture
+            for method in methods.values()
+            for capture in method.captures
+        }
+        assert len(trace.native_sql) == sum(c.source_reads for c in captures.values())
+        assert sum(trace.returned_rows) == sum(c.returned_rows for c in captures.values())
+        assert sum(trace.returned_arrow_bytes) == sum(c.returned_bytes for c in captures.values())
+        assert methods[("native_distinct",)].state_route == "native_queries/v1"
+        assert any(
+            "UNION ALL" in sql.upper()
+            and ("COUNT(DISTINCT" in sql.upper() or "UNIQEXACT(" in sql.upper())
+            for sql in trace.native_sql
+        )
+        assert methods[("mean",)].game.metric_approximation == "summary_reconstruction/v1"
+        assert (
+            methods[("float_condition",)].game.metric_approximation == "summary_reconstruction/v1"
+        )
+        assert all(
+            not any(word in sql.upper() for word in ("CREATE ", "INSERT ", "DROP "))
+            for sql in trace.native_sql
+        )

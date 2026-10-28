@@ -383,7 +383,7 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
             yield repr(value.value)
         if isinstance(method, FrameShapleyMethod):
             for leaf in method.leaves:
-                if isinstance(leaf.reduction, FrameShapleyQuantile):
+                if isinstance(leaf.reduction, (FrameShapleyQuantile, FrameShapleyNativeQuantile)):
                     yield repr(leaf.reduction.q)
         if isinstance(method, FrameRatioMethod):
             for value in (
@@ -551,7 +551,8 @@ class FrameShapleyGame(_FactRecord):
 
     Read ``metric.method.game`` after attribution. Formula identities are SHA256
     digests; proof clauses describe checks over captured states. Neither can
-    reopen a source or reconstruct the original Metric.
+    reopen a source or reconstruct the original Metric. Summary reconstruction
+    has no promised bias bound; permutation standard error excludes that bias.
     """
 
     kind: Literal["group_replacement"]
@@ -561,7 +562,7 @@ class FrameShapleyGame(_FactRecord):
     player_domain: Literal["joint_key_union/v1"]
     domain_policy: Literal["finite_interval_demand/v1"]
     domain_proof: tuple[str, ...]
-    metric_approximation: Literal["exact_metric/v1"]
+    metric_approximation: Literal["exact_metric/v1", "summary_reconstruction/v1"]
     standard_error: Literal["permutation_mean/v1"]
     closure_policy: Literal["typed_marginal_float64_sum/v1"]
 
@@ -571,7 +572,7 @@ class FrameShapleyGame(_FactRecord):
             or self.semantics_version != "group_replacement/v1"
             or self.player_domain != "joint_key_union/v1"
             or self.domain_policy != "finite_interval_demand/v1"
-            or self.metric_approximation != "exact_metric/v1"
+            or self.metric_approximation not in ("exact_metric/v1", "summary_reconstruction/v1")
             or self.standard_error != "permutation_mean/v1"
             or self.closure_policy != "typed_marginal_float64_sum/v1"
         ):
@@ -588,6 +589,47 @@ class FrameShapleyGame(_FactRecord):
 
     def _summary(self) -> str:
         return f"kind=group_replacement, formula={self.current_formula_id[:12]}, proof_clauses={len(self.domain_proof)}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyQueryGame(_FactRecord):
+    """Describe a replacement game evaluated through independent native reads.
+
+    Only evaluated coalitions were checked. Observed marginal standard errors
+    cannot separate permutation variation from changes between source reads.
+    Formula identities are inert digests, without source or replay authority.
+    """
+
+    kind: Literal["group_replacement"]
+    semantics_version: Literal["group_replacement/v1"]
+    current_formula_id: str
+    baseline_formula_id: str
+    player_domain: Literal["joint_key_union/v1"]
+    input_consistency: Literal["independent_reads/v1"]
+    domain_policy: Literal["evaluated_coalitions/v1"]
+    metric_approximation: Literal["exact_metric/v1", "native_approximate_metric/v1"]
+    standard_error: Literal["observed_marginal_mean/v1"]
+    closure_policy: Literal["typed_marginal_float64_sum/v1"]
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind != "group_replacement"
+            or self.semantics_version != "group_replacement/v1"
+            or self.player_domain != "joint_key_union/v1"
+            or self.input_consistency != "independent_reads/v1"
+            or self.domain_policy != "evaluated_coalitions/v1"
+            or self.metric_approximation not in ("exact_metric/v1", "native_approximate_metric/v1")
+            or self.standard_error != "observed_marginal_mean/v1"
+            or self.closure_policy != "typed_marginal_float64_sum/v1"
+        ):
+            _fail(
+                "closed native query game, consistency, domain and error policies", repr(self.kind)
+            )
+        _digest_identity(self.current_formula_id)
+        _digest_identity(self.baseline_formula_id)
+
+    def _summary(self) -> str:
+        return f"kind=group_replacement, formula={self.current_formula_id[:12]}, input=independent_reads/v1, domain=evaluated_coalitions/v1"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -644,8 +686,40 @@ class FrameShapleyQuantile(_FactRecord):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyNativeQuantile(_FactRecord):
+    """Retain the original native exact or approximate quantile operation.
+
+    The reducer and backend receipts identify the original native algorithm;
+    no local rank finisher or replacement sketch is claimed or retained.
+    """
+
+    kind: Literal["native_quantile"]
+    reducer: Literal["median", "quantile", "approx_median", "approx_quantile"]
+    q: float
+    algorithm_version: Literal["original_native_reducer/v1"]
+
+    def __post_init__(self) -> None:
+        if self.kind != "native_quantile" or self.reducer not in (
+            "median",
+            "quantile",
+            "approx_median",
+            "approx_quantile",
+        ):
+            _fail("an original native exact or approximate quantile reducer", repr(self.reducer))
+        if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
+            _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
+        if self.reducer in ("median", "approx_median") and self.q != 0.5:
+            _fail("q=0.5 for the original median reducer", repr(self.q))
+        if self.algorithm_version != "original_native_reducer/v1":
+            _fail("the versioned original backend-native reducer", repr(self.algorithm_version))
+
+    def _summary(self) -> str:
+        return f"kind=native_quantile, reducer={self.reducer}, q={self.q!r}, algorithm={self.algorithm_version}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class FrameShapleyLeaf(_FactRecord):
-    """Associate one typed original reducer occurrence with its fixed input captures.
+    """Associate one typed original reducer occurrence with its captured input receipts.
 
     Read ``metric.method.leaves`` for original input/output types and NULL masks.
     Capture identifiers reference inert cost records, not connections or state.
@@ -656,7 +730,7 @@ class FrameShapleyLeaf(_FactRecord):
     occurrence: tuple[int, ...]
     current_capture_ids: tuple[str, ...]
     baseline_capture_ids: tuple[str, ...]
-    reduction: FrameShapleyReduction | FrameShapleyQuantile
+    reduction: FrameShapleyReduction | FrameShapleyQuantile | FrameShapleyNativeQuantile
     input_types: tuple[DataType, ...]
     output: DataColumn
     mask_policy: Literal["rows", "non_null_value", "co_valid_value_weight"]
@@ -677,7 +751,11 @@ class FrameShapleyLeaf(_FactRecord):
                 _text(capture_id)
             if len(set(captured)) != len(captured):
                 _fail("nonempty immutable unique endpoint capture references", repr(captured))
-        if type(self.reduction) not in (FrameShapleyReduction, FrameShapleyQuantile):
+        if type(self.reduction) not in (
+            FrameShapleyReduction,
+            FrameShapleyQuantile,
+            FrameShapleyNativeQuantile,
+        ):
             _fail("a closed original reducer or quantile record", type(self.reduction).__name__)
         if type(self.output) is not DataColumn:
             _fail("the original concrete typed reducer output", type(self.output).__name__)
@@ -717,6 +795,27 @@ class FrameShapleyLeaf(_FactRecord):
 
     def _summary(self) -> str:
         return f"kind=leaf, occurrence={self.occurrence}, reducer={self.reduction.reducer}, output={_short(self.output.name)!r}"
+
+
+def state_metric_approximation(
+    leaves: tuple[FrameShapleyLeaf, ...],
+) -> Literal["exact_metric/v1", "summary_reconstruction/v1"]:
+    """Classify the captured state recipe; permutation error does not cover its bias."""
+    return (
+        "summary_reconstruction/v1"
+        if any(
+            isinstance(leaf.reduction, FrameShapleyReduction)
+            and (
+                leaf.reduction.reducer == "mean"
+                or (
+                    leaf.reduction.reducer in ("sum", "weighted_mean")
+                    and ScalarDataType("float64") in leaf.input_types
+                )
+            )
+            for leaf in leaves
+        )
+        else "exact_metric/v1"
+    )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -779,8 +878,62 @@ class FrameShapleyCapture(_FactRecord):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyQuery(_FactRecord):
+    """Record one executed native query and its measured returned-data costs.
+
+    The complete invocation directory includes player-domain, diagnostic and
+    coalition queries. Cached coalition lookups create no query receipt.
+    ``returned_bytes`` means decoded Arrow bytes, not scanned or wire bytes.
+    Unknown native backend version and physical scan/wire statistics stay None.
+    These records contain no SQL, data state, source handle or replay program.
+    """
+
+    capture_id: str
+    endpoint: Literal["current", "baseline", "both"]
+    backend: str
+    backend_version: str | None
+    purpose: Literal["player_domain", "group_diagnostic", "coalition"]
+    returned_rows: int
+    returned_bytes: int
+    source_reads: int
+    native_parameter_bytes: int
+    native_batches: int
+    scanned_rows: int | None
+    scanned_bytes: int | None
+    wire_bytes: int | None
+
+    def __post_init__(self) -> None:
+        _text(self.capture_id)
+        _text(self.backend)
+        if self.backend_version is not None:
+            _text(self.backend_version)
+        if self.endpoint not in ("current", "baseline", "both") or self.purpose not in (
+            "player_domain",
+            "group_diagnostic",
+            "coalition",
+        ):
+            _fail("an actual native query endpoint and purpose", repr(self.purpose))
+        for value in (
+            self.returned_rows,
+            self.returned_bytes,
+            self.source_reads,
+            self.native_parameter_bytes,
+            self.native_batches,
+        ):
+            _count(value)
+        if self.source_reads != 1:
+            _fail("one actual executed statement per native query receipt", repr(self.source_reads))
+        for optional in (self.scanned_rows, self.scanned_bytes, self.wire_bytes):
+            if optional is not None:
+                _count(optional)
+
+    def _summary(self) -> str:
+        return f"kind=native_query, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, purpose={self.purpose}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class FrameShapleyMethod(_FactRecord):
-    """Explain sampled group replacement over fixed states, without source authority.
+    """Explain sampled group replacement over captured states or independent native reads.
 
     Acquire through ``frame.method_facts`` after a successful paired attribute.
     Native endpoints and change retain their owning carriers; contributions and
@@ -794,16 +947,21 @@ class FrameShapleyMethod(_FactRecord):
     permutations: int
     seed: int
     algorithm_version: Literal["permutation/v1"]
-    state_route: _StateRoute
+    state_route: Literal[
+        "typed_sufficient_state/v1",
+        "typed_value_frequency/v1",
+        "typed_sufficient_frequency/v1",
+        "native_queries/v1",
+    ]
     state_entries: int
     player_count: int
     unique_coalitions: int
     coalition_evaluations: int
     captured_source_reads: int
     sampled_transitions: int
-    game: FrameShapleyGame
+    game: FrameShapleyGame | FrameShapleyQueryGame
     leaves: tuple[FrameShapleyLeaf, ...]
-    captures: tuple[FrameShapleyCapture, ...]
+    captures: tuple[FrameShapleyCapture | FrameShapleyQuery, ...]
 
     def __post_init__(self) -> None:
         if self.kind != "shapley" or self.algorithm_version != "permutation/v1":
@@ -841,24 +999,46 @@ class FrameShapleyMethod(_FactRecord):
                 repr(self.unique_coalitions),
             )
         if (
-            type(self.game) is not FrameShapleyGame
+            type(self.game) not in (FrameShapleyGame, FrameShapleyQueryGame)
             or type(self.leaves) is not tuple
             or not self.leaves
             or any(type(leaf) is not FrameShapleyLeaf for leaf in self.leaves)
         ):
             _fail("a closed game and immutable original leaf directory", type(self.game).__name__)
+        native = isinstance(self.game, FrameShapleyQueryGame)
+        expected_capture = FrameShapleyQuery if native else FrameShapleyCapture
         if (
             type(self.captures) is not tuple
             or not self.captures
-            or any(type(capture) is not FrameShapleyCapture for capture in self.captures)
+            or any(type(capture) is not expected_capture for capture in self.captures)
         ):
-            _fail("immutable actual input capture records", type(self.captures).__name__)
+            _fail(
+                "immutable actual capture records matching the game route",
+                type(self.captures).__name__,
+            )
+        if native:
+            if self.state_route != "native_queries/v1" or self.state_entries != 0:
+                _fail("native_queries/v1 without retained state entries", self.state_route)
+            if self.coalition_evaluations != self.unique_coalitions:
+                _fail(
+                    "one cached evaluation per actual native coalition",
+                    repr(self.coalition_evaluations),
+                )
+        elif self.state_route == "native_queries/v1":
+            _fail("a typed captured-state route for the fixed-state game", self.state_route)
         directory = {capture.capture_id: capture for capture in self.captures}
         if len(directory) != len(self.captures) or len(
             {leaf.occurrence for leaf in self.leaves}
         ) != len(self.leaves):
             _fail("unique capture identities and original leaf occurrences", self.left.column.name)
         for leaf in self.leaves:
+            if (native and isinstance(leaf.reduction, FrameShapleyQuantile)) or (
+                not native and isinstance(leaf.reduction, FrameShapleyNativeQuantile)
+            ):
+                _fail(
+                    "original quantile metadata matching the state or native query route",
+                    repr(leaf.occurrence),
+                )
             for capture_ids, endpoint in (
                 (leaf.current_capture_ids, "current"),
                 (leaf.baseline_capture_ids, "baseline"),
@@ -871,26 +1051,60 @@ class FrameShapleyMethod(_FactRecord):
                             capture_id,
                         )
                 if (
-                    isinstance(leaf.reduction, FrameShapleyQuantile)
-                    or leaf.reduction.reducer == "count_distinct"
-                ) and not any(
-                    capture is not None
-                    and capture.state_route
-                    in ("typed_value_frequency/v1", "typed_sufficient_frequency/v1")
-                    for capture in resolved
+                    not native
+                    and (
+                        isinstance(leaf.reduction, FrameShapleyQuantile)
+                        or leaf.reduction.reducer == "count_distinct"
+                    )
+                    and not any(
+                        isinstance(capture, FrameShapleyCapture)
+                        and capture.state_route
+                        in ("typed_value_frequency/v1", "typed_sufficient_frequency/v1")
+                        for capture in resolved
+                    )
                 ):
                     _fail(
                         "an exact frequency input among the original leaf's captured components",
                         repr(capture_ids),
                     )
-        if self.state_entries != sum(
-            capture.state_entries for capture in self.captures
-        ) or self.captured_source_reads != sum(capture.source_reads for capture in self.captures):
-            _fail("aggregate costs counting each actual capture once", self.left.column.name)
-        routes = {capture.state_route for capture in self.captures}
-        expected_route = next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
-        if self.state_route != expected_route:
-            _fail("the state route matching the actual captured inputs", self.state_route)
+        if self.captured_source_reads != sum(capture.source_reads for capture in self.captures):
+            _fail(
+                "aggregate read costs counting each actual query or capture once",
+                self.left.column.name,
+            )
+        if native:
+            approximate = any(
+                isinstance(leaf.reduction, FrameShapleyNativeQuantile)
+                and leaf.reduction.reducer in ("approx_median", "approx_quantile")
+                for leaf in self.leaves
+            )
+            expected_approximation = (
+                "native_approximate_metric/v1" if approximate else "exact_metric/v1"
+            )
+            if self.game.metric_approximation != expected_approximation:
+                _fail(
+                    "metric approximation matching the original native reducers",
+                    self.game.metric_approximation,
+                )
+        else:
+            if self.game.metric_approximation != state_metric_approximation(self.leaves):
+                _fail(
+                    "state metric approximation matching the original typed reducer leaves",
+                    self.game.metric_approximation,
+                )
+            state_captures = tuple(
+                capture for capture in self.captures if isinstance(capture, FrameShapleyCapture)
+            )
+            if self.state_entries != sum(capture.state_entries for capture in state_captures):
+                _fail(
+                    "aggregate costs counting each actual state capture once", self.left.column.name
+                )
+            routes = {capture.state_route for capture in state_captures}
+            expected_route = (
+                next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
+            )
+            if self.state_route != expected_route:
+                _fail("the state route matching the actual captured inputs", self.state_route)
 
     def _summary(self) -> str:
         return f"kind=shapley, column={_short(self.left.column.name)!r}, players={_coefficient_text(self.player_count)}, permutations={_coefficient_text(self.permutations)}"

@@ -1,17 +1,52 @@
-"""Private fixed-state replacement game programs and their report schema."""
+"""Private replacement game programs, completed samples and their report schema."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from marivo.analysis.binding.attribute_game import AttributeGame
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, ScalarDataType
 from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema
+from marivo.analysis.core.frozen_calendar import FrozenKey
 
 if TYPE_CHECKING:
     from marivo.analysis.core.frame_expression import AttributeFrameValues, FrameAttributeTarget
+    from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
+
+
+@dataclass(frozen=True, slots=True)
+class CoalitionValue:
+    column: DataColumn
+    value: int | float | Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class GameSample:
+    means: tuple[float, ...]
+    errors: tuple[float, ...]
+    current: CoalitionValue
+    baseline: CoalitionValue
+    unique_coalitions: int
+    closure_budget: float
+
+
+@dataclass(frozen=True, slots=True)
+class GameContext:
+    parent: FrozenKey
+    players: tuple[FrozenKey, ...]
+    current_rows: tuple[tuple[FrozenKey, int], ...]
+    baseline_rows: tuple[tuple[FrozenKey, int], ...]
+    parent_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompletedGame:
+    context: GameContext
+    sample: GameSample
+    method: FrameShapleyMethod
 
 
 @dataclass(frozen=True, slots=True)

@@ -74,6 +74,9 @@ from marivo.analysis.core.model import reject
 class CompiledSourceFrame:
     lowered: LoweredQuery
     schema: DataSchema
+    native: bool = False
+    native_reads: tuple[SourceRead, ...] = ()
+    native_value_slots: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +228,7 @@ def plan_frame(
     leaves: dict[str, tuple[str, DataSchema]] = {}
     identities: dict[str, SourceFrameInput | FixedFrameInput] = {}
     projections: dict[str, str] = {}
+    native_sources: dict[str, CompiledSourceFrame] = {}
     operations: dict[int, tuple[str, DataSchema]] = {}
     operation_nodes: dict[int, FrameOperation] = {}
 
@@ -299,6 +303,12 @@ def plan_frame(
                 _prefix(s, names, namespace)
                 for s in child.lowered.plan.stages
                 if not isinstance(s, FrameKeysInput)
+            )
+            native_sources[node.input_id] = replace(
+                child,
+                native_reads=tuple(
+                    _prefix_read(read, names, namespace) for read in child.native_reads
+                ),
             )
             stages.extend(prefixed)
             for item in child.lowered.reads:
@@ -413,9 +423,33 @@ def plan_frame(
                     node.operation.mapping.right_projection,
                 )
             )
-            compute = FrameCompute(
-                f"frame:{len(stages)}", (parent, left, right, *bridges), game_program
+            endpoint_ids = tuple(
+                endpoint.input_id
+                for endpoint in node.inputs[1:]
+                if isinstance(endpoint, SourceFrameInput)
             )
+            if any(
+                not leaf.state_eligible for game in node.operation.games for leaf in game.leaves
+            ) or any(
+                {slot for _, slot in original_slots[side]}.intersection(
+                    source_plans[input_id].native_value_slots
+                )
+                for side, input_id in enumerate(endpoint_ids)
+            ):
+                from marivo.analysis.compiler.attribute_native_queries import native_game_stage
+
+                assert len(endpoint_ids) == 2
+                compute: FrameCompute | SourceRead = native_game_stage(
+                    f"frame:{len(stages)}",
+                    (parent, left, right, *bridges),
+                    game_program,
+                    (endpoint_ids[0], endpoint_ids[1]),
+                    native_sources,
+                )
+            else:
+                compute = FrameCompute(
+                    f"frame:{len(stages)}", (parent, left, right, *bridges), game_program
+                )
             stages.append(compute)
             operations[id(node)] = (compute.stage_id, game_output)
             return compute.stage_id, game_output

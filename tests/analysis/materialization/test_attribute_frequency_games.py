@@ -178,11 +178,9 @@ def test_frequency_game_rejects_non_table_sources_before_business_reads(
     assert not trace.native_sql
 
 
-def test_native_duckdb_float_interpolation_rejects_before_reads_and_observe_still_works(
+def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_works(
     frequency_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisStageUnavailableError
-
     session = frequency_session
     member = _field(session, "sales.facts.member")
     batch = _field(session, "sales.facts.batch")
@@ -192,12 +190,22 @@ def test_native_duckdb_float_interpolation_rejects_before_reads_and_observe_stil
     compared = current.compare({"b": mv.baseline(baseline, on=())})
     target = compared.select({"change": compared["b.absolute.q"]})
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisStageUnavailableError, match="native interpolating quantile"):
-        target.attribute(by=(player,), permutations=2).compute()
-    assert not trace.native_sql
-    rows = current.compute().to_pandas()
-    assert rows["q"].tolist() == [2.0]
-    assert trace.native_sql
+    report = target.attribute(by=(player,), permutations=2).compute()
+    rows = report.to_pandas()
+    assert rows["total.change"].tolist() == [1, 1]
+    assert sum(rows["contribution.change"]) == pytest.approx(1)
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.state_route == "native_queries/v1"
+    assert (
+        len([sql for sql in trace.native_sql if "UNION ALL" in sql.upper()])
+        == method.unique_coalitions
+    )
+    assert all(
+        not any(word in sql.upper() for word in ("CREATE ", "INSERT ", "DROP "))
+        for sql in trace.native_sql
+    )
+    ordinary = current.compute().to_pandas()
+    assert ordinary["q"].tolist() == [2.0]
 
 
 def test_shared_distribution_preserves_all_quantiles_and_counts_transport_once(

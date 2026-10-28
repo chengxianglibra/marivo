@@ -31,7 +31,10 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyGame,
     FrameShapleyLeaf,
     FrameShapleyMethod,
+    FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
+    FrameShapleyQuery,
+    FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
 from tests.support.refs import as_ref
@@ -184,6 +187,9 @@ def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
         (FrameAdditiveMethod, "frame_additive_method"),
         (FrameRatioMethod, "frame_ratio_method"),
         (FrameShapleyMethod, "frame_shapley_method"),
+        (FrameShapleyNativeQuantile, "frame_shapley_native_quantile"),
+        (FrameShapleyQuery, "frame_shapley_query"),
+        (FrameShapleyQueryGame, "frame_shapley_query_game"),
         (FrameShapleyGame, "frame_shapley_game"),
         (FrameShapleyLeaf, "frame_shapley_leaf"),
         (FrameShapleyCapture, "frame_shapley_capture"),

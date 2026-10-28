@@ -276,6 +276,8 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         "attribute-contribution-facts",
         "attribute-rate-effects",
         "attribute-shapley",
+        "attribute-native-shapley",
+        "attribute-summary-shapley",
         "attribute-explicit-default-after-refusal",
         "comparison-endpoint-followup",
         "broadcast-reference",

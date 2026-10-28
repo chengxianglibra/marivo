@@ -289,7 +289,7 @@ report = source.attribute(by=(region,)).compute()
 
 输出包含 `contribution.<name>`、`contribution_share.<name>`、`total.<name>`、`observed_total.<name>` 及细分诊断。`method_facts` 在筛选与持久化后保留方法说明。
 
-Attribute 固定选中的父键和原观察值。精确分解分别重新读取父级与细分输入，Shapley 则从捕获状态求两端与联盟值。独立的来源读取可能来自
+Attribute 固定选中的父键和原观察值。精确分解分别重新读取父级与细分输入，Shapley 则通过捕获状态或独立原生查询求缓存的两端与联盟值。独立的来源读取可能来自
 不同的数据状态。`total` 使用新读的公式；`observed_total` 保留输入 Frame 中的值。
 符合条件的物理表会在方法、类型和来源形状受支持时使用原生 backend 执行。
 
@@ -305,15 +305,19 @@ Help：`analysis.analysis_frame.attribute`。
 
 规则在读取业务数据之前按每个目标固定，不提供 `method` 参数。可加指标与受支持的比率、mean、weighted_mean、固定线性组合使用精确分解。配对的 rate/mix 目标增加 `effect.within.<name>`、`effect.mix.<name>` 和 `effect.entry_exit.<name>`；混合可加项时另有 `effect.additive.<name>`。效果之和等于该组贡献。进入退出按零分母且零分子质量的边界定义；不会把未定义的组内率填成零。组分母和有效配对权重必须非负，父分母必须为正，父级/细组组件和原始组率必须一致。失败不会换规则。
 
-不属于精确规则的配对目标，在每个叶子都有合格状态路线、且完整公式对所有联盟均有定义并有限时，可以使用完整 Metric 的分组替换 Shapley。支持充分统计量、精确的带类型分位数频数和合格的数值 distinct 成员状态。规则在业务读取前选择，不按分组数切换，失败后也不回退。单端 level 保持原有份额准入；普通 Column 算术不获得来源资格。
+不属于精确规则的配对目标使用完整 Metric 的分组替换 Shapley。合格的充分统计量、精确带类型分位数频数与数值 distinct 成员保留 state 优化。叶子没有合格的状态重建路线时，目标通过独立原生查询计算联盟，保留原 reducer、行表达式、cast、NULL 与时间语义。路线在业务读取前选择，不按分组数切换，失败后也不回退。单端 level 保持原有份额准入；普通 Column 算术不获得来源资格。
 
-Shapley 返回 `contribution_std_error.<name>`，表示排列采样误差。每次完整排列都将所有联合键分组逐一替换。提高 `permutations` 会增加本地联盟求值和缓存开销，来源状态捕获的读取量不随之增长。weighted_mean 状态保留有效配对掩码；精确分位数和 distinct 状态可能传输 O(N) 个值。这是排列采样，不采样来源行、不截取 top-k，也不自适应停止。`method_facts` 保留博弈、原始叶子类型/收尾算法、捕获成本、排列数和种子；未知扫描量、网络量仍为未知。
+每次完整排列都将所有联合键分组逐一替换。父键、玩家目录和公式保持固定，每个访问过的联盟及空/全联盟端点在本次调用内缓存。提高 `permutations` 时，state 捕获读取量保持固定，本地运算与缓存开销增加；原生查询数可能随不同联盟数量增加。不要求一致快照、临时物化或漂移审计。捕获目录之外的新分组不会加入；目录内的事实行可能在读取之间变化。
 
-原生近似分位数需要验证过的原生摘要路线，目前不能用于归因。DuckDB 原生整数/Float 分位数允许 q=0/1，内部插值在业务读取前拒绝；其 Decimal/UInt64 rank-bound 路线支持所有 q。PostgreSQL 保留经过验证的原生收尾算法，MySQL/Trino/ClickHouse 保留合格的 rank-bound 收尾算法。普通观察继续使用既有后端算法。
+固定 state 的 `contribution_std_error.<name>` 表示排列采样误差；独立原生读取下，它描述观测到的边际值波动，无法分离来源变化。state 路线要求证明所有联盟具有有限定义域，原生查询路线只验证实际求值的联盟。任何必要查询失败或值未定义都会拒绝整个调用。这是排列采样，不采样来源行、不截取 top-k，也不自适应停止。
 
-Float SUM 组件和原生 AVG 状态重建当前尚不合格，Shapley 会在业务读取前拒绝。整数/Decimal 求和、count、extrema 和合格频数状态仍可使用；整数/Decimal 加权状态按原规则将两个组件分别转为 Float64 后相除。既有的精确 mean/rate-mix 规则仍可使用。
+Float SUM 和原生 AVG 使用分组摘要 state 重建：按固定玩家顺序合并 SUM，均值按同一有效掩码合并 SUM/count；浮点加权组件保留共同有效掩码。博弈解释重建后的 Metric，并标记 `summary_reconstruction/v1`。两端值与贡献可能不同于原生整体聚合，不承诺摘要偏差界限。NULL、空支持、单位与物理类型限制仍被执行，溢出仍拒绝。排列标准误不衡量摘要偏差，非线性公式可能放大该偏差。
 
-当前 Shapley 路线要求单值分类元组。显式 Population 分组和多归属尚无合格的完整覆盖状态路线，因此在业务读取前拒绝；精确分解保留既有的 Population 支持。字符串和浮点 distinct 成员状态也需要单独验证相等与排序规则。
+DuckDB 内部原生分位数和原生近似分位数在没有合格 state 路线时使用查询。原生近似 reducer 保留原算法及其指标近似。既有精确 mean/rate-mix 规则仍可使用。每个原生配对叶子需要兼容的已捕获 datasource 配置。
+
+`method_facts` 保留路线、原叶子类型/收尾算法、排列数和种子。state 频数可能传输 O(N) 个值；原生收据记录实际查询、返回行和解码字节，无法获得的后端版本、扫描量与网络量仍为未知。持久化事实为惰性记录，重新打开不会查询来源。
+
+Shapley 要求单值分类元组。显式 Population 分组与多归属仍在业务读取前拒绝，精确分解保留既有的 Population 支持。现有来源、身份、覆盖与成员资格约束继续适用。
 
 新 rate/mix 组件、效果闭合只使用版本化数值预算，不采用 1% 业务余量。未改变的可加/level Float64 路线仍接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值舍入预算)`；整数、Decimal 和 Duration 保持相应类型规则。残差不会重新分配。相对贡献和效果均除以同一个新读父级基准的绝对值，零或未定义基准拒绝。
 
@@ -363,6 +367,48 @@ assert squared_method.kind == "shapley"
 ```
 
 每个联盟都对收入平方 Metric 的完整公式求值，贡献解释整体收入平方的变化，不是各地区差异的平方。标准误描述排列采样波动，不代表指标近似误差或因果不确定性。
+
+AVG 平方目标从捕获的 SUM/count 重建每个联盟，方法事实披露摘要重建，增加排列数不会增加来源捕获读取。
+
+{/* example: attribute-summary-shapley */}
+
+```python
+squared_average = average * average
+summary_current = session.observe({"squared_average": squared_average}, by=(august,))
+summary_baseline = session.observe({"squared_average": squared_average}, by=(july,))
+summary_change = summary_current.compare(
+    {"reference": mv.baseline(summary_baseline, match=mv.ordinal())}
+).compute()
+summary_target = summary_change.select(
+    {"squared_average": summary_change["reference.absolute.squared_average"]}
+)
+summary_explained = summary_target.attribute(by=(region,), permutations=32, seed=42).compute()
+summary_method = summary_explained.method_facts[0].parents[0].metrics[0].method
+assert summary_method.kind == "shapley"
+assert summary_method.state_route != "native_queries/v1"
+assert summary_method.game.metric_approximation == "summary_reconstruction/v1"
+```
+
+原生近似分位数通过独立联盟查询保留原后端 reducer。
+
+{/* example: attribute-native-shapley */}
+
+```python
+approximate = amount.approx_quantile(0.5, time=order_time_entry.value)
+quantile_current = session.observe({"approximate": approximate}, by=(august,))
+quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
+quantile_change = quantile_current.compare(
+    {"reference": mv.baseline(quantile_baseline, match=mv.ordinal())}
+).compute()
+quantile_target = quantile_change.select(
+    {"approximate": quantile_change["reference.absolute.approximate"]}
+)
+quantile_explained = quantile_target.attribute(by=(region,), permutations=32, seed=42).compute()
+quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].method
+assert quantile_method.kind == "shapley"
+assert quantile_method.state_route == "native_queries/v1"
+assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
 
 ### 读取新的拆分
 

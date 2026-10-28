@@ -36,6 +36,7 @@ from marivo.analysis.compiler.query_program import (
     FrameCompareProgram,
     ResultProgram,
 )
+from marivo.analysis.core.attribute_game import AttributeGameProgram
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -74,32 +75,37 @@ def effective_frame_schema(schema: DataSchema, columns: tuple[DataColumn, ...]) 
     return replace(schema, values=tuple(value(column) for column in schema.values))
 
 
+def effective_game_program(
+    program: AttributeGameProgram, inputs: tuple[StageOutput, ...]
+) -> AttributeGameProgram:
+    """Resolve one game's report carriers from its consumed typed source results."""
+    from marivo.analysis.core.attribute_game import game_schema
+
+    schemas = tuple(
+        item.frame_schema or effective_frame_schema(schema, item.columns)
+        for schema, item in zip(
+            (program.parent_schema, program.left_schema, program.right_schema),
+            inputs[:3],
+            strict=True,
+        )
+    )
+    output = game_schema(schemas[1], schemas[2], schemas[0], program.operation)
+    assert isinstance(output, DataSchema)
+    return replace(
+        program,
+        parent_schema=schemas[0],
+        left_schema=schemas[1],
+        right_schema=schemas[2],
+        output_schema=output,
+    )
+
+
 def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> FrameCompute:
     """Infer this invocation's local Frame program from consumed value types."""
     program = stage.program
-    from marivo.analysis.core.attribute_game import AttributeGameProgram, game_schema
 
     if isinstance(program, AttributeGameProgram):
-        schemas = tuple(
-            item.frame_schema or effective_frame_schema(schema, item.columns)
-            for schema, item in zip(
-                (program.parent_schema, program.left_schema, program.right_schema),
-                inputs[:3],
-                strict=True,
-            )
-        )
-        output = game_schema(schemas[1], schemas[2], schemas[0], program.operation)
-        assert isinstance(output, DataSchema)
-        return replace(
-            stage,
-            program=replace(
-                program,
-                parent_schema=schemas[0],
-                left_schema=schemas[1],
-                right_schema=schemas[2],
-                output_schema=output,
-            ),
-        )
+        return replace(stage, program=effective_game_program(program, inputs))
     from marivo.analysis.core.frame_attribute_merge import (
         AttributeMergeProgram,
         infer_attribute_merge_schema,

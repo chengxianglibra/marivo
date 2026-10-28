@@ -13,6 +13,7 @@ from marivo.analysis.compiler.frame_plan import (
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     QueryPlan,
+    QueryStage,
     SourceRead,
     SourceSchema,
     plan_query,
@@ -205,6 +206,12 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
             prepared_by_input[input_id] = prepared
         else:
             plan = plan_query(binding.graph, schemas, memo=memo)
+            native_reads = tuple(
+                replace(stage, native_relation_id=stage.stage_id)
+                for stage in plan.stages
+                if isinstance(stage, SourceRead)
+            )
+            native_value_slots: list[str] = []
             if input_id in captured.games:
                 from marivo._definition.expressions import SourceAggregate
                 from marivo.analysis.compiler.attribute_frequencies import (
@@ -213,29 +220,49 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 )
                 from marivo.analysis.compiler.graph_plan import read_reduction
 
-                plan = replace(
-                    plan,
-                    stages=tuple(
-                        replace(
-                            frequency_read(stage)
-                            if (reduction := read_reduction(stage)) is not None
-                            and isinstance(reduction.node, SourceAggregate)
-                            and reduction.node.reducer in ("median", "quantile", "count_distinct")
-                            else stage,
-                            attribute_state=True,
-                        )
-                        if isinstance(stage, SourceRead)
-                        else stage
-                        for stage in plan.stages
-                    ),
-                )
                 assert prepared is not None
+                from marivo.analysis.errors import AnalysisStageUnavailableError
                 from marivo.analysis.materialization.graph_source_execution import (
                     qualify_attribute_game_sources,
                 )
 
                 qualify_attribute_game_sources(prepared, plan)
-                plan = share_frequency_reads(plan)
+                qualified_stages: list[QueryStage] = []
+                for stage in plan.stages:
+                    if not isinstance(stage, SourceRead):
+                        qualified_stages.append(stage)
+                        continue
+                    reduction = read_reduction(stage)
+                    try:
+                        candidate = replace(
+                            frequency_read(stage)
+                            if reduction is not None
+                            and isinstance(reduction.node, SourceAggregate)
+                            and reduction.node.reducer in ("median", "quantile", "count_distinct")
+                            else stage,
+                            attribute_state=True,
+                        )
+                        if (
+                            reduction is not None
+                            and isinstance(reduction.node, SourceAggregate)
+                            and reduction.node.reducer.startswith("approx_")
+                        ):
+                            raise AnalysisStageUnavailableError(
+                                stage="attribute_state_binding",
+                                expected="a qualified mergeable native approximation state",
+                                received=reduction.node.reducer,
+                                repair="Use original native coalition queries.",
+                                target="analysis_frame.attribute",
+                            )
+                        lower_query(replace(plan, stages=(candidate,)), prepared.relations)
+                    except AnalysisStageUnavailableError as error:
+                        if error.stage != "attribute_state_binding":
+                            raise
+                        candidate = replace(stage, attribute_native=True)
+                        if reduction is not None:
+                            native_value_slots.append(reduction.value_slot)
+                    qualified_stages.append(candidate)
+                plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
             plan = optimize_query(plan)
         lowered = lower_query(plan, {} if prepared is None else prepared.relations)
         if prepared is not None and input_id not in requested and input_id not in captured.games:
@@ -259,7 +286,13 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 )
         schema = _schema(current, lowered.plan)
         source_schemas[input_id] = schema
-        source_plans[input_id] = CompiledSourceFrame(lowered, schema)
+        source_plans[input_id] = CompiledSourceFrame(
+            lowered,
+            schema,
+            bool(native_value_slots) if input_id not in requested else False,
+            native_reads if input_id not in requested else (),
+            tuple(native_value_slots) if input_id not in requested else (),
+        )
         has_reads = any(isinstance(stage, SourceRead) for stage in lowered.plan.stages)
         inputs.append(SourceInput(input_id) if has_reads else LiteralInput(input_id))
         operations.insert(0, "source" if has_reads else "literal")

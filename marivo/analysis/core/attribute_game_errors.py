@@ -1,4 +1,4 @@
-"""Structured binding and fixed-state replacement-game failures."""
+"""Structured binding, state-proof and evaluated-coalition game failures."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class AttributeGameError(CoreRuleError):
         self.parent = parent
         self.occurrence = occurrence
         expected = {
-            "unsupported_state": "a numeric Metric with a qualified fixed-state source route",
+            "unsupported_state": "a numeric Metric with a qualified replacement-game source route",
             "formula_mismatch": "matching endpoint formulas, original source roles, types, units and NULL policies",
             "incomplete_domain": "a finite defined whole Metric over every group replacement",
             "invalid_value": "valid demanded original Metric values in their owning physical carrier",
@@ -40,7 +40,7 @@ class AttributeGameError(CoreRuleError):
         super().__init__(
             expected=expected,
             received=f"{metric}; parent={parent!r}; occurrence={occurrence}: {received}",
-            repair="Inspect the named Metric and input support with ordinary observe/compare. Use a business-justified Metric definition or restrict the analysis scope so every required mixed state is defined; the bound rule is not changed after data validation.",
+            repair="Inspect the named Metric and input support with ordinary observe/compare. Use a business-justified Metric definition or restrict the analysis scope so required coalition values are defined; the bound rule and execution route do not change after data validation.",
             location="frame.attribute",
             canonical_id="analysis_frame.attribute",
         )

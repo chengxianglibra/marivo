@@ -501,7 +501,7 @@ def _single(
         raise AttributeGameError(
             reason="unsupported_state",
             metric=".".join(target.path),
-            received="Population classifications have no qualified fixed-state coverage receipt; uncovered source facts cannot be silently excluded",
+            received="Population classifications have no qualified replacement-game coverage receipt; uncovered source facts cannot be silently excluded",
         )
     if game_selected:
         if target.target.mode == "level":

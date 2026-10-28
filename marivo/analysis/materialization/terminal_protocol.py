@@ -72,7 +72,10 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyGame,
     FrameShapleyLeaf,
     FrameShapleyMethod,
+    FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
+    FrameShapleyQuery,
+    FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
 from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
@@ -97,7 +100,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 20 Frame output v9 value",
+        expected="a complete Store 21 Frame output v10 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -169,6 +172,9 @@ _RECORDS = (
     FrameShapleyGame,
     FrameShapleyLeaf,
     FrameShapleyMethod,
+    FrameShapleyNativeQuantile,
+    FrameShapleyQuery,
+    FrameShapleyQueryGame,
     FrameShapleyQuantile,
     FrameShapleyReduction,
     LocalReceipt,
@@ -189,9 +195,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v9"
+FORMAT = "marivo.frame_output/v10"
 
-# One closed Store20 field inventory. No older field set or dataclass fallback.
+# One closed Store21 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "SemanticObjectIdentity": ("kind", "path", "definition_id"),
     "ColumnLineage": ("value_origins", "context_origins"),
@@ -313,8 +319,21 @@ _FIELDS = {
         "standard_error",
         "closure_policy",
     ),
+    "FrameShapleyQueryGame": (
+        "kind",
+        "semantics_version",
+        "current_formula_id",
+        "baseline_formula_id",
+        "player_domain",
+        "input_consistency",
+        "domain_policy",
+        "metric_approximation",
+        "standard_error",
+        "closure_policy",
+    ),
     "FrameShapleyReduction": ("kind", "reducer"),
     "FrameShapleyQuantile": ("kind", "reducer", "q", "finisher"),
+    "FrameShapleyNativeQuantile": ("kind", "reducer", "q", "algorithm_version"),
     "FrameShapleyLeaf": (
         "occurrence",
         "current_capture_ids",
@@ -334,6 +353,21 @@ _FIELDS = {
         "state_route",
         "state_entries",
         "state_bytes",
+        "returned_rows",
+        "returned_bytes",
+        "source_reads",
+        "native_parameter_bytes",
+        "native_batches",
+        "scanned_rows",
+        "scanned_bytes",
+        "wire_bytes",
+    ),
+    "FrameShapleyQuery": (
+        "capture_id",
+        "endpoint",
+        "backend",
+        "backend_version",
+        "purpose",
         "returned_rows",
         "returned_bytes",
         "source_reads",
@@ -532,7 +566,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v9; obsolete output format received")
+            raise invalid("expected Frame output v10; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
@@ -558,7 +592,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v9 method record")
+            raise invalid("expected Frame output v10 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

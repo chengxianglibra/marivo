@@ -342,70 +342,83 @@ budget. All totals, residuals and budgets must be finite. Historical observed to
 remain separate; passing closure does not certify a cross-source snapshot. Inert
 cold facts preserve their original versioned explanation without rerunning checks.
 
-### Fixed-state Shapley games
+### Shapley replacement games
 
 `attribute(by=..., permutations=1024, seed=0)` validates both sampling inputs before
 reads: permutations is an integer at least two and seed a nonnegative integer;
-both exclude bool. Exact targets do not sample or publish synthetic standard-error
-columns. Paired absolute/relative nonlinear targets bind a complete Metric formula,
-not a composition of local subexpression contributions. Level keeps its existing
-share admission; it has no artificial baseline.
+both exclude bool. Exact targets retain their existing rules without synthetic SE.
+Paired nonlinear targets bind the complete original Metric, with the same formula,
+constants, reducer roles, q, units and NULL policy at both endpoints. Definition
+versions alone are not formula identity. Level keeps its existing share admission.
 
-One complete joint fine key is a player. The domain is the endpoint union, including
-NULL classification keys. Each player
-switches all its leaf occurrences from baseline to current together. State sharing
-requires the same actual input binding, scope, masks, dependencies and execution
-identity; names or equal fingerprints alone do not establish it. Different exact
-quantile parameters can share one distribution while retaining separate finishing.
-New game inputs require qualified native physical tables and unique fact grouping;
-unsupported membership/state/equality routes fail explicitly without new identity
-or uniqueness scans.
-The current game route accepts single-valued classification tuples. Explicit
-Population grouping and multi-membership require a separately qualified complete
-coverage receipt and are rejected before business reads; exact rules retain their
-existing Population contract.
+One complete joint fine key is a player. The directory is the endpoint union,
+including NULL classification keys. Parent selection, player directory, endpoint
+scopes and captured definitions remain fixed for the call. Current games require
+single-valued classification tuples and qualified physical sources; Population
+and membership game routes retain their existing qualification boundaries.
 
-Qualified small states retain exact integer/Decimal masses, valid/row counts, co-valid weighted components or extrema. Float SUM components and native AVG state reconstruction are currently unqualified and rejected before business reads; existing exact mean/rate-mix rules remain available. Weighted finishing casts each exact component to Float64 before division through the original numeric owner. Exact quantiles capture typed value-frequency buckets and use an incremental
-integer cumulative-rank index, preserving q, duplicate values, original numeric
-ordering and qualified finishing. Numeric distinct uses qualified typed membership
-states; other equality/collation routes require independent qualification. NULL and
-nonfinite support retain the owning source policy. No-fact sum zero remains distinct
-from a present all-NULL sum. Native approximate quantiles require a verified original
-native summary carrier/merge/finish route; no substitute sketch, exact algorithm or
-raw-value coalition expansion is used when that route is unavailable.
-The current game route rejects native approximate quantiles and unverified DuckDB
-native interior interpolation before business reads. DuckDB native q=0/1 extrema remain qualified, while its Decimal/UInt64 rank-bound route supports all q. Rank-bound finishing remains qualified;
-the PostgreSQL native finisher retains its original operation order and must pass
-the finite-domain proof. This does not change ordinary observation algorithms.
+State is an optimization, rather than a prerequisite for Shapley. Qualified masses, counts, weighted components and extrema reuse typed states.
+Exact quantiles use lossless typed value-frequency buckets and an incremental rank
+index; numeric distinct uses qualified membership. Actual input identity, scope,
+masks and dependencies govern sharing; names or equal fingerprints alone do not.
+Different q values can share a distribution while retaining separate finishers.
+No-fact sum zero remains distinct from a present all-NULL sum. State games retain
+the conservative finite interval/demand proof over all replacement combinations.
 
-The captured states must prove the domain for every possible coalition, not just
-sampled ones. The finite interval/demand proof can reject requests it cannot prove;
-that is not proof that the business game is mathematically impossible. It preserves
-source-owned strict-NULL checks and checks actual demanded expression branches.
-Native overflow and invalid sampled values still fail through their numeric owner;
-there is no retry, skipped coalition, adaptive permutation count or partial result.
+Float SUM and native AVG use summary reconstruction: merge captured group sums
+with local Python sum() in fixed player order, and merge same-valid-mask SUM/count
+for mean. This uses Python's floating summation algorithm, rather than promising
+a sequential binary64 left fold. Floating
+weighted SUM components retain co-valid masks. Declared result carriers, NULL,
+empty-support and overflow rules remain enforced. These games explain the
+state-reconstructed Metric; accumulation and AVG finishing can differ from native
+whole-input aggregation. Facts mark `summary_reconstruction/v1`, with no bias
+bound. Nonlinear formulas can amplify small summary differences. Cached endpoints
+and `total` use the reconstruction; `observed_total` preserves historical values.
 
-Independent uniform complete permutations use a versioned deterministic stream over
-typed parent/player keys and seed. A target's display name and physical return order
-do not select the stream. Each coalition is evaluated once and cached in the call;
-all leaves finish first, then the original whole formula executes. Typed marginal
-subtraction precedes Float64 conversion. Contribution is the marginal mean and
-`contribution_std_error` is its sample standard error, not source, approximation or
-business uncertainty. Complete permutations telescope to the fixed-state endpoint
-change; versioned conversion/summation budgets check closure without a 1% allowance
-or residual repair. Relative contributions and SE divide by one absolute fixed-state
-baseline, which must be defined and nonzero. Fine endpoint diagnostics and historical
-`observed_total` remain separate.
+When no state route is qualified, native queries execute the original reducer over
+coalition-selected current and baseline rows on the original backend. Native
+quantile interpolation and approximate quantiles retain their ordinary algorithms;
+no alternate quantile algorithm or second execution engine is introduced. Each paired leaf must have compatible captured
+native source owners and types; leaves from different source roots retain their
+own native owners. Original field recipes, masks, filters, time and parent mapping
+remain attached. Unsupported ordinary algorithms or input shapes remain errors.
+
+Native queries are independent reads. No consistent snapshot, temporary table,
+raw-input materialization, additional drift scan or source identity audit is
+required. Rows may change between queries. The fixed player directory defines the
+analysis domain; later reads do not refresh it or the semantic definitions. Only
+actually visited native coalition values are validated; this does not certify
+unvisited combinations or future source data. Any failed required query/value
+rejects the whole call, without retry, skipped coalition or partial publication.
+
+A versioned deterministic stream over typed parent/player keys and seed generates
+complete permutations. The target name and physical source return order do not
+select the stream. Each coalition is evaluated once and cached, with one shared
+empty/full endpoint value. Original leaf values finish before the whole formula;
+typed marginal subtraction precedes Float64 conversion. Every sampled path closes
+to the cached full-minus-empty difference. Conversion/summation budgets enforce
+closure without a 1% allowance or residual allocation. Relative contributions and
+SE divide by one defined nonzero absolute cached baseline. Historical
+`observed_total` and per-group diagnostics remain separate from these endpoints.
+
+State `contribution_std_error` estimates permutation sampling error conditional on
+captured summaries; it does not estimate summary reconstruction bias. With independent
+native queries it is the sample statistic of the observed cached marginals; it
+cannot isolate permutation error from input changes, quantify source drift, or
+supply a confidence bound for it. Native approximate metrics additionally retain
+their own algorithm variation; no new approximation-error guarantee is inferred.
 
 For n>=1 players, unique coalition values are bounded by
-`min(2**n, 2 + permutations*(n-1))`; per-coalition state/formula costs remain.
-State construction and source submissions do not grow with permutations. Exact
-frequency transport is O(D), worst O(N); decoded returned/state bytes do not mean
-wire bytes or peak memory. Captured costs count actual submitted stage reads and
-retain unknown backend scan/wire/version statistics as unknown. Physical scan
-claims require independent execution-plan/profile evidence. Facts preserve the
-original game after filtering/ranking/reduction; they never reconstruct an executable
-Metric, distribution, sketch or source connection on cold recovery.
+`min(2**n, 2 + permutations*(n-1))`. State capture reads do not grow with M/U;
+exact frequency transfer is O(D), worst O(N). Native query counts may grow with U,
+and scanning work may approach O(U*N); parameters, results and actual submitted
+statements are recorded independently of logical coalition counts. A query may
+serve compatible targets, or one coalition may need several source reads. Returned
+rows and decoded Arrow/state bytes are not scanned rows, wire bytes or peak memory.
+Unknown backend statistics remain unknown. Physical scan claims need independent
+plan/profile evidence. Persisted facts distinguish the execution policies and
+costs, without storing distributions, source connections or executable formulas.
 
 compute and same-process persist retain the instance declaration. Independent
 reopen retains fixed data and explanatory method facts but no executable declaration.

@@ -724,9 +724,10 @@ class AnalysisFrame:
         direct Metric or admitted comparison target. Select and rename direct outputs;
         define ratio/linear Metrics before observation. Rules bind per target before
         business reads. Admitted paired nonlinear formulas use whole-Metric Shapley
-        permutation sampling over fixed group states. All required replacement states
-        must have a proven domain. Unsupported state routes fail without switching
-        algorithms. Level retains admitted share rules, without a zero baseline.
+        permutation sampling. Qualified state routes prove the complete domain;
+        native-query routes validate visited values using the original reducers.
+        The execution route binds before reads. Level retains admitted share rules,
+        without a zero baseline.
         Fixed division retains its typed
         divisor and division order; Metric rescale also declares the result unit.
         Pending components expose their own units. Completion freezes parent keys
@@ -748,14 +749,20 @@ class AnalysisFrame:
         numeric rounding budget. Integer/count, Decimal and Duration retain their typed
         policies. Relative contributions and effects use one absolute fresh parent
         baseline. Failures never change rules or redistribute residuals.
-        Shapley reports contribution_std_error for permutation error only; exact
+        Shapley reports contribution_std_error: permutation error conditional on captured states, excluding summary bias,
+        observed marginal variation for native queries without isolating input changes; exact
         targets have no synthetic error column. Contributions and standard errors
         retain the target unit, with common parent normalization for relative targets.
-        Source capture does not grow with permutations; exact value-frequency states
+        Optimized state capture does not grow with permutations; exact value-frequency states
         can transfer O(N) entries. For n players, cached coalition evaluations are
         bounded by min(2**n, 2 + permutations*(n-1)); this is not a fixed accuracy or
         latency guarantee. No row sampling, player truncation, adaptive sample count,
-        per-coalition source rescan or partial publication applies.
+        or partial publication applies. Float SUM/native AVG use group-summary reconstruction
+        without a bias bound; endpoints and total explain that reconstructed Metric.
+        Without qualified state, native coalition queries preserve original reducers and may increase source work with coalition count.
+        Each coalition and empty/full endpoint is evaluated once and cached. No shared
+        snapshot, temporary materialization or drift audit is required; only visited
+        native coalition values are validated.
         Qualified physical tables use the native backend
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.

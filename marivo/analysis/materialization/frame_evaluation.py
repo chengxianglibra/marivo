@@ -321,26 +321,30 @@ def _evaluate_frame(
             )
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
-            input_id = source_stage_ids[stage.stage_id]
+            origin = (stage.native_reads or (stage,))[0]
+            input_id = source_stage_ids[
+                stage.stage_id if stage.stage_id in source_stage_ids else origin.stage_id
+            ]
             attribute_layout = read_attribute(stage)
-            binding = source_frames[input_id]._backing
-            assert isinstance(binding, ExpressionFrameBacking)
-            dynamic = (
-                tuple(
-                    evaluated_keys[computation_fingerprint(domain)]
-                    for domain in parameter_domains(binding.root.graph)
-                    if isinstance(domain.root, (FrameKeys, AttributeKeys))
-                )
-                if isinstance(binding.root, SourceFrameBinding)
-                else ()
-            )
             for logical in stage.native_reads or (stage,):
+                logical_input = source_stage_ids.get(logical.stage_id, input_id)
+                binding = source_frames[logical_input]._backing
+                assert isinstance(binding, ExpressionFrameBacking)
+                dynamic = (
+                    tuple(
+                        evaluated_keys[computation_fingerprint(domain)]
+                        for domain in parameter_domains(binding.root.graph)
+                        if isinstance(domain.root, (FrameKeys, AttributeKeys))
+                    )
+                    if isinstance(binding.root, SourceFrameBinding)
+                    else ()
+                )
                 period = logical.period
                 facts = OutputEvidence(
                     "read",
                     "Actual explicit source read; source completeness and cross-source snapshot consistency were not audited.",
                     (
-                        ("input_id", input_id),
+                        ("input_id", logical_input),
                         ("source", logical.source_id),
                         ("physical_stage", stage.stage_id),
                         ("read_completed_at", datetime.now(timezone.utc)),
@@ -353,7 +357,7 @@ def _evaluate_frame(
                         ("period_end", None if period is None else _plain(period.end)),
                         ("timezone", None if period is None else period.timezone),
                         ("filters", source_scope(logical.predicates)),
-                        ("source_scopes", source_scope((*scopes.get(input_id, ()), *dynamic))),
+                        ("source_scopes", source_scope((*scopes.get(logical_input, ()), *dynamic))),
                         (
                             "returned_rows",
                             output.source_rows
@@ -406,7 +410,9 @@ def _evaluate_frame(
                     source_facts.append(fact)
                     checks.append(fact)
 
-        def observe_local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
+        def observe_local(
+            stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
+        ) -> None:
             if (
                 declaration_keys is not None
                 and stage.stage_id in operation_stages
@@ -420,6 +426,7 @@ def _evaluate_frame(
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
             )
+            from marivo.analysis.compiler.graph_plan import AttributeCoalitionRead
             from marivo.analysis.core.attribute import (
                 AttributeContributionProgram,
                 AttributeInputProgram,
@@ -427,16 +434,31 @@ def _evaluate_frame(
             )
             from marivo.analysis.core.attribute_game import AttributeGameProgram
 
-            if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeGameProgram):
-                game_target = stage.program.operation.target
+            game_program = (
+                stage.program
+                if isinstance(stage, FrameCompute)
+                and isinstance(stage.program, AttributeGameProgram)
+                else stage.program.game
+                if isinstance(stage, SourceRead)
+                and isinstance(stage.program, AttributeCoalitionRead)
+                else None
+            )
+            if game_program is not None:
+                game_target = game_program.operation.target
+                query_game = isinstance(stage, SourceRead)
                 checks.append(
                     OutputEvidence(
                         "check",
-                        "Fixed-state replacement domain and typed sampled marginals passed the versioned numeric closure policy; sampling error does not certify individual contribution accuracy.",
+                        (
+                            "Independent native coalition queries returned valid visited values; cached endpoints and typed marginals passed numeric closure. Marginal SE does not isolate input changes or certify unvisited values."
+                            if query_game
+                            else "Fixed-state replacement domain and typed sampled marginals passed the versioned numeric closure policy; sampling error does not certify individual contribution accuracy."
+                        ),
                         (
                             ("stage", stage.stage_id),
                             ("check", "attribute_shapley"),
                             ("policy", "typed_marginal_float64_sum/v1"),
+                            ("evaluation", "native_queries" if query_game else "fixed_state"),
                             ("target", ".".join(game_target.path)),
                             ("mode", game_target.mode),
                             (

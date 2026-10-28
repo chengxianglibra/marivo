@@ -308,7 +308,7 @@ Division retains its original typed divisor and arithmetic order. `rescale` decl
 
 Outputs include `contribution.<name>`, `contribution_share.<name>`, `total.<name>`, `observed_total.<name>` and fine diagnostics. `method_facts` retains the method explanation through filtering and persistence.
 
-Attribute fixes the selected parent keys and observed values. Exact decomposition reads fresh parent and fine-grain inputs separately; Shapley computes endpoints and coalitions from captured states. Independent source reads can reflect different source states.
+Attribute fixes the selected parent keys and observed values. Exact decomposition reads fresh parent and fine-grain inputs separately; Shapley evaluates cached endpoints and coalitions through captured states or independent native queries. Independent source reads can reflect different source states.
 `total` uses the fresh formula; `observed_total` preserves the value from the
 input Frame. Qualified physical tables use native backend execution for supported
 methods, types and source shapes.
@@ -329,15 +329,19 @@ Numeric source division converts both operands to Float64 before dividing, prese
 
 Rules bind per target before business reads; there is no `method` parameter. Additive Metrics and admitted ratios, mean, weighted_mean and fixed linear formulas use exact decomposition. Paired rate/mix targets add `effect.within.<name>`, `effect.mix.<name>` and `effect.entry_exit.<name>`; mixed additive terms also add `effect.additive.<name>`. Their sum is each group's contribution. Entry/exit uses a zero-denominator, zero-numerator-mass boundary without filling an undefined group rate. Group denominators and effective pair weights must be nonnegative, parent denominators positive, and parent/fine components and original group rates consistent. Failure never changes the bound rule.
 
-Paired targets outside the exact rules can use whole-Metric group-replacement Shapley when every leaf has a qualified state route and the complete formula is defined and finite for every coalition. Supported leaves include sufficient statistics, exact typed quantile frequencies and qualified numeric distinct membership. The rule is selected before business reads, without a group-count threshold or a fallback after failure. Level retains its admitted share rules; ordinary Column arithmetic has no source authority.
+Paired targets outside the exact rules use whole-Metric group-replacement Shapley. Qualified sufficient statistics, exact typed quantile frequencies and numeric distinct membership retain the state optimization. When a leaf has no qualified state reconstruction, the target uses independent native coalition queries with its original reducer, row expressions, casts, NULL and time semantics. The route is selected before business reads, without a group-count threshold or a fallback after failure. Level retains its admitted share rules; ordinary Column arithmetic has no source authority.
 
-Shapley returns `contribution_std_error.<name>` for permutation sampling error. Each complete permutation replaces every joint-key group once. Raising `permutations` increases local coalition work and cache use, while source capture reads stay fixed. Weighted states use paired masks; exact quantile/distinct state can transfer O(N) values. This is permutation sampling, with no source-row sampling, top-k or adaptive stopping. `method_facts` records the game, original leaf types/finishers, capture costs, permutation count and seed. Unknown scan/wire statistics remain unknown.
+Each complete permutation replaces every joint-key group once. The parent keys, player directory and formulas stay fixed; each visited coalition and its empty/full endpoints are cached within the call. State capture reads stay fixed as `permutations` increases, while local work and cache use grow. Native query counts can grow with distinct visited coalitions. There is no shared snapshot, temporary materialization or drift audit. New groups outside the captured directory are excluded; rows within that directory may change between reads.
 
-Native approximate quantiles require a verified native summary route and are currently rejected for attribution. DuckDB native integer/Float quantiles admit q=0/1, while interior interpolation rejects before business reads. Its Decimal/UInt64 rank-bound route supports all q. PostgreSQL retains its qualified original native finisher; MySQL/Trino/ClickHouse retain qualified rank-bound finishing. Ordinary observation keeps its existing backend algorithms.
+`contribution_std_error.<name>` measures permutation sampling error for fixed states. For independent native reads it describes observed marginal variation and cannot isolate source changes. State games require a finite-domain proof for every coalition; native games validate only evaluated coalitions. Any required failed or undefined query rejects the complete call. This is permutation sampling, with no source-row sampling, top-k or adaptive stopping.
 
-Float SUM components and native AVG reconstruction are currently unqualified for Shapley and reject before business reads. Integer/Decimal sums, counts, extrema and qualified frequency states remain available; integer/Decimal weighted states preserve the original per-operand Float64 casts before division. Existing exact mean/rate-mix rules remain available.
+Float SUM and native AVG use group-summary state reconstruction: sums merge in fixed player order, and means merge SUM/count with the same valid mask. Floating weighted components keep co-valid masks. The game explains this reconstructed Metric and marks `summary_reconstruction/v1`; its endpoints and contributions may differ from native whole-input aggregation, with no summary-bias bound. NULL, empty support, units and physical carrier limits remain enforced; overflow still rejects. Permutation SE does not measure this bias, and nonlinear formulas may amplify it.
 
-The current Shapley route requires single-valued classification tuples. Explicit Population grouping and multi-membership are rejected before business reads because their complete-coverage state route is not yet qualified; exact decomposition keeps its existing Population support. String and floating distinct membership also require separate equality/collation qualification.
+DuckDB interior native quantiles and native approximate quantiles use queries where no state route is qualified. Native approximate reducers retain the original algorithm and metric approximation. Existing exact mean/rate-mix rules remain available. Each paired native leaf needs compatible captured datasource configurations.
+
+`method_facts` records the route, original leaf types/finishers, permutation count and seed. State frequencies can transfer O(N) values. Native receipts record actual queries, returned rows and decoded bytes; unavailable backend versions and scan/wire statistics remain unknown. Persisted facts are inert and reopen without querying sources.
+
+Shapley requires single-valued classification tuples. Explicit Population grouping and multi-membership remain rejected before business reads; exact decomposition keeps its existing Population support. Existing source, identity, coverage and membership qualification still applies.
 
 New rate/mix component and effect closure checks use versioned numeric budgets without a 1% business allowance. Unchanged additive/level Float64 routes retain `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`; integer, Decimal and Duration retain their typed policies. Residuals are never redistributed. Relative contributions and effects all divide by the same absolute fresh parent baseline; zero or undefined baselines fail.
 
@@ -387,6 +391,48 @@ assert squared_method.kind == "shapley"
 ```
 
 The squared Metric is evaluated as a whole for each coalition. Its group contributions explain the overall squared-revenue change; they are not squared regional differences. Standard errors describe sampling variation, not metric approximation or causal uncertainty.
+
+The squared AVG target reconstructs each coalition from captured SUM/count. Its method facts disclose summary reconstruction, and its source capture reads stay fixed as permutations increase.
+
+{/* example: attribute-summary-shapley */}
+
+```python
+squared_average = average * average
+summary_current = session.observe({"squared_average": squared_average}, by=(august,))
+summary_baseline = session.observe({"squared_average": squared_average}, by=(july,))
+summary_change = summary_current.compare(
+    {"reference": mv.baseline(summary_baseline, match=mv.ordinal())}
+).compute()
+summary_target = summary_change.select(
+    {"squared_average": summary_change["reference.absolute.squared_average"]}
+)
+summary_explained = summary_target.attribute(by=(region,), permutations=32, seed=42).compute()
+summary_method = summary_explained.method_facts[0].parents[0].metrics[0].method
+assert summary_method.kind == "shapley"
+assert summary_method.state_route != "native_queries/v1"
+assert summary_method.game.metric_approximation == "summary_reconstruction/v1"
+```
+
+Native approximate quantiles retain their original backend reducer through independent coalition queries.
+
+{/* example: attribute-native-shapley */}
+
+```python
+approximate = amount.approx_quantile(0.5, time=order_time_entry.value)
+quantile_current = session.observe({"approximate": approximate}, by=(august,))
+quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
+quantile_change = quantile_current.compare(
+    {"reference": mv.baseline(quantile_baseline, match=mv.ordinal())}
+).compute()
+quantile_target = quantile_change.select(
+    {"approximate": quantile_change["reference.absolute.approximate"]}
+)
+quantile_explained = quantile_target.attribute(by=(region,), permutations=32, seed=42).compute()
+quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].method
+assert quantile_method.kind == "shapley"
+assert quantile_method.state_route == "native_queries/v1"
+assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
 
 ### Observe a fresh breakdown
 

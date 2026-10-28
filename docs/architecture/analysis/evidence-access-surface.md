@@ -138,7 +138,7 @@ reads retain captured policy versions and do not reread sources or reapply check
 Sampled targets use the closed `FrameShapleyMethod` variant. It retains native typed
 endpoints/change, permutation count/seed/version, player count and actual unique
 coalition/transition costs. `game` holds nonexecuting endpoint formula digests,
-replacement/domain/closure policies and captured proof clauses; `leaves` retains
+replacement/domain/closure policies and, for state games, captured proof clauses; `leaves` retains
 original typed reducers, q and NULL masks with both endpoint capture directories.
 `captures` records each actual submitted input stage once, including domain/diagnostic
 or shared sibling work. A leaf may reference multiple captures, and an identical
@@ -147,9 +147,10 @@ payload bytes are distinct from unknown scanned/wire bytes and process memory.
 The directory supports truthful sharing/cost inspection without saved state or SQL.
 Sampled contributions and SE are Float64 in the target unit; endpoint diagnostics,
 total and observed_total retain their owning common carrier. SE measures permutation
-sampling error only. No rate/mix effect columns are manufactured for sampled targets.
-Successful game execution records its fixed-state domain/closure check on the local
-consumer. Cold recovery validates closed types, references, costs and payload digests;
+sampling error conditional on captured states, excluding summary bias; native-query SE describes observed marginal variation
+and cannot isolate source changes. No rate/mix effect columns are manufactured for
+sampled targets. Successful execution records a state-domain or evaluated-native-value
+closure check on its consumer. Cold recovery validates closed types, references, costs and payload digests;
 it does not rerun the formula, source, game or a newer numeric policy.
 
 Float64 method values are finite captured facts, not arithmetic identities to
@@ -166,8 +167,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 20 uses marivo.frame_output/v9,
-frame.v9 and frame-output-v9. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+Memory roots retain the complete records. Store 21 uses marivo.frame_output/v10,
+frame.v10 and frame-output-v10. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
 source/check/Finding counts, internal collection digests and owned-payload
 descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
 opening a manifest never loads either collection. Atomic publication writes both
@@ -210,3 +211,23 @@ owns their saved payloads and receipts.
 selected cells. Its evaluation records a `fix` operation without creating source
 method facts. Fixed source coordinates remain process-local declarations for an
 explicit later attribute request; they are not executable persisted provenance.
+
+
+### Independent native Shapley reads
+
+Native-query method facts use FrameShapleyQueryGame with independent_reads/v1,
+evaluated_coalitions/v1 and observed_marginal_mean/v1. They describe only the
+actually queried cached values, without an all-coalition certificate or snapshot.
+FrameShapleyQuery entries count actual directory, diagnostic and coalition reads;
+their returned_bytes are decoded Arrow bytes. State entries are zero for this
+route. Shared reads have one ID; unknown scan/wire/backend-version data stay None.
+FrameShapleyNativeQuantile records the original exact/approximate reducer and q,
+with its original-native-reducer policy and linked backend receipt. These records
+contain no SQL, raw data, callable, session or source handle and confer no source
+execution authority after cold recovery. State-backed facts retain their existing
+fixed-input, domain-proof, frequency and permutation-SE meanings.
+
+Float SUM/native AVG summary games mark `FrameShapleyGame.metric_approximation`
+as `summary_reconstruction/v1`. This is a captured evaluation policy, with no
+summary-bias bound. Cold validation correlates it with original typed leaf reducers;
+it does not recompute or certify original native endpoint equality.

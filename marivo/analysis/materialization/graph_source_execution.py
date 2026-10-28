@@ -16,6 +16,7 @@ from ibis.common.exceptions import IbisError
 
 from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.compiler.graph_plan import (
+    AttributeCoalitionRead,
     AttributeFrequencyRead,
     AttributeRead,
     ReductionRead,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
     from marivo.analysis.core.attribute import AttributeFailureContext
     from marivo.analysis.core.frame_expression import AttributeFrameValues
+    from marivo.analysis.materialization.attribute_native_execution import PreparedNativeGame
 
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
 from marivo.analysis.compiler.graph_lowering import (
@@ -1511,7 +1513,7 @@ def _capture_attribute_state(
 ) -> StageOutput:
     from marivo.analysis.compiler.attribute_frequencies import AttributeStateCapture
 
-    if not stage.attribute_state:
+    if not stage.attribute_state and not stage.attribute_native:
         return output
     members = read_members(stage) or (stage,)
     slots = tuple(
@@ -2094,7 +2096,8 @@ def execute_numeric_query(
     read_fixed: Callable[[FrameInput], CompletedFrameData] | None = None,
     adapt_source: Callable[[str, StageOutput], StageOutput] | None = None,
     source_outputs: Mapping[str, str] | None = None,
-    observe_frame: Callable[[FrameCompute, StageOutput], None] | None = None,
+    observe_frame: Callable[[FrameCompute | SourceRead, StageOutput], None] | None = None,
+    native_prepared: Mapping[str, PreparedNativeGame] | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
@@ -2106,6 +2109,9 @@ def execute_numeric_query(
 
     value_keys = source_value_keys(lowered.plan)
     parameter_relations: dict[tuple[SourceSession, str], ir.Table] = {}
+    from marivo.analysis.materialization.attribute_native_execution import NativeCache
+
+    native_cache: NativeCache = {}
 
     def transport(stage_id: str, output: StageOutput) -> StageOutput:
         if not lowered.plan.required_slots:
@@ -2152,6 +2158,16 @@ def execute_numeric_query(
         return output
 
     def dependent(stage: SourceRead, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        if isinstance(stage.program, AttributeCoalitionRead):
+            from marivo.analysis.materialization.attribute_native_execution import run_native_game
+
+            assert native_prepared is not None
+            output = run_native_game(
+                stage, inputs, native_prepared[stage.stage_id], native_cache, observe_read
+            )
+            if observe_frame is not None:
+                observe_frame(stage, output)
+            return output
         from marivo.analysis.core.domain_captures import DomainPreparationError
         from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
 
@@ -2288,9 +2304,17 @@ def run_frame_plan(
     read_fixed: Callable[[FrameInput], CompletedFrameData],
     adapt_source: Callable[[str, StageOutput], StageOutput],
     observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-    observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+    | None = None,
 ) -> StageOutput:
     """Bind explicit inputs to the existing one-invocation numeric scheduler."""
+    from marivo.analysis.materialization.attribute_native_execution import prepare_native_game
+
+    native = {
+        stage.stage_id: prepare_native_game(stage, source_prepared)
+        for stage in compiled.lowered.plan.stages
+        if isinstance(stage, SourceRead) and isinstance(stage.program, AttributeCoalitionRead)
+    }
     prepared = {
         stage_id: source_prepared[input_id]
         for stage_id, input_id in compiled.source_stages
@@ -2306,6 +2330,7 @@ def run_frame_plan(
         adapt_source=adapt_source,
         source_outputs=dict(compiled.source_outputs),
         observe_frame=observe_local,
+        native_prepared=native,
     )
 
 

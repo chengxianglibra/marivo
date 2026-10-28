@@ -94,14 +94,21 @@ def test_same_actual_input_group_deduplicates_states_without_merging_occurrences
     assert combined[0].quantities == combined[1].quantities
 
 
-@pytest.mark.parametrize(
-    "reducer", ["approx_median", "approx_quantile", "approx_nunique", "first", "last"]
-)
+@pytest.mark.parametrize("reducer", ["approx_nunique", "first", "last"])
 def test_unqualified_source_algorithms_do_not_get_a_replacement_route(reducer) -> None:
     node = SourceAggregate(FIELD, reducer, None, q=0.5 if reducer == "approx_quantile" else None)
     with pytest.raises(AttributeGameError) as error:
         build_game(node, {}, metric="q", by=BY)
     assert error.value.reason == "unsupported_state"
+
+
+@pytest.mark.parametrize("reducer", ["approx_median", "approx_quantile"])
+def test_original_approximate_quantile_is_captured_without_claiming_a_state(reducer) -> None:
+    node = SourceAggregate(FIELD, reducer, None, q=0.5 if reducer == "approx_quantile" else None)
+    game = build_game(node, {}, metric="q", by=BY)
+    assert game.node is node
+    assert game.leaves[0].source is node
+    assert game.leaves[0].state_eligible is False
 
 
 def test_unsupported_numeric_power_is_rejected_during_game_binding() -> None:

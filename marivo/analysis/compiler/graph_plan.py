@@ -202,6 +202,22 @@ class NativeRead:
     finish: NativeQueryFinish | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class NativeEndpoint:
+    """Original captured reducer templates and their prepared source input."""
+
+    input_id: str
+    reads: tuple[tuple[tuple[int, ...], SourceRead], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeCoalitionRead:
+    """One logical native game; every issued statement has its own read identity."""
+
+    game: AttributeGameProgram
+    endpoints: tuple[NativeEndpoint, NativeEndpoint]
+
+
 SourceProgram: TypeAlias = (
     ProjectionRead
     | ReductionRead
@@ -210,6 +226,7 @@ SourceProgram: TypeAlias = (
     | CommonRead
     | AttributeRead
     | NativeRead
+    | AttributeCoalitionRead
 )
 
 
@@ -235,6 +252,8 @@ class SourceRead:
     native_reads: tuple[SourceRead, ...] = ()
     attribute_state: bool = False
     attribute_input_types: tuple[tuple[str, tuple[DataType, ...]], ...] = ()
+    attribute_native: bool = False
+    native_relation_id: str = ""
 
 
 def read_reduction(stage: SourceRead) -> ReductionInput | None:

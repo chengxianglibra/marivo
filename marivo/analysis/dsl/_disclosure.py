@@ -37,7 +37,10 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyGame,
     FrameShapleyLeaf,
     FrameShapleyMethod,
+    FrameShapleyNativeQuantile,
     FrameShapleyQuantile,
+    FrameShapleyQuery,
+    FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
 from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
@@ -224,8 +227,10 @@ def provider() -> DisclosureProvider:
             (
                 "frame_method_value",
                 "frame_shapley_game",
+                "frame_shapley_query_game",
                 "frame_shapley_leaf",
                 "frame_shapley_capture",
+                "frame_shapley_query",
             ),
         ),
         (
@@ -235,15 +240,27 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
+            FrameShapleyQueryGame,
+            "frame_shapley_query_game",
+            "Read shapley_method.game for independent-read and evaluated-coalition policies; its marginal SE cannot isolate source changes.",
+            (),
+        ),
+        (
             FrameShapleyLeaf,
             "frame_shapley_leaf",
             "Read shapley_method.leaves for original typed reducer occurrences, masks and capture references.",
-            ("frame_shapley_reduction", "frame_shapley_quantile"),
+            ("frame_shapley_reduction", "frame_shapley_quantile", "frame_shapley_native_quantile"),
         ),
         (
             FrameShapleyCapture,
             "frame_shapley_capture",
             "Read shapley_method.captures for actual statement/state costs; decoded bytes differ from wire and scanned bytes.",
+            (),
+        ),
+        (
+            FrameShapleyQuery,
+            "frame_shapley_query",
+            "Read shapley_method.captures for actual native-query receipts and costs; unknown scan/wire statistics remain unknown.",
             (),
         ),
         (
@@ -256,6 +273,12 @@ def provider() -> DisclosureProvider:
             FrameShapleyQuantile,
             "frame_shapley_quantile",
             "Read shapley_leaf.reduction for the original exact median/quantile and q.",
+            (),
+        ),
+        (
+            FrameShapleyNativeQuantile,
+            "frame_shapley_native_quantile",
+            "Read shapley_leaf.reduction for the original exact/approximate native quantile reducer and q; no replacement algorithm is used.",
             (),
         ),
         (
@@ -436,10 +459,13 @@ def provider() -> DisclosureProvider:
                     ),
                     FrameShapleyMethod: ("frame_attribute_metric.method",),
                     FrameShapleyGame: ("frame_shapley_method.game",),
+                    FrameShapleyQueryGame: ("frame_shapley_method.game",),
                     FrameShapleyLeaf: ("frame_shapley_method.leaves",),
                     FrameShapleyCapture: ("frame_shapley_method.captures",),
+                    FrameShapleyQuery: ("frame_shapley_method.captures",),
                     FrameShapleyReduction: ("frame_shapley_leaf.reduction",),
                     FrameShapleyQuantile: ("frame_shapley_leaf.reduction",),
+                    FrameShapleyNativeQuantile: ("frame_shapley_leaf.reduction",),
                     FrameLinearMethod: (
                         "frame_division_method.method",
                         "frame_attribute_metric.method",

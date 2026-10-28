@@ -297,7 +297,7 @@ denominator; mixed additive/rate formulas also expose ``effect.additive.<target>
 Effects sum to each group's contribution and use the same absolute fresh parent
 baseline for relative targets. Level and pure additive targets have no synthetic
 rate/mix effects. Rules bind before business reads. Qualified paired quantile and
-nonlinear targets use whole-Metric group-replacement Shapley over fixed states;
+nonlinear targets use whole-Metric group-replacement Shapley;
 there is no method override or group-count threshold. ``permutations`` is an integer
 at least two and ``seed`` a nonnegative integer; both reject bool. Exact targets do
 not sample. Level retains its existing share rules.
@@ -309,38 +309,45 @@ mass. These checks and effect closure use versioned numeric rounding budgets
 without a business percentage allowance. Failures never switch rules or allocate
 residuals. Facts retain the symmetric rule, component and entry/exit policy versions.
 
-Sampled targets add ``contribution_std_error.<target>`` for permutation sampling
-error only. One joint group key switches every leaf occurrence together; the complete
-original formula is evaluated on each fixed-state coalition. All possible coalition
-domains need proof, including demand-sensitive branches and original NULL policies.
-Typed marginal subtraction precedes Float64 averaging. Relative contributions and
-standard errors use the same absolute fixed-state baseline. Complete permutations
-close to the state endpoint difference within the numeric conversion/summation
-budget; no residual is redistributed and failed targets never trigger fallback.
+Sampled targets add ``contribution_std_error.<target>``. Qualified state routes
+reuse fixed sufficient statistics/frequencies and retain all-coalition domain
+proofs. Float SUM and native AVG use captured group SUM and SUM/count
+reconstruction, respectively, retaining masks, NULL/empty and carrier limits.
+These games disclose ``summary_reconstruction/v1``; reconstructed endpoints and
+contributions may differ from native whole-input evaluation, with no bias bound.
+Without a qualified state route, native queries run the original reducer over
+coalition-selected endpoint rows on compatible original source owners. Native
+quantile interpolation and approximate quantiles retain their original algorithms. Ordinary backend/type/source and classification qualifications
+still apply; Population/membership games retain their existing limits.
 
-State capture uses qualified small sufficient statistics or lossless typed value-frequency
-buckets; exact frequency transfer can be O(N). Source submissions do not increase
-with permutations; cached unique coalitions are bounded by
-``min(2**n, 2 + permutations*(n-1))`` for n>=1. Original native approximate algorithms
-need a verified reusable native summary route; unsupported routes reject before
-business reads where possible. There is no raw-row coalition expansion, alternate
-quantile algorithm, business-row sampling or automatic reduction of players/counts.
-Float SUM components and native AVG reconstruction are unqualified for games and
-reject before business reads. Existing exact mean/rate-mix rules remain available.
-Integer/Decimal weighted components preserve the original per-operand Float64 casts
-before division. Native approximate quantile games are also unqualified.
-DuckDB native integer/Float quantiles admit q=0/1; interior interpolation rejects
-before business reads. Its Decimal/UInt64 rank-bound route supports all q. PostgreSQL
-retains its qualified original native finisher; MySQL/Trino/ClickHouse retain their
-qualified rank-bound finisher. Ordinary observation algorithms are unchanged.
-Games currently require single-valued classification tuples. Explicit Population
-grouping and multi-membership lack a qualified complete-coverage state route and
-reject before business reads; exact rules retain their existing Population support.
-Closed Shapley method facts disclose original reducer/types/masks/q, nonexecuting
-formula identities and domain proof, state routes, actual capture/evaluation costs
-and unknown provider statistics. No frequencies, sketches or executable formulas
-are persisted. Read ``analysis.frame_shapley_method`` and its nested fact targets.
+No consistent snapshot, temporary table, raw-input materialization or drift audit
+is required. Independent queries may see changed inputs. Parent/player keys,
+endpoint scopes and captured definitions stay fixed. Each coalition and empty/full
+endpoint is evaluated once and cached. Only visited native values are validated;
+unvisited combinations and future source values are not certified. Query failures
+reject the whole call without retries, fallback or partial publication.
 
+Each player switches every leaf occurrence together, then the complete original
+formula executes. Typed subtraction precedes Float64 averaging. Relative values
+use one absolute cached baseline. Complete permutations close to cached endpoint
+change within conversion/summation roundoff; residuals are never redistributed.
+State SE estimates permutation error conditional on captured summaries, excluding
+summary bias; native-query SE describes observed marginal
+variation and cannot separate source changes or provide a drift confidence bound.
+
+For n>=1, cached unique coalitions are bounded by
+``min(2**n, 2 + permutations*(n-1))``. State capture reads stay fixed; native query
+counts may grow with coalitions and work can approach O(U*N). Actual statements,
+returned rows/decoded bytes and unknown scan/wire statistics are disclosed without
+claiming that one query is one physical scan. No row sampling, player truncation,
+adaptive count or alternate quantile algorithm is introduced.
+
+Closed facts distinguish ``FrameShapleyGame`` state policies from
+``FrameShapleyQueryGame`` independent reads and evaluated-coalition policies.
+``FrameShapleyQuery`` records actual query receipts;
+``FrameShapleyNativeQuantile`` retains the original reducer/q/algorithm contract.
+All remain inert on cold recovery. Read ``analysis.frame_shapley_method`` and its
+nested fact targets.
 ``by`` accepts nonempty semantic classification tuples or one complete Population
 with its correlated keys, membership and allocation rules. Frozen interval,
 calendar and paired parent bindings retain their complete correspondence and
@@ -372,7 +379,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 20 writer transaction. Memory persist never reevaluates. Stored
+single Store 21 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -384,10 +391,10 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 20 uses ``marivo.frame_output/v9``, ``frame.v9`` and ``frame-output-v9`` for
-all Frames, under ``.marivo/analysis/generations/v20/``. Owned method files share
+Store 21 uses ``marivo.frame_output/v10``, ``frame.v10`` and ``frame-output-v10`` for
+all Frames, under ``.marivo/analysis/generations/v21/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 20 refuses older-generation Session/result/audit data unchanged, without
+Store 21 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve

@@ -1,7 +1,9 @@
 """Whole-Metric replacement sampling reaches the real source/compiler path."""
 
 import math
+import sys
 from collections.abc import Callable
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 
@@ -10,7 +12,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError, AnalysisStageUnavailableError
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -442,7 +444,7 @@ def test_conditional_nonzero_guard_is_proved_for_dynamic_denominator(
 
 
 @pytest.mark.parametrize("dtype", ["BIGINT", "DECIMAL(20,2)", "DOUBLE", "UBIGINT"])
-def test_native_mean_games_reject_all_input_types_before_business_reads(
+def test_mean_games_reconstruct_typed_sum_count_and_disclose_bias(
     game_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dtype: str
 ) -> None:
     with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
@@ -451,20 +453,51 @@ def test_native_mean_games_reject_all_input_types_before_business_reads(
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     ordinary = game_session.observe({"mean": x.mean()}).compute().to_pandas()
     assert ordinary["mean"].tolist() == [2]
-    target = _comparison(game_session, {"q": x.mean() * x.count()})
+    target = _comparison(game_session, {"q": x.mean() * x.count()}).compute()
     trace = capture_source(monkeypatch)
-    with pytest.raises(
-        AnalysisStageUnavailableError, match="qualified original native AVG"
-    ) as error:
-        target.attribute(by=(player,), permutations=8).compute()
-    assert error.value.stage == "attribute_state_binding"
-    assert "mean input types:" in error.value.received
-    assert trace.native_sql == []
+    report = target.attribute(by=(player,), permutations=8).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == [2, 2]
+    assert sum(rows["contribution.q"]) == pytest.approx(2)
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.state_route == "typed_sufficient_state/v1"
+    assert method.game.domain_policy == "finite_interval_demand/v1"
+    assert method.game.standard_error == "permutation_mean/v1"
+    assert method.game.metric_approximation == "summary_reconstruction/v1"
+    assert trace.native_sql
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        sys.float_info.max,
+        math.nextafter(math.nextafter(sys.float_info.max, 0), 0),
+        -sys.float_info.max,
+    ],
+)
+def test_mean_summary_bound_overflow_rejects_with_structured_domain_error(
+    game_session: Session, tmp_path: Path, value: float
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER COLUMN x SET DATA TYPE DOUBLE")
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts(id,player,x,y) VALUES (1,'A',?,1),(3,'A',?,1)",
+            [value, value],
+        )
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    target = _comparison(game_session, {"q": (x.mean() > 0).ifelse(1, 0)}).compute()
+    assert target.to_pandas()["q"].tolist() == [0]
+    with pytest.raises(AnalysisError) as error:
+        target.attribute(by=(player,), permutations=2).compute()
+    assert error.value.reason == "incomplete_domain"
 
 
 @pytest.mark.parametrize("calendar", [False, True])
+@pytest.mark.parametrize("native", [False, True])
 def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
-    game_session: Session, calendar: bool
+    game_session: Session, calendar: bool, native: bool
 ) -> None:
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
@@ -472,7 +505,7 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     current_scope = game_session.time_scope(start="2026-08-01", end="2026-08-02")
     baseline_scope = game_session.time_scope(start="2026-07-01", end="2026-07-02")
-    metric = x.sum(time=day) * y.sum(time=day)
+    metric = (x.mean(time=day) if native else x.sum(time=day)) * y.sum(time=day)
     current = game_session.observe(
         {"q": metric}, by=(current_scope.by(mv.grain("day")) if calendar else current_scope,)
     )
@@ -490,8 +523,9 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
     ).compute()
     target = compared.select({"q": compared["b.absolute.q"]}).compute()
     rows = target.attribute(by=(player,), permutations=8).compute().to_pandas()
-    assert rows["total.q"].tolist() == [24, 24]
-    assert sum(rows["contribution.q"]) == pytest.approx(24)
+    expected = 12 if native else 24
+    assert rows["total.q"].tolist() == [expected, expected]
+    assert sum(rows["contribution.q"]) == pytest.approx(expected)
 
 
 def test_frozen_parent_selection_keeps_old_observation_and_fresh_state_total(
@@ -523,24 +557,22 @@ def test_frozen_parent_selection_keeps_old_observation_and_fresh_state_total(
     assert rows["total.q"].tolist() == [33, 33]
 
 
-def test_native_duckdb_interpolating_quantile_rejects_before_state_reads(
+def test_native_duckdb_interpolating_quantile_uses_original_native_queries(
     game_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.graph_source_execution as execution
-
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     target = _comparison(game_session, {"q": x.quantile(0.5)}).compute()
-    reads = []
-
-    def forbidden(*args, **kwargs):
-        reads.append(True)
-        raise AssertionError("business source read before static route rejection")
-
-    monkeypatch.setattr(execution, "read_stage", forbidden)
-    with pytest.raises(AnalysisError, match="no qualified fixed-state finisher"):
-        target.attribute(by=(player,), permutations=2).compute()
-    assert reads == []
+    trace = capture_source(monkeypatch)
+    report = target.attribute(by=(player,), permutations=8).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == [1, 1]
+    assert sum(rows["contribution.q"]) == pytest.approx(1)
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.state_route == "native_queries/v1"
+    assert method.leaves[0].reduction.kind == "native_quantile"
+    assert method.leaves[0].reduction.reducer == "quantile"
+    assert trace.native_sql
 
 
 @pytest.mark.parametrize("keys", [(("A",),), (("A",), ("B",))])
@@ -559,7 +591,7 @@ def test_population_game_requires_qualified_coverage_before_business_reads(
 
     monkeypatch.setattr(execution, "read_stage", forbidden)
     domain = mv.coordinates(by=(player,), keys=keys)
-    with pytest.raises(AnalysisError, match="no qualified fixed-state coverage receipt"):
+    with pytest.raises(AnalysisError, match="no qualified replacement-game coverage receipt"):
         target.attribute(by=domain, permutations=2)
     assert calls == []
 
@@ -597,7 +629,7 @@ def test_all_coalition_proof_rejects_unsampled_exponential_overflow(
     assert error.value.reason == "incomplete_domain"
 
 
-def test_float_sum_wrong_branch_rejects_before_capture_and_observe_is_unchanged(
+def test_float_sum_game_discloses_reconstruction_changing_original_condition(
     game_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
@@ -616,13 +648,24 @@ def test_float_sum_wrong_branch_rejects_before_capture_and_observe_is_unchanged(
     target = _comparison(game_session, {"q": metric}).compute()
     assert target.to_pandas()["q"].tolist() == [1]
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="exact Integer/Decimal sufficient SUM"):
-        target.attribute(by=(player,), permutations=8, seed=0).compute()
-    assert trace.native_sql == []
+    report = target.attribute(by=(player,), permutations=8, seed=0).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == [0, 0]
+    assert sum(rows["contribution.q"]) == pytest.approx(0)
+    assert (
+        report.method_facts[0].parents[0].metrics[0].method.state_route
+        == "typed_sufficient_state/v1"
+    )
+    assert rows["observed_total.q"].tolist() == [1, 1]
+    assert (
+        report.method_facts[0].parents[0].metrics[0].method.game.metric_approximation
+        == "summary_reconstruction/v1"
+    )
+    assert trace.native_sql
 
 
 @pytest.mark.parametrize("floating_operand", ["x", "y"])
-def test_float_weighted_components_reject_before_business_reads(
+def test_float_weighted_game_uses_summary_components(
     game_session: Session,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -638,9 +681,19 @@ def test_float_weighted_components_reject_before_business_reads(
     target = _comparison(game_session, {"q": x.weighted_mean(weight=y) * x.count()})
     assert target.compute().to_pandas()["q"].iloc[0] > 0
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="exact Integer/Decimal sufficient SUM"):
-        target.attribute(by=(player,), permutations=8).compute()
-    assert trace.native_sql == []
+    report = target.attribute(by=(player,), permutations=8).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == pytest.approx([128 / 63, 128 / 63])
+    assert sum(rows["contribution.q"]) == pytest.approx(128 / 63)
+    assert (
+        report.method_facts[0].parents[0].metrics[0].method.state_route
+        == "typed_sufficient_state/v1"
+    )
+    assert (
+        report.method_facts[0].parents[0].metrics[0].method.game.metric_approximation
+        == "summary_reconstruction/v1"
+    )
+    assert trace.native_sql
 
 
 def test_float_extrema_and_counts_keep_their_qualified_game_routes(
@@ -749,9 +802,215 @@ def test_float_sum_qualification_uses_bound_row_recipe_type(
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     # Both physical measures are Int64, while the consumed row recipe is Float64.
-    target = _comparison(game_session, {"q": (x * 0.5).sum() * y.sum()})
-    assert target.compute().to_pandas()["q"].tolist() == [12]
+    target = _comparison(game_session, {"q": (x * 0.5).sum() * y.sum()}).compute()
+    assert target.to_pandas()["q"].tolist() == [12]
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisStageUnavailableError, match="exact Integer/Decimal sufficient SUM"):
-        target.attribute(by=(player,), permutations=8).compute()
-    assert trace.native_sql == []
+    report = target.attribute(by=(player,), permutations=8).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == [12, 12]
+    assert sum(rows["contribution.q"]) == pytest.approx(12)
+    assert (
+        report.method_facts[0].parents[0].metrics[0].method.state_route
+        == "typed_sufficient_state/v1"
+    )
+    assert trace.native_sql
+
+
+def test_native_and_state_targets_share_inputs_without_changing_qualified_state_route(
+    game_session: Session,
+) -> None:
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    report = (
+        _comparison(game_session, {"native": x.quantile(0.5) * y.sum(), "state": x.min() * y.max()})
+        .attribute(by=(player,), permutations=16, seed=7)
+        .compute()
+    )
+    rows = report.to_pandas()
+    assert rows["total.native"].tolist() == [12, 12]
+    assert rows["total.state"].tolist() == [6, 6]
+    methods = {
+        metric.target: metric.method
+        for fact in report.method_facts
+        for parent in fact.parents
+        for metric in parent.metrics
+    }
+    assert methods[("native",)].state_route == "native_queries/v1"
+    assert methods[("state",)].state_route == "typed_sufficient_state/v1"
+    assert methods[("native",)].game.standard_error == "observed_marginal_mean/v1"
+    assert methods[("state",)].game.standard_error == "permutation_mean/v1"
+
+
+def test_native_coalition_queries_are_cached_and_costs_follow_unique_masks(
+    game_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute("INSERT INTO facts(id,player,x,y) VALUES (0,'C',1,1),(5,'C',4,2)")
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    target = _comparison(game_session, {"q": x.quantile(0.5) * x.count()}).compute()
+    trace = capture_source(monkeypatch)
+    reports = [
+        target.attribute(by=(player,), permutations=count, seed=7).compute() for count in (2, 64)
+    ]
+    methods = [report.method_facts[0].parents[0].metrics[0].method for report in reports]
+    assert methods[0].unique_coalitions <= 6
+    assert methods[1].unique_coalitions == 8
+    for method in methods:
+        assert method.coalition_evaluations == method.unique_coalitions
+        assert method.state_entries == 0
+        coalition_reads = sum(
+            item.source_reads for item in method.captures if item.purpose == "coalition"
+        )
+        assert coalition_reads == 2 * method.unique_coalitions
+        assert method.captured_source_reads == sum(item.source_reads for item in method.captures)
+    assert methods[0].captured_source_reads < methods[1].captured_source_reads
+    assert len(trace.native_sql) == sum(method.captured_source_reads for method in methods)
+
+
+def test_native_game_preserves_null_parent_and_player_keys(
+    game_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET region=NULL, player=CASE WHEN id IN (2,4) THEN NULL ELSE player END"
+        )
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    region = catalog_value(game_session.catalog, "sales.facts.region", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    identifier = catalog_value(game_session.catalog, "sales.facts.id", kind="field")
+    metric = x.quantile(0.5) * x.count()
+    current = game_session.observe({"q": metric}, by=(region,), where=identifier >= 3)
+    baseline = game_session.observe({"q": metric}, by=(region,), where=identifier < 3)
+    compared = current.compare(
+        {"b": mv.baseline(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))}
+    )
+    target = compared.select({"q": compared["b.absolute.q"]}).compute()
+    report = target.attribute(by=(player,), permutations=16, seed=7).compute()
+    rows = report.to_pandas()
+    assert rows.iloc[:, 0].isna().all()
+    assert rows.iloc[:, 1].isna().sum() == 1
+    assert rows["total.q"].tolist() == [2, 2]
+    assert sum(rows["contribution.q"]) == pytest.approx(2)
+
+
+def test_native_approximate_quantile_keeps_original_backend_algorithm(
+    game_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        current = connection.execute(
+            "SELECT approx_quantile(CAST(x AS DOUBLE),0.5) FROM facts WHERE id>=3"
+        ).fetchone()[0]
+        baseline = connection.execute(
+            "SELECT approx_quantile(CAST(x AS DOUBLE),0.5) FROM facts WHERE id<3"
+        ).fetchone()[0]
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    target = _comparison(game_session, {"q": x.approx_quantile(0.5)}).compute()
+    report = target.attribute(by=(player,), permutations=16, seed=7).compute()
+    rows = report.to_pandas()
+    assert rows["total.q"].tolist() == [current - baseline, current - baseline]
+    assert sum(rows["contribution.q"]) == pytest.approx(current - baseline)
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.game.metric_approximation == "native_approximate_metric/v1"
+    assert method.leaves[0].reduction.reducer == "approx_quantile"
+    assert method.leaves[0].reduction.algorithm_version == "original_native_reducer/v1"
+
+
+def test_native_demanded_empty_coalition_rejects_complete_call(
+    game_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute("DELETE FROM facts WHERE id IN (2,3)")
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    target = _comparison(game_session, {"q": x.quantile(0.5) * x.count()}).compute()
+    with pytest.raises(AnalysisError, match="undefined") as error:
+        target.attribute(by=(player,), permutations=64, seed=7).compute()
+    assert error.value.reason == "invalid_value"
+
+
+def test_native_reads_can_change_between_queries_while_players_and_endpoints_stay_cached(
+    game_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.analysis.materialization.graph_local_execution as local_execution
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    target = _comparison(game_session, {"q": x.quantile(0.5) * x.count()}).compute()
+    open_backend = DatasourceConnectionService.use_backend
+
+    @contextmanager
+    def writable_fixture(service, name, **kwargs):
+        # This test permits an independent fixture writer while real native
+        # reducers run. Production still uses its ordinary read-only connections.
+        kwargs["read_only"] = False
+        with open_backend(service, name, **kwargs) as backend:
+            yield backend
+
+    monkeypatch.setattr(DatasourceConnectionService, "use_backend", writable_fixture)
+    execute, run_local = SourceSession.execute, local_execution.run_local
+    local_active = False
+    native_queries: list[str] = []
+
+    def checked_local(*args, **kwargs):
+        nonlocal local_active
+        local_active = True
+        try:
+            return run_local(*args, **kwargs)
+        finally:
+            local_active = False
+
+    def changing_source(owner, read):
+        assert not local_active, "local Frame/Query kernels must never initiate source I/O"
+        result = execute(owner, read)
+        if ":native:" in read.purpose:
+            native_queries.append(read.purpose)
+            if len(native_queries) == 1:
+                with duckdb.connect(
+                    str(tmp_path / "game.duckdb"), config={"threads": 1, "TimeZone": "UTC"}
+                ) as connection:
+                    connection.execute("UPDATE facts SET x=x+10 WHERE id>=3")
+                    connection.execute("INSERT INTO facts(id,player,x,y) VALUES (6,'new',1000,1)")
+        return result
+
+    monkeypatch.setattr(local_execution, "run_local", checked_local)
+    monkeypatch.setattr(SourceSession, "execute", changing_source)
+    report = target.attribute(by=(player,), permutations=64, seed=7).compute()
+    rows = report.to_pandas()
+    assert rows.iloc[:, 0].tolist() == ["A", "B"]
+    assert rows["observed_total.q"].tolist() == [2, 2]
+    assert rows["total.q"].tolist() == [22, 22]
+    assert sum(rows["contribution.q"]) == pytest.approx(22)
+    method = report.method_facts[0].parents[0].metrics[0].method
+    assert method.left.value == 25 and method.right.value == 3
+    assert method.game.input_consistency == "independent_reads/v1"
+    assert len(native_queries) == len(set(native_queries)) == 8
+
+
+def test_compatible_native_targets_reuse_leaf_queries_and_permutation_stream(
+    game_session: Session,
+) -> None:
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    metric = x.quantile(0.5) * x.count()
+    target = _comparison(game_session, {"a": metric, "b": metric}).compute()
+    report = target.attribute(by=(player,), permutations=64, seed=7).compute()
+    rows = report.to_pandas()
+    assert rows["contribution.a"].tolist() == rows["contribution.b"].tolist()
+    assert rows["contribution_std_error.a"].tolist() == rows["contribution_std_error.b"].tolist()
+    methods = [
+        metric.method
+        for fact in report.method_facts
+        for parent in fact.parents
+        for metric in parent.metrics
+    ]
+    coalition_ids = [
+        {item.capture_id for item in method.captures if item.purpose == "coalition"}
+        for method in methods
+    ]
+    assert len(coalition_ids[0]) == 8
+    assert coalition_ids[0] == coalition_ids[1]
