@@ -186,7 +186,7 @@ def provider() -> DisclosureProvider:
             "frame.attribute",
             AnalysisFrame.attribute,
             bindings=(bind(AnalysisFrame.attribute, AnalysisFrame),),
-            summary="Explain retained source targets on new business classifications, preserving selected parent keys.",
+            summary="Explain retained source targets by new business classifications.",
             parameters=(
                 P(
                     "by",
@@ -196,10 +196,10 @@ def provider() -> DisclosureProvider:
             ),
             output="AnalysisFrame",
             constraints=(
-                "Every receiver output must be a direct source Metric or admitted compare/align target. Fixed constant division and Metric rescale retain the typed divisor and division order; rescale declares the target unit. Direct projection and rename retain declarations; arbitrary Column arithmetic does not. Each target keeps its own endpoint and baseline.",
+                "Every output must be a direct source Metric or admitted compare/align target. Bind each target before reads to exact additive, rate/mix or fixed linear decomposition. No method override. Level keeps admitted share rules. Define formulas before observation; arbitrary Column arithmetic has no source declaration. Typed fixed division/rescale retain order and units. Quantiles and general nonlinear formulas remain unsupported.",
                 "compute and same-process persist retain the source declaration; independent reopen does not. Complete parent keys and observed values stay fixed. Parent and fine reads are independent, with no shared-snapshot or source-version guarantee.",
-                "Qualified physical tables use native DuckDB, PostgreSQL, MySQL, Trino or ClickHouse execution, subject to method, type and source restrictions. Trust declared identity, relationship cardinality and version grain. Physical nullable identity metadata is allowed; no full-source NULL or uniqueness precheck is added. Declaration violations need not raise; identity-output checks remain. Check operation-specific membership/Population coverage, overlap, distinct-value partitions, numeric validity and complete frozen time correspondence; use explicit source_check for data quality. Float64 method facts preserve captured values without arithmetic recomputation. Only requested final targets must close. Float64 tolerance is max(1% of abs(total), numeric rounding budget); zero totals retain the numeric budget. Integer/count closure is exact; Decimal and Duration retain their typed policies. One unsupported or nonclosing target rejects the whole request.",
-                "Per target: contribution, total, observed_total, contribution_share plus original fine diagnostics/components and independent presence. Pending components disclose their own numerator/denominator units. Defined zero totals retain contributions and give NA shares. Report filtering preserves its original facts and denominators.",
+                "Qualified physical tables use native backends under type/source/state restrictions. Trust semantic identity, cardinality and version grain, including physical nullable keys; no full-source NULL or uniqueness precheck. Coverage, overlap, distinct partition and frozen time checks remain. Rate/mix requires nonnegative effective weights and group denominators, positive parent denominators, consistent parent/fine components and defined original group rates. Failure never switches rules. Component/effect checks use numeric budgets; unchanged additive/level Float64 closure keeps max(1% of abs(total), numeric rounding budget). One unsupported or nonclosing target rejects the request.",
+                "Per target: contribution, total, observed_total, contribution_share, fine diagnostics and presence. Paired rate/mix adds effect.within, effect.mix and effect.entry_exit; mixed linear formulas add effect.additive. Relative contributions/effects use one absolute fresh parent baseline. Zero totals give NA shares. Filtering preserves the original complete contribution domain, effects and facts. Level and pure additive targets have no synthetic rate/mix columns. Float64 facts retain captured values without arithmetic recomputation.",
             ),
             effects="Capture only. compute reads fresh source facts after evaluating and fixing the parent selection; persist publishes the completed report without serializing declarations.",
             failures=(

@@ -51,6 +51,7 @@ AttributeComponentRole: TypeAlias = Literal[
     "pair_product_sum",
     "pair_weight_sum",
     "pair_count",
+    "pair_negative_count",
 ]
 AttributeSupport: TypeAlias = Literal["rows", "non_null_value", "identity", "co_valid_value_weight"]
 AttributeRuleReason: TypeAlias = Literal["unsupported_expression", "missing_component_proof"]
@@ -217,6 +218,26 @@ class LinearRule:
 
 AttributeRule: TypeAlias = AdditiveRule | RatioComponentRule | LinearRule
 _RecipeValue: TypeAlias = AttributeRule | FixedScalar
+
+
+def rule_effects(rule: AttributeRule) -> tuple[str, ...]:
+    """Return the closed paired-effect directory from the bound rule alone."""
+    if isinstance(rule, AdditiveRule):
+        return ()
+    if isinstance(rule, RatioComponentRule):
+        return ("within", "mix", "entry_exit")
+    operation = rule.operation
+    if isinstance(operation, (RuleAdd, RuleSubtract)):
+        left, right = rule_effects(operation.left), rule_effects(operation.right)
+        if not left and not right:
+            return ()
+        mixed = not left or not right or "additive" in (*left, *right)
+        return (
+            ("within", "mix", "entry_exit", "additive")
+            if mixed
+            else ("within", "mix", "entry_exit")
+        )
+    return rule_effects(operation.operand)
 
 
 def _allows(permission: SumPermission, axis: ComparisonAxis) -> bool:
@@ -425,7 +446,12 @@ def build_attribute_rule(
                     source(
                         item,
                         path,
-                        ("pair_product_sum", "pair_weight_sum", "pair_count"),
+                        (
+                            "pair_product_sum",
+                            "pair_weight_sum",
+                            "pair_count",
+                            "pair_negative_count",
+                        ),
                         "co_valid_value_weight",
                     )
                 )

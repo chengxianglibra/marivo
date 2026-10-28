@@ -354,3 +354,76 @@ def test_native_fixed_members_preserve_attribute_source_constraints(
         assert report["contribution.base.absolute.q"].tolist() == pytest.approx([30, -10])
         assert report["total.base.absolute.q"].tolist() == pytest.approx([20, 20])
         assert report["contribution.base.relative.q"].tolist() == pytest.approx([0.3, -0.1])
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_native_paired_rate_mix_matches_symmetric_oracle(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    data = SourceData(
+        _columns(backend, "BIGINT"),
+        "(1,'base','A',100,NULL,10,DATE '2026-07-01'),"
+        "(2,'base','B',100,NULL,10,DATE '2026-07-01'),"
+        "(3,'current','A',100,NULL,10,DATE '2026-07-01'),"
+        "(4,'current','B',100,NULL,30,DATE '2026-07-01')",
+        "id Int64, tenant String, category String, amount Int64, big Nullable(Int64), weight Int64, day Date",
+        [
+            {
+                "id": identity,
+                "tenant": phase,
+                "category": category,
+                "amount": 100,
+                "big": None,
+                "weight": weight,
+                "day": date(2026, 7, 1),
+            }
+            for identity, phase, category, weight in (
+                (1, "base", "A", 10),
+                (2, "base", "B", 10),
+                (3, "current", "A", 10),
+                (4, "current", "B", 30),
+            )
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("native-paired-rate-mix", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        metrics = {
+            "ratio": amount.sum() / weight.sum(),
+            "weighted": amount.weighted_mean(weight=weight),
+        }
+        current = session.observe(metrics, where=phase == "current")
+        baseline = session.observe(metrics, where=phase == "base")
+        compared = current.compare({"base": mv.baseline(baseline)}).compute()
+        selected = compared.select({name: compared[f"base.absolute.{name}"] for name in metrics})
+        trace = capture_source(monkeypatch)
+        report = selected.attribute(by=(category,)).compute()
+        rows = report.to_pandas()
+        assert rows.iloc[:, 0].tolist() == ["A", "B"]
+        # Independent Fraction arithmetic from the four source rows.
+        assert rows["contribution.ratio"].tolist() == [-2.5, -2.5]
+        assert rows["total.ratio"].tolist() == [-5.0, -5.0]
+        assert rows["effect.within.ratio"].tolist() == pytest.approx([0, float(Fraction(-25, 6))])
+        assert rows["effect.mix.ratio"].tolist() == pytest.approx([-2.5, float(Fraction(5, 3))])
+        assert rows["effect.entry_exit.ratio"].tolist() == [0, 0]
+        assert rows["effect.within.weighted"].tolist() == [0, 0]
+        assert rows["effect.mix.weighted"].tolist() == [-25.0, 25.0]
+        assert rows["contribution.weighted"].tolist() == [-25.0, 25.0]
+        assert rows["total.weighted"].tolist() == [0, 0]
+        assert rows["contribution_share.weighted"].isna().all()
+        # Two independent endpoint parent/fine bundles, with no identity preflight.
+        assert len(trace.native_sql) == 4
+        assert sorted(trace.returned_rows) == [1, 1, 2, 2]
+        saved = report.persist()
+        reopened = session.persisted_frame(saved.artifact_id)
+        assert reopened.method_facts == saved.method_facts
+        assert len(trace.native_sql) == 4

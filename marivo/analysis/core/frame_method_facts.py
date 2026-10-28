@@ -366,7 +366,13 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
 
     def target_values(method: _Method | _LevelMethod) -> Iterator[str]:
         if isinstance(
-            method, (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod)
+            method,
+            (
+                FrameAdditiveMethod,
+                FrameRatioMethod,
+                FrameLinearMethod,
+                FrameDivisionMethod,
+            ),
         ):
             yield from method_values(method)
         else:
@@ -446,7 +452,9 @@ class FrameRatioMethod(_FactRecord):
     """Explain parent ratio components. Args: kind, totals, four components, support.
 
     Returns a frozen rule; e.g. ``FrameRatioMethod('ratio_component', l, r, d, nl, nr, dl, dr, (s,))``.
-    Denominators must be nonzero; component support never substitutes for execution proof.
+    Positive parent denominators and checked components use the versioned symmetric
+    within/mix rule and zero-mass entry/exit boundary. Support retains each original
+    effective NULL mask; the record grants no source execution authority.
     """
 
     kind: Literal["ratio_component"]
@@ -458,10 +466,19 @@ class FrameRatioMethod(_FactRecord):
     denominator_left: FrameMethodValue
     denominator_right: FrameMethodValue
     support: tuple[FrameMethodSupport, ...]
+    rule_version: Literal["symmetric_rate_mix/v1"] = "symmetric_rate_mix/v1"
+    component_policy: Literal["attribute_components/v1"] = "attribute_components/v1"
+    boundary_policy: Literal["zero_mass_entry_exit/v1"] = "zero_mass_entry_exit/v1"
 
     def __post_init__(self) -> None:
         if self.kind != "ratio_component" or type(self.kind) is not str:
             _fail("kind='ratio_component'", repr(self.kind))
+        if (self.rule_version, self.component_policy, self.boundary_policy) != (
+            "symmetric_rate_mix/v1",
+            "attribute_components/v1",
+            "zero_mass_entry_exit/v1",
+        ):
+            _fail("closed versioned rate/mix policies", self.left.column.name)
         _totals(self.left, self.right, self.change)
         _totals(self.numerator_left, self.numerator_right, self.numerator_left)
         _totals(self.denominator_left, self.denominator_right, self.denominator_left)
@@ -469,8 +486,8 @@ class FrameRatioMethod(_FactRecord):
             (self.numerator_left, self.denominator_left),
             (self.numerator_right, self.denominator_right),
         ):
-            if denominator.value == 0:
-                _fail("nonzero parent ratio denominators", denominator.column.name)
+            if not isinstance(denominator.value, (int, float, Decimal)) or denominator.value <= 0:
+                _fail("positive parent ratio denominators", denominator.column.name)
             if (
                 _quotient_unit(numerator.column.unit, denominator.column.unit)
                 != self.left.column.unit
@@ -482,6 +499,7 @@ class FrameRatioMethod(_FactRecord):
         return f"kind=ratio_component, column={_short(self.left.column.name)!r}, roots={len(self.support)}"
 
     def _lines(self) -> Iterator[str]:
+        yield f"rule={self.rule_version}; components={self.component_policy}; boundary={self.boundary_policy}"
         yield from _method_lines(self)
 
 
@@ -809,6 +827,10 @@ class FrameMethodOutput(_FactRecord):
         "present",
         "current_present",
         "baseline_present",
+        "effect_within",
+        "effect_mix",
+        "effect_entry_exit",
+        "effect_additive",
     ]
     path: tuple[str, ...]
 
@@ -834,6 +856,10 @@ class FrameMethodOutput(_FactRecord):
             "present",
             "current_present",
             "baseline_present",
+            "effect_within",
+            "effect_mix",
+            "effect_entry_exit",
+            "effect_additive",
         ):
             _fail("a closed report output role", repr(self.role))
         if (
@@ -929,7 +955,12 @@ class FrameAttributeMetric(_FactRecord):
         elif self.kind in ("absolute", "relative"):
             if not isinstance(
                 self.method,
-                (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod),
+                (
+                    FrameAdditiveMethod,
+                    FrameRatioMethod,
+                    FrameLinearMethod,
+                    FrameDivisionMethod,
+                ),
             ):
                 _fail("a two-endpoint change rule", self.name)
             _method(self.method)
@@ -990,6 +1021,24 @@ class FrameAttributeMetric(_FactRecord):
             or len({item.path for item in self.outputs}) != len(self.outputs)
         ):
             _fail("four ordered main outputs and unique diagnostic mappings", self.name)
+
+        def effect_roles(method: _Method | _LevelMethod) -> set[str]:
+            if isinstance(method, FrameRatioMethod):
+                return {"effect_within", "effect_mix", "effect_entry_exit"}
+            if isinstance(method, FrameDivisionMethod):
+                return effect_roles(method.method)
+            if isinstance(method, FrameLinearMethod):
+                children = tuple(effect_roles(term.method) for term in method.terms)
+                combined = set().union(*children)
+                if combined and any(not child for child in children):
+                    combined.add("effect_additive")
+                return combined
+            return set()
+
+        expected_effects = effect_roles(self.method)
+        actual_effects = {role for role in roles if role.startswith("effect_")}
+        if expected_effects != actual_effects:
+            _fail("exact effect mappings selected by the closed rule", self.name)
         if self.share_state != ("zero_total" if self.total.value == 0 else "defined"):
             _fail("share state matching the exact reread total", self.name)
 
@@ -1256,8 +1305,12 @@ class FrameMethodFacts(_FactRecord):
                     typed[output.role] = column
                     mapped_values.append(output.path)
             total = typed["total"]
-            for role in ("contribution", "observed_total"):
-                if typed[role].dtype != total.dtype or typed[role].unit != total.unit:
+            for main_role in (
+                "contribution",
+                "observed_total",
+                *(effect_role for effect_role in typed if effect_role.startswith("effect_")),
+            ):
+                if typed[main_role].dtype != total.dtype or typed[main_role].unit != total.unit:
                     _fail(
                         "main totals and contributions sharing the exact carrier and unit",
                         repr(target.target),
@@ -1321,11 +1374,11 @@ class FrameMethodFacts(_FactRecord):
                             denominator_current=rule.denominator_left.column,
                             denominator_baseline=rule.denominator_right.column,
                         )
-                for role in required_presence:
-                    if role not in by_role:
+                for presence_role in required_presence:
+                    if presence_role not in by_role:
                         _fail("all endpoint presence diagnostics", metric.name)
-                for role, column in expected_columns.items():
-                    diagnostic = directory.get(by_role.get(role, ()))
+                for diagnostic_role, column in expected_columns.items():
+                    diagnostic = directory.get(by_role.get(diagnostic_role, ()))
                     if (
                         diagnostic is None
                         or diagnostic.dtype != column.dtype
@@ -1334,16 +1387,18 @@ class FrameMethodFacts(_FactRecord):
                     ):
                         _fail(
                             "diagnostic columns matching exact captured rule carriers and units",
-                            role,
+                            diagnostic_role,
                         )
                 for output in metric.outputs:
                     if output.path not in directory and output.path not in presence:
                         _fail("output mappings resolving in the saved schema", repr(output.path))
-                for role, value in (
+                for total_role, value in (
                     ("total", metric.total),
                     ("observed_total", metric.observed_total),
                 ):
-                    path = next(output.path for output in metric.outputs if output.role == role)
+                    path = next(
+                        output.path for output in metric.outputs if output.role == total_role
+                    )
                     if directory.get(path) != value.column:
                         _fail("exact typed report columns for parent totals", repr(path))
         if (

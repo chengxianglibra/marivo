@@ -274,6 +274,7 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         "aligned-absolute-only",
         "attribute-default-investigation",
         "attribute-contribution-facts",
+        "attribute-rate-effects",
         "attribute-explicit-default-after-refusal",
         "comparison-endpoint-followup",
         "broadcast-reference",

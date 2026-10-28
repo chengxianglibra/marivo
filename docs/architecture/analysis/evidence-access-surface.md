@@ -121,14 +121,19 @@ Additive expressions containing division retain their ordered linear wrappers
 and nested division facts through publication and independent recovery.
 Parent support describes the independent parent read; fine support and presence
 describe the fine read. They do not certify matching source versions or identities.
-Audit records retain each actual source read and a separate local final-target
-closure check with its policy version and checked parent count. Policy
-`attribute_closure/v2` includes the Float64 1% final-target allowance with a numeric
-rounding floor. This check records tolerance acceptance, not source consistency.
-Cold reads preserve the original audit without rereading sources or applying a
-newer closure policy. New audits record actual reads, operation checks and final
-closure, without receipts certifying semantic identity or relationship declarations.
-Historical receipts remain unchanged.
+Paired rate/mix facts retain `symmetric_rate_mix/v1`, `attribute_components/v1`
+and `zero_mass_entry_exit/v1`. Output mappings include within, mix and entry_exit;
+mixed additive/rate formulas additionally retain additive effects. Level and pure
+additive targets have no artificial rate/mix columns. Each linear child retains its
+own denominator. Filtering and reduction preserve the original complete explanation,
+rather than changing the effect boundaries or recomputing a coarser decomposition.
+Audit records retain actual independent reads and the local final-target closure
+policy: `attribute_rate_mix/v1` uses numeric rounding only for paired rate/mix;
+unchanged additive/level paths retain `attribute_closure/v2` with the Float64 1%
+final-target allowance and a numeric rounding floor. Component consistency and
+positive-support original N/D checks precede the new effect closure. These checks
+add no identity or uniqueness preflight and do not certify a shared snapshot. Cold
+reads retain captured policy versions and do not reread sources or reapply checks.
 
 Float64 method values are finite captured facts, not arithmetic identities to
 recompute. Validation skips floating ratio, linear, division, endpoint-difference and relative
@@ -144,8 +149,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 18 uses marivo.frame_output/v7,
-frame.v7 and frame-output-v7. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+Memory roots retain the complete records. Store 19 uses marivo.frame_output/v8,
+frame.v8 and frame-output-v8. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
 source/check/Finding counts, internal collection digests and owned-payload
 descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
 opening a manifest never loads either collection. Atomic publication writes both

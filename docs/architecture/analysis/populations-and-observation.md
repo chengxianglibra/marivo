@@ -294,27 +294,51 @@ observed_total and contribution_share per target plus original fine diagnostics,
 components and presence. Zero defined totals retain signed contributions and give
 NA shares. Filtering the report preserves original totals and method facts.
 
-For every complete parent key, only the requested final target is checked against
-the independently evaluated fresh parent total. Absolute targets compare final
-differences; relative targets divide by the absolute fresh parent baseline. Neither
-imposes extra endpoint or component numerical equality. Historical observed values
-remain separate. A failed target fails the whole request without residual repair,
-rebalancing, or automatic rereads.
+Rules bind per target before business reads. Additive, native mean/weighted mean,
+component ratios and captured fixed linear formulas retain their original total
+contributions. Quantiles and general nonlinear formulas remain unsupported; there
+is no public method selector or sampling configuration.
 
-The report closure owner uses zero tolerance for proved integer/count paths,
-including integer SUM and exactly represented Decimal paths through
-add/subtract/integer scaling, and for final Duration ticks, including rounded Duration means. Other
-Decimal results use the common final scale's `(n + 1) / 2` quantum window. Float64
-uses stable summation and accepts an absolute residual up to the greater of 1%
-of the absolute fresh final target total and the existing endpoint-rounding and
-magnitude ULP budget. The 1% applies to the level, absolute change or normalized
-relative change actually requested, not the endpoint magnitudes or historical
-observed total. Zero totals retain only the numeric budget. The total, sum,
-residual and budget must all be finite. This business closure allowance does not
-rebalance contributions or prove source consistency or backend numerical accuracy.
-Native precision and overflow contracts still apply. Source evidence records independent actual
-reads; successful closure is recorded on its local consuming stage. Reopened
-results retain inert facts and do not reread sources or rerun closure.
+Paired rate/mix rules add `effect.within`, `effect.mix` and `effect.entry_exit` for
+each target. For a group supported at both endpoints, let r be its numerator divided
+by its denominator and w its share of the parent denominator. The symmetric effects
+are `within=(w0+w1)/2*(r1-r0)` and `mix=(r0+r1)/2*(w1-w0)`. Their sum is the original
+change in the group's parent-normalized numerator. An entering or exiting supported
+group has zero within/mix and its entire contribution in entry_exit; a zero-support
+side must have zero numerator mass. Undefined original group rates remain NA.
+Fixed linear wrappers preserve ordered arithmetic and each ratio's own denominator;
+formulas mixing additive and rate terms also expose `effect.additive`. Level and
+pure additive targets do not manufacture rate/mix effects. Relative contributions
+and effects divide by the same absolute fresh parent baseline, which must be defined
+and nonzero. Effects sum to each group's contribution.
+
+Rate/mix requires positive parent denominators, nonnegative group denominators and
+nonnegative actual effective pair weights. It validates each captured component and
+support count between independent parent and summed fine inputs, validates original
+positive-support group values against N/D, and checks effect and final closure.
+Negative pair weights cannot be hidden by a positive group weight sum. Checks use
+only the same relevant source reads; they do not re-prove semantic identity or reread
+inconsistent inputs. Violations fail the complete request without switching rules,
+changing weights, rebalancing contributions or publishing a partial result.
+
+`attribute_components/v1` checks exact integral masses. Float64 uses stable summation
+with a budget of `16*(terms+1)*ulp(magnitude)`, where magnitude is the greater of the
+expected magnitude and the sum of absolute terms. Typed Decimal and Duration
+identities include their finishing quantum only where rounding applies. Float64
+effect identities additionally propagate rounding from their actual endpoint
+rates, weights and allocation operands through the ordered arithmetic and fixed
+linear wrappers. Those invocation-only bounds do not relax source component
+consistency checks and are never persisted as executable state. Unrepresentable
+or nonfinite budgets fail through the numeric owner with the captured target and
+parent/fine witness. Paired
+rate/mix final closure uses `attribute_rate_mix/v1`, without the previous 1% business
+allowance. Unchanged additive/level paths retain `attribute_closure/v2`: exact
+integer/count and final Duration ticks, the common final Decimal scale's
+`(n+1)/2` quantum window, and Float64's greater of 1% of the absolute fresh requested
+final total and its numeric rounding budget. Zero totals retain only that numeric
+budget. All totals, residuals and budgets must be finite. Historical observed totals
+remain separate; passing closure does not certify a cross-source snapshot. Inert
+cold facts preserve their original versioned explanation without rerunning checks.
 
 compute and same-process persist retain the instance declaration. Independent
 reopen retains fixed data and explanatory method facts but no executable declaration.

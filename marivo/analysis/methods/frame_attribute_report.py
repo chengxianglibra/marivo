@@ -10,6 +10,7 @@ from typing import Literal
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.binding.attribute_rules import rule_effects
 from marivo.analysis.core.attribute import (
     AttributeClosureWitness,
     AttributeContributionProgram,
@@ -161,6 +162,7 @@ def _closure(
     *,
     relative: bool,
     exact_integer: bool = False,
+    strict: bool = False,
     parent: AttributeParentFiber,
     target: FrameMethodTarget,
     uses: tuple[AttributeUseContext, ...] = (),
@@ -213,7 +215,12 @@ def _closure(
                 (rule.left, rule.right)
                 if isinstance(
                     rule,
-                    (FrameAdditiveMethod, FrameRatioMethod, FrameLinearMethod, FrameDivisionMethod),
+                    (
+                        FrameAdditiveMethod,
+                        FrameRatioMethod,
+                        FrameLinearMethod,
+                        FrameDivisionMethod,
+                    ),
                 )
                 else (rule.value,)
             )
@@ -248,7 +255,8 @@ def _closure(
             tolerance = 16 * (len(cells) + 1) * (source_error + ulp(magnitude))
             # Accept business closure within 1% of the requested final target,
             # retaining the numeric floor for zero totals and cancellation.
-            tolerance = max(tolerance, abs(expected) * 0.01)
+            if not strict:
+                tolerance = max(tolerance, abs(expected) * 0.01)
             residual = actual - expected
             if not all(
                 isfinite(value)
@@ -375,6 +383,18 @@ def report_attribute(
             ),
         }
     )
+    effect_roles: dict[
+        str, Literal["effect_within", "effect_mix", "effect_entry_exit", "effect_additive"]
+    ] = {
+        "within": "effect_within",
+        "mix": "effect_mix",
+        "entry_exit": "effect_entry_exit",
+        "additive": "effect_additive",
+    }
+    for effect in rule_effects(program.operation.rules[0][0][1]):
+        diagnostic[("effect", effect)] = FrameMethodOutput(
+            effect_roles[effect], ("effect", effect, *target.path)
+        )
     for path in report_schema.value_paths[4:]:
         mappings.append(diagnostic[path[: -len(target.path)]])
     presence_mapping = {
@@ -390,9 +410,7 @@ def report_attribute(
         mappings.append(presence_mapping[path[1]])
     descriptor = FrameMethodTarget(target.path, target.mode, tuple(mappings))
     methods: list[_Method | _LevelMethod] = []
-    paired_methods: list[
-        FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
-    ] = []
+    paired_methods: list[_Method] = []
     totals: list[FrameMethodValue] = []
     for index, _key in enumerate(parent_keys):
         method: _Method | _LevelMethod
@@ -442,7 +460,9 @@ def report_attribute(
     else:
         result[share_column.slot_id] = rows[old[("contribution_share", "target")].slot_id]
     for path in report_schema.value_paths[4:]:
-        if path[0] == "detail":
+        if path[0] == "effect":
+            source_role = "effect_" + path[1]
+        elif path[0] == "detail":
             source_role = {
                 "value": "left",
                 "current": "left",
@@ -455,9 +475,10 @@ def report_attribute(
                 component + "_" + ("left" if endpoint in ("value", "current") else "right")
             )
         source_column = source_columns(rows, (old[(source_role, "target")],))[0]
-        result[output[path].slot_id] = _report_value(
-            _Value(rows[source_column.slot_id], source_column), output[path]
-        ).values
+        emitted = _Value(rows[source_column.slot_id], source_column)
+        if path[0] == "effect" and target.mode == "relative":
+            emitted = _numeric_binary("div", emitted, denominator, output=output[path].dtype)
+        result[output[path].slot_id] = _report_value(emitted, output[path]).values
     for column, source in zip(report_schema.presence, program.output_schema.presence, strict=False):
         result[column.slot_id] = rows[source.slot_id]
     parents = []
@@ -474,6 +495,7 @@ def report_attribute(
             methods[index],
             relative=target.mode == "relative",
             exact_integer=program.exact_integer_closure,
+            strict=bool(rule_effects(program.operation.rules[0][0][1])) and not level,
             parent=AttributeParentFiber(_key, parent_columns),
             target=descriptor,
             uses=uses,

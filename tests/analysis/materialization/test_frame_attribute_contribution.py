@@ -1709,7 +1709,7 @@ def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(
     def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued)
         if "attribute-parent:" in issued.purpose:
-            rows["attribute.native.0"] += 1e-12
+            rows["attribute.native.0"] += 1e-14
         return rows
 
     monkeypatch.setattr(SourceSession, "execute", read)
@@ -1719,7 +1719,7 @@ def test_float_method_facts_capture_native_ratio_and_survive_cold_recovery(
     metric = parent.metrics[0]
     method = metric.method
     assert isinstance(method, FrameRatioMethod)
-    assert method.left.value == 120.0 + 1e-12
+    assert method.left.value == 120.0 + 1e-14
     assert method.numerator_left.value == 240 and method.denominator_left.value == 2
     saved_native = result.persist()
     saved_native.show()
@@ -1747,7 +1747,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('cold facts attempted a source/model read')
 with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSession,'__init__',forbidden):
     session=mv.session.resume(sys.argv[1])
-    for artifact, expected in ((sys.argv[2], 120.0+1e-12), (sys.argv[3], 999.0)):
+    for artifact, expected in ((sys.argv[2], 120.0+1e-14), (sys.argv[3], 999.0)):
         saved=session.persisted_frame(artifact)
         assert saved.compute().method_facts[0].parents[0].metrics[0].method.left.value==expected
         saved.show()
@@ -1863,3 +1863,286 @@ def test_fix_after_align_preserves_attribute_endpoint_presence(
                 selected.attribute(by=(channel,)).compute()
             assert caught.value.reason == "undefined_input"
             assert "no structural endpoint scope" in caught.value.received
+
+
+def test_exact_rate_mix_ratio_witness_and_relative_effects(
+    session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=100, weight=CASE WHEN phase='current' AND channel='B' THEN 30 ELSE 10 END"
+        )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    metric = amount.sum() / weight.sum()
+    current = session.observe({"q": metric}, where=phase == "current")
+    baseline = session.observe({"q": metric}, where=phase == "base")
+    compared = current.compare({"base": mv.baseline(baseline)})
+    selected = compared.select(
+        {"absolute": compared["base.absolute.q"], "relative": compared["base.relative.q"]}
+    )
+    fixed = selected.attribute(by=(channel,)).compute()
+    rows = fixed.to_pandas()
+    assert rows["contribution.absolute"].tolist() == pytest.approx([-2.5, -2.5])
+    assert rows["effect.within.absolute"].tolist() == pytest.approx([0, -25 / 6])
+    assert rows["effect.mix.absolute"].tolist() == pytest.approx([-2.5, 5 / 3])
+    assert rows["effect.entry_exit.absolute"].tolist() == [0, 0]
+    for role in ("contribution", "effect.within", "effect.mix", "effect.entry_exit"):
+        assert rows[f"{role}.relative"].tolist() == pytest.approx(
+            [value / 10 for value in rows[f"{role}.absolute"]]
+        )
+    method = fixed.method_facts[0].parents[0].metrics[0].method
+    from marivo.analysis.core.frame_method_facts import FrameRatioMethod
+
+    assert isinstance(method, FrameRatioMethod)
+    assert method.rule_version == "symmetric_rate_mix/v1"
+    persisted = fixed.persist()
+    checks = [
+        dict(item.values) for item in persisted.evidence(limit=100).items if item.kind == "check"
+    ]
+    assert any(item.get("policy") == "attribute_rate_mix/v1" for item in checks)
+    reopened = session.persisted_frame(persisted.artifact_id)
+    assert reopened.to_pandas().equals(rows)
+    assert reopened.method_facts == fixed.method_facts
+
+
+@pytest.mark.parametrize("reversed_endpoints", [False, True])
+def test_exact_rate_mix_entry_exit_preserves_undefined_diagnostics(
+    session: Session, tmp_path: Path, reversed_endpoints: bool
+) -> None:
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=NULL WHERE (phase='base' AND channel='A') OR (phase='current' AND channel='B')"
+        )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    current = session.observe(
+        {"q": amount.mean()}, where=phase == ("base" if reversed_endpoints else "current")
+    )
+    baseline = session.observe(
+        {"q": amount.mean()}, where=phase == ("current" if reversed_endpoints else "base")
+    )
+    rows = _contribution(current, baseline, by=(channel,)).compute().to_pandas()
+    sign = -1 if reversed_endpoints else 1
+    assert rows["effect.entry_exit.q"].tolist() == pytest.approx([160 * sign, -100 * sign])
+    assert rows["effect.within.q"].tolist() == [0, 0]
+    assert rows["effect.mix.q"].tolist() == [0, 0]
+    assert rows[
+        "detail.baseline.q" if not reversed_endpoints else "detail.current.q"
+    ].isna().tolist() == [True, False]
+
+
+def test_exact_rate_mix_rejects_negative_effective_weight_hidden_by_sum(
+    session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute("INSERT INTO facts VALUES (5,'current','east','A',100,-1)")
+        connection.execute("UPDATE facts SET weight=3 WHERE id=3")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    with pytest.raises(AttributeInputError, match="nonnegative") as error:
+        _contribution(
+            session.observe({"q": amount.weighted_mean(weight=weight)}, where=phase == "current"),
+            session.observe({"q": amount.weighted_mean(weight=weight)}, where=phase == "base"),
+            by=(channel,),
+        ).compute()
+    assert error.value.reason == "invalid_rate_support"
+
+
+def test_exact_mixed_additive_rate_effects_close(session: Session) -> None:
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    metric = amount.sum() + 2 * amount.mean()
+    rows = (
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
+            by=(channel,),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["effect.additive.q"].tolist() == [60, -20]
+    effects = rows[
+        [f"effect.{role}.q" for role in ("additive", "within", "mix", "entry_exit")]
+    ].sum(axis=1)
+    assert effects.tolist() == pytest.approx(rows["contribution.q"].tolist())
+
+
+@pytest.mark.parametrize(
+    "case", ["negative_denominator", "zero_denominator_mass", "undefined_numerator"]
+)
+def test_exact_rate_mix_rejects_invalid_group_components(
+    session: Session, tmp_path: Path, case: str
+) -> None:
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        if case == "negative_denominator":
+            connection.execute(
+                "UPDATE facts SET weight=CASE channel WHEN 'A' THEN -1 ELSE 3 END WHERE phase='base'"
+            )
+        elif case == "zero_denominator_mass":
+            connection.execute("UPDATE facts SET weight=0 WHERE phase='base' AND channel='A'")
+        else:
+            connection.execute("UPDATE facts SET amount=NULL WHERE phase='base' AND channel='A'")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    metric = amount.sum() / weight.sum()
+    with pytest.raises(AttributeInputError) as error:
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
+            by=(channel,),
+        ).compute()
+    assert error.value.reason == (
+        "undefined_input" if case == "undefined_numerator" else "invalid_rate_support"
+    )
+
+
+def test_exact_rate_mix_rejects_small_component_drift_before_final_closure(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import SourceSession
+
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    execute = SourceSession.execute
+
+    def drift(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "attribute-parent:" in issued.purpose:
+            for name in rows.columns:
+                if name.endswith(".valid_value_sum"):
+                    rows[name] = rows[name] + 1
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", drift)
+    with pytest.raises(AttributeInputError) as error:
+        _contribution(
+            session.observe({"q": amount.mean()}, where=phase == "current"),
+            session.observe({"q": amount.mean()}, where=phase == "base"),
+            by=(channel,),
+        ).compute()
+    assert error.value.reason == "component_mismatch"
+    assert error.value.attribute_context is not None
+    assert isinstance(error.value.attribute_context.fiber, AttributeParentFiber)
+
+
+def test_exact_level_and_additive_outputs_have_no_synthetic_effects(session: Session) -> None:
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    level = session.observe({"q": amount.mean()}, where=phase == "current").attribute(by=(channel,))
+    additive = _contribution(
+        session.observe({"q": amount.sum()}, where=phase == "current"),
+        session.observe({"q": amount.sum()}, where=phase == "base"),
+        by=(channel,),
+    )
+    for pending in (level, additive):
+        assert not any(name.startswith("effect.") for name in pending.output_names)
+        assert not any(name.startswith("effect.") for name in pending.compute().output_names)
+
+
+def test_exact_rate_mix_rejects_original_fine_ratio_drift(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import SourceSession
+
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    execute = SourceSession.execute
+
+    def drift(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(self, issued)
+        if "attribute-parent:" not in issued.purpose and "attribute.native.0" in rows:
+            rows["attribute.native.0"] = rows["attribute.native.0"] + 0.001
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", drift)
+    metric = amount.sum() / weight.sum()
+    with pytest.raises(AttributeInputError) as error:
+        _contribution(
+            session.observe({"q": metric}, where=phase == "current"),
+            session.observe({"q": metric}, where=phase == "base"),
+            by=(channel,),
+        ).compute()
+    assert error.value.reason == "component_mismatch"
+    assert error.value.attribute_context is not None
+    assert isinstance(error.value.attribute_context.fiber, AttributeFineFiber)
+
+
+@pytest.mark.parametrize("formula", ["ratio", "divide", "mixed"])
+def test_rate_effect_identity_retains_operand_rounding(
+    session: Session, tmp_path: Path, formula: str
+) -> None:
+    from fractions import Fraction
+
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute(
+            "UPDATE facts SET amount=CASE WHEN id=3 THEN 101 ELSE 100 END, "
+            "weight=CASE channel WHEN 'A' THEN 3 ELSE 7 END"
+        )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    ratio = amount.sum() / weight.sum()
+    metric = (
+        ratio / 3
+        if formula == "divide"
+        else ratio - ratio / 100 + amount.sum() / 10
+        if formula == "mixed"
+        else ratio
+    )
+    expected = (
+        Fraction(1, 30)
+        if formula == "divide"
+        else Fraction(199, 1000)
+        if formula == "mixed"
+        else Fraction(1, 10)
+    )
+    current = session.observe({"q": metric}, where=phase == "current")
+    baseline = session.observe({"q": metric}, where=phase == "base")
+    rows = _contribution(current, baseline, by=(channel,)).compute().to_pandas()
+    assert rows["contribution.q"].tolist() == pytest.approx([float(expected), 0])
+    effects = [f"effect.{role}.q" for role in ("within", "mix", "entry_exit")]
+    if formula == "mixed":
+        effects.append("effect.additive.q")
+    assert rows[effects].sum(axis=1).tolist() == pytest.approx([float(expected), 0])
+
+
+def test_component_budget_overflow_keeps_numeric_owner_and_fiber(
+    session: Session, tmp_path: Path
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER COLUMN amount TYPE DOUBLE")
+        connection.execute(
+            "UPDATE facts SET amount=CASE channel WHEN 'A' THEN 1e308 ELSE -1e308 END"
+        )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    current = session.observe({"q": amount.mean()}, where=phase == "current")
+    baseline = session.observe({"q": amount.mean()}, where=phase == "base")
+    with pytest.raises(MaterializationError) as captured:
+        _contribution(current, baseline, by=(channel,)).compute()
+    assert captured.value.stage == "numeric_value"
+    assert "finite Attribute component/effect numeric budget" in captured.value.expected
+    assert captured.value.attribute_context is not None
+    context = captured.value.attribute_context
+    assert isinstance(context.fiber, AttributeParentFiber)
+    assert context.fiber.parent == ()
+    assert isinstance(context.witness, AttributeNumericWitness)
+    assert {use.metric for use in context.uses} == {"q"}

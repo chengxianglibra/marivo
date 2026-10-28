@@ -3,6 +3,7 @@
 from dataclasses import FrozenInstanceError, fields, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Literal
 
 import pytest
 
@@ -25,6 +26,7 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
+    FrameDivisionMethod,
     FrameLinearMethod,
     FrameLinearTerm,
     FrameMethodCoordinate,
@@ -83,6 +85,23 @@ def ratio() -> FrameRatioMethod:
     )
 
 
+def effect_names(
+    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod,
+) -> tuple[Literal["within", "mix", "entry_exit", "additive"], ...]:
+    if isinstance(method, FrameAdditiveMethod):
+        return ()
+    if isinstance(method, FrameRatioMethod):
+        return ("within", "mix", "entry_exit")
+    if isinstance(method, FrameDivisionMethod):
+        return effect_names(method.method)
+    children = tuple(effect_names(term.method) for term in method.terms)
+    if not any(children):
+        return ()
+    if any(not child or "additive" in child for child in children):
+        return ("within", "mix", "entry_exit", "additive")
+    return ("within", "mix", "entry_exit")
+
+
 def schema(
     method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod,
     axes: tuple[DataAxis | CalendarDataAxis | PairedDataAxis, ...] = (),
@@ -116,6 +135,12 @@ def schema(
                 ),
             )
         )
+    values.extend(
+        column(
+            f"effect.{effect}.{name}", method.change.column.dtype, unit=method.change.column.unit
+        )
+        for effect in effect_names(method)
+    )
     presence = tuple(
         column(
             f"detail.{side}.present.{name}", ScalarDataType("boolean"), nullable=False, unit=None
@@ -161,6 +186,13 @@ def metric(
                 ),
             )
         )
+    effects = {
+        "within": FrameMethodOutput("effect_within", ("effect", "within", name)),
+        "mix": FrameMethodOutput("effect_mix", ("effect", "mix", name)),
+        "entry_exit": FrameMethodOutput("effect_entry_exit", ("effect", "entry_exit", name)),
+        "additive": FrameMethodOutput("effect_additive", ("effect", "additive", name)),
+    }
+    mapping.extend(effects[effect] for effect in effect_names(rule))
     mapping.extend(
         (
             FrameMethodOutput("current_present", ("detail", "current", "present", name)),
@@ -306,7 +338,7 @@ def test_method_types_units_nonnull_totals_and_zero_denominator() -> None:
         with pytest.raises(CoreRuleError):
             replace(rule, **changes)
     ratio_rule = ratio()
-    with pytest.raises(CoreRuleError, match="nonzero"):
+    with pytest.raises(CoreRuleError, match="positive parent ratio denominators"):
         replace(ratio_rule, denominator_left=replace(ratio_rule.denominator_left, value=0.0))
     with pytest.raises(CoreRuleError, match="component units"):
         replace(

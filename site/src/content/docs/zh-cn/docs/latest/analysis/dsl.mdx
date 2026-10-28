@@ -301,9 +301,35 @@ Help：`analysis.analysis_frame.attribute`。
 
 来源数值除法在相除前将两个操作数转换为 Float64，确保 Trino 等后端保留整数比率的小数部分；分母为零仍返回 NULL。
 
-Float64 接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值舍入预算)`。百分比针对新读的最终目标：水平值、绝对变化量或归一化后的相对变化量。目标为零时只保留数值预算。整数和次数仍要求精确闭合，Decimal 和 Duration 保持原有规则。目标超出相应规则时请求失败；通过验收的残差不会重新分配。
+规则在读取业务数据之前按每个目标固定，不提供 `method` 参数。可加指标与受支持的比率、mean、weighted_mean、固定线性组合使用精确分解。配对的 rate/mix 目标增加 `effect.within.<name>`、`effect.mix.<name>` 和 `effect.entry_exit.<name>`；混合可加项时另有 `effect.additive.<name>`。效果之和等于该组贡献。进入退出按零分母且零分子质量的边界定义；不会把未定义的组内率填成零。组分母和有效配对权重必须非负，父分母必须为正，父级/细组组件和原始组率必须一致。失败不会换规则。
+
+分位数和一般非线性目标保持不支持。单端 level 保持原有份额准入，不制造零基准；普通 Column 算术不获得来源资格。
+
+新 rate/mix 组件、效果闭合只使用版本化数值预算，不采用 1% 业务余量。未改变的可加/level Float64 路线仍接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值舍入预算)`；整数、Decimal 和 Duration 保持相应类型规则。残差不会重新分配。相对贡献和效果均除以同一个新读父级基准的绝对值，零或未定义基准拒绝。
 
 从总额下降出发，再判断各地区解释多少。
+
+{/* example: attribute-rate-effects */}
+
+```python
+order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_time_entry.kind == "time_dimension"
+average = amount.mean(time=order_time_entry.value)
+average_current = session.observe({"average": average}, by=(august,))
+average_baseline = session.observe({"average": average}, by=(july,))
+average_change = average_current.compare(
+    {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
+).compute()
+average_target = average_change.select(
+    {"average": average_change["reference.absolute.average"]}
+)
+average_explained = average_target.attribute(by=(region,)).compute()
+effect_columns = [f"effect.{role}.average" for role in ("within", "mix", "entry_exit")]
+average_rows = average_explained.to_pandas()
+assert all(name in average_rows.columns for name in effect_columns)
+```
+
+组内效果解释地区自身均值的变化，结构效果解释有效样本量份额的变化，进入退出效果单独保留。
 
 ### 读取新的拆分
 
@@ -357,6 +383,8 @@ nonlinear_investigation = fine_current.compare(
     }
 ).compute()
 ```
+
+
 
 ### 区分拆分与贡献说明
 

@@ -276,7 +276,7 @@ def bundle_attribute_plan(
                         f"attribute.component.{token}.{role}",
                         role,
                         ScalarDataType("int64")
-                        if role in ("valid_value_count", "pair_count")
+                        if role in ("valid_value_count", "pair_count", "pair_negative_count")
                         else next(
                             c.dtype for c in member.columns if c.slot_id == reduction.value_slot
                         ),
@@ -693,7 +693,7 @@ def _lower_attribute_fiber(
                 value_item = lower_row(node.value, local_fields).value
                 weight_item = lower_row(node.weight, local_fields).value
                 effective = (
-                    (value_item.notnull() & weight_item.notnull()).cast("int64").sum().fill_null(0)
+                    (value_item.notnull() & weight_item.notnull()).ifelse(1, ibis.null()).count()
                 )
             values[leaf.effective.slot_id] = effective
             for index, check in enumerate(original.checks):
@@ -748,7 +748,9 @@ def _lower_attribute_fiber(
                     weight = lower_row(node.weight, local_fields).value
                     pair = value_item.notnull() & weight.notnull()
                     if role == "pair_count":
-                        value = pair.cast("int64").sum().fill_null(0)
+                        value = pair.ifelse(1, ibis.null()).count()
+                    elif role == "pair_negative_count":
+                        value = (pair & (weight < 0)).ifelse(1, ibis.null()).count()
                     else:
                         item = (
                             numeric_binary(

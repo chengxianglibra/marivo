@@ -442,16 +442,28 @@ def _evaluate_frame(
             if isinstance(stage, FrameCompute) and isinstance(
                 stage.program, AttributeContributionProgram
             ):
+                from marivo.analysis.binding.attribute_rules import rule_effects
+
                 target = stage.program.operation.target
                 assert target is not None
+                rate_mix = target.mode != "level" and bool(
+                    rule_effects(stage.program.operation.rules[0][0][1])
+                )
                 checks.append(
                     OutputEvidence(
                         "check",
-                        "Requested final Attribute target passed closure within the target tolerance against independently read parent totals; source consistency was not audited.",
+                        (
+                            "Rate/mix components, supported original N/D, effect identities and final target passed the versioned numeric checks against independently read parent and fine inputs."
+                            if rate_mix
+                            else "Requested final Attribute target passed closure within the target tolerance against independently read parent totals; source consistency was not audited."
+                        ),
                         (
                             ("stage", stage.stage_id),
                             ("check", "attribute_closure"),
-                            ("policy", "attribute_closure/v2"),
+                            (
+                                "policy",
+                                "attribute_rate_mix/v1" if rate_mix else "attribute_closure/v2",
+                            ),
                             ("target", ".".join(target.path)),
                             ("mode", target.mode),
                             (

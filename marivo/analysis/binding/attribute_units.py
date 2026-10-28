@@ -104,9 +104,13 @@ def component_unit(
 ) -> str | None:
     from marivo.semantic.unit_algebra import multiply_unit_states, render_unit, unit_state
 
-    if role in ("input_count", "effective_count", "valid_value_count", "pair_count") or isinstance(
-        node, EntityCount
-    ):
+    if role in (
+        "input_count",
+        "effective_count",
+        "valid_value_count",
+        "pair_count",
+        "pair_negative_count",
+    ) or isinstance(node, EntityCount):
         return "1"
     if isinstance(node, SourceWeightedMean):
         value, weight = row_unit(node.value), row_unit(node.weight)

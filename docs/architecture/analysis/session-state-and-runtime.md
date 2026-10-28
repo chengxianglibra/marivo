@@ -127,8 +127,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 18 is under `<project_root>/.marivo/analysis/generations/v18/`. One closed
-`marivo.frame_output/v7` protocol stores values, complete axes, independent presence, typed
+Store 19 is under `<project_root>/.marivo/analysis/generations/v19/`. One closed
+`marivo.frame_output/v8` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and audit directly.
@@ -279,8 +279,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v7`, `frame.v7` and `frame-output-v7` under
-`.marivo/analysis/generations/v18/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v8`, `frame.v8` and `frame-output-v8` under
+`.marivo/analysis/generations/v19/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -363,7 +363,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage. Pending Frames derive it from explicit inputs at construction; compute,
-publication and cold recovery preserve it. Store 18 / output v7 requires the
+publication and cold recovery preserve it. Store 19 / output v8 requires the
 complete value/axis/presence directories and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved
 derivative owns its complete lineage without requiring ancestor artifacts or the

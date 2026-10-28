@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import Decimal, localcontext
+from math import fsum, isfinite, ulp
 from typing import Literal
 
 import pandas as pd
@@ -24,6 +25,7 @@ from marivo.analysis.binding.attribute_rules import (
     RuleScale,
     RuleSubtract,
     component_requests,
+    rule_effects,
 )
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import formula_columns
@@ -68,6 +70,87 @@ from marivo.semantic._numeric_lowering import numeric_failure
 class _Value:
     values: pd.Series
     column: DataColumn
+    roundoff: pd.Series | None = None
+
+
+def _with_roundoff(value: _Value) -> _Value:
+    """Seed effect-only error propagation from the actual Float64 operands."""
+    if value.column.dtype != ScalarDataType("float64") or value.roundoff is not None:
+        return value
+    return replace(
+        value,
+        roundoff=pd.Series(
+            [0.0 if pd.isna(cell) else ulp(float(cell)) for cell in value.values], dtype=float
+        ),
+    )
+
+
+def _operation_roundoff(
+    operation: Literal["add", "sub", "mul", "div"],
+    a: _Value,
+    b: _Value,
+    values: pd.Series,
+    dtype: DataType,
+) -> pd.Series | None:
+    """Propagate invocation-only effect bounds through the existing ordered kernel."""
+    if dtype != ScalarDataType("float64") or (a.roundoff is None and b.roundoff is None):
+        return None
+    errors: list[float] = []
+    for index, (left, right, result) in enumerate(zip(a.values, b.values, values, strict=True)):
+        if pd.isna(left) or pd.isna(right) or pd.isna(result):
+            errors.append(0.0)
+            continue
+        x, y, z = float(left), float(right), float(result)
+        dx = 0.0 if a.roundoff is None else float(a.roundoff.iloc[index])
+        dy = 0.0 if b.roundoff is None else float(b.roundoff.iloc[index])
+        try:
+            if operation in ("add", "sub"):
+                error = fsum((dx, dy, ulp(z)))
+            elif operation == "mul":
+                error = fsum((abs(y) * dx, abs(x) * dy, dx * dy, ulp(z)))
+            else:
+                # This order avoids overflowing y*y or an unneeded x/y factor.
+                numerator_error = dx / abs(y)
+                denominator_error = abs(z) * (dy / abs(y))
+                error = fsum((numerator_error, denominator_error, ulp(z)))
+        except ArithmeticError as failure:
+            numeric_failure("a finite Attribute effect rounding budget", str(failure))
+        if not isfinite(error):
+            numeric_failure("a finite Attribute effect rounding budget", repr(error))
+        errors.append(error)
+    return pd.Series(errors, dtype=float)
+
+
+def _consistent(
+    cells: list[int | float | Decimal],
+    expected: int | float | Decimal,
+    column: DataColumn,
+    *,
+    rounded: bool = False,
+    roundoff: float = 0.0,
+) -> bool:
+    """Compare exact masses, ULP-bounded floats, or explicitly rounded typed effects."""
+    if isinstance(expected, float) or any(isinstance(cell, float) for cell in cells):
+        try:
+            actual = fsum(float(cell) for cell in cells)
+            magnitude = max(abs(float(expected)), fsum(abs(float(cell)) for cell in cells))
+            tolerance = 16 * (len(cells) + 1) * fsum((ulp(magnitude), roundoff))
+        except ArithmeticError as failure:
+            numeric_failure("a finite Attribute component/effect numeric budget", str(failure))
+        if not isfinite(tolerance):
+            numeric_failure("a finite Attribute component/effect numeric budget", repr(tolerance))
+        return isfinite(actual) and abs(actual - float(expected)) <= tolerance
+    with localcontext() as decimal_context:
+        decimal_context.prec = 120
+        actual_exact = sum((Decimal(cell) for cell in cells), Decimal(0))
+        tolerance_exact = (
+            Decimal(len(cells) + 1) / 2
+            if rounded and isinstance(column.dtype, DurationDataType)
+            else Decimal(len(cells) + 1) * Decimal(1).scaleb(-column.dtype.scale) / 2
+            if rounded and isinstance(column.dtype, DecimalDataType)
+            else Decimal(0)
+        )
+        return abs(actual_exact - Decimal(expected)) <= tolerance_exact
 
 
 def _has_division(rule: AdditiveRule) -> bool:
@@ -144,7 +227,8 @@ def _numeric_binary(
         exact = pa.array(values, type=stage_arrow_type(dtype), from_pandas=True)
     except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
         numeric_failure("admitted Attribute numeric output", str(error))
-    return _Value(pd.Series(pd.arrays.ArrowExtensionArray(exact)), column)
+    published = pd.Series(pd.arrays.ArrowExtensionArray(exact))
+    return _Value(published, column, _operation_roundoff(operation, a, b, published, dtype))
 
 
 def _binary(
@@ -167,8 +251,20 @@ def _binary(
             try:
                 _numeric_binary(
                     operation,
-                    _Value(a.values.take([index]).reset_index(drop=True), a.column),
-                    _Value(b.values.take([index]).reset_index(drop=True), b.column),
+                    _Value(
+                        a.values.take([index]).reset_index(drop=True),
+                        a.column,
+                        None
+                        if a.roundoff is None
+                        else a.roundoff.take([index]).reset_index(drop=True),
+                    ),
+                    _Value(
+                        b.values.take([index]).reset_index(drop=True),
+                        b.column,
+                        None
+                        if b.roundoff is None
+                        else b.roundoff.take([index]).reset_index(drop=True),
+                    ),
                     output=output,
                 )
             except SemanticExpressionError:
@@ -383,7 +479,13 @@ def attribute_contribution_data(
         values[(item.side, item.scope, item.occurrence, item.role)] = _Value(series, item.target)
 
     def broadcast(value: _Value) -> _Value:
-        return _Value(value.values.take(fine_to_parent).reset_index(drop=True), value.column)
+        return _Value(
+            value.values.take(fine_to_parent).reset_index(drop=True),
+            value.column,
+            None
+            if value.roundoff is None
+            else value.roundoff.take(fine_to_parent).reset_index(drop=True),
+        )
 
     def context(
         name: str,
@@ -619,6 +721,350 @@ def attribute_contribution_data(
             )[index].as_py()
         return FrameMethodValue(value.column, scalar)
 
+    def components(
+        rule: RatioComponentRule, side: str, scope: str, path: tuple[int, ...]
+    ) -> tuple[_Value, _Value]:
+        operation = rule.operation
+        if isinstance(operation, DirectRatio):
+            return evaluate(operation.numerator, side, scope, path=(*path, 0)), evaluate(
+                operation.denominator, side, scope, path=(*path, 1)
+            )
+        roles = (
+            ("valid_value_sum", "valid_value_count")
+            if isinstance(operation, NativeMean)
+            else ("pair_product_sum", "pair_weight_sum")
+        )
+        return (
+            values[(side, scope, _logical(operation.source), roles[0])],
+            values[(side, scope, _logical(operation.source), roles[1])],
+        )
+
+    def assert_same(
+        actual: _Value,
+        expected: _Value,
+        rule: AttributeRule,
+        side: str,
+        scope: str,
+        *,
+        grouped: bool = False,
+        rounded: bool = False,
+    ) -> None:
+        for index in range(len(expected.values)):
+            indices = (
+                [i for i, parent_index in enumerate(fine_to_parent) if parent_index == index]
+                if grouped
+                else [index]
+            )
+            captured = tuple(fact(actual, i) for i in indices)
+            wanted_value = fact(expected, index)
+            numeric = tuple(item.value for item in captured)
+            wanted = wanted_value.value
+            if not isinstance(wanted, (int, float, Decimal)) or any(
+                not isinstance(item, (int, float, Decimal)) for item in numeric
+            ):
+                valid = False
+            else:
+                checked: list[int | float | Decimal] = []
+                for item in numeric:
+                    assert isinstance(item, (int, float, Decimal))
+                    checked.append(item)
+                from marivo.semantic.errors import SemanticExpressionError
+
+                try:
+                    propagated = (
+                        0.0
+                        if actual.roundoff is None
+                        else fsum(float(actual.roundoff.iloc[i]) for i in indices)
+                    )
+                    if expected.roundoff is not None:
+                        propagated += float(expected.roundoff.iloc[index])
+                    valid = _consistent(
+                        checked, wanted, expected.column, rounded=rounded, roundoff=propagated
+                    )
+                except SemanticExpressionError as failure:
+                    failure.details["attribute_context"] = context(
+                        current_name,
+                        rule,
+                        side,
+                        scope,
+                        index,
+                        "original",
+                        (*captured[:4], wanted_value),
+                    )
+                    raise
+            if not valid:
+                raise AttributeInputError(
+                    reason="component_mismatch",
+                    received=f"{current_name}: {side} {scope} components or original N/D disagree under attribute_components/v1",
+                    context=context(
+                        current_name,
+                        rule,
+                        side,
+                        scope,
+                        index,
+                        "original",
+                        (*captured[:4], wanted_value),
+                    ),
+                )
+
+    def ratio_effects(
+        rule: RatioComponentRule, other: RatioComponentRule, path: tuple[int, ...]
+    ) -> dict[str, _Value]:
+        endpoint: list[tuple[_Value, _Value, _Value]] = []
+        dtype = _type(
+            "sub",
+            _rule_column(program.input_program, rule, "left"),
+            _rule_column(program.input_program, other, "right"),
+        )
+        for side, current in (("left", rule), ("right", other)):
+            for request in component_requests(current):
+                occurrence = _logical(request)
+                for role in (*request.roles, "input_count", "effective_count"):
+                    assert_same(
+                        values[(side, "fine", occurrence, role)],
+                        values[(side, "parent", occurrence, role)],
+                        current,
+                        side,
+                        "parent",
+                        grouped=True,
+                    )
+            n, d = components(current, side, "fine", path)
+            parent_n, parent_d = components(current, side, "parent", path)
+            invalid_parent = parent_d.values.isna() | (parent_d.values <= 0).fillna(False)
+            if invalid_parent.any():
+                index = int(invalid_parent.to_numpy().nonzero()[0][0])
+                raise AttributeInputError(
+                    reason="invalid_rate_support",
+                    received=f"{current_name}: {side} parent denominator must be positive",
+                    context=context(
+                        current_name,
+                        current,
+                        side,
+                        "parent",
+                        index,
+                        "denominator",
+                        (fact(parent_d, index),),
+                    ),
+                )
+            invalid = (
+                d.values.isna()
+                | n.values.isna()
+                | (d.values < 0).fillna(False)
+                | ((d.values == 0) & (n.values != 0)).fillna(False)
+            )
+            operation = current.operation
+            if isinstance(operation, NativeWeightedMean):
+                negative = values[(side, "fine", _logical(operation.source), "pair_negative_count")]
+                invalid = invalid | (negative.values > 0).fillna(False)
+            if invalid.any():
+                index = int(invalid.to_numpy().nonzero()[0][0])
+                raise AttributeInputError(
+                    reason="invalid_rate_support",
+                    received=f"{current_name}: {side} requires nonnegative denominators and effective weights, and zero numerator mass at zero support",
+                    context=context(
+                        current_name,
+                        current,
+                        side,
+                        "fine",
+                        index,
+                        "denominator",
+                        (fact(n, index), fact(d, index)),
+                    ),
+                )
+            assert_same(n, parent_n, current, side, "parent", grouped=True)
+            assert_same(d, parent_d, current, side, "parent", grouped=True)
+            endpoint_dtype = _rule_column(program.input_program, current, side).dtype
+            quotient = arithmetic("div", n, d, current, side, "fine", output=endpoint_dtype)
+            original = evaluate(current, side, "fine", original=True, path=path)
+            positive = [i for i, cell in enumerate(d.values) if pd.notna(cell) and cell > 0]
+            # Keep the original nullable diagnostics intact. Only supported groups
+            # participate in this identity check; zero support has no group rate.
+            for index in positive:
+                actual_value, original_value = fact(quotient, index), fact(original, index)
+                actual_scalar, original_scalar = actual_value.value, original_value.value
+                if (
+                    not isinstance(actual_scalar, (int, float, Decimal))
+                    or not isinstance(original_scalar, (int, float, Decimal))
+                    or not _consistent(
+                        [actual_scalar], original_scalar, original.column, rounded=True
+                    )
+                ):
+                    raise AttributeInputError(
+                        reason="component_mismatch",
+                        received=f"{current_name}: {side} positive-support original group Metric is undefined or differs from N/D",
+                        context=context(
+                            current_name,
+                            current,
+                            side,
+                            "fine",
+                            index,
+                            "original",
+                            (actual_value, original_value),
+                        ),
+                    )
+            parent_quotient = arithmetic(
+                "div", parent_n, parent_d, current, side, "parent", output=endpoint_dtype
+            )
+            assert_same(
+                parent_quotient,
+                evaluate(current, side, "parent", original=True, path=path),
+                current,
+                side,
+                "parent",
+                rounded=True,
+            )
+            weight = arithmetic("div", d, broadcast(parent_d), current, side, "fine")
+            endpoint.append((quotient, weight, d))
+        r1, w1, d1 = endpoint[0]
+        r0, w0, d0 = endpoint[1]
+        r1, w1, r0, w0 = (_with_roundoff(value) for value in (r1, w1, r0, w0))
+        surviving = ((d1.values > 0) & (d0.values > 0)).fillna(False)
+        # Undefined rates stay undefined in original diagnostics. The masked
+        # working values prevent undefined arithmetic outside surviving support.
+        r1 = replace(
+            r1,
+            values=r1.values.where(surviving, 0),
+            roundoff=None if r1.roundoff is None else r1.roundoff.where(surviving, 0),
+        )
+        r0 = replace(
+            r0,
+            values=r0.values.where(surviving, 0),
+            roundoff=None if r0.roundoff is None else r0.roundoff.where(surviving, 0),
+        )
+        two = _Value(pd.Series([2] * len(r1.values), dtype=object), _coefficient_column(2))
+        within = arithmetic(
+            "mul",
+            arithmetic(
+                "div", arithmetic("add", w0, w1, rule, "both", "fine"), two, rule, "both", "fine"
+            ),
+            arithmetic("sub", r1, r0, rule, "both", "fine"),
+            rule,
+            "both",
+            "fine",
+            output=dtype,
+        )
+        mix = arithmetic(
+            "mul",
+            arithmetic(
+                "div", arithmetic("add", r0, r1, rule, "both", "fine"), two, rule, "both", "fine"
+            ),
+            arithmetic("sub", w1, w0, rule, "both", "fine"),
+            rule,
+            "both",
+            "fine",
+            output=dtype,
+        )
+        allocation = arithmetic(
+            "sub",
+            _with_roundoff(evaluate(rule, "left", "fine", path=path)),
+            _with_roundoff(evaluate(other, "right", "fine", path=path)),
+            rule,
+            "both",
+            "fine",
+            output=dtype,
+        )
+        entry = replace(
+            allocation,
+            values=allocation.values.where(~surviving, 0),
+            roundoff=None
+            if allocation.roundoff is None
+            else allocation.roundoff.where(~surviving, 0),
+        )
+        result = {"within": within, "mix": mix, "entry_exit": entry}
+        combined = arithmetic(
+            "add",
+            arithmetic("add", within, mix, rule, "both", "fine"),
+            entry,
+            rule,
+            "both",
+            "fine",
+            output=dtype,
+        )
+        assert_same(combined, allocation, rule, "both", "fine", rounded=True)
+        return result
+
+    def effects(
+        rule: AttributeRule, other: AttributeRule, path: tuple[int, ...]
+    ) -> dict[str, _Value]:
+        if isinstance(rule, RatioComponentRule):
+            assert isinstance(other, RatioComponentRule)
+            return ratio_effects(rule, other, path)
+        if isinstance(rule, AdditiveRule):
+            return {
+                "additive": arithmetic(
+                    "sub",
+                    _with_roundoff(evaluate(rule, "left", "fine", path=path)),
+                    _with_roundoff(evaluate(other, "right", "fine", path=path)),
+                    rule,
+                    "both",
+                    "fine",
+                )
+            }
+        operation, other_operation = rule.operation, other.operation
+        if isinstance(operation, (RuleAdd, RuleSubtract)):
+            assert isinstance(other_operation, type(operation))
+            left = effects(operation.left, other_operation.left, (*path, 0))
+            right = effects(operation.right, other_operation.right, (*path, 1))
+            result: dict[str, _Value] = {}
+            for role in dict.fromkeys((*left, *right)):
+                a, b = left.get(role), right.get(role)
+                if a is not None and b is not None:
+                    result[role] = arithmetic(
+                        "add" if isinstance(operation, RuleAdd) else "sub",
+                        a,
+                        b,
+                        rule,
+                        "both",
+                        "fine",
+                    )
+                elif a is not None:
+                    result[role] = a
+                else:
+                    assert b is not None
+                    result[role] = (
+                        arithmetic(
+                            "mul",
+                            b,
+                            _Value(pd.Series([-1] * len(b.values)), _coefficient_column(-1)),
+                            rule,
+                            "both",
+                            "fine",
+                        )
+                        if isinstance(operation, RuleSubtract)
+                        else b
+                    )
+            return result
+        assert isinstance(operation, (RuleNegate, RuleScale, RuleDivide, RuleRescale))
+        assert isinstance(other_operation, type(operation))
+        children = effects(operation.operand, other_operation.operand, (*path, 0))
+        scalar = -1 if isinstance(operation, RuleNegate) else operation.scalar.value
+        scaled: dict[str, _Value] = {}
+        for role, value in children.items():
+            coefficient = _Value(
+                pd.Series([scalar] * len(value.values), dtype=object), _coefficient_column(scalar)
+            )
+            dividing = isinstance(operation, (RuleDivide, RuleRescale))
+            if dividing and _type("div", value.column, coefficient.column) == ScalarDataType(
+                "float64"
+            ):
+                value, coefficient = (
+                    _Value(
+                        finish_float64(item.values, "Attribute effect division operand"),
+                        replace(item.column, dtype=ScalarDataType("float64")),
+                        item.roundoff,
+                    )
+                    for item in (value, coefficient)
+                )
+            scaled[role] = arithmetic(
+                "div" if isinstance(operation, (RuleDivide, RuleRescale)) else "mul",
+                value,
+                coefficient,
+                rule,
+                "both",
+                "fine",
+            )
+        return scaled
+
     def supports(rule: AttributeRule, index: int) -> tuple[FrameMethodSupport, ...]:
         result: list[FrameMethodSupport] = []
         seen: set[tuple[int, ...]] = set()
@@ -835,7 +1281,7 @@ def attribute_contribution_data(
     for metric_index, ((name, left_rule), (_, right_rule)) in enumerate(
         zip(*program.operation.rules, strict=True)
     ):
-        current_name = name
+        current_name = ".".join(report_operation.target.path)
         # Original error-policy formulas have already run above. A nullable
         # original parent caused by D=0 now gets the contribution-specific reason.
         evaluate(left_rule, "left", "parent")
@@ -955,6 +1401,29 @@ def attribute_contribution_data(
             "contribution": contribution,
             "contribution_share": share,
         }
+        if not level and rule_effects(left_rule):
+            calculated = effects(left_rule, right_rule, (metric_index,))
+            combined_effect: _Value | None = None
+            for role in rule_effects(left_rule):
+                value = calculated[role]
+                zero = _Value(pd.Series([0] * len(value.values)), value.column)
+                value = arithmetic(
+                    "add",
+                    value,
+                    zero,
+                    left_rule,
+                    "both",
+                    "fine",
+                    output=directory[("effect_" + role, name)].dtype,
+                )
+                emitted["effect_" + role] = value
+                combined_effect = (
+                    value
+                    if combined_effect is None
+                    else arithmetic("add", combined_effect, value, left_rule, "both", "fine")
+                )
+            assert combined_effect is not None
+            assert_same(combined_effect, contribution, left_rule, "both", "fine", rounded=True)
         if isinstance(left_rule, RatioComponentRule):
             for side, rule in (
                 (("left", left_rule),) if level else (("left", left_rule), ("right", right_rule))

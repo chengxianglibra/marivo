@@ -238,6 +238,7 @@ def test_mean_and_weighted_mean_require_distinct_common_masks() -> None:
         "pair_product_sum",
         "pair_weight_sum",
         "pair_count",
+        "pair_negative_count",
     )
     assert component_requests(weighted_rule)[0].support == "co_valid_value_weight"
     assert component_requests(weighted_rule)[0].binding.definition is weighted

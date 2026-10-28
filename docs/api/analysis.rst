@@ -290,6 +290,22 @@ expose ``divisor``, ``operation`` and the child ``method`` through
 Relative contributions normalize absolute contributions by the absolute parent
 baseline. Defined zero totals retain signed contributions and NA shares.
 
+Paired mean, weighted mean and admitted component ratios additionally expose
+``effect.within.<target>``, ``effect.mix.<target>`` and
+``effect.entry_exit.<target>``. Fixed linear formulas preserve each ratio's own
+denominator; mixed additive/rate formulas also expose ``effect.additive.<target>``.
+Effects sum to each group's contribution and use the same absolute fresh parent
+baseline for relative targets. Level and pure additive targets have no synthetic
+rate/mix effects. Rules bind before business reads; quantiles and general nonlinear
+targets remain unsupported, with no sampling configuration or method override.
+
+Rate/mix requires nonnegative group denominators and effective paired weights,
+positive parent denominators, consistent parent/fine components and original
+positive-support group values matching N/D. Zero support requires zero numerator
+mass. These checks and effect closure use versioned numeric rounding budgets
+without a business percentage allowance. Failures never switch rules or allocate
+residuals. Facts retain the symmetric rule, component and entry/exit policy versions.
+
 ``by`` accepts nonempty semantic classification tuples or one complete Population
 with its correlated keys, membership and allocation rules. Frozen interval,
 calendar and paired parent bindings retain their complete correspondence and
@@ -321,7 +337,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 18 writer transaction. Memory persist never reevaluates. Stored
+single Store 19 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -333,10 +349,10 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 18 uses ``marivo.frame_output/v7``, ``frame.v7`` and ``frame-output-v7`` for
-all Frames, under ``.marivo/analysis/generations/v18/``. Owned method files share
+Store 19 uses ``marivo.frame_output/v8``, ``frame.v8`` and ``frame-output-v8`` for
+all Frames, under ``.marivo/analysis/generations/v19/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 18 refuses older-generation Session/result/audit data unchanged, without
+Store 19 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve

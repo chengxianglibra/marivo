@@ -312,7 +312,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id)
     named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 18
+    assert MaterializationLayout(tmp_path).generation == 19
     assert terminal_runs(resumed) == ()
 
 
@@ -361,7 +361,7 @@ def test_old_session_is_not_found_without_rewriting_files(
     assert caught.value.repair is not None
     assert "v11" in caught.value.repair.action
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
-    assert not (path.parent.parent / "v18").exists()
+    assert not (path.parent.parent / "v19").exists()
 
 
 @pytest.mark.parametrize("columns", (None, False, 0, {}))

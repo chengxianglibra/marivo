@@ -21,6 +21,7 @@ from marivo.analysis.binding.attribute_rules import (
     RuleRescale,
     RuleScale,
     RuleSubtract,
+    rule_effects,
 )
 from marivo.analysis.binding.attribute_units import ratio_component_units, rule_unit
 from marivo.analysis.core.data_schema import (
@@ -220,6 +221,8 @@ AttributeInputReason = Literal[
     "overlapping_groups",
     "root_denominator_zero",
     "closure_mismatch",
+    "invalid_rate_support",
+    "component_mismatch",
 ]
 
 
@@ -236,6 +239,8 @@ class AttributeInputError(CoreRuleError):
         self.reason = reason
         self.attribute_context = context
         repairs = {
+            "invalid_rate_support": "Provide positive parent denominators, nonnegative group denominators and effective weights, and zero numerator mass wherever group support is zero; inspect a finer observe/compare to repair the Metric.",
+            "component_mismatch": "Inspect the original parent and fine Metric and its numerator, denominator and NULL masks; correct inconsistent definitions or changed source facts before rerunning attribution.",
             "closure_mismatch": "Inspect the independent parent total and fine contributions, then explicitly rerun the request if the source facts changed.",
             "unqualified_contribution_route": "Use qualified native physical tables with the captured complete parent parameter dependencies.",
             "missing_component_proof": "Retain the exact component, complete parent mapping and qualified sample/window proof before requesting contribution.",
@@ -539,6 +544,17 @@ def pending_contribution_schema(
             if isinstance(generated, DataColumn) and prefix == "contribution_share":
                 generated = replace(generated, dtype=_type("div", generated, generated))
             values.append(generated)
+        if not operation.single_endpoint:
+            for effect in rule_effects(rule):
+                prefix = "effect_" + effect
+                paths.append((prefix, name))
+                values.append(
+                    replace(
+                        originals[2],
+                        slot_id=f"attribute.result.{len(values)}",
+                        name=f"{prefix}.{name}",
+                    )
+                )
         if isinstance(rule, RatioComponentRule):
             for prefix in (
                 "numerator_left",
@@ -900,6 +916,9 @@ def report_schema(
             column = directory.get((component + "_" + side, "target"))
             if column is not None:
                 entries.append((("component", role, component, *path), column))
+    if not level:
+        for effect in rule_effects(operation.rules[0][0][1]):
+            entries.append((("effect", effect, *path), directory[("effect_" + effect, "target")]))
     common: DataType | None = None
     observed = parent.values[target.observed]
     if (
@@ -917,7 +936,7 @@ def report_schema(
     for output_path, column in entries:
         if isinstance(legacy, PendingDataSchema) and isinstance(column, DataColumn):
             column = _pending_column(column)
-        if target.mode == "relative" and output_path[0] in ("contribution", "total"):
+        if target.mode == "relative" and output_path[0] in ("contribution", "total", "effect"):
             original = column
             column = replace(column, unit=parent.values[target.observed].unit)
             if isinstance(column, DataColumn) and isinstance(original, DataColumn):
@@ -925,7 +944,7 @@ def report_schema(
         if (
             common is not None
             and isinstance(column, DataColumn)
-            and output_path[0] in ("contribution", "total", "observed_total")
+            and output_path[0] in ("contribution", "total", "observed_total", "effect")
         ):
             column = replace(column, dtype=common)
         parent_column = parent_directory.get(output_path)

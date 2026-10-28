@@ -156,7 +156,12 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
         assert root.parent.loc[0, leaf.effective.slot_id] == 1
         assert root.parent.loc[0, require_reduction(leaf.read).value_slot] == 10
         if weighted:
-            assert values == {"pair_product_sum": 10, "pair_weight_sum": 1, "pair_count": 1}
+            assert values == {
+                "pair_product_sum": 10,
+                "pair_weight_sum": 1,
+                "pair_count": 1,
+                "pair_negative_count": 0,
+            }
         else:
             assert values == {"valid_value_sum": 10, "valid_value_count": 1}
 
@@ -1382,7 +1387,7 @@ def test_explicit_fine_population_still_requires_complete_coverage(session: Sess
         selected.attribute(by=mv.coordinates(by=(channel,), keys=(("A",),))).compute()
 
 
-@pytest.mark.parametrize("kind", ("ordinary", "membership", "distinct"))
+@pytest.mark.parametrize("kind", ("ordinary", "membership", "distinct", "weighted"))
 def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
     session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
@@ -1428,12 +1433,53 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
                 unmatched="exclude",
             ),
         )
-    selected = session.observe(
-        {"q": value.count_distinct() if kind == "distinct" else value.count()}
-    ).compute()
+    metric = (
+        value.weighted_mean(
+            weight=catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        )
+        if kind == "weighted"
+        else value.count_distinct()
+        if kind == "distinct"
+        else value.count()
+    )
+    selected = session.observe({"q": metric}).compute()
     if kind == "membership":
         with pytest.raises(AnalysisError, match=r"undefined_input|overlapping_groups"):
             selected.attribute(by=by).compute()
     else:
         selected.attribute(by=by).compute()
     assert compiled == {"postgres", "mysql", "trino", "clickhouse"}
+
+
+@pytest.mark.parametrize("unique", [False, True])
+def test_paired_rate_mix_membership_requires_one_joint_group_per_fact(
+    session: Session, tmp_path: Path, unique: bool
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    if unique:
+        with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+            connection.execute("DELETE FROM links WHERE tag_id=2")
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    fact_id = catalog_value(session.catalog, "sales.facts.id", kind="field")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    membership = mv.membership(
+        label,
+        via=(
+            (
+                session.catalog.get("relationship:sales.fact_links").value,
+                session.catalog.get("relationship:sales.link_tags").value,
+            ),
+        ),
+        unmatched="exclude",
+    )
+    current = session.observe({"q": value.mean()}, where=fact_id == 1)
+    compared = current.compare({"base": mv.baseline(current)})
+    report = compared.select({"q": compared["base.absolute.q"]}).attribute(by=(membership,))
+    if unique:
+        rows = report.compute().to_pandas()
+        assert rows["contribution.q"].tolist() == [0]
+        assert rows["effect.within.q"].tolist() == [0]
+    else:
+        with pytest.raises(AnalysisError, match="overlapping_groups"):
+            report.compute()

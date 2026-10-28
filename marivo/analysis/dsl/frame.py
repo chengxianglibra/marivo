@@ -712,7 +712,9 @@ class AnalysisFrame:
 
         Constraints: Requires retained process-local source declarations for every
         direct Metric or admitted comparison target. Select and rename direct outputs;
-        define ratio/linear Metrics before observation. Fixed division retains its typed
+        define ratio/linear Metrics before observation. Rules bind per target before
+        business reads; quantiles and general nonlinear formulas remain unsupported.
+        Fixed division retains its typed
         divisor and division order; Metric rescale also declares the result unit.
         Pending components expose their own units. Completion freezes parent keys
         and old values; parent and fine inputs are read independently without reranking
@@ -723,10 +725,17 @@ class AnalysisFrame:
         output checks remain. Operation-specific membership/Population coverage,
         overlap, distinct-value partitions, numeric validity and complete time
         correspondence remain checked. Float64 method facts preserve captured values
-        without arithmetic recomputation. Only requested final targets must close within
-        their closure policy. Float64 allows the greater of 1% of abs(total) and the
-        numeric rounding budget; zero totals retain only that budget. Integer/count,
-        Decimal and Duration policies are unchanged. Qualified physical tables use the native backend
+        without arithmetic recomputation. Paired rate/mix adds effect.within,
+        effect.mix and effect.entry_exit; mixed additive/rate formulas also expose
+        effect.additive. Effects sum to each group's contribution. Group denominators
+        and effective pair weights must be nonnegative, parent denominators positive,
+        and parent/fine components and original group rates consistent. These checks
+        use numeric budgets without a business percentage allowance. Unchanged
+        additive/level Float64 closure allows the greater of 1% of abs(total) and its
+        numeric rounding budget. Integer/count, Decimal and Duration retain their typed
+        policies. Relative contributions and effects use one absolute fresh parent
+        baseline. Failures never change rules or redistribute residuals.
+        Qualified physical tables use the native backend
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.
         """
@@ -1748,11 +1757,21 @@ def _value_summary(value: object, source: AnalysisFrame, depth: int = 0) -> str:
 
 
 def _operation_summary(binding: OperationFrameBinding) -> str:
+    from marivo.analysis.binding.attribute_rules import rule_effects
     from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 
     operation, source = binding.operation, binding.inputs[0]
     if isinstance(operation, AttributeMergeValues):
-        return "attribute(report_merge)"
+        targets: list[str] = []
+        for frame in binding.inputs[:6]:
+            backing = frame._backing
+            if isinstance(backing, ExpressionFrameBacking) and isinstance(
+                backing.root, OperationFrameBinding
+            ):
+                targets.append(_operation_summary(backing.root))
+        remaining = len(binding.inputs) - len(targets)
+        suffix = f", remaining={remaining}" if remaining else ""
+        return f"attribute(targets={tuple(targets)!r}{suffix})"
     if isinstance(operation, SelectValues):
         values = tuple((name, _value_summary(value, source)) for name, value in operation.values)
         return f"select(values={values!r})"
@@ -1772,8 +1791,15 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         return f"align(on={operation.pairs!r}{match})"
     if isinstance(operation, AttributeContributionValues):
         target = operation.target
+        rule = (
+            "level_share"
+            if operation.single_endpoint
+            else "rate_mix"
+            if rule_effects(operation.rules[0][0][1])
+            else "additive"
+        )
         return (
-            f"attribute(target={target.path!r}, kind={target.mode!r})"
+            f"attribute(target={target.path!r}, kind={target.mode!r}, rule={rule!r})"
             if target is not None
             else "attribute(source_contribution)"
         )

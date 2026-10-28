@@ -326,9 +326,35 @@ Help: `analysis.analysis_frame.attribute`.
 
 Numeric source division converts both operands to Float64 before dividing, preserving fractional integer ratios on backends such as Trino. Zero denominators remain NULL.
 
-Float64 accepts `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`. The percentage uses the fresh final target: level, absolute change or normalized relative change. Zero totals retain the numeric budget. Integer/count closure remains exact; Decimal and Duration retain their existing policies. A target outside its tolerance fails the request; accepted residuals are not redistributed.
+Rules bind per target before business reads; there is no `method` parameter. Additive Metrics and admitted ratios, mean, weighted_mean and fixed linear formulas use exact decomposition. Paired rate/mix targets add `effect.within.<name>`, `effect.mix.<name>` and `effect.entry_exit.<name>`; mixed additive terms also add `effect.additive.<name>`. Their sum is each group's contribution. Entry/exit uses a zero-denominator, zero-numerator-mass boundary without filling an undefined group rate. Group denominators and effective pair weights must be nonnegative, parent denominators positive, and parent/fine components and original group rates consistent. Failure never changes the bound rule.
+
+Quantiles and general nonlinear targets remain unsupported. Level retains its admitted share rules without an artificial zero baseline. Ordinary Column arithmetic has no source authority.
+
+New rate/mix component and effect closure checks use versioned numeric budgets without a 1% business allowance. Unchanged additive/level Float64 routes retain `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`; integer, Decimal and Duration retain their typed policies. Residuals are never redistributed. Relative contributions and effects all divide by the same absolute fresh parent baseline; zero or undefined baselines fail.
 
 Start with the total decline, then ask which regions account for it.
+
+{/* example: attribute-rate-effects */}
+
+```python
+order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_time_entry.kind == "time_dimension"
+average = amount.mean(time=order_time_entry.value)
+average_current = session.observe({"average": average}, by=(august,))
+average_baseline = session.observe({"average": average}, by=(july,))
+average_change = average_current.compare(
+    {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
+).compute()
+average_target = average_change.select(
+    {"average": average_change["reference.absolute.average"]}
+)
+average_explained = average_target.attribute(by=(region,)).compute()
+effect_columns = [f"effect.{role}.average" for role in ("within", "mix", "entry_exit")]
+average_rows = average_explained.to_pandas()
+assert all(name in average_rows.columns for name in effect_columns)
+```
+
+Within effects explain changes in regional means, mix effects changes in valid-sample shares, and entry/exit effects retain support boundaries separately.
 
 ### Observe a fresh breakdown
 
@@ -382,6 +408,8 @@ nonlinear_investigation = fine_current.compare(
     }
 ).compute()
 ```
+
+
 
 ### Separate a breakdown from an explanation
 
