@@ -177,7 +177,7 @@ if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
-    from marivo.semantic.source_health import SourceCheck, SourceHealthReport
+    from marivo.semantic.validation import SourceCheck, ValidationReport
     from marivo.semantic.validator import Registry
 
 __all__ = [
@@ -2138,13 +2138,14 @@ def _normalize_semantic_input(
     allowed_kinds: frozenset[SemanticKind],
     location: str,
     metric_preview: bool = False,
-    declaration_readiness: bool = False,
+    declaration_closure: bool = False,
 ) -> Ref[SemanticKindTag]:
     """Normalize one ref, current-catalog entry, or catalog value to its canonical ref.
 
     Entries must belong to this catalog instance. Expression values are lookup
     keys resolved by kind and path in this catalog. Metric previews opt into
-    ordinary numeric lowering; certification and source checks remain physical.
+    ordinary numeric lowering; readiness and validation expand declarations
+    to their physical dependency closures.
     """
     if not allowed_kinds:
         raise ValueError("allowed_kinds must not be empty")
@@ -2270,7 +2271,7 @@ def _normalize_semantic_input(
             candidate_kinds=frozenset({exact_ref.kind}),
         )
     registry = catalog._state.registry
-    if not declaration_readiness and (
+    if not declaration_closure and (
         (exact_ref.kind is SemanticKind.METRIC and not metric_preview)
         or (exact_ref.kind is SemanticKind.MEASURE and exact_ref.path in registry.declared_measures)
     ):
@@ -2341,7 +2342,7 @@ def _require_readiness_input(
             cast("_SemanticInput", value),
             allowed_kinds=_ALL_SEMANTIC_KINDS,
             location="catalog.readiness(refs=...)",
-            declaration_readiness=True,
+            declaration_closure=True,
         )
     candidates: tuple[Ref[SemanticKindTag], ...] = ()
     repair_snippet: str | None = None
@@ -3906,17 +3907,19 @@ class SemanticCatalog(RenderableResult):
             checked_ids=tuple(sorted(item.key for item in checked)),
         )
 
-    def source_health(
+    def validate(
         self,
         refs: Sequence[_SemanticInput],
         /,
         *,
         checks: Sequence[SourceCheck] = (),
         scope: PreviewScope | None = None,
-    ) -> SourceHealthReport:
-        """Check current source access, schema, and explicit data expectations.
+    ) -> ValidationReport:
+        """Validate semantic contracts against current physical source types.
 
-        Connectivity and metadata checks run for every selected source. Data
+        Connect to the selected dependency closure, establish Entity output
+        schemas, and check field bindings, Measure types and temporal parser
+        compatibility. Preview and analysis reuse the same field contracts. Data
         expectations run only when supplied through ``ms.source_check`` and
         require an explicit bounded ``scope``. The result is independent of
         semantic readiness and is not persisted.
@@ -3932,15 +3935,22 @@ class SemanticCatalog(RenderableResult):
                 Entity symbol/scope pair sequence for multiple checked Entities.
 
         Returns:
-            SourceHealthReport with per-check status, observed identities,
+            ValidationReport with per-check status, observed identities,
             affected refs, repair direction, and query/scope disclosure.
+
+        Example:
+            ``catalog.validate([catalog.get("metric:sales.revenue")]).show()``.
+
+        Constraints:
+            This online check does not change readiness or certify arbitrary
+            analysis methods. Unavailable physical types cannot pass validation.
         """
         self._require_ready()
         values = tuple(refs)
         if not values:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.source_health(refs=...) requires a non-empty sequence.",
+                "catalog.validate(refs=...) requires a non-empty sequence.",
                 cls=SemanticRuntimeError,
                 details={"query_executed": False},
             )
@@ -3949,7 +3959,8 @@ class SemanticCatalog(RenderableResult):
                 self,
                 value,
                 allowed_kinds=_ALL_SEMANTIC_KINDS,
-                location="catalog.source_health(refs=...)",
+                location="catalog.validate(refs=...)",
+                declaration_closure=True,
             )
             for value in values
         )
@@ -3961,14 +3972,14 @@ class SemanticCatalog(RenderableResult):
         if duplicates:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.source_health(refs=...) requires unique exact refs.",
+                "catalog.validate(refs=...) requires unique exact refs.",
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in duplicates),
                 details={"query_executed": False},
             )
-        from marivo.semantic.source_health import run_source_health
+        from marivo.semantic.validation import run_validation
 
-        return run_source_health(
+        return run_validation(
             self,
             refs=exact_refs,
             checks=checks,

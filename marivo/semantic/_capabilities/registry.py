@@ -75,7 +75,7 @@ OUTPUT_FAMILIES = frozenset(
         "FreshnessSourceCheck",
         "RelationshipMatchesSourceCheck",
         "RelationshipCardinalitySourceCheck",
-        "SourceHealthReport",
+        "ValidationReport",
         "LookupSymbol",
         "DomainSymbol",
         "DatasourceSymbol",
@@ -151,8 +151,8 @@ INPUT_FAMILIES = frozenset(
         "PeriodCalendarEntry",
         "TemporalSetEntry",
         "ReadinessReport",
-        "SourceHealthReport",
-        "SourceHealthCheckResult",
+        "ValidationReport",
+        "ValidationCheckResult",
         "ReadinessInputSummary",
         "ReadinessIssue",
         "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
@@ -298,7 +298,7 @@ _PREVIEW = _effects(
         "requires_positive_row_guard",
     ),
 )
-_SOURCE_HEALTH = _effects(
+_VALIDATE = _effects(
     "live_metadata_or_scoped_data_read",
     "opens_connection",
     flags=("scope_required_for_declared_data_checks",),
@@ -656,7 +656,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _relationship("consumed_by", "objects.measure", "Measures are owned by an Entity."),
             ),
             supporting=("snapshot", "validity", "ai_context"),
-            checks=("load", "readiness", "preview", "source_health"),
+            checks=("load", "readiness", "preview", "validate"),
         ),
         _object_contract(
             SemanticKind.DIMENSION,
@@ -707,7 +707,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "source_check.not_null",
                 "source_check.allowed_values",
                 "source_check.unique",
-                "source_health",
+                "validate",
             ),
         ),
         _object_contract(
@@ -777,7 +777,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "source_check.allowed_values",
                 "source_check.unique",
                 "source_check.freshness",
-                "source_health",
+                "validate",
             ),
         ),
         _object_contract(
@@ -947,7 +947,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "Which source checks are required to test those claims?",
                     "source_check.relationship_matches",
                     "source_check.relationship_cardinality",
-                    "source_health",
+                    "validate",
                 ),
             ),
             construction_modes=(
@@ -964,7 +964,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "readiness",
                 "source_check.relationship_matches",
                 "source_check.relationship_cardinality",
-                "source_health",
+                "validate",
             ),
         ),
         _object_contract(
@@ -1019,7 +1019,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
             ),
             supporting=("ai_context",),
-            checks=("load", "readiness", "preview", "source_health"),
+            checks=("load", "readiness", "preview", "validate"),
         ),
         _object_contract(
             SemanticKind.TEMPORAL_SET,
@@ -1082,7 +1082,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
             ),
             supporting=("ai_context",),
-            checks=("load", "readiness", "preview", "source_health"),
+            checks=("load", "readiness", "preview", "validate"),
         ),
     )
 
@@ -1108,7 +1108,7 @@ def _check_topic() -> SemanticCheckTopic:
 
     return SemanticCheckTopic(
         canonical_id="validation",
-        summary="Choose load, readiness, preview, health, or source expectations by proof need.",
+        summary="Choose offline loading/readiness, online validation, preview or explicit data checks by proof need.",
         routes=(
             route(
                 "What physical source, schema, columns, and types exist?",
@@ -1149,9 +1149,10 @@ def _check_topic() -> SemanticCheckTopic:
                 "That the current source satisfies it.",
             ),
             route(
-                "Does the current source still satisfy explicit schema or data expectations?",
-                (_target("source_health"),),
-                "Ephemeral current source evidence for declared checks.",
+                "Do the definitions agree with the current physical source types?",
+                (_target("validate"),),
+                "Current Entity output, field bindings, numeric and temporal type contracts; "
+                "bounded data expectations only when explicitly requested.",
                 "Business approval or readiness mutation.",
             ),
         ),
@@ -1328,7 +1329,7 @@ def _root_sections() -> tuple[SemanticRootSection, ...]:
                 "Compose closed inputs for this question or expressions for a declaration.",
                 "Parse physical time or define business calendars and events.",
                 "Retrieve closed values, inspect definitions, or capture declaration lookups.",
-                "Choose load, readiness, preview, health, or a declared source expectation.",
+                "Choose offline loading/readiness, online validation, preview or a declared data expectation.",
             ),
         ),
     )
@@ -2253,7 +2254,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     return (
         _capability(
             "source_check.not_null",
-            "marivo.semantic.source_health.SourceCheckNamespace.not_null",
+            "marivo.semantic.validation.SourceCheckNamespace.not_null",
             "Require one field to contain no null values.",
             kind="method",
             output="NotNullSourceCheck",
@@ -2268,7 +2269,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.allowed_values",
-            "marivo.semantic.source_health.SourceCheckNamespace.allowed_values",
+            "marivo.semantic.validation.SourceCheckNamespace.allowed_values",
             "Require one categorical or temporal field to use only the declared values.",
             kind="method",
             output="AllowedValuesSourceCheck",
@@ -2285,7 +2286,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.unique",
-            "marivo.semantic.source_health.SourceCheckNamespace.unique",
+            "marivo.semantic.validation.SourceCheckNamespace.unique",
             "Require a non-empty same-Entity field tuple to be unique.",
             kind="method",
             output="UniqueSourceCheck",
@@ -2302,7 +2303,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.freshness",
-            "marivo.semantic.source_health.SourceCheckNamespace.freshness",
+            "marivo.semantic.validation.SourceCheckNamespace.freshness",
             "Require one time dimension's maximum value to be within a declared age.",
             kind="method",
             output="FreshnessSourceCheck",
@@ -2320,7 +2321,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.relationship_matches",
-            "marivo.semantic.source_health.SourceCheckNamespace.relationship_matches",
+            "marivo.semantic.validation.SourceCheckNamespace.relationship_matches",
             "Check unmatched relationship keys only within the selected bounded source scopes.",
             kind="method",
             output="RelationshipMatchesSourceCheck",
@@ -2337,7 +2338,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         ),
         _capability(
             "source_check.relationship_cardinality",
-            "marivo.semantic.source_health.SourceCheckNamespace.relationship_cardinality",
+            "marivo.semantic.validation.SourceCheckNamespace.relationship_cardinality",
             "Require current relationship multiplicity to match one exact expectation.",
             kind="method",
             output="RelationshipCardinalitySourceCheck",
@@ -2728,8 +2729,8 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
         ("readiness", "ReadinessReport"),
         ("readiness", "ReadinessInputSummary"),
         ("readiness", "ReadinessIssue"),
-        ("source_health", "SourceHealthReport"),
-        ("source_health", "SourceHealthCheckResult"),
+        ("validation", "ValidationReport"),
+        ("validation", "ValidationCheckResult"),
     ):
         rows.append(
             _capability(
@@ -3235,7 +3236,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="ms.hour_prefix(log_date)",
         ),
         # ------------------------------------------------------------------
-        # scoped runtime observations and health
+        # scoped runtime observations and online validation
         # ------------------------------------------------------------------
         _capability(
             "preview",
@@ -3355,14 +3356,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         *_source_check_factory_capabilities(),
         _capability(
-            "source_health",
-            "marivo.semantic.catalog.SemanticCatalog.source_health",
+            "validate",
+            "marivo.semantic.catalog.SemanticCatalog.validate",
             (
-                "Check current connectivity and schema identity, plus only explicitly "
-                "declared bounded data expectations, without changing readiness."
+                "Connect to the selected dependency closure and validate Entity outputs, "
+                "field bindings, numeric/duration types and temporal parser/timezone contracts against "
+                "real physical types. Preview and analysis reuse these field checks. "
+                "Explicit data expectations require a bounded scope. Does not change readiness "
+                "or qualify arbitrary analysis methods."
             ),
             kind="method",
-            output="SourceHealthReport",
+            output="ValidationReport",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
@@ -3379,11 +3383,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     optional=True,
                 ),
             ),
-            effects=_SOURCE_HEALTH,
-            example="catalog.source_health([revenue])",
+            effects=_VALIDATE,
+            example="catalog.validate([revenue])",
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("inspect", "reconnect", "rescope", "reauthor"),
-            public_entrypoint="catalog.source_health",
+            public_entrypoint="catalog.validate",
         ),
         # ------------------------------------------------------------------
         # readiness
@@ -3707,10 +3711,10 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessIssue,
         ReadinessReport,
     )
-    from marivo.semantic.source_health import (
+    from marivo.semantic.validation import (
         SourceCheckNamespace,
-        SourceHealthCheckResult,
-        SourceHealthReport,
+        ValidationCheckResult,
+        ValidationReport,
     )
 
     show_render = ("show", "render")
@@ -3765,7 +3769,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "search",
             "preview",
             "preview_many",
-            "source_health",
+            "validate",
             "readiness",
             "render",
             "show",
@@ -3970,9 +3974,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("show", "render", "to_dict"),
     )
     add(
-        SourceHealthReport,
-        "SourceHealthReport",
-        ("source_health",),
+        ValidationReport,
+        "ValidationReport",
+        ("validate",),
         properties=(
             "status",
             "checks",
@@ -3983,10 +3987,10 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("show", "render", "to_dict"),
     )
     add(
-        SourceHealthCheckResult,
-        "SourceHealthCheckResult",
-        ("source_health",),
-        guidance=("Read report.checks from the source-health report.",),
+        ValidationCheckResult,
+        "ValidationCheckResult",
+        ("validate",),
+        guidance=("Read report.checks from the online validation report.",),
         properties=(
             "kind",
             "status",

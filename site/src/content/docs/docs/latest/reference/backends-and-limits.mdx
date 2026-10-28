@@ -57,7 +57,7 @@ qualified string collations. The Entity `primary_key` declares complete, non-nul
 the route trusts that declaration even if physical metadata marks an identity column
 nullable. It does not run a full-source NULL or uniqueness precheck; operation-specific
 identity checks still apply. For scoped data validation, use `ms.source_check` with a bounded
-`catalog.source_health(..., checks=..., scope=...)` call.
+`catalog.validate(..., checks=..., scope=...)` call.
 Incompatible non-time scopes within one source root cannot be combined.
 
 ## Account for resource and numeric limits

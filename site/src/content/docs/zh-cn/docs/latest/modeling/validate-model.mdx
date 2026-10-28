@@ -22,14 +22,24 @@ amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
 amount = amount_entry.value
 catalog.readiness(refs=[amount]).show()
+catalog.validate([amount_entry]).show()
 ```
 
 `ms.load()` 检查模型声明、引用、依赖循环和表达式契约。`catalog.readiness(...)`
 检查所选物理输入和已认证的时间产物。这两步都不会打开数据源连接。
 
+`catalog.validate(...)` 会连接所选对象的完整物理依赖，使用实际 Entity 输出
+结构检查字段绑定、数值类型、时间解析器和时区契约。报告包含物理类型、受影响字段、
+声明位置与修复方法。Preview 和 analysis 在读取业务数据前复用相同字段校验。
+校验通过不代表所有分析方法都可执行；使用时仍会重新检查后续来源变化。
+
+例如，原生带时区时间戳（包括 ClickHouse `DateTime` 和 `DateTime64`）会拒绝
+`ms.timestamp(timezone="UTC")`，即使来源本身就是 UTC；应改用 `ms.timestamp()`。
+字符串使用 `ms.strptime(..., timezone="UTC")` 解析时，仍可声明来源时区。
+
 若要查看当前来源数据，请用显式有界范围调用 `catalog.preview(...)`。
 普通 Metric 预览仅支持 DuckDB，返回最多 10,000 行 Entity 输出的近似聚合结果。
 对于其他后端，请用 `session.observe(...).compute()` 和显式分析输入求值；
 Entity 和物理字段预览仍遵循各自的后端支持范围。
-`catalog.source_health(...)` 默认检查当前连接与结构；只有显式传入检查规则及其有界范围时，才会读取业务数据。
-[加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和来源健康检查示例。
+`catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。
+[加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和在线校验示例。

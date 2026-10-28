@@ -172,7 +172,7 @@ def _validate_scope(
     preview_ref: str,
     operation: str = "catalog.preview",
 ) -> AuthoringScope:
-    scope_label = "Preview scope" if operation == "catalog.preview" else "Source-health scope"
+    scope_label = "Preview scope" if operation == "catalog.preview" else "Online validation scope"
     if not isinstance(scope, PartitionScope | UnprunedScope):
         _blocked(
             preview_ref,
@@ -216,7 +216,7 @@ def _validate_scope(
         partition_label = (
             "Preview partition scope"
             if operation == "catalog.preview"
-            else "Source-health partition scope"
+            else "Online validation partition scope"
         )
         _blocked(preview_ref, f"{partition_label} is invalid.", details={})
     return scope
@@ -229,7 +229,7 @@ def _normalize_scopes(
     preview_ref: str,
     operation: str = "catalog.preview",
 ) -> tuple[tuple[str, AuthoringScope], ...]:
-    operation_label = "preview" if operation == "catalog.preview" else "source-health"
+    operation_label = "preview" if operation == "catalog.preview" else "online validation"
     if len(entity_ids) == 1:
         if isinstance(scope, Sequence | Mapping):
             _blocked(
@@ -278,7 +278,7 @@ def _normalize_scopes(
         mapping_label = (
             "Preview scope pairs"
             if operation == "catalog.preview"
-            else "catalog.source_health scope pairs"
+            else "catalog.validate scope pairs"
         )
         _blocked(
             preview_ref,

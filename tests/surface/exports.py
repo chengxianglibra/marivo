@@ -33,7 +33,7 @@ SEMANTIC_PUBLIC = {
     "SemanticCatalog",
     "SemanticKind",
     "SourceCheck",
-    "SourceHealthReport",
+    "ValidationReport",
     "TemporalOccurrencePage",
     "TemporalSetEntry",
     "TemporalSetKind",

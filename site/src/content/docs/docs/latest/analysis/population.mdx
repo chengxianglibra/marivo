@@ -34,7 +34,7 @@ assert requested_count.to_pandas()["members"].tolist() == [4]
 
 `requested` includes order 999, although the tutorial source has no such row. A literal Population records the requested keys; source presence is a separate question. `keys=()` is empty; for `by=()`, `keys=((),)` is the one-element zero-axis domain.
 
-Source-backed populations follow the identity, relationship-cardinality, and version-grain declarations in the semantic model. Use an explicit [source-health check](/docs/latest/modeling/semantic-layer/#load-and-validate) to test data conditions such as uniqueness or relationship cardinality. If a scalar lookup finds no matching row, `session.read` and `P.classify` keep the requested identity, with `NULL` for the missing attributes.
+Source-backed populations follow the identity, relationship-cardinality, and version-grain declarations in the semantic model. Use an explicit [online validation check](/docs/latest/modeling/semantic-layer/#load-and-validate) to test data conditions such as uniqueness or relationship cardinality. If a scalar lookup finds no matching row, `session.read` and `P.classify` keep the requested identity, with `NULL` for the missing attributes.
 
 ## Identity grouping: `mv.identity`
 

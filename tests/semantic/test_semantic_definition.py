@@ -158,7 +158,7 @@ def test_contract_reads_do_not_execute_or_print(
         guard.setattr(_expression_binding, "_call_body", forbidden)
         guard.setattr(DatasourceConnectionService, "__init__", forbidden)
         guard.setattr(mv, "session", forbidden)
-        for method in ("preview", "readiness", "source_health"):
+        for method in ("preview", "readiness", "validate"):
             guard.setattr(ms.SemanticCatalog, method, forbidden)
         for reference in references:
             contract = catalog.get(reference)

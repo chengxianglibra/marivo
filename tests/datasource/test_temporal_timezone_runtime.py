@@ -13,6 +13,9 @@ import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
+import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import (
     parse_strptime,
@@ -26,11 +29,93 @@ from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.timezone import probe_engine_timezone, verify_source_timezone
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.source_cases import SourceData, receipt, source_case
 
 pytestmark = pytest.mark.runtime
+
+
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
+@pytest.mark.parametrize(
+    ("column", "parser", "valid"),
+    (
+        ("point", "ms.timestamp(timezone='UTC')", False),
+        ("point", "ms.timestamp()", True),
+        ("text", "ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC')", True),
+    ),
+)
+def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+    column: str,
+    parser: str,
+    valid: bool,
+) -> None:
+    data = SourceData(
+        columns="",
+        values="",
+        clickhouse_columns="point DateTime, text String, amount Int64",
+        rows=[
+            {
+                "point": datetime(2026, 8, 1, tzinfo=timezone.utc),
+                "text": "2026-08-01 00:00:00",
+                "amount": 2,
+            }
+        ],
+    )
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
+        assert isinstance(case.source, TableSourceIR)
+        monkeypatch.setenv("MARIVO_SOURCE_PROFILE_USER", "analysis_reader")
+        project = semantic_project_factory(
+            {
+                "datasources/warehouse.py": (
+                    "import marivo.datasource as md\n"
+                    "md.clickhouse(name='warehouse', host='127.0.0.1', port=18123, "
+                    "database='qualification', user_env='MARIVO_SOURCE_PROFILE_USER', "
+                    "password_env='MARIVO_SOURCE_PROFILE_PASSWORD')\n"
+                ),
+                "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+                "sales/events.py": (
+                    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                    f"events=ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}))\n"
+                    f"point=ms.time_dimension_column(name='point', entity=events, column={column!r}, parse={parser})\n"
+                    "amount=ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n"
+                    "@ms.metric()\ndef total():\n    return amount.sum(time=point)\n"
+                ),
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        catalog = SemanticCatalog(project)
+        report = catalog.validate([ms.ref.metric("sales.total")])
+        assert all(not check.user_data_queried for check in report.checks)
+        session = mv.session.get_or_create("native-physical-validation", timezone="UTC")
+        metric = session.catalog.get("metric:sales.total").value
+        period = session.time_scope(start="2026-08-01", end="2026-08-02")
+        scope = md.unpruned(max_rows=5, timeout_seconds=10)
+        if valid:
+            assert report.status == "current", report.to_dict()
+            assert catalog.preview(ms.ref.time_dimension("sales.events.point"), scope=scope).rows
+            assert session.observe({"total": metric}, by=(period,)).compute().to_pandas()[
+                "total"
+            ].tolist() == [2]
+        else:
+            assert report.status == "failed", report.to_dict()
+            schema = next(check for check in report.checks if check.kind == "schema")
+            assert "already-aware physical source" in str(schema.observed["contract_violations"])
+            with pytest.raises(
+                SemanticRuntimeError, match="an aware source without parser timezone"
+            ):
+                catalog.preview(ms.ref.time_dimension("sales.events.point"), scope=scope)
+            with pytest.raises(
+                SemanticRuntimeError, match="an aware source without parser timezone"
+            ):
+                session.observe({"total": metric}, by=(period,)).compute()
 
 
 @pytest.mark.skipif(

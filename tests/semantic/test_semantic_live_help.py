@@ -872,9 +872,9 @@ def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
         assert f'marivo.help("semantic.{target}")' in render_help_text("semantic." + owner)[0]
         assert f'marivo.help("semantic.{target}")' not in model
     validation = render_help_text("semantic.validation")[0]
-    for target in ("load", "readiness", "preview", "preview_many", "source_health", "source_check"):
+    for target in ("load", "readiness", "preview", "preview_many", "validate", "source_check"):
         assert f'marivo.help("semantic.{target}")' in validation
-    assert "load success != readiness != preview success != source health" in validation
+    assert "load success != readiness != preview success != online validation" in validation
     assert "Ordinary previews do not persist certification or change readiness" in validation
     assert "That the current source satisfies it" in validation
     assert (

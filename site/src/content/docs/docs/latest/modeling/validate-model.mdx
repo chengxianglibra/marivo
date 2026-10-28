@@ -22,6 +22,7 @@ amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
 amount = amount_entry.value
 catalog.readiness(refs=[amount]).show()
+catalog.validate([amount_entry]).show()
 ```
 
 `ms.load()` checks model declarations, references, dependency cycles, and
@@ -29,12 +30,25 @@ expression contracts. `catalog.readiness(...)` checks the selected physical
 inputs and certified temporal artifacts. Neither step opens a datasource
 connection.
 
+`catalog.validate(...)` opens the datasource connections for the selected
+dependency closure and checks actual Entity output schemas, field bindings,
+numeric types and temporal parser/timezone contracts. Its report includes
+physical types, affected fields, declaration locations and repairs. Preview and
+analysis reuse the same field checks before reading business rows. A successful
+validation does not certify every analysis method, and later source changes are
+checked again at use.
+
+For example, a native aware timestamp, including ClickHouse `DateTime` and
+`DateTime64`, rejects `ms.timestamp(timezone="UTC")` even if its own zone is UTC.
+Use `ms.timestamp()` for that source. A string parsed with
+`ms.strptime(..., timezone="UTC")` may still need its declared source timezone.
+
 To inspect current source data, use `catalog.preview(...)` with an explicit
 bounded scope. Ordinary Metric previews require DuckDB and return approximate
 results over at most 10,000 Entity output rows. For other backends, evaluate
 Metrics with `session.observe(...).compute()` and explicit analysis inputs;
 Entity and physical field previews retain their own backend support.
-`catalog.source_health(...)` checks current connectivity and
-schema by default; it reads business rows only when you provide explicit checks
+`catalog.validate(...)` checks physical contracts by default;
+it reads business rows only when you provide explicit checks
 and their bounded scope. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
-has the complete preview and source-health examples.
+has the complete preview and online validation examples.

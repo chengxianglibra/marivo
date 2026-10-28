@@ -37,7 +37,7 @@ from tests.surface.exports import ANALYSIS_PUBLIC, DATASOURCE_PUBLIC, SEMANTIC_P
             (
                 "ReadinessInputSummary",
                 "ReadinessIssue",
-                "SourceHealthCheckResult",
+                "ValidationCheckResult",
                 "AiContextValue",
             ),
         ),

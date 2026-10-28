@@ -47,7 +47,7 @@ model definitions expose direct construction; fields select column or expression
 construction. Parameters link to native producers or bounded choices. Help does
 not repeat that workflow. Supporting constructor values follow the definition
 they support. `semantic.validation` distinguishes what load, readiness, preview
-and source health can prove.
+and online validation can prove.
 
 ```text
 load current datasource and semantic catalogs
@@ -57,7 +57,7 @@ load current datasource and semantic catalogs
 -> one ms.load()
 -> catalog.get("kind:path") for every authored root
 -> scoped readiness when analysis-ready delivery is required
--> targeted runtime/source-health probes for concrete remaining risks
+-> targeted runtime/online validation probes for concrete remaining risks
 -> selected authoring exit or first typed analysis use
 ```
 
@@ -167,21 +167,23 @@ the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 Readiness opens no connection or query. Follow its physical-definition or temporal
 artifact repairs, then rerun the scoped check. Source Frame preparation owns aggregate/backend
-compatibility, physical types and operation-specific execution.
+compatibility and operation-specific execution. Online validation checks
+physical types before analysis; source preparation rechecks consumed fields.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
 or dedicated artifact repair. Ordinary preview reads the current datasource and
 does not persist a check or change readiness. A successful project load proves
-static coherence, not current external source health or every possible
+static coherence, not current physical compatibility or every possible
 downstream execution.
 
 When current source or data drift matters, run
-`catalog.source_health(refs, checks=..., scope=...)` separately. Omitting
-`checks` runs connectivity and schema/capability inspection without querying
-user data and therefore requires no scope. Null, enum, uniqueness, freshness,
+`catalog.validate(refs, checks=..., scope=...)` separately. Omitting
+`checks` checks connectivity, actual Entity outputs, field bindings, numeric
+types and temporal parser/timezone contracts without querying user data and
+therefore requires no scope. Preview and analysis share these field checks. Null, enum, uniqueness, freshness,
 relationship, and cardinality expectations exist only when explicitly built
 with `ms.source_check`; those data-reading checks require an exact bounded
-scope and disclose it in every result. Source health is ephemeral and never
+scope and disclose it in every result. Online validation is ephemeral and never
 changes readiness or semantic source. A passing relationship-match check covers
 only the selected source rows. It cannot decide whether a consuming operation
 requires matches for its own selected members or how that operation treats an

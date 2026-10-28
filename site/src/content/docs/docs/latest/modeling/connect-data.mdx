@@ -17,8 +17,9 @@ that the current datasource probe succeeded. [`md.inspect(...)`](/docs/latest/mo
 reads physical metadata, while `.sample(...)` reads selected rows under an
 explicit scope. `ms.load()` validates semantic declarations and dependencies
 without connecting;
-`catalog.source_health(...)` checks current source connectivity plus schema and
-capability metadata. It reads data only for explicit checks with a bounded
+`catalog.validate(...)` connects to the selected physical dependency closure and
+checks Entity outputs, field types and parser/timezone contracts against real
+schema metadata. It reads data only for explicit checks with a bounded
 scope. Metadata and samples help you choose a source; use semantic definitions
 to assign business meaning. See [semantic model validation](/docs/latest/modeling/semantic-layer/#load-and-validate).
 

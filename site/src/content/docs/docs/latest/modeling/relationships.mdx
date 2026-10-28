@@ -17,7 +17,7 @@ Identify each endpoint's full `primary_key` before choosing join fields; include
 
 ## Make the declaration match the rule
 
-Declare direction with `from_entity` and `to_entity`, then pair direct fields from those endpoints with `ms.join_on`. `ms.relationship` derives structural cardinality from each endpoint's complete primary key; this does not establish whether current rows match. To check matches or compare observed multiplicity with an expected cardinality, pass an explicit source check and bounded scope to `catalog.source_health(...)`. See [the declaration example and checks](/docs/latest/modeling/semantic-layer/#make-the-declaration-match-the-rule).
+Declare direction with `from_entity` and `to_entity`, then pair direct fields from those endpoints with `ms.join_on`. `ms.relationship` derives structural cardinality from each endpoint's complete primary key; this does not establish whether current rows match. To check matches or compare observed multiplicity with an expected cardinality, pass an explicit source check and bounded scope to `catalog.validate(...)`. See [the declaration example and checks](/docs/latest/modeling/semantic-layer/#make-the-declaration-match-the-rule).
 
 ## Decide how multiple memberships contribute
 

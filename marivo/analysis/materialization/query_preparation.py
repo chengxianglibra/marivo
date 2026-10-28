@@ -44,6 +44,7 @@ from marivo.refs import SemanticKind, ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic.ir import (
     HourPrefixParse,
     StrptimeParse,
@@ -261,6 +262,7 @@ def prepare_fields(
             entity_refs=(ref.entity(owner),),
             aliases=(table,),
         )
+        validate_bound_field(result, ref=target, registry=registry)
         from marivo._numeric_types import exact_unsigned
 
         if target.kind is not SemanticKind.TIME_DIMENSION:

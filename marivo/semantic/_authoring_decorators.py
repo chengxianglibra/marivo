@@ -912,7 +912,7 @@ def relationship(
         Load derives structural multiplicity from complete endpoint identity key
         coverage. The relationship declares no global required-match policy.
         Each consumer decides whether its selected members require a match and
-        what an allowed absence means. Physical multiplicity can be audited through source_health. Analysis trusts
+        what an allowed absence means. Physical multiplicity can be audited through validate. Analysis trusts
         required matching as an unverified premise; a versioned endpoint needs an exact
         version selection before its one side can be consumed.
 

@@ -279,10 +279,10 @@ through the same relation-ancestry, schema and submission checks.
 
 `md.inspect` resolves a table through that owner before provider metadata
 inspection. `SourceInspection.sample`, snapshots, Semantic preview, and
-source-health business checks use bounded source-bound session reads. They
+online validation business checks use bounded source-bound session reads. They
 remain distinct evidence: metadata describes observed structure, a sample
-describes only selected bounded rows, `catalog.test` and source-health connectivity
-prove one compiled literal round trip, and explicit source-health checks report
+describes only selected bounded rows, `catalog.test` and online validation connectivity
+prove one compiled literal round trip, and explicit online validation checks report
 only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
 be inferred from a sample or silently supplied. Five backend metadata profiles

@@ -83,7 +83,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert sum(row["amount"] for row in preview.rows) == 751.5
     assert preview.coverage.scopes == (("sales.orders", scope),)
 
-    health = catalog.source_health(
+    health = catalog.validate(
         [ms.ref.entity("sales.orders")],
         checks=[
             ms.source_check.allowed_values(

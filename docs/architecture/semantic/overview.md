@@ -42,7 +42,7 @@ semantic-role owner; navigation does not duplicate their contracts.
 | Inspection, bounded sampling and discovery snapshots | [Discovery](../datasource/discovery.md) |
 | Domain, stable identity, versioning, fields and relationships | [Object model](semantic-object-model.md) |
 | Physical capture, Deferred grammar, units and reductions | [Expressions](expressions.md) |
-| Loading, Catalog, readiness, preview and source health | [Loading and validation](loading-validation-introspection.md) |
+| Loading, Catalog, readiness, preview and online validation | [Loading and validation](loading-validation-introspection.md) |
 | Choosing evidence and completing an authoring task | [Authoring workflow](authoring-workflow.md) |
 | Period calendars and temporal sets | [Temporal authority](temporal-authority.md) |
 | Exact boundaries, windows and frozen time coordinates | [Temporal semantics](../temporal-semantics.md) |
@@ -83,7 +83,10 @@ explain captured meaning and executable variants expose native closed `.value`. 
 physical dependency closures and dedicated temporal artifacts without a query.
 Its `analysis_ready_inputs` contains only directly requested ready physical refs.
 
-Ordinary preview and source-health reports answer scoped external-data questions.
+Online validation connects to the physical dependency closure and checks Entity
+outputs, field types and parser/timezone compatibility using actual schemas.
+Preview and analysis reuse the same field checks. Ordinary preview and explicit
+data checks answer scoped external-data questions.
 Temporal certification is different: its finite source values define executable
 calendar authority, so preview publishes a dedicated validated snapshot.
 Analysis preparation qualifies the actual source types, method and backend.
@@ -106,4 +109,4 @@ recoverable nominal Entity/Field authority or hidden Metric state.
 | Physical adapters and managed reads | [datasource/runtime.py](../../../marivo/datasource/runtime.py), [engines](../../../marivo/datasource/engines/) |
 | Declaration capture and restricted syntax | [authoring.py](../../../marivo/semantic/authoring.py), [validator.py](../../../marivo/semantic/validator.py) |
 | Project assembly and materialization | [loader.py](../../../marivo/semantic/loader.py), [reader.py](../../../marivo/semantic/reader.py), [materializer.py](../../../marivo/semantic/materializer.py) |
-| Catalog, validation and snapshots | [catalog.py](../../../marivo/semantic/catalog.py), [readiness.py](../../../marivo/semantic/readiness.py), [source_health.py](../../../marivo/semantic/source_health.py) |
+| Catalog, validation and snapshots | [catalog.py](../../../marivo/semantic/catalog.py), [readiness.py](../../../marivo/semantic/readiness.py), [validation.py](../../../marivo/semantic/validation.py) |

@@ -109,8 +109,9 @@ readiness on the selected entries and inspect the expanded physical dependency
 closure. Requested identities, checked dependencies and directly ready physical
 inputs have distinct meanings; dependency readiness is not Metric execution proof. AnalysisFrame evaluation qualifies the selected computation and source;
 compute fixes complete memory data and persist commits the completed result.
-Choose preview for a concrete runtime risk or repair, and source health for
-current source/data drift. Read each report's scope, findings and repair; no
+Use online validation to check definitions against real source types and current
+source drift; choose preview when scoped values answer a concrete runtime risk
+or repair. Explicit data checks need a bounded scope. Read each report's scope, findings and repair; no
 check establishes another check's result or business authority. Reuse completed
 checks while their identity and scope remain applicable.
 

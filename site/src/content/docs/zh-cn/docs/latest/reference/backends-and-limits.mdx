@@ -48,7 +48,7 @@ ClickHouse 使用 `quantileTDigest`；PostgreSQL 和 MySQL 没有近似来源端
 collation。Entity 的 `primary_key` 声明完整且非空的身份；即使物理元数据将身份列标为可空，
 该路线仍信任此声明，不会全量预检来源数据中的空值或唯一性；各操作的身份检查仍会执行。
 需要按范围核验数据时，使用 `ms.source_check` 构造检查，并通过有界的
-`catalog.source_health(..., checks=..., scope=...)` 执行。同一来源 root 内不兼容的非时间
+`catalog.validate(..., checks=..., scope=...)` 执行。同一来源 root 内不兼容的非时间
 scope 不能合并。
 
 ## 考虑资源与数值限制

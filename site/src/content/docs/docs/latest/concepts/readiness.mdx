@@ -25,9 +25,9 @@ references directly. Selecting a declared `Measure` or `Metric` checks its
 physical dependencies, but does not return the derived expression as a physical
 handoff input.
 
-A passing result is a static readiness check, not proof of current source data,
+A passing result is a static readiness check, not proof of physical type compatibility, current source data,
 correct business meaning, or successful execution of the intended analysis. For
-current data expectations, use `catalog.source_health` with explicit
+physical contracts, use `catalog.validate(refs)`. For current data expectations, add explicit
 `ms.source_check` rules and a bounded `scope`, then run the intended observation.
 See [Load and validate](/docs/latest/modeling/semantic-layer/#load-and-validate)
 for examples and how the checks differ.

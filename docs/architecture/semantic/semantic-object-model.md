@@ -193,7 +193,7 @@ All members and attributes at an anchor come from the same snapshot. Absence of
 authorize carrying an older row forward. Declaring snapshot meaning states the
 expected complete cross-section, not observed proof that an ingestion finished
 or every expected member arrived. Consumer-required
-checks and explicit source-health reports keep their actual scope; ordinary
+checks and explicit online validation reports keep their actual scope; ordinary
 observation does not certify real-world population completeness.
 
 **Validity-interval (SCD2)** entities declare `valid_from`/`valid_to` +
@@ -434,7 +434,7 @@ required matching is retained as an exact unverified consuming-contract assumpti
 many side never grants fanout safety. Derived
 cardinality grants no evidence of actual rows. When completeness matters, an
 explicit bounded `source_check.relationship_matches(...)` can test its declared
-scope; source-health results do not become a global business guarantee.
+scope; online validation results do not become a global business guarantee.
 Incorrect declarations do not promise detection. Necessary consumer indexes
 reject encountered duplicates, and required lookups reject missing operands.
 An allowed absent match needs its consumer's explicit result semantics.

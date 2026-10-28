@@ -128,9 +128,9 @@ from marivo.semantic.ir import (
 from marivo.semantic.readiness import (
     ReadinessReport,
 )
-from marivo.semantic.source_health import (
+from marivo.semantic.validation import (
     SourceCheck,
-    SourceHealthReport,
+    ValidationReport,
     source_check,
 )
 
@@ -165,12 +165,12 @@ __all__ = [
     "SemanticCatalog",
     "SemanticKind",
     "SourceCheck",
-    "SourceHealthReport",
     "TemporalOccurrencePage",
     "TemporalSetDefinition",
     "TemporalSetEntry",
     "TemporalSetKind",
     "TimeDimensionEntry",
+    "ValidationReport",
     "additive_all",
     "additive_except",
     "additive_over",

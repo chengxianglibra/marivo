@@ -27,6 +27,7 @@ from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
     evaluate_expression_body,
 )
+from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     CsvSourceIR,
@@ -170,7 +171,7 @@ class Materializer:
         table_result: bool = False,
     ) -> ir.Value:
         """Evaluate one compiled body through the task-local binding runtime."""
-        _, sidecar = self._get_registry_and_sidecar()
+        registry, sidecar = self._get_registry_and_sidecar()
         body = sidecar.bodies.get(owning_ref)
         if body is None:
             _raise(
@@ -182,7 +183,7 @@ class Materializer:
         compiled_state = self._project._compiled_state
         if compiled_state is None:
             raise RuntimeError("semantic project has no immutable compiled state")
-        return evaluate_expression_body(
+        result = evaluate_expression_body(
             catalog_definition_fingerprint=compiled_state.definition_fingerprint,
             expression_sidecar=sidecar,
             owning_ref=owning_ref,
@@ -191,6 +192,8 @@ class Materializer:
             aliases=aliases,
             table_result=table_result,
         )
+        validate_bound_field(result, ref=owning_ref, registry=registry)
+        return result
 
     @staticmethod
     def _dimension_ref(semantic_id: str, *, is_time_dimension: bool) -> Ref[SemanticKindTag]:

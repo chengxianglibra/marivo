@@ -13,7 +13,7 @@ Source construction is lazy; evaluating a pending Frame can run captured depende
 
 Source metadata may mark identity columns nullable. Analysis treats an Entity's
 `primary_key` as its identity contract, but does not validate every source row for
-non-null, unique keys. Use explicit [source health checks](/docs/latest/modeling/semantic-layer/#load-and-validate)
+non-null, unique keys. Use explicit [online validation checks](/docs/latest/modeling/semantic-layer/#load-and-validate)
 to test those expectations on a chosen scope.
 Nullable metadata alone does not disqualify a source binding or add a full-source
 NULL or uniqueness precheck. Existing identity-output and operation-specific checks remain.

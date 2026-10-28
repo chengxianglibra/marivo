@@ -34,7 +34,7 @@ assert requested_count.to_pandas()["members"].tolist() == [4]
 
 `requested` 包含订单 999，但教程数据中没有这条记录。字面 Population 记录所选键；来源中是否存在对应记录需另行确认。`keys=()` 表示空域；当 `by=()` 时，`keys=((),)` 表示有一个元素的零轴域。
 
-来源驱动的 Population 遵循语义模型中声明的身份、关系基数和版本粒度。需要检查数据唯一性或关系基数等条件时，可运行[来源健康检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)并明确指定检查项。标量查询找不到关联行时，`session.read` 和 `P.classify` 会保留请求的身份，缺失属性的值为 `NULL`。
+来源驱动的 Population 遵循语义模型中声明的身份、关系基数和版本粒度。需要检查数据唯一性或关系基数等条件时，可运行[在线校验](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)并明确指定检查项。标量查询找不到关联行时，`session.read` 和 `P.classify` 会保留请求的身份，缺失属性的值为 `NULL`。
 
 ## 身份分组：`mv.identity`
 

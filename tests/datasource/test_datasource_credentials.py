@@ -495,7 +495,7 @@ def test_public_semantic_analysis_and_resume(
             ms.ref.entity("sales.orders"), scope=md.unpruned(max_rows=10, timeout_seconds=10)
         )
         assert preview.rows
-        assert catalog.source_health([ms.ref.entity("sales.orders")]).status == "current"
+        assert catalog.validate([ms.ref.entity("sales.orders")]).status == "current"
         query = session.observe(
             {"revenue": catalog.get("metric:sales.revenue").value},
             where=mv.in_population(

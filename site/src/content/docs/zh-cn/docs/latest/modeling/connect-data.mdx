@@ -15,7 +15,8 @@ head:
 打开连接并执行字面量往返查询；成功仅表示本次数据源探测通过。
 [`md.inspect(...)`](/zh-cn/docs/latest/modeling/datasources/#凭据与连接检查)读取物理元数据，
 `.sample(...)` 则在显式范围内读取所选行。`ms.load()` 检查语义声明与依赖，但不会连接数据源；
-`catalog.source_health(...)` 检查当前数据源连接以及 schema 和能力元数据；只有显式声明
+`catalog.validate(...)` 连接所选对象的物理依赖，按真实结构检查 Entity 输出、字段类型、
+解析器和时区契约；只有显式声明
 有界数据检查时才读取数据行。元数据和样本可帮助选择物理来源；业务含义应由语义定义承载。详见
 [语义模型验证](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。
 

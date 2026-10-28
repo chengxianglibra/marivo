@@ -17,7 +17,7 @@ head:
 
 ## 让声明符合规则
 
-用 `from_entity` 和 `to_entity` 声明关系方向，再通过 `ms.join_on` 配对确切端点上的直接字段。`ms.relationship` 根据两端完整主键推导结构基数；这不能证明当前数据行都能匹配。若要核对当前匹配情况，或将观测到的多重性与预期基数比较，可向 `catalog.source_health(...)` 传入显式数据源检查和有界范围。参见[声明示例与检查](/zh-cn/docs/latest/modeling/semantic-layer/#让声明符合规则)。
+用 `from_entity` 和 `to_entity` 声明关系方向，再通过 `ms.join_on` 配对确切端点上的直接字段。`ms.relationship` 根据两端完整主键推导结构基数；这不能证明当前数据行都能匹配。若要核对当前匹配情况，或将观测到的多重性与预期基数比较，可向 `catalog.validate(...)` 传入显式数据源检查和有界范围。参见[声明示例与检查](/zh-cn/docs/latest/modeling/semantic-layer/#让声明符合规则)。
 
 ## 决定多重归属如何贡献
 

@@ -7,7 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
+from marivo.semantic.errors import SemanticRuntimeError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
@@ -77,13 +77,14 @@ def test_next_observation_rechecks_physical_numeric_type(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{names.order}" ALTER "{names.amount}" TYPE VARCHAR')
     query = case.session.observe({"value": metric})
-    with pytest.raises(SemanticExpressionError) as error:
+    with pytest.raises(SemanticRuntimeError) as error:
         query.persist()
     cause = error.value
-    assert isinstance(cause, SemanticExpressionError)
+    assert isinstance(cause, SemanticRuntimeError)
     assert (
-        cause.expected == f"a numeric physical type for {names.domain}.{names.order}.{names.amount}"
+        cause.expected
+        == f"a numeric or duration physical type for {names.domain}.{names.order}.{names.amount}"
     )
-    assert cause.received == "string"
+    assert cause.received == "duckdb physical_type='string'"
     assert cause.repair
     assert len(terminal_runs(case.session)) == runs_before

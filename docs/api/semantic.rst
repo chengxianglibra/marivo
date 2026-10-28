@@ -135,10 +135,12 @@ Readiness & runtime checks
    :nosignatures:
 
 
-``catalog.source_health(refs, checks=..., scope=...)`` independently checks
-current connectivity, physical schema/capability identity, and only explicitly
+``catalog.validate(refs, checks=..., scope=...)`` independently checks
+the selected physical dependency closure: current connectivity, Entity output
+schemas, field bindings, numeric/duration types, and temporal parser/timezone contracts.
+Preview and analysis reuse the same field checks. It also runs explicitly
 declared data expectations. Construct expectations with ``source_check``.
-Metadata-only health checks omit ``scope`` and never query user data; declared
+Metadata-only validation omits ``scope`` and never queries user data; declared
 data checks require an explicit bounded scope and never change readiness.
 
 .. autodata:: source_check
@@ -255,7 +257,7 @@ Changed scope, definitions, configuration or missing cached results rejects a
 cursor and requires restarting the search.
 
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
-``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
+``catalog.validate(...)``, and ``catalog.readiness(refs=[...])`` accept an
 exact ref, an entry owned by the current compiled catalog, or a catalog value.
 Inputs normalize immediately to refs; readiness results, preview evidence,
 persistence, and recovery remain ref-based. Preview ``limit`` must be an integer
@@ -305,7 +307,7 @@ Readiness & assessment
 
    ReadinessReport
    PreviewBatchResult
-   SourceHealthReport
+   ValidationReport
 
 Keys & kinds
 ------------
@@ -356,7 +358,7 @@ Returned authoring and report records
 
 Construct context with ``ms.ai_context(...)``. Use ``ms.typing.AiContextValue`` for explicit
 context annotations. Read readiness issue/input records through the report
-fields and health checks through ``SourceHealthReport.checks``. These returned
+fields and validation checks through ``ValidationReport.checks``. These returned
 records retain their exact types and field Help without root constructor exports;
 use ``marivo.help(type(value))`` for each owning type. Factory signatures document
 the ten nominal symbol roles; runtime leaves remain native Deferred objects.

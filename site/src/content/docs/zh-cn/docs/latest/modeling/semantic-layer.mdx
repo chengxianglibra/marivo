@@ -5,7 +5,7 @@ description: 逐项说明实体、维度、度量、指标与关系的参数和�
 
 语义层用 Python 定义可复用的业务含义。本页依次介绍 Entity、Dimension、Time dimension、Measure、Metric 和 Relationship，说明每类对象表达什么、有哪些属性、如何定义。Datasource 负责物理访问，语义对象在此基础上定义身份、字段、聚合规则和映射关系。
 
-查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 source health 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
+查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 在线校验 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
 
 各节的简短声明是模型文件片段，不是直接粘贴到分析脚本中的命令。运行时请结合[完整模型](#complete-model)和[本地教程](/zh-cn/docs/latest/start/python/)。在 `models/semantic/sales/_domain.py` 中用 `ms.domain(name="sales", owner="Mina Zhang")` 声明业务域；默认域允许同目录下的定义省略 `domain=`。`ai_context=ms.ai_context(business_definition=..., guardrails=[...])` 记录业务含义与使用限制，不执行计算逻辑。
 
@@ -306,7 +306,7 @@ c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收�
 
 先声明具有完整主键的订单和客户实体，再使用 `ms.relationship` 与 `ms.join_on` 声明有向关系。通过 `marivo.help("semantic.relationship.define")` 获取精确构造方式。身份是 (tenant, customer) 时必须包含两个部分，只用客户编号可能误连其他租户。
 
-`ms.load()` 会校验已声明的关系映射并推导结构基数，不读取来源数据行。若要检查当前匹配情况，或将观测到的多重性与预期基数比较，可使用 `ms.source_check.relationship_matches(...)` 或 `ms.source_check.relationship_cardinality(...)`，再通过 `catalog.source_health(..., checks=..., scope=...)` 执行。这些数据检查需要显式的有界范围，结果只描述该范围。
+`ms.load()` 会校验已声明的关系映射并推导结构基数，不读取来源数据行。若要检查当前匹配情况，或将观测到的多重性与预期基数比较，可使用 `ms.source_check.relationship_matches(...)` 或 `ms.source_check.relationship_cardinality(...)`，再通过 `catalog.validate(..., checks=..., scope=...)` 执行。这些数据检查需要显式的有界范围，结果只描述该范围。
 
 ### 决定多重归属如何贡献
 
@@ -450,15 +450,15 @@ preview = catalog.preview(
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
 amount = amount_entry.value
-health = catalog.source_health(
+validation = catalog.validate(
     [amount],
     checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 )
-health.show()
+validation.show()
 ```
 
-`ms.load()` 检查模型声明与项目一致性，不读取来源数据行。readiness 检查指定物理依赖和必需时间产物，不连接数据源或查询数据。若要检查当前来源数据，向 `catalog.source_health(...)` 传入显式检查和有界 `scope`；未传入数据检查时，source health 只检查连接、结构和能力元数据。preview 读取有界范围；普通预览不改变 readiness。
+`ms.load()` 离线检查模型声明与项目一致性。Readiness 离线检查指定物理依赖和必需时间产物。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
 
 `preview` 与 `preview_many` 的 `limit` 必须是 1 至 100（含两端）的整数，限制每份结果保留的预览行数。`scope.max_rows` 独立约束采集；无效的 limit 会在打开连接前抛出结构化语义错误。`preview.is_truncated` 表示预览行被省略，`preview.coverage` 表示采集是否完整。`preview.show(n=...)` 只改变已保留行的显示数量。
 

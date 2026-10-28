@@ -11,7 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.errors import SemanticRuntimeError
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 
 
@@ -59,12 +59,15 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         with monkeypatch.context() as patch:
             patch.setattr(SourceSession, "compile", forbidden)
             patch.setattr(SourceSession, "execute", forbidden)
-            with pytest.raises(SemanticExpressionError) as caught:
+            with pytest.raises(SemanticRuntimeError) as caught:
                 logical.persist()
         cause = caught.value
-        assert isinstance(cause, SemanticExpressionError)
-        assert cause.expected == f"a numeric physical type for {n.domain}.{n.order}.{n.amount}"
-        assert cause.received == "string"
+        assert isinstance(cause, SemanticRuntimeError)
+        assert (
+            cause.expected
+            == f"a numeric or duration physical type for {n.domain}.{n.order}.{n.amount}"
+        )
+        assert cause.received == "duckdb physical_type='string'"
         assert cause.repair
         assert terminal_runs(session) == before
         assert _publications(session) == published_before

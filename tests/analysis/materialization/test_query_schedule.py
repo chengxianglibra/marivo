@@ -45,7 +45,7 @@ from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from tests.shared_fixtures import (
     catalog_value,
     numeric_literal_node,
@@ -480,12 +480,14 @@ def test_parquet_source_metadata_controls_lossless_preparation(
         slot = "value.0"
         assert str(output.table[slot].dtype) == "duration[ns][pyarrow]"
         assert pa.array(output.table[slot]).cast(pa.int64()).to_pylist() == [ticks]
-    elif kind == "timestamp_us":
+    elif kind in ("timestamp_us", "timestamp_ns"):
+        # A timestamp is not a quantitative Measure carrier. The shared
+        # physical contract now rejects it during source preparation.
         with (
+            pytest.raises(SemanticRuntimeError, match="numeric or duration physical type"),
             open_query_sources(
                 session._runtime.connection_service(), graph, session.catalog._state
             ) as prepared,
-            pytest.raises(SemanticExpressionError, match="numeric physical type"),
         ):
             plan_query(graph, prepared.schemas)
     else:

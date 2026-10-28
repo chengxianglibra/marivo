@@ -31,7 +31,7 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
-from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
+from marivo.semantic.validation import ValidationCheckResult, ValidationReport
 from tests.shared_fixtures import catalog_value
 from tests.support.refs import as_ref
 
@@ -178,12 +178,12 @@ def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
     assert "omitted" in large.lower()
 
 
-def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
+def test_validate_cards_disclose_failed_facts_and_scope_without_queries(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     entity = ms.ref.entity("sales.orders")
-    check = SourceHealthCheckResult(
+    check = ValidationCheckResult(
         kind="not_null",
         status="failed",
         _datasource=as_ref(ms.ref.datasource("warehouse")),
@@ -205,7 +205,7 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
             for item, scope in ((entity, md.unpruned(max_rows=10, timeout_seconds=5)),)
         ),
     )
-    report = SourceHealthReport("failed", (check,), check.checked_at, "definition:fixture")
+    report = ValidationReport("failed", (check,), check.checked_at, "definition:fixture")
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
     report_text = report.render()
     assert "sales.revenue" in report_text

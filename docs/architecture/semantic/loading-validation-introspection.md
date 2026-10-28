@@ -1,6 +1,6 @@
 # Semantic Loading, Validation and Introspection
 
-Loading establishes a coherent semantic project. Readiness, source health,
+Loading establishes a coherent semantic project. Readiness, online validation,
 ordinary preview and temporal certification answer different questions; no
 single success flag covers all of them.
 
@@ -128,7 +128,7 @@ business datasource is read by load, search, get, show or related navigation.
 | ms.load | Project Python and configuration | Static project/dependency coherence | Physical types, external health, numerical execution |
 | catalog.readiness | Loaded definitions and local temporal artifacts | Ready physical requested inputs and closures | Backend/method qualification or business completeness |
 | catalog.preview | Explicit bounded current source scope | Scoped runtime values; ordinary Metric preview is approximate | Whole-source correctness or ordinary readiness promotion |
-| catalog.source_health | Connectivity/metadata; scoped data only for explicit checks | Requested current observations | Persistent readiness, business meaning or universal match coverage |
+| catalog.validate | Current physical schema; scoped data only for explicit checks | Entity outputs, field bindings, numeric and temporal type contracts | Persistent readiness, business meaning or universal match coverage |
 | Temporal preview | Complete declared finite authority source | Certified immutable calendar/set/schedule snapshot | Business fact capture or arbitrary Analysis support |
 | Frame.compute / persist | Explicit prepared analysis dependencies | Actual admitted computation; persist also commits it | Unrun providers, installed packages or release qualification |
 
@@ -139,7 +139,7 @@ analysis_ready_inputs includes only directly requested physical refs whose
 closures have no blocker. Dependency refs remain diagnostic inputs. Warnings
 and blockers stay on the same ReadinessReport.
 
-## Runtime preview and source health
+## Runtime preview and online validation
 
 Build preview scopes with md.partition, md.time_range or md.unpruned. Positive
 row guards and requested native timeouts bound acquisition; a returned-row limit
@@ -163,9 +163,23 @@ Population/internal-sample preparation is rejected there; use an actual Analysis
 observation for that work. The display limit is independent from acquisition and
 aggregate scope.
 
-Source health with checks omitted tests connectivity and schema/capability
-metadata without a business-data query, and needs no data scope. Explicit
-ms.source_check rules for missingness, enum, uniqueness, freshness, relationship
+`catalog.validate(refs)` connects to the selected definitions' complete physical
+dependency closure. For each selected Entity source it establishes the Entity
+output from actual metadata, checks primary-key columns and field bindings, and
+validates the declared fields' numeric/duration types and temporal parser/timezone
+contracts. These checks use the transformed Entity and field output types, not
+just the raw column names or datasource family. An already-aware timestamp
+rejects an explicit parser timezone, including when both zones are equal;
+ClickHouse native timestamps are aware even when Ibis omits the zone label.
+Reports retain physical types, affected refs, declaration locations and repairs.
+Unknown/unavailable types cannot produce a successful validation result.
+
+Without explicit data checks, validation needs no scope and reads no business
+rows. Preview and analysis share the same physical field checks when binding
+consumed inputs, before business-data execution. They recheck current source
+types; a previous validation is not a permanent certificate. The check does not
+qualify arbitrary analysis methods, inspect source values for parser compliance,
+or promote readiness. Explicit `ms.source_check` rules for missingness, enum, uniqueness, freshness, relationship
 matches or cardinality require a bounded scope when reading rows. Results report
 that actual scope and remain ephemeral. Analysis trusts declared identity,
 relationship cardinality and version grain without automatically running these
@@ -194,6 +208,6 @@ specific owner rather than treating load, readiness and source access as one sta
 [reader.py](../../../marivo/semantic/reader.py) own project assembly;
 [catalog.py](../../../marivo/semantic/catalog.py) owns public consumption and
 preview dispatch; [readiness.py](../../../marivo/semantic/readiness.py) and
-[source_health.py](../../../marivo/semantic/source_health.py) own their independent
+[validation.py](../../../marivo/semantic/validation.py) own their independent
 reports. [check.py](../../../marivo/semantic/check.py) exposes project checking
 through the CLI without creating another semantic state authority.

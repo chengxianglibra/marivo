@@ -11,6 +11,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
+from marivo.semantic._physical_contracts import time_type_issue
 from marivo.semantic.ir import (
     DateParse,
     HourPrefixParse,
@@ -592,18 +593,17 @@ def source_time(
         else isinstance(physical, dt.Timestamp)
         and (physical.timezone is not None or engine == "clickhouse")
     )
-    if declared is not None and physical_is_aware:
-        physical_type = frozen.physical_type if frozen is not None else str(physical)
+    issue = time_type_issue(
+        dt.dtype(frozen.physical_type) if frozen is not None else physical,
+        path=axis.ref.path,
+        parse=parse,
+        engine=engine,
+    )
+    if issue is not None:
         raise DatasetCompilationError(
-            expected="an aware source without parser timezone",
-            received=(
-                f"{engine} physical_type={physical_type!r}, parser_timezone={declared!r}; "
-                "already-aware physical source"
-            ),
-            repair=(
-                f"Replace the parser on {axis.ref.path!r} with parse=ms.timestamp() "
-                "and reload the project; the physical source already owns its clock."
-            ),
+            expected=issue.expected,
+            received=issue.received,
+            repair=issue.action,
             location=f"analysis.source_time[{axis.ref.kind}:{axis.ref.path}]",
         )
     if isinstance(parse, HourPrefixParse):

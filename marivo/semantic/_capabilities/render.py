@@ -233,8 +233,8 @@ def _render_check_topic(descriptor: SemanticCheckTopic) -> str:
     lines.extend(
         (
             "",
-            "  load success != readiness != preview success != source health",
-            "  source health != operation-shaped analysis execution",
+            "  load success != readiness != preview success != online validation",
+            "  online validation != operation-shaped analysis execution",
         )
     )
     return _bounded("\n".join(lines))
@@ -454,7 +454,7 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if type_name == "SourceCheckNamespace":
         lines.append(
-            "  Data boundary: pass these values only to catalog.source_health(..., "
+            "  Data boundary: pass these values only to catalog.validate(..., "
             "checks=[...], scope=<explicit bounded scope>); no expectation is inferred."
         )
     if type_name.endswith("Entry"):

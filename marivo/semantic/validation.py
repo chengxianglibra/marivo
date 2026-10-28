@@ -1,4 +1,4 @@
-"""Explicit, bounded source-health checks for a loaded semantic catalog."""
+"""Online physical contract validation and explicit bounded data checks."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ from marivo.datasource.errors import (
     DatasourceCredentialScopeError,
     _backend_failure_summary,
 )
-from marivo.datasource.inspection import SourceInspection, _inspect_in_project
+from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, JsonSourceIR
 from marivo.datasource.source import AuthoringScope
 from marivo.refs import (
@@ -55,16 +55,18 @@ from marivo.refs import (
 )
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
-from marivo.semantic.preview_scope import PreviewScope, _normalize_scopes, dependency_entities
+from marivo.semantic._expression_binding import evaluate_expression_body
+from marivo.semantic._physical_contracts import validate_bound_field
+from marivo.semantic.errors import ErrorKind, SemanticError, SemanticRuntimeError, _raise, repair
+from marivo.semantic.preview_scope import PreviewScope, _normalize_scopes
 
 if TYPE_CHECKING:
     from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.resolver import SemanticResolver
     from marivo.semantic.validator import Registry
 
-SourceHealthStatus = Literal["current", "failed", "unavailable", "unknown"]
-SourceHealthCheckKind = Literal[
+ValidationStatus = Literal["current", "failed", "unavailable", "unknown"]
+ValidationCheckKind = Literal[
     "connectivity",
     "schema",
     "not_null",
@@ -271,7 +273,7 @@ FieldSourceCheck: TypeAlias = (
 
 
 class SourceCheckNamespace:
-    """Closed constructors for explicit source-health expectations."""
+    """Closed constructors for explicit online validation expectations."""
 
     def not_null(self, field: FieldSymbol, /) -> NotNullSourceCheck:
         return NotNullSourceCheck(field=field)
@@ -311,7 +313,7 @@ class SourceCheckNamespace:
             side: Check the directed ``from`` side or ``both`` sides.
 
         Returns:
-            A check consumed by ``catalog.source_health(..., checks=..., scope=...)``.
+            A check consumed by ``catalog.validate(..., checks=..., scope=...)``.
 
         Example:
             ms.source_check._relationship_matches(
@@ -374,9 +376,9 @@ def _repair_dict(value: AuthoringRepair | None) -> dict[str, object] | None:
 
 
 @dataclass(frozen=True, repr=False, slots=True)
-class SourceHealthCheckResult(RenderableResult):
-    kind: SourceHealthCheckKind
-    status: SourceHealthStatus
+class ValidationCheckResult(RenderableResult):
+    kind: ValidationCheckKind
+    status: ValidationStatus
     _datasource: Ref[DatasourceKind]
     source: EntitySourceIR
     _target_refs: tuple[Ref[SemanticKindTag], ...]
@@ -407,7 +409,7 @@ class SourceHealthCheckResult(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"SourceHealthCheckResult kind={self.kind} status={self.status} "
+            f"ValidationCheckResult kind={self.kind} status={self.status} "
             f"targets={len(self._target_refs)}"
         )
 
@@ -466,9 +468,9 @@ class SourceHealthCheckResult(RenderableResult):
 
 
 @dataclass(frozen=True, repr=False, slots=True)
-class SourceHealthReport(RenderableResult):
-    status: SourceHealthStatus
-    checks: tuple[SourceHealthCheckResult, ...]
+class ValidationReport(RenderableResult):
+    status: ValidationStatus
+    checks: tuple[ValidationCheckResult, ...]
     checked_at: str
     catalog_definition_fingerprint: str
 
@@ -481,7 +483,7 @@ class SourceHealthReport(RenderableResult):
         return tuple(symbol_from_ref(ref) for ref in self._affected_refs)
 
     def _repr_identity(self) -> str:
-        return f"SourceHealthReport status={self.status} checks={len(self.checks)}"
+        return f"ValidationReport status={self.status} checks={len(self.checks)}"
 
     def _card(self) -> Card:
         card = Card(
@@ -511,7 +513,7 @@ class SourceHealthReport(RenderableResult):
                 for check in self.checks
             ),
             row_count=len(self.checks),
-            label="source health",
+            label="online validation",
             show_omission_counts=True,
         )
         return card.field("checked_at", self.checked_at)
@@ -526,11 +528,11 @@ class SourceHealthReport(RenderableResult):
         }
 
 
-def _overall_status(checks: Sequence[SourceHealthCheckResult]) -> SourceHealthStatus:
+def _overall_status(checks: Sequence[ValidationCheckResult]) -> ValidationStatus:
     statuses = {check.status for check in checks}
     for status in ("failed", "unavailable", "unknown"):
         if status in statuses:
-            return cast("SourceHealthStatus", status)
+            return cast("ValidationStatus", status)
     return "current"
 
 
@@ -564,7 +566,7 @@ def _field_owner(registry: Registry, ref: Ref[SemanticKindTag]) -> str:
         return registry.dimensions[ref.path].entity
     if ref.kind is SemanticKind.MEASURE:
         return registry.measures[ref.path].entity
-    raise AssertionError(f"unsupported source-health field kind: {ref.kind}")
+    raise AssertionError(f"unsupported online validation field kind: {ref.kind}")
 
 
 def _check_entities(check: SourceCheck, registry: Registry) -> tuple[str, ...]:
@@ -595,7 +597,7 @@ def _normalize_checks(
         ):
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.source_health(checks=...) requires values from ms.source_check.",
+                "catalog.validate(checks=...) requires values from ms.source_check.",
                 cls=SemanticRuntimeError,
                 details={"query_executed": False, "received_type": type(check).__name__},
             )
@@ -615,7 +617,7 @@ def _normalize_checks(
             if target not in registry_ref_set(registry):
                 _raise(
                     ErrorKind.NOT_FOUND,
-                    f"Source-health target {target.key!r} is absent from the loaded catalog.",
+                    f"Online validation target {target.key!r} is absent from the loaded catalog.",
                     cls=SemanticRuntimeError,
                     refs=(target.key,),
                     details={"query_executed": False},
@@ -632,7 +634,7 @@ def _normalize_checks(
         if not set(entities).issubset(selected_entities):
             _raise(
                 ErrorKind.INVALID_REF,
-                "Source-health checks must be grounded in the selected refs' Entity sources.",
+                "Online validation checks must be grounded in the selected refs' Entity sources.",
                 cls=SemanticRuntimeError,
                 details={"query_executed": False, "unselected_entities": entities},
             )
@@ -657,8 +659,8 @@ def registry_ref_set(registry: Registry) -> frozenset[Ref[SemanticKindTag]]:
 
 def _result(
     *,
-    kind: SourceHealthCheckKind,
-    status: SourceHealthStatus,
+    kind: ValidationCheckKind,
+    status: ValidationStatus,
     datasource: Ref[DatasourceKind],
     source: EntitySourceIR,
     target_refs: Sequence[Ref[SemanticKindTag]],
@@ -669,7 +671,7 @@ def _result(
     repair_value: AuthoringRepair | None,
     user_data_queried: bool,
     scopes: Sequence[tuple[Ref[EntityKind], AuthoringScope]] = (),
-) -> SourceHealthCheckResult:
+) -> ValidationCheckResult:
     schema_fingerprint = None
     capability_fingerprint = None
     if inspection is not None:
@@ -677,7 +679,7 @@ def _result(
             [(column.name, column.type, column.nullable) for column in inspection.schema]
         )
         capability_fingerprint = _fingerprint(asdict(inspection.execution_capabilities))
-    return SourceHealthCheckResult(
+    return ValidationCheckResult(
         kind=kind,
         status=status,
         _datasource=datasource,
@@ -746,7 +748,7 @@ def _input_column_names(inspection: SourceInspection) -> set[str]:
 
 def _schema_repair(
     *,
-    schema_status: SourceHealthStatus,
+    schema_status: ValidationStatus,
     has_expression_body: bool,
     output_columns: tuple[str, ...] | None,
     output_reason: str | None,
@@ -765,19 +767,13 @@ def _schema_repair(
     if schema_status == "unknown":
         return repair(
             kind="rescope",
-            canonical_id="source_health",
+            canonical_id="validate",
             action="Run only the explicit scoped data checks needed to prove the declared-only source contract.",
-        )
-    if not has_expression_body:
-        return repair(
-            kind="reauthor",
-            canonical_id="source_health",
-            action="Restore the missing physical columns or update the affected semantic field bindings.",
         )
     if missing_keys:
         return repair(
             kind="reauthor",
-            canonical_id="source_health",
+            canonical_id="validate",
             action=(
                 "Expose the missing primary_key column(s) "
                 f"{', '.join(repr(key) for key in missing_keys)} in the Entity body "
@@ -785,10 +781,16 @@ def _schema_repair(
                 "transformed grain."
             ),
         )
+    if not has_expression_body:
+        return repair(
+            kind="reauthor",
+            canonical_id="validate",
+            action="Restore the missing physical columns or update the affected semantic field bindings.",
+        )
     if missing_fields:
         return repair(
             kind="reauthor",
-            canonical_id="source_health",
+            canonical_id="validate",
             action=(
                 "Expose the missing column(s) in the Entity body output, or update the "
                 "affected semantic field bindings to columns the Entity output provides."
@@ -797,16 +799,16 @@ def _schema_repair(
     if output_reason is not None:
         return repair(
             kind="reauthor",
-            canonical_id="source_health",
+            canonical_id="validate",
             action=(
                 "The Entity output schema could not be established from the inspected "
                 "input, so output-field presence is undetermined. Correct the Entity "
-                "expression or the Source schema, then rerun source health."
+                "expression or the Source schema, then rerun online validation."
             ),
         )
     return repair(
         kind="reauthor",
-        canonical_id="source_health",
+        canonical_id="validate",
         action="Restore the missing physical columns or update the affected semantic field bindings.",
     )
 
@@ -829,62 +831,24 @@ def _schema_missing_fields(
     return tuple(missing)
 
 
-_INPUT_TYPE_SYNONYMS: Mapping[str, str] = {
-    "TEXT": "string",
-    "CLOB": "string",
-    "REAL": "float64",
-    "DOUBLE": "float64",
-    "FLOAT": "float64",
-    "INTEGER": "int64",
-    "INT": "int64",
-    "BIGINT": "int64",
-    "SMALLINT": "int16",
-    "TINYINT": "int8",
-    "NUMERIC": "decimal(38, 9)",
-    "DECIMAL": "decimal(38, 9)",
-    "BOOLEAN": "boolean",
-    "BOOL": "boolean",
-    "DATETIME": "timestamp",
-    "BLOB": "binary",
-}
-
-
-def _input_ibis_type(type_name: str) -> str | None:
-    """Normalize one inspected type string to a canonical Ibis type name.
-
-    Returns None when the type cannot be represented, so the caller defers
-    output validation instead of guessing.
-    """
-    import ibis
-
-    try:
-        return str(ibis.dtype(type_name))
-    except (TypeError, ValueError, RuntimeError):
-        pass
-    return _INPUT_TYPE_SYNONYMS.get(type_name.upper())
-
-
-def _expression_entity_output_columns(
+def _inspected_entity_output(
     catalog: SemanticCatalog,
     *,
     entity_id: str,
     inspection: SourceInspection,
-) -> tuple[tuple[str, ...] | None, str | None]:
-    """Build one expression Entity's output schema from inspected input columns.
-
-    Returns the output column names, or ``(None, reason)`` when the Entity
-    expression cannot be established from the inspected input. An unusable
-    inspected schema and an invalid expression are distinct reasons so health
-    evidence separates input drift from output failure.
-    """
+) -> tuple[ir.Table | None, str | None]:
+    """Bind the Entity output to inspected physical types without reading rows."""
     import ibis
 
-    body = catalog._state.sidecar.bodies.get(ref_factory.entity(entity_id))
-    if body is None:
-        return None, "entity_expression_missing"
+    entity_ref = ref_factory.entity(entity_id)
+    body = catalog._state.sidecar.bodies.get(entity_ref)
+    engine = catalog._reg.datasources[catalog._reg.entities[entity_id].datasource].backend_type
     input_types: dict[str, str] = {}
     for column in inspection.schema:
-        normalized = _input_ibis_type(str(column.type))
+        normalized = _ibis_table_type(
+            column.type,
+            backend_type=engine,
+        )
         if normalized is None:
             return None, "declared_input_types_unusable"
         input_types[column.name] = normalized
@@ -892,13 +856,65 @@ def _expression_entity_output_columns(
         unbound = ibis.table(input_types, name=f"marivo_unbound_{entity_id}")
     except Exception:
         return None, "declared_input_types_unusable"
+    if body is None:
+        return unbound, None
     try:
-        result = body.callable(unbound)
+        result = evaluate_expression_body(
+            catalog_definition_fingerprint=catalog.definition_fingerprint,
+            expression_sidecar=catalog._state.sidecar,
+            owning_ref=entity_ref,
+            body=body,
+            entity_refs=(entity_ref,),
+            aliases=(unbound,),
+            table_result=True,
+        )
     except Exception:
         return None, "entity_expression_invalid"
     if not isinstance(result, ibis.Table):
         return None, "entity_expression_invalid"
-    return tuple(result.schema().names), None
+    return result, None
+
+
+def _field_contracts(
+    catalog: SemanticCatalog, *, entity_id: str, table: ir.Table
+) -> tuple[dict[str, str], tuple[SemanticError, ...]]:
+    """Validate every field on the selected Entity's real output schema."""
+    field_types: dict[str, str] = {}
+    errors: list[SemanticError] = []
+    for field_ref, owner in sorted(
+        catalog._state.sidecar.field_owners.items(), key=lambda item: item[0].key
+    ):
+        if owner.path != entity_id:
+            continue
+        body = catalog._state.sidecar.bodies[field_ref]
+        try:
+            value = evaluate_expression_body(
+                catalog_definition_fingerprint=catalog.definition_fingerprint,
+                expression_sidecar=catalog._state.sidecar,
+                owning_ref=field_ref,
+                body=body,
+                entity_refs=(owner,),
+                aliases=(table,),
+            )
+            field_types[field_ref.key] = str(value.type())
+            validate_bound_field(value, ref=field_ref, registry=catalog._reg)
+        except SemanticError as exc:
+            errors.append(exc)
+    return field_types, tuple(errors)
+
+
+def _dependency_entities(
+    catalog: SemanticCatalog, refs: Sequence[Ref[SemanticKindTag]]
+) -> tuple[str, ...]:
+    pending = list(refs)
+    checked: set[Ref[SemanticKindTag]] = set()
+    while pending:
+        ref = pending.pop()
+        if ref in checked:
+            continue
+        checked.add(ref)
+        pending.extend(catalog._entry_dependencies(ref))
+    return tuple(sorted(ref.path for ref in checked if ref.kind is SemanticKind.ENTITY))
 
 
 def _field_frame(
@@ -918,7 +934,7 @@ def _field_frame(
         resolver.connections.collect_source(
             registry.entities[entity_id].datasource,
             table.select(*values),
-            purpose="semantic.source_health_field",
+            purpose="semantic.validate_field",
             max_rows=scope.max_rows,
         ),
     )
@@ -952,7 +968,7 @@ def _execute_field_check(
     inspections: Mapping[str, SourceInspection | None],
     resolver: SemanticResolver,
     checked_at: str,
-) -> SourceHealthCheckResult:
+) -> ValidationCheckResult:
     registry = catalog._reg
     fields = check._fields if isinstance(check, UniqueSourceCheck) else (check._field,)
     entity_id = _field_owner(registry, fields[0])
@@ -990,14 +1006,14 @@ def _execute_field_check(
             observed=_unavailable_observed(exc),
             repair_value=repair(
                 kind="reconnect",
-                canonical_id="source_health",
-                action="Restore source access or repair the affected semantic field, then rerun source health.",
+                canonical_id="validate",
+                action="Restore source access or repair the affected semantic field, then rerun online validation.",
             ),
             user_data_queried=query_attempted,
             scopes=((ref_factory.entity(entity_id), scope),),
         )
 
-    status: SourceHealthStatus
+    status: ValidationStatus
     observed: dict[str, object]
     if isinstance(check, NotNullSourceCheck):
         null_count = int(frame.iloc[:, 0].isna().sum())
@@ -1056,8 +1072,8 @@ def _execute_field_check(
             if status == "current"
             else repair(
                 kind="reauthor",
-                canonical_id="source_health",
-                action="Repair the scoped source data or revise the explicit expectation, then rerun source health.",
+                canonical_id="validate",
+                action="Repair the scoped source data or revise the explicit expectation, then rerun online validation.",
             )
         ),
         user_data_queried=True,
@@ -1102,13 +1118,13 @@ def _relationship_frames(
         resolver.connections.collect_source(
             registry.entities[left_id].datasource,
             left.select(*left_values),
-            purpose="semantic.source_health_relationship",
+            purpose="semantic.validate_relationship",
             max_rows=scopes[left_id].max_rows,
         ),
         resolver.connections.collect_source(
             registry.entities[right_id].datasource,
             right.select(*right_values),
-            purpose="semantic.source_health_relationship",
+            purpose="semantic.validate_relationship",
             max_rows=scopes[right_id].max_rows,
         ),
         left_id,
@@ -1124,7 +1140,7 @@ def _execute_relationship_check(
     inspections: Mapping[str, SourceInspection | None],
     resolver: SemanticResolver,
     checked_at: str,
-) -> SourceHealthCheckResult:
+) -> ValidationCheckResult:
     registry = catalog._reg
     relationship = registry.relationships[check._relationship.path]
     left_entity = registry.entities[relationship.from_entity]
@@ -1149,7 +1165,7 @@ def _execute_relationship_check(
             observed={"reason": "cross_datasource_relationship"},
             repair_value=repair(
                 kind="reauthor",
-                canonical_id="source_health",
+                canonical_id="validate",
                 action="Run the relationship expectation in an accountable external system or colocate the source contract.",
             ),
             user_data_queried=False,
@@ -1189,8 +1205,8 @@ def _execute_relationship_check(
             observed=_unavailable_observed(exc),
             repair_value=repair(
                 kind="reconnect",
-                canonical_id="source_health",
-                action="Restore both relationship sources and permissions, then rerun source health.",
+                canonical_id="validate",
+                action="Restore both relationship sources and permissions, then rerun online validation.",
             ),
             user_data_queried=query_attempted,
             scopes=bound_scopes,
@@ -1213,7 +1229,7 @@ def _execute_relationship_check(
             for row in non_null_right[key_columns].itertuples(index=False, name=None)
         )
         failed = left_unmatched > 0 or (check.side == "both" and right_unmatched > 0)
-        status: SourceHealthStatus = "failed" if failed else "current"
+        status: ValidationStatus = "failed" if failed else "current"
         observed = {
             "from_rows_observed": len(left),
             "to_rows_observed": len(right),
@@ -1266,14 +1282,14 @@ def _execute_relationship_check(
             else (
                 repair(
                     kind="rescope",
-                    canonical_id="source_health",
-                    action="Choose a scope with non-null relationship keys, then rerun source health.",
+                    canonical_id="validate",
+                    action="Choose a scope with non-null relationship keys, then rerun online validation.",
                 )
                 if status == "unknown"
                 else repair(
                     kind="reauthor",
-                    canonical_id="source_health",
-                    action="Repair the scoped relationship data or revise the explicit expectation, then rerun source health.",
+                    canonical_id="validate",
+                    action="Repair the scoped relationship data or revise the explicit expectation, then rerun online validation.",
                 )
             )
         ),
@@ -1282,27 +1298,21 @@ def _execute_relationship_check(
     )
 
 
-def run_source_health(
+def run_validation(
     catalog: SemanticCatalog,
     *,
     refs: Sequence[Ref[SemanticKindTag]],
     checks: Sequence[SourceCheck],
     scope: PreviewScope | None,
-) -> SourceHealthReport:
+) -> ValidationReport:
     """Run metadata checks and explicitly requested bounded data checks."""
     with catalog._project._connection_operation() as connections:
         registry = catalog._reg
-        selected_entities = tuple(
-            dict.fromkeys(
-                entity_id
-                for ref in refs
-                for entity_id in dependency_entities(ref.path, ref.kind, registry)
-            )
-        )
+        selected_entities = _dependency_entities(catalog, refs)
         if not selected_entities:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.source_health(refs=...) requires refs grounded in at least one Entity.",
+                "catalog.validate(refs=...) requires refs grounded in at least one Entity.",
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in refs),
                 details={"query_executed": False},
@@ -1322,7 +1332,7 @@ def run_source_health(
         if normalized_checks and scope is None:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                "catalog.source_health(..., checks=...) requires one explicit AuthoringScope or exact Entity mapping.",
+                "catalog.validate(..., checks=...) requires one explicit AuthoringScope or exact Entity mapping.",
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in refs),
                 details={"query_executed": False},
@@ -1330,7 +1340,7 @@ def run_source_health(
         if not normalized_checks and scope is not None:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                "catalog.source_health(..., scope=...) requires at least one explicit data check.",
+                "catalog.validate(..., scope=...) requires at least one explicit data check.",
                 cls=SemanticRuntimeError,
                 refs=tuple(ref.key for ref in refs),
                 details={"query_executed": False},
@@ -1341,16 +1351,16 @@ def run_source_health(
                     checked_entities,
                     scope,
                     preview_ref=refs[0].path,
-                    operation="catalog.source_health",
+                    operation="catalog.validate",
                 )
             )
             if scope is not None
             else {}
         )
         checked_at = datetime.now(tz=UTC).isoformat()
-        results: list[SourceHealthCheckResult] = []
+        results: list[ValidationCheckResult] = []
         inspections: dict[str, SourceInspection | None] = {}
-        connectivity: dict[str, tuple[SourceHealthStatus, Mapping[str, object]]] = {}
+        connectivity: dict[str, tuple[ValidationStatus, Mapping[str, object]]] = {}
         for entity_id in selected_entities:
             entity = registry.entities[entity_id]
             exact_datasource_ref = ref_factory.datasource(entity.datasource)
@@ -1391,8 +1401,8 @@ def run_source_health(
                         if connection_status == "current"
                         else repair(
                             kind="reconnect",
-                            canonical_id="source_health",
-                            action="Restore datasource connectivity or permissions, then rerun source health.",
+                            canonical_id="validate",
+                            action="Restore datasource connectivity or permissions, then rerun online validation.",
                         )
                     ),
                     user_data_queried=False,
@@ -1410,7 +1420,7 @@ def run_source_health(
                 raise
             except DatasourceAuthoringError as exc:
                 inspections[entity_id] = None
-                authoring_status: SourceHealthStatus = (
+                authoring_status: ValidationStatus = (
                     "unavailable" if exc.code == "datasource_missing" else "failed"
                 )
                 results.append(
@@ -1444,8 +1454,8 @@ def run_source_health(
                         observed=_unavailable_observed(exc),
                         repair_value=repair(
                             kind="inspect",
-                            canonical_id="source_health",
-                            action="Restore metadata access or the physical source, then rerun source health.",
+                            canonical_id="validate",
+                            action="Restore metadata access or the physical source, then rerun online validation.",
                         ),
                         user_data_queried=False,
                     )
@@ -1453,14 +1463,10 @@ def run_source_health(
                 continue
             inspections[entity_id] = inspection
             has_expression_body = catalog._state.sidecar.bodies.get(entity_ref) is not None
-            output_columns: tuple[str, ...] | None = None
-            output_reason: str | None = None
-            if has_expression_body:
-                output_columns, output_reason = _expression_entity_output_columns(
-                    catalog,
-                    entity_id=entity_id,
-                    inspection=inspection,
-                )
+            output, output_reason = _inspected_entity_output(
+                catalog, entity_id=entity_id, inspection=inspection
+            )
+            output_columns = tuple(output.columns) if output is not None else None
             if not has_expression_body:
                 # Direct entities: the Source schema is the output schema, so
                 # field bindings keep comparing against physical input.
@@ -1486,13 +1492,18 @@ def run_source_health(
                 missing_keys = tuple(key for key in entity.primary_key if key not in output_set)
             else:
                 missing_keys = ()
+            field_types, contract_errors = (
+                _field_contracts(catalog, entity_id=entity_id, table=output)
+                if output is not None
+                else ({}, ())
+            )
             declared_only = isinstance(entity.source, CsvSourceIR | JsonSourceIR) or any(
                 "declared" in warning.lower() or "metadata_unavailable" in warning.lower()
                 for warning in inspection.warnings
             )
-            schema_status: SourceHealthStatus = (
+            schema_status: ValidationStatus = (
                 "failed"
-                if missing_fields or output_reason is not None or missing_keys
+                if missing_fields or output_reason is not None or missing_keys or contract_errors
                 else "unknown"
                 if declared_only
                 else "current"
@@ -1511,13 +1522,30 @@ def run_source_health(
                 "metadata_authority": "declared" if declared_only else "authoritative",
                 "metadata_warnings": list(inspection.warnings),
                 "execution_capabilities": asdict(inspection.execution_capabilities),
+                "field_types": field_types,
+                "contract_violations": [
+                    {
+                        "refs": list(error.semantic_refs),
+                        "expected": error.expected,
+                        "received": error.received,
+                        "location": (
+                            {"file": error.location.file, "line": error.location.line}
+                            if error.location is not None
+                            else None
+                        ),
+                        "message": str(error),
+                    }
+                    for error in contract_errors
+                ],
             }
+            if missing_keys:
+                observed["missing_output_primary_key"] = list(missing_keys)
+            if output_reason is not None:
+                observed["reason"] = output_reason
             if has_expression_body:
                 observed["entity_output_established"] = output_reason is None
                 if output_columns is not None:
                     observed["entity_output_columns"] = list(output_columns)
-                    if missing_keys:
-                        observed["missing_output_primary_key"] = list(missing_keys)
                 else:
                     observed["reason"] = output_reason
             results.append(
@@ -1531,7 +1559,8 @@ def run_source_health(
                     checked_at=checked_at,
                     inspection=inspection,
                     observed=observed,
-                    repair_value=_schema_repair(
+                    repair_value=(contract_errors[0].repair if contract_errors else None)
+                    or _schema_repair(
                         schema_status=schema_status,
                         has_expression_body=has_expression_body,
                         output_columns=output_columns,
@@ -1572,7 +1601,7 @@ def run_source_health(
                             checked_at=checked_at,
                         )
                     )
-        return SourceHealthReport(
+        return ValidationReport(
             status=_overall_status(results),
             checks=tuple(results),
             checked_at=checked_at,
