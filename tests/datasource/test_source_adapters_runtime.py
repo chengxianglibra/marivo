@@ -436,6 +436,58 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.skipif(
+    os.environ.get("MARIVO_MYSQL_NO_TIMEZONES_TEST") != "1",
+    reason="opt-in MySQL service without named time zone tables",
+)
+def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pymysql
+
+    from marivo.datasource.timezone import probe_engine_timezone, verify_source_timezone
+    from tests.datasource.environment import mysql_analysis as mysql
+
+    name = "no_timezones_" + uuid4().hex
+    monkeypatch.setenv("MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD", mysql.password())
+    with mysql.connection(admin=True, port=23308) as admin, admin.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM mysql.time_zone_name")
+        assert cursor.fetchone() == (0,)
+        with pytest.raises(pymysql.OperationalError) as failure:
+            cursor.execute("SET @@session.time_zone = 'UTC'")
+        assert failure.value.args[0] == 1298
+        cursor.execute("SET @@session.time_zone = '+08:00'")
+        cursor.execute(f"CREATE TABLE {name} (point TIMESTAMP(6), clock DATETIME(6))")
+        try:
+            cursor.execute(
+                f"INSERT INTO {name} VALUES "
+                "('2026-05-01 00:30:00.123456', '2026-05-01 00:30:00.123456')"
+            )
+            datasource = _datasource(
+                "mysql",
+                {
+                    "host": mysql.HOST,
+                    "port": 23308,
+                    "database": mysql.DATABASE,
+                    "user": mysql.READER,
+                },
+                {"password": "MARIVO_SOURCE_ADAPTER_MYSQL_PASSWORD"},
+            )
+            with provider_for("mysql").open(datasource) as session:
+                with session._backend.raw_sql("SELECT @@session.time_zone") as result:
+                    assert result.fetchone() == ("+00:00",)
+                assert probe_engine_timezone(session._backend).engine_timezone_name == "UTC"
+                verify_source_timezone(session._backend, "UTC")
+                bound = session.bind(TableSourceIR(name), source_identity=name)
+                assert bound.relation.point.type().timezone == "UTC"
+                assert bound.relation.clock.type().timezone is None
+                frame = session.collect_bounded(
+                    bound.relation, purpose="temporal.no_timezone_tables", max_rows=2
+                )
+                assert frame.point.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
+                assert frame.clock.tolist() == [pd.Timestamp("2026-05-01 00:30:00.123456")]
+        finally:
+            cursor.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+@pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
 def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyPatch) -> None:

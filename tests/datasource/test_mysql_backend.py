@@ -24,7 +24,7 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
         database="warehouse",
     )
     cursor = connection.cursor.return_value.__enter__.return_value
-    cursor.execute.assert_called_once_with("SET @@session.time_zone = 'UTC'")
+    cursor.execute.assert_called_once_with("SET @@session.time_zone = '+00:00'")
     assert backend._marivo_timezone_name == "UTC"
 
     connect.reset_mock()
@@ -70,7 +70,7 @@ def test_utc_initialization_failure_releases_owned_connection(
 ) -> None:
     connection = MagicMock()
     cursor = connection.cursor.return_value.__enter__.return_value
-    cursor.execute.side_effect = RuntimeError("timezone tables unavailable")
+    cursor.execute.side_effect = RuntimeError("session timezone change rejected")
     monkeypatch.setattr(mysql, "Connection", Mock(return_value=connection))
     with pytest.raises(DatasourceConnectionError) as caught:
         mysql.MySQLBackend().connect(database="warehouse")

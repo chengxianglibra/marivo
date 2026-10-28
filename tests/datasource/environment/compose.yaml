@@ -62,12 +62,12 @@ services:
       timeout: 3s
       retries: 30
     logging: *logging
-  mysql-analysis:
+  mysql-analysis: &mysql-analysis
     image: mysql@sha256:85b9bf2e29cf836ecb8c2a15a935d4ba0c606631dff1dd79531a11983c638f2a
     platform: linux/arm64
     profiles: [mysql-analysis]
     mem_limit: 768m
-    environment:
+    environment: &mysql-environment
       MYSQL_DATABASE: analysis
       MYSQL_ROOT_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
       MYSQL_ROOT_HOST: "%"
@@ -80,6 +80,16 @@ services:
       timeout: 3s
       retries: 60
     logging: *logging
+  mysql-no-timezones:
+    <<: *mysql-analysis
+    profiles: [mysql-no-timezones]
+    command: [--default-time-zone=+08:00]
+    environment:
+      <<: *mysql-environment
+      MYSQL_INITDB_SKIP_TZINFO: "1"
+    ports: [127.0.0.1:23308:3306]
+    volumes:
+      - mysql-no-timezones:/var/lib/mysql
   mariadb-analysis:
     image: mariadb@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
     platform: linux/arm64
@@ -164,6 +174,7 @@ volumes:
   clickhouse-shard-a:
   clickhouse-shard-b:
   mysql-analysis:
+  mysql-no-timezones:
   mariadb-analysis:
   postgres-analysis:
   catalog:

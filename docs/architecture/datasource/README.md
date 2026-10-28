@@ -42,6 +42,9 @@ MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
 `marivo[mysql]` includes RSA authentication dependencies and needs no local
 MySQL/MariaDB client C library. Ibis still owns MySQL SQL compilation.
 Connections retain autocommit enabled by default and initialize the reader to UTC.
+MySQL reader initialization uses the fixed offset `+00:00`, so connecting does not
+require populated named time zone tables. Native conversions involving named
+source timezones still require the selected names in those tables.
 `extra` accepts JSON-safe PyMySQL connection options; mysqlclient-specific
 `ssl_mode`, `auth_plugin` and protocol compression are unsupported and fail
 explicitly. Use PyMySQL's documented TLS options without weakening the required

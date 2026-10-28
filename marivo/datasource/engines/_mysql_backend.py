@@ -110,7 +110,8 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
     def _post_connect(self) -> None:
         try:
             with self.con.cursor() as cursor:
-                cursor.execute("SET @@session.time_zone = 'UTC'")
+                # Fixed UTC does not require MySQL's optional named time zone tables.
+                cursor.execute("SET @@session.time_zone = '+00:00'")
         except Exception as cause:
             BackendLease(self).close(suppress_errors=False)
             raise DatasourceConnectionError(

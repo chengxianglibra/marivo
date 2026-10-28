@@ -13,7 +13,8 @@ Test gates and selection rules are documented in [CONTRIBUTING.md](../../../CONT
 
 Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,
 `MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_MARIADB_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
-`MARIVO_CLICKHOUSE_ANALYSIS_TEST`, set to `1`. Distributed ClickHouse and the
+`MARIVO_CLICKHOUSE_ANALYSIS_TEST`, set to `1`. The isolated MySQL time zone
+regression uses `MARIVO_MYSQL_NO_TIMEZONES_TEST=1`. Distributed ClickHouse and the
 Trino memory catalog use `MARIVO_CLICKHOUSE_CLUSTER_TEST` and
 `MARIVO_TRINO_NON_ICEBERG_TEST`. Unavailable services skip their opt-in cases;
 those skips provide no real-backend evidence.
@@ -36,6 +37,7 @@ declarations through environment references.
 | `trino` | `127.0.0.1:18080` | Trino 483; one coordinator/worker; Iceberg JDBC V1 / table format v2; Hive file metastore; local warehouse |
 | `postgres-analysis` | `127.0.0.1:15432` | PostgreSQL 17; database `analysis`; reader `analysis_reader`; administrator `analysis_admin` |
 | `mysql-analysis` | `127.0.0.1:23306` | MySQL 8.4; InnoDB; database `analysis`; SELECT-only reader `analysis_reader` |
+| `mysql-no-timezones` | `127.0.0.1:23308` | Same MySQL reader with empty named time zone tables in a separate volume |
 | `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader` |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
 | `clickhouse-cluster` | `127.0.0.1:18201`, `127.0.0.1:18203` | Two shards with one replica each; Distributed over local tables |
@@ -105,6 +107,7 @@ commands. Choose only the profiles needed, with one Trino/ClickHouse group:
 ```bash
 bash tests/datasource/environment/manage.sh start postgres-analysis
 bash tests/datasource/environment/manage.sh start mysql-analysis
+bash tests/datasource/environment/manage.sh start mysql-no-timezones
 bash tests/datasource/environment/manage.sh start mariadb-analysis
 bash tests/datasource/environment/manage.sh start trino
 .venv/bin/python -m tests.datasource.environment.trino_analysis
@@ -113,6 +116,17 @@ bash tests/datasource/environment/manage.sh start clickhouse
 bash tests/datasource/environment/manage.sh start clickhouse-cluster
 .venv/bin/python -c 'from tests.datasource.environment import clickhouse_analysis as ch; print(ch.setup_cluster())'
 ```
+
+The `mysql-no-timezones` profile sets `MYSQL_INITDB_SKIP_TZINFO=1` on its isolated
+volume and starts with a `+08:00` default session timezone. Run its connection and
+temporal transport regression with:
+
+```bash
+MARIVO_MYSQL_NO_TIMEZONES_TEST=1 make runtime-test TESTS='tests/datasource/test_source_adapters_runtime.py::test_mysql_reader_without_named_timezone_tables'
+```
+
+The test verifies empty time zone tables and error 1298 for named UTC before
+opening the Marivo reader. It never clears system tables on shared services.
 
 Trino startup initializes warehouse ownership with a short root process from
 its pinned image. Smoke commands check service access and basic native queries,
