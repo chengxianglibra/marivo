@@ -177,3 +177,24 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         )
         assert window["calendar:day"].tolist() == result["calendar:day"].tolist()
         assert window["total"].tolist() == [115, 15, 30]
+
+        # Nonempty time selections must not introduce Bool constant operands:
+        # old ClickHouse builds can reject the resulting mixed Bool/UInt8 data.
+        time_predicates: list[sge.Expression] = []
+        for sql in trace.native_sql:
+            ast = sqlglot.parse_one(sql, read="clickhouse")
+            time_predicates.extend(
+                where.this
+                for where in ast.find_all(sge.Where)
+                if any(column.name == "event_time" for column in where.find_all(sge.Column))
+            )
+            time_predicates.extend(
+                alias.this
+                for alias in ast.find_all(sge.Alias)
+                if alias.alias.startswith(("__time_selected", "__time_period"))
+            )
+        assert time_predicates
+        for predicate in time_predicates:
+            for combination in predicate.find_all(sge.And, sge.Or):
+                assert not isinstance(combination.left.unnest(), sge.Boolean)
+                assert not isinstance(combination.right.unnest(), sge.Boolean)

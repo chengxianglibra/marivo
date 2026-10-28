@@ -556,3 +556,164 @@ def test_calendar_bucket_keeps_nullable_int64_without_casting_case_null(
                     assert not result.to.args.get("nullable")
     finally:
         backend.disconnect()
+
+
+def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:
+    import sqlglot
+    from sqlglot import expressions as sge
+
+    ast = sqlglot.parse_one(sql, read=dialect)
+    for operation in ast.find_all(sge.And, sge.Or):
+        identity = isinstance(operation, sge.And)
+        for operand in (operation.this, operation.expression):
+            operand = operand.unnest()
+            assert not (isinstance(operand, sge.Boolean) and operand.this is identity), (
+                operation.sql(dialect=dialect)
+            )
+
+
+@pytest.mark.parametrize(
+    ("selections", "expected_ids"),
+    (
+        pytest.param(((0,),), (1,), id="single"),
+        pytest.param(((0, 1),), (1, 2), id="adjacent"),
+        pytest.param(((0, 2),), (1, 3), id="disjoint"),
+        pytest.param(((0, 1), (1, 2)), (2,), id="intersection"),
+        pytest.param(((),), (), id="empty"),
+        pytest.param(((0, 1), ()), (), id="empty-intersection"),
+        pytest.param((), (0, 1, 2, 3, 4, 5), id="unconstrained"),
+    ),
+)
+def test_calendar_selection_preserves_membership_without_boolean_seeds(
+    prepared_session: Session,
+    selections: tuple[tuple[int, ...], ...],
+    expected_ids: tuple[int, ...],
+) -> None:
+    from dataclasses import replace
+    from datetime import date, timedelta, timezone
+
+    import ibis
+
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.datasource.timezone import DatasourceEngineTimezone
+
+    session = prepared_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    assert isinstance(amount, Deferred) and isinstance(day, Deferred)
+    grid = session.time_scope(start="2026-01-01", end="2026-01-04").by(mv.grain("day"))
+    graph = _source_graph(session.observe({"total": amount.sum(time=day)}, by=(grid,)))
+    observation = graph.signature.observation
+    assert observation is not None
+    contribution = observation.contributions[0]
+    calendar = contribution.calendars[0][1]
+    assert isinstance(calendar, CalendarCoordinate)
+    contribution = replace(
+        contribution,
+        period=None,
+        calendars=tuple(
+            (
+                f"key.{index}",
+                replace(
+                    calendar,
+                    cells=tuple(calendar.cells[cell] for cell in selected),
+                    civil_bounds=tuple(calendar.civil_bounds[cell] for cell in selected),
+                ),
+            )
+            for index, selected in enumerate(selections)
+        ),
+    )
+    start = date(2026, 1, 1)
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "selection_events",
+            ibis.memtable(
+                {
+                    "id": list(range(6)),
+                    "amount": [1] * 6,
+                    "day": [start + timedelta(days=offset) for offset in (-1, 0, 1, 2, 3)] + [None],
+                },
+                schema={"id": "int64", "amount": "int64", "day": "date"},
+            ),
+        )
+        prepared = prepare_fields(
+            contribution,
+            {"sales.orders": table},
+            session.catalog._state,
+            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
+        )
+        selected_name = dict(prepared.columns).get("__time_selected")
+        if selections:
+            assert selected_name is not None
+            selected = prepared.table[selected_name]
+            assert selected.type().is_boolean()
+            projection = prepared.table.select("id", selected=selected).order_by("id")
+            result = backend.to_pyarrow(projection)
+            assert result.column("selected").to_pylist() == [True] * len(expected_ids)
+        else:
+            assert selected_name is None
+            projection = prepared.table.select("id").order_by("id")
+            result = backend.to_pyarrow(projection)
+        assert result.column("id").to_pylist() == list(expected_ids)
+        for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
+            _assert_no_boolean_identity_operands(ibis.to_sql(projection, dialect=dialect), dialect)
+    finally:
+        backend.disconnect()
+
+
+def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Session) -> None:
+    from dataclasses import replace
+    from datetime import date, timedelta, timezone
+
+    import ibis
+
+    from marivo._definition.observations import ObservationPeriod
+    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.datasource.timezone import DatasourceEngineTimezone
+
+    session = prepared_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    assert isinstance(amount, Deferred) and isinstance(day, Deferred)
+    graph = _source_graph(session.observe({"total": amount.sum(time=day)}))
+    observation = graph.signature.observation
+    assert observation is not None
+    contribution = replace(
+        observation.contributions[0],
+        period=ObservationPeriod(None, session.instant("2026-01-03"), "Asia/Shanghai"),
+    )
+    start = date(2026, 1, 1)
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "period_events",
+            ibis.memtable(
+                {
+                    "id": list(range(5)),
+                    "amount": [1] * 5,
+                    "day": [start + timedelta(days=offset) for offset in (-2, 0, 1, 2)] + [None],
+                },
+                schema={"id": "int64", "amount": "int64", "day": "date"},
+            ),
+        )
+        # A computed date has no raw lineage, so membership uses the native
+        # fallback rather than the independently qualified raw range builder.
+        table = table.mutate(day=table.day + ibis.interval(days=1))
+        prepared = prepare_fields(
+            contribution,
+            {"sales.orders": table},
+            session.catalog._state,
+            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
+        )
+        period = prepared.table[dict(prepared.columns)["__time_period"]]
+        assert period.type().is_boolean()
+        projection = prepared.table.select("id", period=period).order_by("id")
+        result = backend.to_pyarrow(projection)
+        assert result.column("id").to_pylist() == [0, 1]
+        assert result.column("period").to_pylist() == [True, True]
+        for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
+            _assert_no_boolean_identity_operands(ibis.to_sql(projection, dialect=dialect), dialect)
+    finally:
+        backend.disconnect()

@@ -388,9 +388,8 @@ def prepare_fields(
             )
             if condition is not None:
                 return condition
-        return (time < temporal_bound(time, end, zone)) & (
-            time >= temporal_bound(time, start, zone) if start is not None else ibis.literal(True)
-        )
+        upper = time < temporal_bound(time, end, zone)
+        return upper if start is None else upper & (time >= temporal_bound(time, start, zone))
 
     def calendar_bucket(
         time: ir.Value, calendar: CalendarCoordinate | IntervalCoordinate
@@ -418,8 +417,8 @@ def prepare_fields(
         )
 
     def selected_time(time: ir.Value) -> ir.BooleanValue:
-
-        condition: ir.BooleanValue = ibis.literal(True)
+        # Boolean literal seeds can produce incompatible Bool columns on older ClickHouse builds.
+        condition: ir.BooleanValue | None = None
         for calendar in selected_calendars:
             cells = (
                 calendar.cells
@@ -432,11 +431,14 @@ def prepare_fields(
                     intervals[-1] = (intervals[-1][0], end)
                 else:
                     intervals.append((start, end))
-            member: ir.BooleanValue = ibis.literal(False)
+            member: ir.BooleanValue | None = None
             for left, right in intervals:
-                member = member | period_condition(time, left, right, calendar.timezone)
-            condition = condition & member
-        return condition
+                predicate = period_condition(time, left, right, calendar.timezone)
+                member = predicate if member is None else member | predicate
+            if member is None:
+                return ibis.literal(False)
+            condition = member if condition is None else condition & member
+        return ibis.literal(True) if condition is None else condition
 
     if (
         selected_calendars
