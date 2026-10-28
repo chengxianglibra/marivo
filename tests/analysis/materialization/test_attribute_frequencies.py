@@ -33,7 +33,7 @@ from tests.datasource.source_cases import SourceData, source_case, source_params
 
 
 def _stage(
-    table: ir.Table, backend: str, *, strict: bool = False, distinct: bool = False
+    table: ir.Table, backend: str, *, strict: bool = False, distinct: bool = False, q: float = 0.5
 ) -> SourceRead:
     operand = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),
@@ -46,7 +46,7 @@ def _stage(
             operand,
             "count_distinct" if distinct else "quantile",
             None,
-            q=None if distinct else 0.5,
+            q=None if distinct else q,
             nulls="error" if strict else "ignore",
         ),
         (("key.0", "sales.facts.category"),),
@@ -63,7 +63,7 @@ def _stage(
                 "value",
                 "value",
                 data_type(
-                    table.amount.nunique().type() if distinct else table.amount.quantile(0.5).type()
+                    table.amount.nunique().type() if distinct else table.amount.quantile(q).type()
                 ),
                 True,
             ),
@@ -81,7 +81,7 @@ def test_frequency_sql_groups_typed_values_without_rank_or_coalition_expansion(
     backend: str,
 ) -> None:
     table = ibis.table({"category": "string", "amount": "decimal(18,2)"}, name="facts")
-    stage = frequency_read(_stage(table, backend))
+    stage = frequency_read(_stage(table, backend, distinct=True))
     plan = QueryPlan((stage,), ((stage.stage_id, ()),), stage.stage_id)
     lowered = lower_query(plan, {"facts": table})
     sql = ibis.to_sql(lowered.read(stage.stage_id).expression, dialect=backend).lower()
@@ -140,6 +140,11 @@ def test_native_frequency_read_preserves_groups_counts_and_decimal_carrier(
         bound = case.session.bind(case.source, source_identity="attribute-frequency")
         stage = frequency_read(_stage(bound.relation, backend, distinct=distinct))
         plan = QueryPlan((stage,), ((stage.stage_id, ()),), stage.stage_id)
+        if not distinct:
+            with pytest.raises(AnalysisStageUnavailableError):
+                lower_query(plan, {"facts": bound.relation})
+            assert case.session.submissions == []
+            return
         lowered = lower_query(plan, {"facts": bound.relation})
         prepared = PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound})
         qualify_attribute_game_sources(prepared, plan)
@@ -234,16 +239,7 @@ def test_native_frequency_capture_keeps_full_uint64_values(
     )
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         bound = case.session.bind(case.source, source_identity="attribute-frequency-uint64")
-        stage = _stage(bound.relation, "duckdb")
-        stage = frequency_read(
-            replace(
-                stage,
-                columns=(
-                    stage.columns[0],
-                    replace(stage.columns[1], dtype=DecimalDataType(20, 0)),
-                ),
-            )
-        )
+        stage = frequency_read(_stage(bound.relation, "duckdb", distinct=True))
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         output = read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
@@ -255,7 +251,7 @@ def test_native_frequency_capture_keeps_full_uint64_values(
         assert state.dtype == DecimalDataType(20, 0)
         assert state.values == (Decimal(maximum - 2), Decimal(maximum))
         assert state.frequencies == (1, 2)
-        assert output.table.loc[output.table["key.0"] == "A", "value"].iloc[0] == Decimal(maximum)
+        assert output.table.loc[output.table["key.0"] == "A", "value"].iloc[0] == 2
         assert dict(output.attribute_state_captures[0].input_types)["value"] == (
             DecimalDataType(20, 0),
         )
@@ -268,7 +264,7 @@ def test_frequency_capture_keeps_strict_null_check(
 
     with source_case("duckdb", "table", tmp_path, monkeypatch, DATA) as case:
         bound = case.session.bind(case.source, source_identity="attribute-frequency-strict")
-        stage = frequency_read(_stage(bound.relation, "duckdb", strict=True))
+        stage = frequency_read(_stage(bound.relation, "duckdb", strict=True, distinct=True))
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         with pytest.raises(SemanticExpressionError, match="non-NA source values"):
             read_stage(
@@ -295,7 +291,7 @@ def test_frequency_capture_retains_original_period_before_grouping(
         bound = case.session.bind(case.source, source_identity="attribute-frequency-period")
         stage = frequency_read(
             replace(
-                _stage(bound.relation, "duckdb"),
+                _stage(bound.relation, "duckdb", distinct=True),
                 period=PeriodFilter(
                     "observed",
                     datetime(2026, 2, 1, tzinfo=timezone.utc),
@@ -313,7 +309,7 @@ def test_frequency_capture_retains_original_period_before_grouping(
         state = dict(capture.groups)[("A",)]
         assert state.values == (20,) and state.frequencies == (1,)
         assert state.support_count == 1
-        assert output.table["value"].tolist() == [20.0]
+        assert output.table["value"].tolist() == [1]
 
 
 def test_frequency_query_plan_aggregates_one_fact_scan(
@@ -323,7 +319,7 @@ def test_frequency_query_plan_aggregates_one_fact_scan(
 
     with source_case("duckdb", "table", tmp_path, monkeypatch, DATA) as case:
         bound = case.session.bind(case.source, source_identity="attribute-frequency-plan")
-        stage = frequency_read(_stage(bound.relation, "duckdb"))
+        stage = frequency_read(_stage(bound.relation, "duckdb", distinct=True))
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
@@ -347,10 +343,16 @@ def test_frequency_query_plan_aggregates_one_fact_scan(
 def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with source_case("duckdb", "table", tmp_path, monkeypatch, DATA) as case:
+    with source_case(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        replace(DATA, columns=DATA.columns.replace("DECIMAL(18,2)", "DOUBLE")),
+    ) as case:
         bound = case.session.bind(case.source, source_identity="attribute-frequency-share")
         first = frequency_read(
-            replace(_stage(bound.relation, "duckdb"), binding_id=bound.facts.source_identity)
+            replace(_stage(bound.relation, "duckdb", q=0.0), binding_id=bound.facts.source_identity)
         )
         assert isinstance(first.program, AttributeFrequencyRead)
         original = first.program.reduction
@@ -363,7 +365,7 @@ def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
                 occurrence=(1,),
                 columns=(first.columns[0], replace(first.columns[1], slot_id="other")),
                 program=ReductionRead(
-                    replace(original, value_slot="other", node=replace(original.node, q=0.25))
+                    replace(original, value_slot="other", node=replace(original.node, q=1.0))
                 ),
             )
         )
@@ -377,11 +379,11 @@ def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
         )
         assert len(case.session.submissions) == 1
         by_group = output.table.set_index("key.0")
-        assert by_group.loc["B", "value"] == Decimal("20.00")
-        assert by_group.loc["B", "other"] == Decimal("17.50")
+        assert by_group.loc["B", "value"] == 15.0
+        assert by_group.loc["B", "other"] == 25.0
         a, b = output.attribute_frequencies
         assert a.groups is b.groups and a.stage_id == b.stage_id
-        assert {a.q, b.q} == {0.5, 0.25}
+        assert {a.q, b.q} == {0.0, 1.0}
         assert {a.value_slot, b.value_slot} == {"value", "other"}
         (metadata,) = output.attribute_state_captures
         assert metadata.state_entries == 5 and metadata.returned_rows == 5
@@ -503,6 +505,11 @@ def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
             )
         )
         assert len(plan.stages) == 1
+        if backend not in ("duckdb", "postgres"):
+            with pytest.raises(AnalysisStageUnavailableError):
+                lower_query(plan, {"facts": bound.relation})
+            assert case.session.submissions == []
+            return
         lowered = lower_query(plan, {"facts": bound.relation})
         prepared = PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound})
         output = read_stage(
@@ -533,5 +540,5 @@ def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
 def test_native_duckdb_interpolating_frequency_finisher_is_rejected_before_read(dtype: str) -> None:
     table = ibis.table({"category": "string", "amount": dtype}, name="facts")
     stage = frequency_read(_stage(table, "duckdb"))
-    with pytest.raises(AnalysisStageUnavailableError, match="native interpolating quantile"):
+    with pytest.raises(AnalysisStageUnavailableError, match="frequency finisher proved equivalent"):
         lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": table})

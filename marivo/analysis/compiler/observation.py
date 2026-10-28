@@ -297,6 +297,7 @@ def lower_observation(
     axes = _reduction_axes(prepared, fields, window_slot)
     from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 
+    admit_source_aggregate(prepared, fields)
     if frequency:
         from marivo.analysis.errors import AnalysisStageUnavailableError
 
@@ -311,10 +312,9 @@ def lower_observation(
                 repair="Use a qualified numeric state input. String collation and floating special-value equality have no qualified membership carrier; inspect the original observations before changing the business definition. No business row was read.",
                 target="analysis_frame.attribute",
             )
-    admit_source_aggregate(prepared, fields)
     item = lower_source_reduction(prepared.node, filtered, fields)
     metrics = {
-        prepared.value_slot: item.value,
+        prepared.value_slot: ibis.null().cast(item.value.type()) if frequency else item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},
     }
     if prepared.duration is not None and isinstance(prepared.node, SourceWeightedMean):

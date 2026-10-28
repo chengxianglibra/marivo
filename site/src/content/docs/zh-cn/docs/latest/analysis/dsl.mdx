@@ -313,7 +313,7 @@ Help：`analysis.analysis_frame.attribute`。
 
 Float SUM 和原生 AVG 使用分组摘要 state 重建：按固定玩家顺序合并 SUM，均值按同一有效掩码合并 SUM/count；浮点加权组件保留共同有效掩码。博弈解释重建后的 Metric，并标记 `summary_reconstruction/v1`。两端值与贡献可能不同于原生整体聚合，不承诺摘要偏差界限。NULL、空支持、单位与物理类型限制仍被执行，溢出仍拒绝。排列标准误不衡量摘要偏差，非线性公式可能放大该偏差。
 
-DuckDB 内部原生分位数和原生近似分位数在没有合格 state 路线时使用查询。原生近似 reducer 保留原算法及其指标近似。既有精确 mean/rate-mix 规则仍可使用。每个原生配对叶子需要兼容的已捕获 datasource 配置。
+分位数 state 收尾仅对 PostgreSQL 非 Decimal 输入、DuckDB 非 Decimal q=0/1 准入；其他已准入分位数使用原生查询。频数捕获不能绕过普通 backend/type 限制。原生近似 reducer 保留原算法及其指标近似。既有精确 mean/rate-mix 规则仍可使用。每个原生配对叶子需要兼容的已捕获 datasource 配置。显式 `approx_nunique` 在 DuckDB、Trino、ClickHouse 上使用原生查询，PostgreSQL/MySQL 拒绝；不相加分组估计值，也不替换 exact/approximate 算法。
 
 `method_facts` 保留路线、原叶子类型/收尾算法、排列数和种子。state 频数可能传输 O(N) 个值；原生收据记录实际查询、返回行和解码字节，无法获得的后端版本、扫描量与网络量仍为未知。持久化事实为惰性记录，重新打开不会查询来源。
 
@@ -408,6 +408,26 @@ quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].metho
 assert quantile_method.kind == "shapley"
 assert quantile_method.state_route == "native_queries/v1"
 assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
+
+近似 distinct 同样保留原生 reducer。
+
+{/* example: attribute-native-approx-distinct */}
+
+```python
+approximate_reach = region.approx_nunique(time=order_time_entry.value) * revenue
+reach_current = session.observe({"reach": approximate_reach}, by=(august,))
+reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
+reach_change = reach_current.compare(
+    {"reference": mv.baseline(reach_baseline, match=mv.ordinal())}
+).compute()
+reach_target = reach_change.select({"reach": reach_change["reference.absolute.reach"]})
+reach_report = reach_target.attribute(by=(region,), permutations=32, seed=42).compute()
+reach_method = reach_report.method_facts[0].parents[0].metrics[0].method
+assert reach_method.kind == "shapley"
+assert reach_method.state_route == "native_queries/v1"
+assert reach_method.game.metric_approximation == "native_approximate_metric/v1"
+assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.leaves)
 ```
 
 ### 读取新的拆分

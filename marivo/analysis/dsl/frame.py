@@ -725,7 +725,8 @@ class AnalysisFrame:
         define ratio/linear Metrics before observation. Rules bind per target before
         business reads. Admitted paired nonlinear formulas use whole-Metric Shapley
         permutation sampling. Qualified state routes prove the complete domain;
-        native-query routes validate visited values using the original reducers.
+        native-query routes validate visited values using the original reducers,
+        preserving exact or approximate accuracy, including approximate distinct.
         The execution route binds before reads. Level retains admitted share rules,
         without a zero baseline.
         Fixed division retains its typed

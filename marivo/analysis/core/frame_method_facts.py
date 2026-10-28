@@ -638,7 +638,15 @@ class FrameShapleyReduction(_FactRecord):
 
     kind: Literal["aggregate"]
     reducer: Literal[
-        "sum", "count", "entity_count", "count_distinct", "mean", "weighted_mean", "min", "max"
+        "sum",
+        "count",
+        "entity_count",
+        "count_distinct",
+        "approx_nunique",
+        "mean",
+        "weighted_mean",
+        "min",
+        "max",
     ]
 
     def __post_init__(self) -> None:
@@ -647,6 +655,7 @@ class FrameShapleyReduction(_FactRecord):
             "count",
             "entity_count",
             "count_distinct",
+            "approx_nunique",
             "mean",
             "weighted_mean",
             "min",
@@ -1032,6 +1041,15 @@ class FrameShapleyMethod(_FactRecord):
         ) != len(self.leaves):
             _fail("unique capture identities and original leaf occurrences", self.left.column.name)
         for leaf in self.leaves:
+            if (
+                not native
+                and isinstance(leaf.reduction, FrameShapleyReduction)
+                and leaf.reduction.reducer == "approx_nunique"
+            ):
+                _fail(
+                    "original approximate distinct through native queries without merged estimates",
+                    repr(leaf.occurrence),
+                )
             if (native and isinstance(leaf.reduction, FrameShapleyQuantile)) or (
                 not native and isinstance(leaf.reduction, FrameShapleyNativeQuantile)
             ):
@@ -1074,8 +1092,14 @@ class FrameShapleyMethod(_FactRecord):
             )
         if native:
             approximate = any(
-                isinstance(leaf.reduction, FrameShapleyNativeQuantile)
-                and leaf.reduction.reducer in ("approx_median", "approx_quantile")
+                (
+                    isinstance(leaf.reduction, FrameShapleyNativeQuantile)
+                    and leaf.reduction.reducer in ("approx_median", "approx_quantile")
+                )
+                or (
+                    isinstance(leaf.reduction, FrameShapleyReduction)
+                    and leaf.reduction.reducer == "approx_nunique"
+                )
                 for leaf in self.leaves
             )
             expected_approximation = (

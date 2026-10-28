@@ -94,7 +94,7 @@ def test_same_actual_input_group_deduplicates_states_without_merging_occurrences
     assert combined[0].quantities == combined[1].quantities
 
 
-@pytest.mark.parametrize("reducer", ["approx_nunique", "first", "last"])
+@pytest.mark.parametrize("reducer", ["first", "last"])
 def test_unqualified_source_algorithms_do_not_get_a_replacement_route(reducer) -> None:
     node = SourceAggregate(FIELD, reducer, None, q=0.5 if reducer == "approx_quantile" else None)
     with pytest.raises(AttributeGameError) as error:
@@ -190,3 +190,17 @@ def test_filter_population_keeps_keys_without_pinning_semantic_versions() -> Non
     require_games_match(filtered("v1", "A"), filtered("v2", "A"), metric="change")
     with pytest.raises(AttributeGameError, match="formulas differ"):
         require_games_match(filtered("v1", "A"), filtered("v1", "B"), metric="change")
+
+
+def test_original_approximate_distinct_never_claims_a_mergeable_count_state() -> None:
+    node = SourceAggregate(FIELD, "approx_nunique", None)
+    game = build_game(node, {}, metric="distinct", by=BY)
+    assert game.node is node and game.leaves[0].source is node
+    assert game.leaves[0].kind == "distinct"
+    assert game.leaves[0].state_eligible is False
+    assert game.leaves[0].q is None
+    exact = build_game(replace(node, reducer="count_distinct"), {}, metric="distinct", by=BY)
+    assert exact.leaves[0].state_eligible is True
+    assert formula_id(exact) != formula_id(game)
+    with pytest.raises(AttributeGameError, match="formulas differ"):
+        require_games_match(game, exact, metric="distinct")

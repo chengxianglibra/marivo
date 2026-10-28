@@ -231,3 +231,8 @@ Float SUM/native AVG summary games mark `FrameShapleyGame.metric_approximation`
 as `summary_reconstruction/v1`. This is a captured evaluation policy, with no
 summary-bias bound. Cold validation correlates it with original typed leaf reducers;
 it does not recompute or certify original native endpoint equality.
+
+Native approximate distinct retains the canonical `approx_nunique` aggregate
+reducer in `FrameShapleyReduction` and requires the query game's
+`native_approximate_metric/v1` policy. It cannot appear as a reconstructed state
+leaf. Its record fields and wire layout remain unchanged.

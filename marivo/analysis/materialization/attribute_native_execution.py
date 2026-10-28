@@ -170,8 +170,6 @@ def prepare_native_game(
                     reduction.preserve_sample_presence,
                     reduction.calendars,
                     reduction.sampled,
-                    reduction.retain_quantile_bounds,
-                    reduction.native_quantile_value,
                     reduction.coverage,
                     reduction.provider,
                     reduction.mean_fold,
@@ -412,7 +410,15 @@ def run_native_game(
                     reduction_fact = FrameShapleyReduction("aggregate", "entity_count")
                 elif isinstance(node, SourceWeightedMean):
                     reduction_fact = FrameShapleyReduction("aggregate", "weighted_mean")
-                elif node.reducer in ("sum", "count", "count_distinct", "mean", "min", "max"):
+                elif node.reducer in (
+                    "sum",
+                    "count",
+                    "count_distinct",
+                    "approx_nunique",
+                    "mean",
+                    "min",
+                    "max",
+                ):
                     reduction_fact = FrameShapleyReduction("aggregate", node.reducer)
                 else:
                     native_failure(f"unadmitted native reducer fact: {node.reducer}")

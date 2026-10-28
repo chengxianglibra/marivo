@@ -61,19 +61,24 @@ member=ms.measure_column(name='member',entity=facts,column='member',unit='1',add
     return mv.session.get_or_create("frequency", timezone="UTC")
 
 
-@pytest.mark.parametrize("distinct", [False, True], ids=["median", "distinct"])
+@pytest.mark.parametrize("distinct", [False, True], ids=["minimum", "distinct"])
 def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
     frequency_session: Session,
     distinct: bool,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     session = frequency_session
+    if not distinct:
+        database = tmp_path / "frequency.duckdb"
+        with duckdb.connect(str(database)) as connection:
+            connection.execute("ALTER TABLE facts ALTER COLUMN amount SET DATA TYPE DOUBLE")
     amount = _field(session, "sales.facts.amount")
     member = _field(session, "sales.facts.member")
     batch = _field(session, "sales.facts.batch")
     tenant = _field(session, "sales.facts.tenant")
     player = _field(session, "sales.facts.player")
-    metric = member.count_distinct() if distinct else amount.quantile(0.5)
+    metric = member.count_distinct() if distinct else amount.quantile(0.0)
     current = session.observe({"q": metric}, by=(tenant,), where=batch == 1)
     baseline = session.observe({"q": metric}, by=(tenant,), where=batch == 0)
     compared = current.compare(
@@ -89,7 +94,7 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
         assert rows["total.change"].tolist() == [0 if distinct else 5] * 2
         assert sum(rows["contribution.change"]) == pytest.approx(0 if distinct else 5)
         if not distinct:
-            assert rows["contribution.change"].tolist() == [2.5, 2.5]
+            assert rows["contribution.change"].tolist() == [5.0, 0.0]
         elif permutations == 64:
             by_player = dict(zip(rows.iloc[:, 1], rows["contribution.change"], strict=True))
             assert 0 < by_player["A"] < 1 and by_player["B"] == -by_player["A"]
@@ -126,7 +131,7 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
     destination = os.environ.get("MARIVO_SHAPLEY_STATE_EVIDENCE_DIR")
     if destination:
         path = Path(destination) / (
-            "distinct-fixed-capture.json" if distinct else "median-fixed-capture.json"
+            "distinct-fixed-capture.json" if distinct else "minimum-fixed-capture.json"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -208,7 +213,7 @@ def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_wor
     assert ordinary["q"].tolist() == [2.0]
 
 
-def test_shared_distribution_preserves_all_quantiles_and_counts_transport_once(
+def test_native_decimal_quantiles_preserve_each_finisher_and_query_receipts(
     frequency_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from decimal import Decimal
@@ -235,11 +240,14 @@ def test_shared_distribution_preserves_all_quantiles_and_counts_transport_once(
     raw_current = {"A": [Decimal(10), Decimal(20)], "B": [Decimal(30)]}
 
     def raw_quantile(groups: dict[str, list[Decimal]], q: float) -> Fraction:
-        values = sorted(value for group in groups.values() for value in group)
-        rank = (len(values) - 1) * Fraction(str(q))
-        lower = rank.numerator // rank.denominator
-        upper = -(-rank.numerator // rank.denominator)
-        return Fraction(values[lower]) + (rank - lower) * Fraction(values[upper] - values[lower])
+        values = [value for group in groups.values() for value in group]
+        with duckdb.connect(":memory:") as connection:
+            rows = ",".join(f"({value})" for value in values)
+            value = connection.execute(
+                f"SELECT quantile_cont(CAST(x AS DECIMAL(22,2)), {q!r}) FROM (VALUES {rows}) t(x)"
+            ).fetchone()
+        assert value is not None
+        return Fraction(value[0])
 
     trace = capture_source(monkeypatch, measure_cost=True)
     costs = []
@@ -271,7 +279,10 @@ def test_shared_distribution_preserves_all_quantiles_and_counts_transport_once(
         assert len(methods) == len(quantiles)
         for metric in methods:
             assert metric.method.kind == "shapley"
-            assert metric.method.captured_source_reads == 2
+            assert metric.method.state_route == "native_queries/v1"
+            assert metric.method.captured_source_reads == sum(
+                c.source_reads for c in metric.method.captures
+            )
         costs.append(
             (
                 len(trace.native_sql) - start,
@@ -279,5 +290,4 @@ def test_shared_distribution_preserves_all_quantiles_and_counts_transport_once(
                 tuple(trace.returned_arrow_bytes[start:]),
             )
         )
-    assert costs[0] == costs[1]
-    assert costs[0][0] == 2
+    assert all(cost[0] > 2 for cost in costs)

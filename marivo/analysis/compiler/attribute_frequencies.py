@@ -188,36 +188,35 @@ def frequency_finishers(
     stage: SourceRead, fields: Mapping[str, ir.Value]
 ) -> tuple[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...]:
     """Retain each original reducer's already-qualified numeric finish recipe."""
+    from marivo._source_aggregates import native_aggregate
     from marivo.analysis.compiler.graph_plan import read_members
-    from marivo.analysis.compiler.quantiles import quantile_bounds
+    from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
     from marivo.semantic._numeric_lowering import lower_row
 
-    result = []
+    result: list[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]]] = []
     for member in read_members(stage) or (stage,):
         reduction = require_reduction(member)
         node = reduction.node
         assert isinstance(node, SourceAggregate)
-        finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"] = "rank_bounds"
-        if node.reducer != "count_distinct" and not quantile_bounds(reduction, fields):
-            dtype = lower_row(node.operand, fields).value.type()
-            if dtype.is_decimal():
-                raise AnalysisStageUnavailableError(
-                    stage="attribute_state_binding",
-                    expected="the original qualified Decimal bound finisher",
-                    received="a native Decimal quantile value requiring an unqualified state finisher",
-                    repair="Inspect the original exact quantile route; this native Decimal finishing variant has no qualified replacement-state consumer. No business row was read.",
-                    target="analysis_frame.attribute",
-                )
-            assert reduction.provider in ("duckdb", "postgres")
-            q = 0.5 if node.reducer == "median" else node.q
-            if reduction.provider == "duckdb" and q not in (0.0, 1.0):
-                raise AnalysisStageUnavailableError(
-                    stage="attribute_state_binding",
-                    expected="a qualified exact quantile state finisher preserving the original native operation order",
-                    received=f"duckdb: native interpolating quantile q={q!r} has no qualified fixed-state finisher",
-                    repair="Inspect the original observations or use a business-appropriate Decimal source representation only if that matches the intended metric. Native DuckDB interpolation remains available to ordinary observe/compare; no business row was read and attribution does not substitute an algorithm.",
-                    target="analysis_frame.attribute",
-                )
-            finisher = "duckdb_native" if reduction.provider == "duckdb" else "postgres_native"
+        admit_source_aggregate(reduction, fields)
+        if node.reducer == "count_distinct":
+            result.append((reduction.value_slot, "rank_bounds"))
+            continue
+        dtype = lower_row(node.operand, fields).value.type()
+        algorithm = native_aggregate(reduction.provider, node.reducer, dtype)
+        q = 0.5 if node.reducer == "median" else node.q
+        finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
+        if algorithm == "percentile_cont" and not dtype.is_decimal():
+            finisher = "postgres_native"
+        elif algorithm == "quantile_cont" and not dtype.is_decimal() and q in (0.0, 1.0):
+            finisher = "duckdb_native"
+        else:
+            raise AnalysisStageUnavailableError(
+                stage="attribute_state_binding",
+                expected="a frequency finisher proved equivalent to the original native quantile",
+                received=f"{reduction.provider}: {algorithm}({dtype}), q={q!r}",
+                repair="Use the original native coalition query route for this admitted reduction. No ranked interpolation or approximate algorithm is substituted; no business row was read.",
+                target="analysis_frame.attribute",
+            )
         result.append((reduction.value_slot, finisher))
     return tuple(result)

@@ -337,7 +337,7 @@ Each complete permutation replaces every joint-key group once. The parent keys, 
 
 Float SUM and native AVG use group-summary state reconstruction: sums merge in fixed player order, and means merge SUM/count with the same valid mask. Floating weighted components keep co-valid masks. The game explains this reconstructed Metric and marks `summary_reconstruction/v1`; its endpoints and contributions may differ from native whole-input aggregation, with no summary-bias bound. NULL, empty support, units and physical carrier limits remain enforced; overflow still rejects. Permutation SE does not measure this bias, and nonlinear formulas may amplify it.
 
-DuckDB interior native quantiles and native approximate quantiles use queries where no state route is qualified. Native approximate reducers retain the original algorithm and metric approximation. Existing exact mean/rate-mix rules remain available. Each paired native leaf needs compatible captured datasource configurations.
+Quantile state finishing is qualified for PostgreSQL non-Decimal inputs and DuckDB non-Decimal q=0/1; other admitted quantiles use native queries. Frequency capture cannot bypass the ordinary backend/type restrictions. Native approximate reducers retain the original algorithm and metric approximation. Existing exact mean/rate-mix rules remain available. Each paired native leaf needs compatible captured datasource configurations. Explicit `approx_nunique` uses native queries on DuckDB, Trino and ClickHouse; PostgreSQL/MySQL reject it. Per-group estimates are never summed, and exact/approximate algorithms are never substituted.
 
 `method_facts` records the route, original leaf types/finishers, permutation count and seed. State frequencies can transfer O(N) values. Native receipts record actual queries, returned rows and decoded bytes; unavailable backend versions and scan/wire statistics remain unknown. Persisted facts are inert and reopen without querying sources.
 
@@ -432,6 +432,26 @@ quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].metho
 assert quantile_method.kind == "shapley"
 assert quantile_method.state_route == "native_queries/v1"
 assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
+
+Approximate distinct also preserves its original native reducer.
+
+{/* example: attribute-native-approx-distinct */}
+
+```python
+approximate_reach = region.approx_nunique(time=order_time_entry.value) * revenue
+reach_current = session.observe({"reach": approximate_reach}, by=(august,))
+reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
+reach_change = reach_current.compare(
+    {"reference": mv.baseline(reach_baseline, match=mv.ordinal())}
+).compute()
+reach_target = reach_change.select({"reach": reach_change["reference.absolute.reach"]})
+reach_report = reach_target.attribute(by=(region,), permutations=32, seed=42).compute()
+reach_method = reach_report.method_facts[0].parents[0].metrics[0].method
+assert reach_method.kind == "shapley"
+assert reach_method.state_route == "native_queries/v1"
+assert reach_method.game.metric_approximation == "native_approximate_metric/v1"
+assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.leaves)
 ```
 
 ### Observe a fresh breakdown

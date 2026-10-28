@@ -1106,3 +1106,25 @@ def test_summary_state_facts_keep_permutation_error_separate_from_unbounded_bias
     with pytest.raises(CoreRuleError, match="state metric approximation"):
         exact = _method(_facts())
         replace(exact, game=replace(exact.game, metric_approximation="summary_reconstruction/v1"))
+
+
+def test_native_approximate_distinct_has_closed_accuracy_and_cannot_enter_state() -> None:
+    facts = _native_facts()
+    method = _method(facts)
+    leaf = replace(method.leaves[0], reduction=FrameShapleyReduction("aggregate", "approx_nunique"))
+    game = replace(method.game, metric_approximation="native_approximate_metric/v1")
+    method = replace(method, game=game, leaves=(leaf,))
+    parent = FrameMethodParent((), (replace(facts.parents[0].metrics[0], method=method),))
+    assert decode_method_record(encode_method_record(parent), FrameMethodParent) == parent
+    with pytest.raises(CoreRuleError, match="approximation"):
+        replace(method, game=replace(game, metric_approximation="exact_metric/v1"))
+    state = _method(_facts())
+    with pytest.raises(CoreRuleError, match="without merged estimates"):
+        replace(state, leaves=(replace(state.leaves[0], reduction=leaf.reduction),))
+    wire = json.loads(encode_method_record(parent))
+    wire["value"]["fields"]["metrics"][0]["fields"]["method"]["fields"]["game"]["fields"][
+        "metric_approximation"
+    ] = "exact_metric/v1"
+    with pytest.raises(IntegrityError) as captured:
+        decode_method_record(canonical_json(wire), FrameMethodParent)
+    assert captured.value.received == "exact_metric/v1"

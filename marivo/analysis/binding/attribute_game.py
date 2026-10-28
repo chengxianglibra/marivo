@@ -127,14 +127,23 @@ def build_game(
             "median",
             "quantile",
             "count_distinct",
+            "approx_nunique",
             "approx_median",
             "approx_quantile",
         ):
             kind, states = (
-                ("distinct" if current.reducer == "count_distinct" else "quantile"),
+                (
+                    "distinct"
+                    if current.reducer in ("count_distinct", "approx_nunique")
+                    else "quantile"
+                ),
                 (replace(current, nulls="ignore"),),
             )
-            state_eligible = current.reducer not in ("approx_median", "approx_quantile")
+            state_eligible = current.reducer not in (
+                "approx_nunique",
+                "approx_median",
+                "approx_quantile",
+            )
         elif isinstance(current, SourceWeightedMean):
             kind = "weighted_mean"
             from marivo._definition.expressions import MeasureAssertion

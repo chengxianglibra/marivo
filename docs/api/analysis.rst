@@ -317,7 +317,10 @@ These games disclose ``summary_reconstruction/v1``; reconstructed endpoints and
 contributions may differ from native whole-input evaluation, with no bias bound.
 Without a qualified state route, native queries run the original reducer over
 coalition-selected endpoint rows on compatible original source owners. Native
-quantile interpolation and approximate quantiles retain their original algorithms. Ordinary backend/type/source and classification qualifications
+quantile interpolation, approximate quantiles and ``approx_nunique`` retain their
+original algorithms. Frequency states require the original native finisher to be
+qualified; they do not bypass unsupported native operations. Approximate distinct
+is native-only and never sums per-group estimates. Ordinary backend/type/source and classification qualifications
 still apply; Population/membership games retain their existing limits.
 
 No consistent snapshot, temporary table, raw-input materialization or drift audit

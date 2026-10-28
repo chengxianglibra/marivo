@@ -358,8 +358,10 @@ single-valued classification tuples and qualified physical sources; Population
 and membership game routes retain their existing qualification boundaries.
 
 State is an optimization, rather than a prerequisite for Shapley. Qualified masses, counts, weighted components and extrema reuse typed states.
-Exact quantiles use lossless typed value-frequency buckets and an incremental rank
-index; numeric distinct uses qualified membership. Actual input identity, scope,
+Qualified exact quantiles use typed value-frequency buckets and an incremental
+rank index only when the original native finisher is proven equivalent: PostgreSQL
+non-Decimal inputs, and DuckDB non-Decimal q=0/1. Other admitted quantiles retain
+native coalition queries. Exact numeric distinct uses qualified membership. Actual input identity, scope,
 masks and dependencies govern sharing; names or equal fingerprints alone do not.
 Different q values can share a distribution while retaining separate finishers.
 No-fact sum zero remains distinct from a present all-NULL sum. State games retain
@@ -382,7 +384,15 @@ quantile interpolation and approximate quantiles retain their ordinary algorithm
 no alternate quantile algorithm or second execution engine is introduced. Each paired leaf must have compatible captured
 native source owners and types; leaves from different source roots retain their
 own native owners. Original field recipes, masks, filters, time and parent mapping
-remain attached. Unsupported ordinary algorithms or input shapes remain errors.
+remain attached. Unsupported ordinary algorithms or input shapes remain errors. Native aggregate
+admission precedes frequency capture; state never supplies an otherwise unsupported
+source algorithm. MySQL/Trino exact quantiles and ClickHouse Decimal exact quantiles
+therefore reject before business reads.
+
+Explicit `approx_nunique` uses native approximate distinct in DuckDB, Trino and
+ClickHouse. It never sums per-group estimates, merges unqualified sketches, or
+substitutes exact distinct. PostgreSQL/MySQL reject this operation. Native method
+facts retain the original reducer and `native_approximate_metric/v1`.
 
 Native queries are independent reads. No consistent snapshot, temporary table,
 raw-input materialization, additional drift scan or source identity audit is

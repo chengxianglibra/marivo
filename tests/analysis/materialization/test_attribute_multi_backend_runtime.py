@@ -7,6 +7,7 @@ from fractions import Fraction
 from numbers import Integral
 from pathlib import Path
 
+import ibis
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -474,7 +475,6 @@ def test_native_shapley_fixed_states_keep_original_finishing_and_capture_cost(
             "product": amount.sum() * weight.sum(),
             "weighted": amount.weighted_mean(weight=weight) * weight.sum(),
             "extrema": amount.min() * amount.max(),
-            "median": amount.quantile(0.5) * weight.sum(),
         }
         current = session.observe(metrics, where=phase == "current")
         baseline = session.observe(metrics, where=phase == "base")
@@ -484,7 +484,7 @@ def test_native_shapley_fixed_states_keep_original_finishing_and_capture_cost(
         costs = []
         # B has identical original inputs at both endpoints. Thus only A can
         # change any coalition value, independently of permutation order.
-        expected = {"product": 8, "weighted": 2, "extrema": 6, "median": 4}
+        expected = {"product": 8, "weighted": 2, "extrema": 6}
         for permutations in (2, 32):
             start = len(trace.native_sql)
             report = selected.attribute(
@@ -554,9 +554,28 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
         metrics = {
             "mean": big.mean() * weight.sum(),
             "float_condition": (amount.sum() > 4).ifelse(1, 0),
-            "quantile": amount.quantile(0.5) * weight.sum(),
             "native_distinct": category.count_distinct() * amount.sum(),
         }
+        from marivo._source_aggregates import native_aggregate
+
+        if native_aggregate(backend, "quantile", ibis.dtype("float64")) is not None:
+            metrics["quantile"] = amount.quantile(0.5) * weight.sum()
+        if native_aggregate(backend, "approx_nunique") is not None:
+            oracle_source = case.session.bind(
+                case.source, source_identity="shapley-approx-distinct-oracle"
+            )
+            cardinality = (
+                case.session._backend.to_pyarrow(
+                    oracle_source.relation.aggregate(
+                        cardinality=oracle_source.relation.category.approx_nunique()
+                    ),
+                    limit=None,
+                )
+                .column("cardinality")[0]
+                .as_py()
+            )
+            assert cardinality == 2
+            metrics["native_approx_distinct"] = category.approx_nunique() * amount.sum()
         current = session.observe(metrics, where=phase == "current")
         baseline = session.observe(metrics, where=phase == "base")
         compared = current.compare({"base": mv.baseline(baseline, on=())}).compute()
@@ -568,12 +587,17 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
         for name, change in (
             ("mean", 4),
             ("float_condition", 1),
-            ("quantile", 4),
             ("native_distinct", 4),
         ):
             assert rows[f"contribution.{name}"].tolist() == [float(change), 0.0]
             assert rows[f"total.{name}"].tolist() == [change, change]
             assert rows[f"contribution_std_error.{name}"].tolist() == [0.0, 0.0]
+        if "quantile" in metrics:
+            assert rows["contribution.quantile"].tolist() == [4.0, 0.0]
+            assert rows["total.quantile"].tolist() == [4, 4]
+        if "native_approx_distinct" in metrics:
+            assert rows["contribution.native_approx_distinct"].tolist() == [4.0, 0.0]
+            assert rows["total.native_approx_distinct"].tolist() == [4, 4]
         methods = {
             item.target: item.method
             for fact in report.method_facts
@@ -591,6 +615,12 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
         assert sum(trace.returned_rows) == sum(c.returned_rows for c in captures.values())
         assert sum(trace.returned_arrow_bytes) == sum(c.returned_bytes for c in captures.values())
         assert methods[("native_distinct",)].state_route == "native_queries/v1"
+        if "native_approx_distinct" in metrics:
+            assert methods[("native_approx_distinct",)].state_route == "native_queries/v1"
+            assert (
+                methods[("native_approx_distinct",)].game.metric_approximation
+                == "native_approximate_metric/v1"
+            )
         assert any(
             "UNION ALL" in sql.upper()
             and ("COUNT(DISTINCT" in sql.upper() or "UNIQEXACT(" in sql.upper())
@@ -604,3 +634,50 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
             not any(word in sql.upper() for word in ("CREATE ", "INSERT ", "DROP "))
             for sql in trace.native_sql
         )
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params([("mysql", "innodb-table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]),
+)
+def test_unavailable_exact_source_quantiles_reject_before_shapley_business_reads(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+
+    data = SourceData(
+        _columns(backend, "DECIMAL(18,2)"),
+        "(1,'base','A',1,1,1,DATE '2026-07-01'),(2,'current','A',2,1,1,DATE '2026-07-01')",
+        "id Int64, tenant String, category String, amount Decimal(18,2), big Int64, weight Int64, day Date",
+        [
+            {
+                "id": identity,
+                "tenant": phase,
+                "category": "A",
+                "amount": Decimal(amount),
+                "big": 1,
+                "weight": 1,
+                "day": date(2026, 7, 1),
+            }
+            for identity, phase, amount in ((1, "base", "1.00"), (2, "current", "2.00"))
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("unsupported-shapley-exact-quantile", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        current = session.observe({"q": amount.quantile(0.5)}, where=phase == "current")
+        baseline = session.observe({"q": amount.quantile(0.5)}, where=phase == "base")
+        compared = current.compare({"b": mv.baseline(baseline, on=())})
+        target = compared.select({"q": compared["b.absolute.q"]})
+        trace = capture_source(monkeypatch)
+        with pytest.raises(AnalysisStageUnavailableError, match="qualified native algorithm"):
+            target.attribute(by=(category,), permutations=2).compute()
+        assert trace.native_sql == []

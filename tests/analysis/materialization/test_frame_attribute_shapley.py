@@ -116,7 +116,7 @@ def _comparison(session, metrics, *, relative=False, reverse=False):
     return compared.select({name: compared[f"b.{mode}.{name}"] for name in metrics})
 
 
-def test_exact_quantile_and_numeric_distinct_share_fixed_states(
+def test_native_quantile_and_numeric_distinct_keep_their_qualified_routes(
     game_session: Session, tmp_path: Path
 ) -> None:
     with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
@@ -132,7 +132,10 @@ def test_exact_quantile_and_numeric_distinct_share_fixed_states(
     assert sum(rows["contribution.d"]) == pytest.approx(0)
     methods = tuple(metric for facts in report.method_facts for metric in facts.parents[0].metrics)
     assert all(metric.method.kind == "shapley" for metric in methods)
-    assert methods[0].method.captures == methods[1].method.captures
+    assert {m.method.state_route for m in methods} == {
+        "native_queries/v1",
+        "typed_sufficient_frequency/v1",
+    }
 
 
 def test_compatible_targets_share_capture_and_permutations(game_session: Session) -> None:
@@ -418,7 +421,7 @@ def test_quantile_nested_in_sum_product_uses_whole_game_and_mixed_capture_facts(
     rows = report.to_pandas()
     assert sum(rows["contribution.q"]) == pytest.approx(12)
     method = report.method_facts[0].parents[0].metrics[0].method
-    assert method.state_route == "typed_sufficient_frequency/v1"
+    assert method.state_route == "native_queries/v1"
     assert method.captured_source_reads == len(method.captures)
     assert all(leaf.current_capture_ids and leaf.baseline_capture_ids for leaf in method.leaves)
 
