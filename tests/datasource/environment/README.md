@@ -7,16 +7,9 @@ processes, connections and UUID-named tables do not recreate containers.
 All lifecycle commands target the dedicated `marivo-multisource` Colima socket;
 other Colima profiles, containers, and volumes are outside its ownership.
 
-## Test goals and routes
+## Select a ready service
 
-| Goal | Tests | Gate |
-| --- | --- | --- |
-| Source profiles, physical types, identity and decoding | `tests/datasource/test_source_profiles.py`, `test_source_adapters_runtime.py` | `make runtime-test` |
-| Read-only settings, timezone and native control | `tests/datasource/test_control_boundaries.py` | `make test` for local contracts; `make runtime-test` for services |
-| Acquisition expiry and atomic snapshot publication | `tests/datasource/test_acquisition_timeout.py`, `test_mysql_authoring_deadline.py` | `make test` for local sources; `make runtime-test` for services |
-| Native cancellation, cleanup and independent server observation | `tests/datasource/test_source_deadline.py`, `test_mysql_cancellation.py`, `test_datasource_clickhouse_cancellation.py` | `make runtime-test` |
-| Governed, provider, terminal and Store SQL authority | `tests/datasource/test_sql_audit.py`, `test_driver_audit.py`, `test_sql_runtime.py` | `make test` for static/local witnesses; `make runtime-test` for service execution |
-| Installed package source execution and cold recovery | `tests/packaging/test_installed_sources.py` | `make installed-multisource-test` |
+Test gates and selection rules are documented in [CONTRIBUTING.md](../../../CONTRIBUTING.md#测试).
 
 Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,
 `MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_MARIADB_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
@@ -25,17 +18,16 @@ Trino memory catalog use `MARIVO_CLICKHOUSE_CLUSTER_TEST` and
 `MARIVO_TRINO_NON_ICEBERG_TEST`. Unavailable services skip their opt-in cases;
 those skips provide no real-backend evidence.
 
-Use bounded concurrency while other agents are testing. For example:
+Run the relevant Runtime files with the ready-service flag, using bounded
+concurrency when other invocations share the host. For example:
 
 ```bash
-MARIVO_POSTGRES_ANALYSIS_TEST=1 make runtime-test TESTS='tests/datasource/test_source_profiles.py tests/datasource/test_source_deadline.py' RUNTIME_WORKERS=1
+MARIVO_POSTGRES_ANALYSIS_TEST=1 make runtime-test TESTS='tests/datasource/test_source_profiles.py' RUNTIME_WORKERS=1
 ```
 
 Tests use UUID-named fixtures, keep administration separate from the restricted
 reader, and remove their own objects in `finally`. Passwords enter datasource
-declarations through environment references. Source profile, cancellation, and
-analysis method tests each retain their own scope;
-passing one does not qualify the others.
+declarations through environment references.
 
 ## Topology
 
@@ -44,7 +36,7 @@ passing one does not qualify the others.
 | `trino` | `127.0.0.1:18080` | Trino 483; one coordinator/worker; Iceberg JDBC V1 / table format v2; Hive file metastore; local warehouse |
 | `postgres-analysis` | `127.0.0.1:15432` | PostgreSQL 17; database `analysis`; reader `analysis_reader`; administrator `analysis_admin` |
 | `mysql-analysis` | `127.0.0.1:23306` | MySQL 8.4; InnoDB; database `analysis`; SELECT-only reader `analysis_reader` |
-| `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader`; PyMySQL and native timeout fallback |
+| `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader` |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
 | `clickhouse-cluster` | `127.0.0.1:18201`, `127.0.0.1:18203` | Two shards with one replica each; Distributed over local tables |
 
@@ -54,13 +46,13 @@ uses `local.location=/warehouse` and `local:///data`; reset both volumes togethe
 only when deliberately changing the JDBC catalog format.
 
 Starting any of `trino`, `clickhouse`, or `clickhouse-cluster` stops the other two
-in this Compose project. Stopping a profile stops only the named group.
-PostgreSQL analysis and MySQL analysis have separate services and volumes.
+in this Compose project. PostgreSQL, MySQL and MariaDB analysis profiles have
+separate services and volumes.
 The cluster has no Keeper, replicated engines, or `ON CLUSTER` Distributed DDL;
 setup creates fixtures on each node directly. Hive uses the real Hive connector
 with Trino's file metastore at `local:///hive`, separate from Iceberg data in the
 same persistent warehouse volume. This test-only topology supplies no S3,
-REST catalog, remote Thrift metastore, multi-worker Trino, or cross-table atomicity evidence.
+REST catalog, remote Thrift metastore or multi-worker Trino.
 
 ## Initial setup on ARM64 macOS
 
@@ -106,8 +98,9 @@ resolved Compose configuration, passwords, or container environment variables.
 
 ## Start, verify and stop
 
-The manager waits for container health and performs PostgreSQL/MySQL reader
-setup. Trino and ClickHouse reader setup are explicit module commands:
+The manager waits for container health and performs PostgreSQL, MySQL and
+MariaDB reader setup. Trino and ClickHouse reader setup use explicit module
+commands. Choose only the profiles needed, with one Trino/ClickHouse group:
 
 ```bash
 bash tests/datasource/environment/manage.sh start postgres-analysis
@@ -122,67 +115,46 @@ bash tests/datasource/environment/manage.sh start clickhouse-cluster
 ```
 
 Trino startup initializes warehouse ownership with a short root process from
-its pinned image. The smoke command separately checks real catalog and data
-operations, then removes its own fixtures:
+its pinned image. Smoke commands check service access and basic native queries,
+then remove their fixtures:
 
 ```bash
 .venv/bin/python -m tests.datasource.environment.smoke trino
 .venv/bin/python -m tests.datasource.environment.smoke clickhouse
+```
+
+The manager accepts `status`, `logs` and `stop` for each profile. For example:
+
+```bash
 bash tests/datasource/environment/manage.sh status trino
 bash tests/datasource/environment/manage.sh logs trino
 bash tests/datasource/environment/manage.sh stop trino
-bash tests/datasource/environment/manage.sh stop clickhouse
-bash tests/datasource/environment/manage.sh stop clickhouse-cluster
-bash tests/datasource/environment/manage.sh stop postgres-analysis
-bash tests/datasource/environment/manage.sh stop mysql-analysis
-bash tests/datasource/environment/manage.sh stop mariadb-analysis
 ```
 
-Smoke verifies environment setup, exact Decimal aggregation, effective settings,
-and Trino snapshot reads; it is separate from product execution acceptance.
-
-Encoded event-time filtering has focused native scan acceptance:
-
-```bash
-MARIVO_TRINO_ANALYSIS_TEST=1 make runtime-test TESTS='tests/analysis/temporal/test_encoded_time_trino.py'
-```
-
-This creates and removes UUID-named partitioned fixtures, compares canonical
-string/integer range results with parsed filtering, and checks test-only
-`EXPLAIN (TYPE IO)` constraints and scanned rows. Iceberg uses the existing
-catalog. Hive uses the configured `hive` catalog (override with
-`MARIVO_TRINO_HIVE_CATALOG`), with qualifier writes and analysis_reader SELECT
-permissions. Both catalogs create the `analysis` schema as needed. The tests
-also compare grid-dependent CASE joins with and without a literal scan envelope.
-An absent catalog explicitly skips its cases. No scan inspection or extra query
-is added to library execution. Restart the Trino profile with the manager after
-adding the Hive catalog mount; existing warehouse data is preserved.
+Stopping `clickhouse-cluster` stops both shard services and the single-node
+ClickHouse service. Reuse running services while other test invocations need them.
 Stop the dedicated VM with `colima stop marivo-multisource` only after all of its
 profiles are no longer in use. Stopping preserves data volumes; volume deletion
 is an explicit reset.
 
-## Reader and observation contracts
+## Reader permissions
 
 PostgreSQL setup removes PUBLIC CREATE/TEMP, grants public-schema USAGE and
-SELECT, and defaults reader transactions to read-only and UTC. MySQL grants only
-SELECT on `analysis.*`; InnoDB fixtures use `utf8mb4_0900_bin`. Native driver
-buffering remains driver behavior, rather than Marivo replay or retry policies. `fetchmany` limits rows, not cell bytes.
+SELECT, and defaults reader transactions to read-only and UTC. MySQL and MariaDB
+grant the reader only SELECT on `analysis.*`.
 
 Trino file rules restrict `analysis_reader` to Iceberg/Hive/system metadata and the
-`noniceberg` memory catalog. The loopback service does not authenticate identities;
-these tests verify authorization only. Memory tables disappear on restart, so
-`trino_analysis.setup_non_iceberg()` runs before those reader journeys. Completed
-query history retains at most 100 entries with a one-minute minimum age; native
-cancellation observers read the original query state immediately.
+`noniceberg` memory catalog. The loopback service does not authenticate identities.
+Memory tables disappear on restart; tests using that catalog call
+`trino_analysis.setup_non_iceberg()` before their reads. Query history retains at most 100 entries
+with a one-minute minimum age.
 
-ClickHouse grants SELECT with `readonly=1`, `join_use_nulls=1`, and shared-storage
-snapshot support. Fixture setup permits query-local `max_execution_time`,
+ClickHouse grants SELECT with `readonly=1` and `join_use_nulls=1`.
+Fixture setup permits query-local `max_execution_time`,
 `timeout_before_checking_execution_speed`, cancellation response settings, and
-`enable_materialized_cte` through `CHANGEABLE_IN_READONLY`. Event matching requires
-materialized CTEs; lifecycle folds use their own ordered statement. Admin
-connections observe query IDs and termination independently from product control
-SQL. Shared storage snapshots do not establish cross-table atomicity or a single
-CTE evaluation.
+`enable_materialized_cte` through `CHANGEABLE_IN_READONLY`.
+
+## Installed-package tests
 
 Installed tests require the current wheel, supported driver dependencies, and
 already-ready services. Select backends explicitly and keep Trino separate from
@@ -195,18 +167,3 @@ MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino make install
 
 Use `MARIVO_TEST_WHEEL_DIR` for an isolated candidate directory. Process receipts
 and logs live under the installed-wheel pytest temporary directory.
-
-MySQL and MariaDB use PyMySQL, including RSA authentication dependencies, without
-mysqlclient or a local MySQL/MariaDB client C library. The MySQL driver audit
-observes `pymysql.cursors.Cursor.execute`; it must not intercept a retired driver.
-The MariaDB profile shares the restricted-reader setup and private password,
-and separately exercises exact reads and the `max_statement_time` fallback:
-
-```bash
-MARIVO_MARIADB_ANALYSIS_TEST=1 make runtime-test TESTS='tests/datasource/test_source_adapters_runtime.py -k mariadb' RUNTIME_WORKERS=1
-```
-
-Installed-origin and wheel-hash checks own package isolation. Native source
-matrices own broader decoding, shape, streaming, fault, and cancellation coverage.
-Historical qualification plans and local evidence retain their original scope;
-current gate ownership is recorded in the local-only `docs/testing/` directory.
