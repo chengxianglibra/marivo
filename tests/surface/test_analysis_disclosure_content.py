@@ -568,6 +568,13 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
         assert target not in prepare().discovery_ids()
 
 
+def test_observe_help_discloses_implicit_duplicate_time_axis_repair() -> None:
+    text = render_help_text("analysis.session.observe")[0]
+    assert "Duplicate calendar/raw time" in text
+    assert "TimeScope+field" in text and "explicit Population" in text
+    assert "use calendar alone" in text and "P fixes joint keys" in text
+
+
 def test_construction_type_families_and_retired_surface() -> None:
     registry = prepare()
     assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {

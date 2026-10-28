@@ -2799,7 +2799,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "current physical column names and types."
                 " Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own all downstream fields and identity/version rules."
                 " Naive timestamp identity retains wall-clock values and exact precision without a timezone; TimeDimension parse does not rewrite primary_key. Naive and aware keys require explicit compatible representations."
-                " UInt64 inputs use exact Decimal(20,0) before semantic arithmetic. Entity bodies admit the injected Table, inline literals and deterministic public ibis root symbols; ibis submodules are not admitted. Cast with raw['column'].cast('decimal(20,0)') for UInt64, or .cast('int64') only for the signed range; ibis.dtype('int64') is also supported."
+                " UInt64 inputs use exact Decimal(20,0) before semantic arithmetic. Entity bodies admit the injected Table, inline literals, deterministic public ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin with at least one argument and concrete argument/return types; Python UDF bodies are not executed. Arbitrary helpers, Ibis submodules and Python/Pandas/Arrow UDFs are rejected. Cast with raw['column'].cast('decimal(20,0)') for UInt64, or .cast('int64') only for the signed range; ibis.dtype('int64') is also supported."
             ),
             output="EntitySymbol",
             inputs=(
@@ -2973,7 +2973,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "measure",
             "marivo.semantic._authoring_decorators.measure",
-            "Name a pure numeric row expression. Omitted unit/additivity inherit facts; new assertions preserve compatible units and fixed time constraints. Additivity selects existing axes in the frozen row scope by kind/path, without original-version matching. Naming and ai_context do not change computation. No loader, registration or source access.",
+            "Name a pure numeric row expression over established quantities; it does not convert a Dimension. For one numeric Entity output column, use dimension_column and measure_column with different semantic names for grouping and quantity roles. Omitted unit/additivity inherit facts; new assertions preserve compatible units and fixed time constraints. Additivity selects existing axes by kind/path. Naming and ai_context do not change computation. No loader, registration or source access.",
             output="Deferred",
             inputs=(
                 _parameter_input("dependency", "Text", "unit", optional=True),
@@ -3090,7 +3090,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions and a leading docstring are allowed; arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
+            "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions, a leading docstring and tuple/list literal arguments are allowed; lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
             output="Deferred",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),

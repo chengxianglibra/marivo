@@ -290,10 +290,11 @@ class Session:
             ``frame = session.observe(revenue, by=(period,)).compute()``;
             ``frame.show()``.
 
-        Constraints: No source reads or Run at capture. by=() supplies no time range.
-        Time-sample reducers need a finite TimeScope/CalendarAxis in by; qualified native means
+        Constraints: No source reads/Run at capture. by=() supplies no time range.
+        Duplicate calendar/raw time: use calendar alone, TimeScope+field, or explicit Population.
+        Time samples need a finite TimeScope/CalendarAxis in by; qualified native means
         may omit it. Metric-specific sample coverage may still reject at compute/persist.
-        Use Mapping for conflicts; names imply no business identity. Trust semantic primary_key
+        Mapping for conflicts; no business identity. Trust semantic primary_key
         with nullable physical metadata; no full-source NULL/uniqueness precheck. Violations may
         pass; identity-output and operation checks remain. Use source_check.
         """

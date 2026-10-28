@@ -94,6 +94,15 @@ Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
 selects exactly its complete output keys, including those without facts.
 Population.axes carries coordinate rules, without the selected keys or allocation.
 
+An implicit output grid cannot combine CalendarAxis buckets with the raw field
+of the same bound contribution time role (including its relationship path and
+instant anchor). Capture rejects this combination before source access, rather
+than completing every distinct timestamp against every bucket. Use only the
+CalendarAxis for bucketed output, or a TimeScope plus the raw time field for
+timestamp-level output. Different time roles and ordinary calendar-by-category
+grids remain valid. An explicit Population fixes joint output keys and can
+intentionally retain both coordinates without implicit grid completion.
+
 Within one observation, compatible ordinary sum/count/mean/min/max contributions
 share a grouped SQL aggregate, including different root fields and matching
 calendar buckets. Compatibility includes the actual source, relationship and

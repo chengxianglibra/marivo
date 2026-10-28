@@ -280,7 +280,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "timezone"
                         else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
                         if name == "get_or_create" and n == "domains"
-                        else "Ordered fields/Grouping/TimeScope/memberships, Population P or (P, rule, ...); () gives one zero-axis cell. Memberships expand with interleaved fields. P fixes joint keys; population.axes carries axes only. Cover necessary output keys before sampling; extras keep empty values. TimeScope/CalendarAxis: intervals/buckets."
+                        else "fields/Grouping/TimeScope/memberships, Population P or (P, rule, ...); () gives one zero-axis cell. P fixes joint keys; population.axes: no keys. Interleave fields; cover necessary output keys before sampling; extras empty. TimeScope/CalendarAxis: intervals/buckets."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"

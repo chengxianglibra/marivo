@@ -240,8 +240,11 @@ def entity(
 
     Constraints:
         Declare this constructor inside a semantic project loaded by ``ms.load``.
-        Entity bodies use the injected Table, inline literals and deterministic public
-        symbols from the ibis root module, excluding clock/random symbols and submodules.
+        Entity bodies use the injected Table, inline literals, deterministic public
+        ibis root symbols and typed scalar builtin UDFs from ``ibis.udf.scalar.builtin``
+        with at least one argument and concrete argument/return types.
+        UDF Python bodies are not executed. Arbitrary helpers, Python/Pandas/Arrow UDFs,
+        clock/random symbols and Ibis submodules are not Entity body symbols.
         Use ``raw['column'].cast('decimal(20,0)')`` for the full UInt64 range, or
         ``.cast('int64')`` only for values within signed int64. ``ibis.dtype`` is supported.
         Identity and direct field columns name projected output aliases.
@@ -503,8 +506,10 @@ def measure_column(
         A native Measure lookup symbol for row composition.
 
     Constraints:
-        Use ``@ms.measure(...)`` when the measure is an expression over one or
-        more columns. This helper is only for direct physical columns.
+        Use ``@ms.measure(...)`` to compose existing semantic quantities. Bind a
+        physical or Entity-derived numeric column with this helper. The same
+        column may also have a ``dimension_column`` declaration with a different
+        semantic name; neither declaration converts the other role.
 
     Example:
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
@@ -611,7 +616,10 @@ def measure(
 
     Constraints:
         The body takes no parameters and returns closed row arithmetic over constructed
-        dependencies. Fresh local expressions and a leading docstring are allowed.
+        semantic quantities. A Dimension cannot become a Measure through this
+        decorator. For physical or Entity-derived numeric columns, use separate
+        dimension_column and measure_column declarations with different semantic
+        names. Fresh local expressions and a leading docstring are allowed.
         No loader, Session, source reads, arbitrary calls, or Metric returns are allowed.
         The function name must match ``[a-z][a-z0-9_]*``; assertions retain time constraints.
     """

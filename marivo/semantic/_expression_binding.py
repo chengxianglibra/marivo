@@ -35,6 +35,7 @@ from marivo.semantic._definition_expression_types import (
     ExpressionDescription,
     _UnsupportedExpression,
 )
+from marivo.semantic._ibis_builtin_udf import builtin_udf_token
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -553,7 +554,7 @@ class _DeclarationExpressionBuilder:
             node.value is None or type(node.value) in (str, int, float, bool)
         ):
             return node.value
-        if isinstance(node, ast.Tuple):
+        if isinstance(node, (ast.Tuple, ast.List)):
             return tuple(self.value(item) for item in node.elts)
         if isinstance(node, ast.BinOp):
             left, right = self.value(node.left), self.value(node.right)
@@ -1205,12 +1206,12 @@ def _validate_entity_table_closed_symbols(
     parameter_names: frozenset[str],
     owning_key: str,
 ) -> dict[str, str]:
-    """Require every body ``Name`` to be the parameter or one admitted ibis symbol.
+    """Require every body ``Name`` to be the parameter or an admitted Ibis builder.
 
     Parameter annotations are type metadata, not runtime expression values,
     and are excluded from the closed-name check. Returns the mapping of body
-    local names to canonical ``ibis.<name>`` identity tokens for admitted
-    Ibis symbols, used to normalize the body hash by resolved identity.
+    local names to canonical identity tokens for admitted Ibis symbols and typed
+    scalar builtin UDFs, used to normalize the body hash by resolved identity.
     """
     symbol_tokens: dict[str, str] = {}
     annotation_nodes: set[int] = {
@@ -1280,6 +1281,10 @@ def _validate_entity_table_closed_symbols(
         if node.id in parameter_names or id(node) in annotation_nodes:
             continue
         value = symbols.get(node.id)
+        udf_token = builtin_udf_token(value)
+        if udf_token is not None:
+            symbol_tokens[node.id] = udf_token
+            continue
         if _is_admitted_ibis_symbol(value):
             # The ibis module may only be used for admitted attribute access;
             # each attribute spelling is checked at its Attribute node above.
@@ -1329,16 +1334,22 @@ def _validate_entity_table_closed_symbols(
                 f"{type(value).__name__}, which is not a supported Ibis expression symbol."
             ),
             refs=(owning_key,),
-            expected=("the injected Table parameter, ibis module symbols, or inline literals"),
+            expected=(
+                "the injected Table parameter, ibis module symbols, inline literals, or "
+                "typed scalar builtin UDFs with at least one argument and concrete argument "
+                "and return types"
+            ),
             received=f"{node.id}={type(value).__name__}",
             repair=repair(
                 kind="reauthor",
                 canonical_id="entity",
-                action=f"Replace the external reference {node.id!r} with an inline expression or a deterministic ibis root symbol. For casts, use .cast('decimal(20,0)') for the full UInt64 range, or .cast('int64') only within signed int64; ibis.dtype('int64') is supported. Ibis submodules are not Entity body symbols.",
+                action=f"Replace the external reference {node.id!r} with an inline expression, a deterministic ibis root symbol, or an @ibis.udf.scalar.builtin declaration with at least one argument and concrete argument and return types. For casts, use .cast('decimal(20,0)') for the full UInt64 range, or .cast('int64') only within signed int64; ibis.dtype('int64') is supported. Ibis submodules are not Entity body symbols.",
             ),
             hint=(
                 "Use the injected Table, inline literals, or deterministic public symbols "
-                "from the ibis root module. Ibis submodules are not body symbols. "
+                "from the ibis root module, or @ibis.udf.scalar.builtin declarations with "
+                "at least one argument and concrete argument and return types. "
+                "Ibis submodules are not body symbols. "
                 "For casts use raw['column'].cast('decimal(20,0)') for the full UInt64 "
                 "range, or .cast('int64') only when values fit signed int64; "
                 "ibis.dtype('int64') is also admitted. Read marivo.help('semantic.entity.define')."
@@ -1537,6 +1548,12 @@ def compile_expression_body(
         },
         bindings=description_bindings,
     )
+    symbol_tokens = {
+        node.id: token
+        for node in ast.walk(function)
+        if isinstance(node, ast.Name)
+        and (token := builtin_udf_token(symbols.get(node.id))) is not None
+    }
     return ExpressionBody(
         description=description,
         callable=fn,
@@ -1546,6 +1563,7 @@ def compile_expression_body(
             parameter_positions=parameter_positions,
             binding_indexes=collector.index_by_key,
             constant_bindings={},
+            symbol_tokens=symbol_tokens,
         ),
         parameter_count=len(parameters),
         bindings=tuple(collector.bindings),

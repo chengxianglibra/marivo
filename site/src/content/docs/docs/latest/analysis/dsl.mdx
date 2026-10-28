@@ -202,6 +202,13 @@ Names must be unique. To choose a short axis name or resolve a collision, use `s
 
 Next, [compare two periods](/docs/latest/analysis/dsl/#compare-and-align) or [save the result](/docs/latest/analysis/results/).
 
+An implicit output grid rejects a CalendarAxis together with the raw field of
+the same contribution time role, including its relationship path and instant
+anchor. Use only `scope.by(mv.grain("day"))` for daily buckets, or `(scope, time_field)`
+for raw timestamp groups within that TimeScope. An explicit Population can retain
+both coordinates as joint keys. Different time roles and calendar-by-category
+grids remain supported.
+
 TimeScopes use inclusive start and exclusive end. An explicitly selected Population can retain members without facts; no-fact sums are zero, while nonempty all-null sums are NA. `Population.count()` counts selected complete tuples, `Entity.count()` counts source contributions, and `mv.row_count()` counts current Frame rows. Help: `analysis.session.observe`.
 
 <a id="compare-and-align"></a>

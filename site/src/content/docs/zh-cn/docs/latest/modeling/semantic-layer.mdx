@@ -71,6 +71,29 @@ Decimal 无法恢复精度。Help：`semantic.entity.define`、`semantic.timesta
 `analysis.analysis_frame.compute`。
 
 
+### 后端 builtin 函数
+
+Entity 函数体可以调用在模型模块中声明的类型化 scalar builtin UDF。
+例如，Trino 来源提供 `json_extract_scalar` 时：
+
+```python
+import ibis
+
+
+@ibis.udf.scalar.builtin(name="json_extract_scalar")
+def extract_text(payload: str, path: str) -> str:
+    ...
+
+
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["event_id"])
+def events(raw):
+    return raw.mutate(duration_ms=extract_text(raw.payload, "$.duration_ms").cast("int64"))
+```
+
+UDF 须至少有一个参数，且参数与返回值的类型均须明确；不接受零参数 builtin UDF。
+UDF 的 Python 函数体不会执行。Marivo 捕获后端函数名称、命名空间和签名，执行时仍须由
+对应 backend 支持。任意 Python helper 及 Python/Pandas/Arrow UDF 不属于 Entity 函数体符号。
+
 ## Dimension：维度
 
 Dimension 是实体某个确定版本上的属性，用于分组、筛选、分类或声明关系键。类型与可空性由来源绑定或表达式决定。
@@ -157,6 +180,24 @@ def margin():
 | `additivity` | 否 | `None` | 显式兼容求和许可；`None` 继承表达式事实。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
 
+### 同一数值列的两个角色
+
+同一数值列可以分别声明为分组字段和数量，使用不同的语义名称：
+
+```python
+amount_axis = ms.dimension_column(name="amount_axis", entity=orders, column="amount")
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", unit="CNY",
+    additivity=ms.additive_all(),
+)
+```
+
+分组或条件使用 `amount_axis`，Metric 中的数量计算使用 `amount.mean()`。
+sum/mean 等数量规约需要 Measure 角色，Dimension 既有的计数规约仍可使用。
+`@ms.measure` 组合已有数量，不转换 Dimension。
+对于两种角色共用的派生数值字段，先在 Entity 函数体中生成一列，再将两个声明绑定到
+同一列。数值类型本身不建立业务求和许可。
+
 ## Metric：指标
 
 Metric 是完成来源聚合后的表达式，或已有 Metric 的组合。收入对订单金额求和，客单价用该收入除以同一范围的订单数。
@@ -180,6 +221,10 @@ def average_order_value():
 ```
 
 函数体可以包含新的局部表达式绑定和最终 return，但不能包含表参数、`ms.bind`、查询或任意 Python 调用。空样本求和为零，非空但全部为空的样本求和为未知；除以零产生 NA。`revenue.where(region == "east")` 限定贡献条件，`revenue.per(region).mean()` 计算地区收入的均值；它们与筛选或平均已完成 Frame 不同。已有闭合 Metric 可以直接组合用于本次问题，无需发布新定义。Help：`semantic.metric.define`、`semantic.expressions`。
+
+捕获参数同时接受 tuple 和 list 字面量。例如，零参数 Metric 函数体中可以写
+`return amount.sum(time=order_date).where(region.isin(["east", "west"]))`。
+list 会冻结为 tuple；推导式、下标和任意 helper 调用仍不属于这套语法。
 
 ### 精确与近似分位数
 

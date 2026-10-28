@@ -190,6 +190,11 @@ regional.show()
 
 接下来[比较时期](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/latest/analysis/results/)。
 
+隐式输出网格拒绝同时传入 CalendarAxis 和同一贡献时间角色的原始字段；时间角色的关系路径
+和时点锚也参与比较。按日分桶只传 `scope.by(mv.grain("day"))`；在 TimeScope 内按原始
+时间点分组则传 `(scope, time_field)`。显式 Population 可以用联合键保留这两个坐标。
+不同时间角色及日历与普通分类字段的网格仍受支持。
+
 TimeScope 包含起点、不包含终点。显式选定的 Population 可以保留没有事实记录的成员；无事实求和为零，非空但全空值求和为 NA。`Population.count()` 统计选中的完整元组，`Entity.count()` 统计来源贡献，`mv.row_count()` 统计当前 Frame 行。Help：`analysis.session.observe`。
 
 <a id="比较与对齐"></a>

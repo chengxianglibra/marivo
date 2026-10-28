@@ -151,6 +151,22 @@ Symbols, binding & loading
 apply a native physical field to a direct Entity alias inside a restricted Ibis
 Dimension/TimeDimension body. Loader binding checks kind, owner and time role.
 
+Use ``dimension_column`` and ``measure_column`` with different semantic names
+to declare grouping and quantity roles over the same numeric Entity output
+column. For a shared derived value, create that column in the Entity body first.
+``@measure`` composes established quantities; it does not convert a Dimension.
+Dimension arithmetic and quantity reductions such as ``sum``/``mean`` require
+the Measure role; existing Dimension counting reductions remain supported.
+Measure/Metric bodies accept tuple and list literals as expression arguments;
+captured lists become tuples.
+
+Entity bodies accept typed scalar backend builtin UDFs declared with
+``ibis.udf.scalar.builtin``, with at least one argument and concrete argument/return
+types. Zero-argument builtin UDFs are not admitted. They capture the function identity and signature
+without executing the Python function body. Backend support is checked during
+execution; arbitrary Python helpers and Python/Pandas/Arrow UDFs are not admitted
+as Entity body symbols.
+
 Metadata identity fields return unbound lookup selectors. Use them for supported
 Catalog lookup/check operations; select closed analysis inputs through the
 canonical ``catalog.get("kind:path").value`` after checking kind. Ordinary Analysis does not bind a symbol.

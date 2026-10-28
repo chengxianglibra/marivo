@@ -82,6 +82,11 @@ arithmetic when unsigned overflow is possible.
 Entity bodies admit the injected Table, inline literals and deterministic public
 symbols from the `ibis` root module (excluding clock/random symbols), including
 `ibis.dtype`; submodules such as `ibis.expr.datatypes` are not body symbols.
+Module-level typed scalar builtin UDFs from `ibis.udf.scalar.builtin` are also
+accepted with at least one argument and concrete argument/return types;
+zero-argument builtin UDFs are not admitted. Their Python bodies are not executed; function identity and signature
+are captured, while backend support is qualified at execution. Arbitrary helpers
+and Python/Pandas/Arrow UDFs remain outside this Entity contract.
 Use `raw['value'].cast('decimal(20,0)')` for the complete UInt64 range.
 `raw['value'].cast('int64')` is valid only when values fit signed int64.
 
@@ -289,10 +294,15 @@ amount = ms.measure_column(
 ```
 
 If a row-level `.filter(...)`, `.cast(...)`, or multi-step chain represents a
-nameable source/attribute concept, extract it into an Entity or Dimension/TimeDimension and
-reference that, rather than inlining it in a metric body. These decorators do not
-require provenance; their trust comes from the owning entity, expression
-readability, and materialization checks.
+nameable source/attribute concept, extract it into an Entity or Dimension/TimeDimension.
+For a derived numeric value needed both as a grouping field and a quantity,
+create one Entity output column, then bind `dimension_column` and `measure_column`
+to it using different semantic names. This same-column declaration also works
+for physical numeric columns. Dimension sum/mean and a `@ms.measure` wrapper do
+not convert that field into a quantity; counting reductions retain their own
+contract. These decorators do not require
+provenance; their trust comes from the owning entity, expression readability,
+and materialization checks. See [row quantities](expressions.md#row-quantities-and-metric-equations).
 
 ### Time dimension
 

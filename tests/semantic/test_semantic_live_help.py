@@ -786,6 +786,23 @@ def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None
     assert 'marivo.help("semantic.measure.define"); returns Deferred' in measure
 
 
+def test_authoring_help_discloses_shared_numeric_columns_builtin_udfs_and_lists() -> None:
+    from marivo._help.render import render_help_text
+
+    entity = render_help_text("semantic.entity.define")[0]
+    assert "typed scalar builtin UDFs" in entity
+    assert "ibis.udf.scalar.builtin" in entity
+    assert "at least one argument" in entity
+    assert "Python UDF bodies are not executed" in entity
+    measure = render_help_text("semantic.measure.define")[0]
+    assert "does not convert a Dimension" in measure
+    assert "different semantic names" in measure
+    assert "dimension_column and measure_column" in measure
+    metric = render_help_text("semantic.metric.define")[0]
+    assert "tuple/list literal arguments" in metric
+    assert "lists are frozen as tuples" in metric
+
+
 def test_removed_join_key_tuple_method_is_not_a_help_target() -> None:
     with pytest.raises(MarivoHelpTargetError):
         marivo.help("semantic.join_key.to_tuple")

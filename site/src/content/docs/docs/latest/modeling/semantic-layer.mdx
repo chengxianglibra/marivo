@@ -75,6 +75,30 @@ casting the rounded float back cannot restore precision. Help:
 `semantic.entity.define`, `semantic.timestamp`, `analysis.analysis_frame.compute`.
 
 
+### Backend builtin functions
+
+An Entity body can call a typed scalar builtin UDF declared in the model module.
+For a Trino source providing `json_extract_scalar`:
+
+```python
+import ibis
+
+
+@ibis.udf.scalar.builtin(name="json_extract_scalar")
+def extract_text(payload: str, path: str) -> str:
+    ...
+
+
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["event_id"])
+def events(raw):
+    return raw.mutate(duration_ms=extract_text(raw.payload, "$.duration_ms").cast("int64"))
+```
+
+Declare at least one argument and concrete argument/return types; zero-argument
+builtin UDFs are not admitted. The Python UDF body is not executed. Marivo captures the backend function name,
+namespace and signature; execution still requires support from that backend.
+Arbitrary Python helpers and Python/Pandas/Arrow UDFs are not Entity body symbols.
+
 ## Dimension — categorical attributes
 
 A Dimension is an attribute of one resolved Entity representation. Use it to group, filter, classify, or declare relationship keys. Its type and nullability follow its source binding or expression.
@@ -161,6 +185,26 @@ This cost example uses the extra column created in the complete model below. Der
 | `additivity` | No | `None` | Explicit compatible summation permission; `None` inherits expression facts. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
+### One numeric column, two roles
+
+Declare a numeric column as both a grouping field and a quantity using different
+semantic names:
+
+```python
+amount_axis = ms.dimension_column(name="amount_axis", entity=orders, column="amount")
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", unit="CNY",
+    additivity=ms.additive_all(),
+)
+```
+
+Use `amount_axis` in grouping or conditions and `amount.mean()` in a Metric.
+Dimension sum/mean reductions require the Measure role; existing Dimension
+counting reductions remain supported. `@ms.measure` composes established
+quantities and does not convert a Dimension. For a shared derived numeric field,
+create one column in the Entity body first, then bind both declarations to that
+column. The numeric dtype alone does not establish business sum permission.
+
 ## Metric — completed business calculations
 
 A Metric is a completed source reduction or a composition of Metrics. Revenue sums order amounts; average order value divides that revenue by the count of the same orders.
@@ -184,6 +228,11 @@ def average_order_value():
 ```
 
 Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
+
+Tuple and list literals are both accepted in captured arguments. For example,
+`return amount.sum(time=order_date).where(region.isin(["east", "west"]))` is valid
+inside a zero-argument Metric body. Lists are frozen as tuples; comprehensions,
+subscripting and arbitrary helper calls remain outside this grammar.
 
 ### Exact and approximate quantiles
 

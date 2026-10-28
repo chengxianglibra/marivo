@@ -14,9 +14,18 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.types import FieldRead
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticError
-from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, export_dsl_parquet_models
+from tests.analysis.graph.execution_fixtures import source_graph
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    catalog_value,
+    export_dsl_parquet_models,
+    terminal_runs,
+)
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -222,6 +231,165 @@ def test_grid_observation_keeps_time_without_member_axis(
     )
     assert len(rows) == 4
     assert sorted(rows["value"]) == [0, 99, 150, 850]
+
+
+@pytest.mark.parametrize("raw_first", [False, True])
+@pytest.mark.parametrize(
+    ("metric_path", "explicit_path"),
+    [("sales.revenue", False), ("sales.line_revenue", False), ("sales.line_revenue", True)],
+)
+def test_calendar_rejects_repeated_raw_observation_time_before_source_reads(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    metric_path: str,
+    explicit_path: bool,
+    raw_first: bool,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    metric = catalog_value(session.catalog, metric_path, kind="metric")
+    raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    if explicit_path:
+        path = catalog_value(session.catalog, "sales.line_order", kind="relationship")
+        raw_time = raw_time.via((path,))
+    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    axes = (raw_time, calendar) if raw_first else (calendar, raw_time)
+    before = terminal_runs(session)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Observation time-axis validation must precede source reads")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(SourceSession, "__enter__", forbidden)
+        with pytest.raises(AnalysisError) as failure:
+            session.observe({"value": metric}, by=axes)
+    error = failure.value
+    assert error.expected == "one implicit output representation of each observation time role"
+    assert error.received is not None and "sales.order.ordered_at" in error.received
+    assert "CalendarAxis 'month'" in error.received and "Metric 'value'" in error.received
+    assert error.location == "session.observe"
+    assert error.repair is not None
+    assert "keep only the CalendarAxis" in error.repair.action
+    assert "a TimeScope and the time field" in error.repair.action
+    assert error.repair.help_target is not None
+    assert error.repair.help_target.canonical_id == "session.observe"
+    assert terminal_runs(session) == before
+
+
+def test_raw_time_interval_and_explicit_calendar_product_remain_available(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    scope = session.time_scope(start="2026-08-01", end="2026-10-01")
+    raw = session.observe({"value": metric}, by=(scope, raw_time)).compute().to_pandas()
+    assert len(raw) == 4 and sorted(raw["value"]) == [99, 150, 400, 450]
+    calendar = scope.by(mv.grain("month"))
+    buckets = session.observe({"value": metric}, by=(calendar,)).compute().to_pandas()
+    assert buckets["value"].tolist() == [1000, 99]
+    times = mv.coordinates(
+        by=(raw_time,),
+        keys=tuple(
+            (datetime.fromisoformat(value),)
+            for value in (
+                "2026-08-01T00:00:00+00:00",
+                "2026-08-15T12:00:00+00:00",
+                "2026-08-31T23:59:59+00:00",
+                "2026-09-01T00:00:00+00:00",
+            )
+        ),
+    )
+    selected = session.observe({"value": metric}, by=mv.product(calendar, times))
+    selected_rows = selected.compute().to_pandas()
+    assert len(selected_rows) == 8
+    assert sorted(selected_rows["value"]) == [0, 0, 0, 0, 99, 150, 400, 450]
+
+
+def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + "\nreceived_at = ms.time_dimension_column(name='received_at', entity=orders, column='ordered_at')\n"
+        + "alternate = ms.relationship(name='alternate_line_order', from_entity=lines, to_entity=orders, keys=[ms.join_on(line_order_id, order_id)])\n"
+    )
+    ms.load(workspace_dir=case.root)
+    session = mv.session.get_or_create("distinct-time-roles", timezone="UTC")
+    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    received_at = catalog_value(session.catalog, "sales.order.received_at", kind="field")
+    raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    alternate = catalog_value(session.catalog, "sales.alternate_line_order", kind="relationship")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    line_revenue = catalog_value(session.catalog, "sales.line_revenue", kind="metric")
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Distinct time-role capture must not access source rows")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(SourceSession, "__enter__", forbidden)
+        distinct_field = session.observe({"value": revenue}, by=(calendar, received_at))
+        distinct_path = session.observe(
+            {"value": line_revenue}, by=(calendar, raw_time.via((alternate,)))
+        )
+    for frame in (distinct_field, distinct_path):
+        binding = source_graph(frame).signature.observation
+        assert binding is not None and len(binding.coordinates.axes) == 2
+        contribution = binding.contributions[0]
+        assert contribution.time is not None
+        coordinate = contribution.coordinates[0]
+        assert isinstance(coordinate, FieldRead)
+        assert (
+            coordinate.field != contribution.time.field or coordinate.path != contribution.time.path
+        )
+
+
+def test_calendar_matches_exact_time_attribute_anchor(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + """
+history = ms.entity(name='history', datasource=warehouse, source=md.table('history'),
+    primary_key=['customer_id'], versioning=ms.snapshot(
+        partition_field=ms.ref.time_dimension('sales.history.recorded_at'), timezone='UTC'))
+history_id = ms.dimension_column(name='customer_id', entity=history, column='customer_id')
+recorded_at = ms.time_dimension_column(name='recorded_at', entity=history, column='recorded_at')
+history_link = ms.relationship(name='order_history', from_entity=orders, to_entity=history,
+    keys=[ms.join_on(order_customer_id, history_id)])
+"""
+    )
+    ms.load(workspace_dir=case.root)
+    session = mv.session.get_or_create("anchored-time-role", timezone="UTC")
+    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    raw_time = catalog_value(session.catalog, "sales.history.recorded_at", kind="field")
+    path = catalog_value(session.catalog, "sales.order_history", kind="relationship")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    first, second = session.instant("2026-08-01"), session.instant("2026-09-01")
+    source_time = raw_time.via((path,)).at(first)
+    metric = amount.sum(time=source_time)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Time-anchor validation must precede source reads")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(SourceSession, "__enter__", forbidden)
+        with pytest.raises(AnalysisError, match="one implicit output representation"):
+            session.observe({"value": metric}, by=(calendar, source_time))
+        frame = session.observe({"value": metric}, by=(calendar, raw_time.via((path,)).at(second)))
+    binding = source_graph(frame).signature.observation
+    assert binding is not None
+    contribution = binding.contributions[0]
+    coordinate = contribution.coordinates[0]
+    assert isinstance(coordinate, FieldRead) and contribution.time is not None
+    assert coordinate.field == contribution.time.field
+    assert coordinate.path == contribution.time.path
+    assert coordinate.at != contribution.time.at
 
 
 def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFactory) -> None:

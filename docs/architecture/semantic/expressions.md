@@ -61,10 +61,21 @@ contracts. They may derive one relation or field from their permitted table
 inputs; they cannot execute a query or create a foreign source. ms.bind is
 available only in supported restricted Ibis field bodies.
 
+Entity bodies also accept module-level, typed scalar builtin UDFs declared with
+`ibis.udf.scalar.builtin`, with at least one argument and concrete argument/return
+types. Zero-argument builtin UDFs are not admitted. These build a backend function expression without
+executing the Python function body. The captured function name, namespace and
+signature participate in definition identity; execution still requires backend
+support. Arbitrary Python helpers and Python/Pandas/Arrow UDFs are not Entity
+body symbols.
+
 Measure/Metric decorators take zero-argument functions. The validator captures a
 leading docstring, fresh local expressions and one final return without invoking
 the authored function. Imports, arbitrary helpers, control flow, reassignment,
 Ibis tables and ms.bind in these bodies are rejected.
+Tuple and list literals are accepted as captured expression arguments, including
+`status.isin(["paid", "shipped"])`; lists are frozen as tuples. This does not admit
+comprehensions, mutation, subscripting or arbitrary function calls.
 
 The function's lowercase snake_case name supplies declaration metadata. A Python
 alias does not rename it; arithmetic produces an anonymous expression. Model
@@ -111,6 +122,26 @@ unknown units stay unknown. Unit assertions do not convert currency or scale.
 An assertion cannot erase fixed status-time constraints or refer to foreign axes.
 Metric decorators accept domain/context metadata, without unit, time, fold or
 numeric-policy overrides.
+
+One numeric Entity output column can have separate Dimension and Measure
+declarations:
+
+```python
+amount_axis = ms.dimension_column(name="amount_axis", entity=orders, column="amount")
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", unit="CNY",
+    additivity=ms.additive_all(),
+)
+```
+
+Use the Dimension for grouping and conditions, and the Measure for quantity
+arithmetic and source reductions. Give them different semantic names; binding the
+same column does not merge their roles or grant a Dimension quantity arithmetic
+or sum/mean reductions. Existing Dimension counting reductions remain supported.
+For a shared derived numeric value, create the column in the Entity body and
+bind both declarations to that output column. `@ms.measure` continues to compose
+established quantities; it does not convert a Dimension into a Measure. Actual
+numeric types and backend support are checked during preparation.
 
 ### Sum permission declarations
 

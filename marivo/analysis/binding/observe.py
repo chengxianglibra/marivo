@@ -41,6 +41,7 @@ from marivo._definition.types import (
     FieldRead,
     IdentityRead,
     IntervalCoordinate,
+    field_read_key,
 )
 from marivo._temporal import (
     PeriodCalendarSnapshotV2,
@@ -429,6 +430,26 @@ def bind_observation(
                             else bind_read(coordinate_read, root, state.registry, resolver, paths)
                         )
             coordinates = tuple(coordinate_list)
+            output_axis_count = sum(
+                not isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in by
+            )
+            if calendar is not None and population is None and time is not None:
+                for coordinate in coordinates[:output_axis_count]:
+                    if isinstance(coordinate, FieldRead) and (
+                        coordinate.field == time.field
+                        and coordinate.path == time.path
+                        and coordinate.at == time.at
+                    ):
+                        reject(
+                            "one implicit output representation of each observation time role",
+                            f"CalendarAxis {calendar.grain!r} and raw time field "
+                            f"{field_read_key(coordinate)!r} for Metric {metrics[occurrence[0]][0]!r}",
+                            "For bucketed observation, keep only the CalendarAxis in by. "
+                            "For raw time points, pass a TimeScope and the time field in by. "
+                            "Use an explicit Population when the joint output keys are intentional.",
+                            "session.observe",
+                            canonical_id="session.observe",
+                        )
             coordinate_calendars: list[tuple[str, CalendarCoordinate | IntervalCoordinate]] = []
             physical_reads = iter(coordinates)
             physical_slot = 0
@@ -495,10 +516,7 @@ def bind_observation(
                     sample_layers=sample_layers,
                     metric=metrics[occurrence[0]][0],
                     memberships=all_memberships,
-                    output_axis_count=sum(
-                        not isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                        for axis in by
-                    ),
+                    output_axis_count=output_axis_count,
                     calendars=tuple(coordinate_calendars),
                     population_reads=tuple(population_reads.items()),
                 )
