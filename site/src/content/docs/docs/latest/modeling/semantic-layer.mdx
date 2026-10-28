@@ -166,7 +166,7 @@ def margin():
     return amount - cost
 ```
 
-This cost example uses the extra column created in the complete model below. Derived Measure bodies take zero arguments and compose typed row quantities. Units describe dimension; additivity says where summing is meaningful. A product is not automatically summable, and inventory is not automatically additive over time. Help: `semantic.measure.from_column` and `semantic.measure.define`.
+This cost example uses the extra column created in the complete model below. Derived Measure bodies take zero arguments and compose typed row quantities. After loading, retrieve this declaration with `catalog.get("measure:sales.orders.margin")`; its identity includes the contribution Entity. Units describe dimension; additivity says where summing is meaningful. A product is not automatically summable, and inventory is not automatically additive over time. Help: `semantic.measure.from_column` and `semantic.measure.define`.
 
 | Declaration | Summation permission |
 | --- | --- |
@@ -316,7 +316,7 @@ Customers c1 and c2 belong to east and west respectively; c3 has no orders. The 
 
 Declare orders and customers as Entities with complete primary keys, then a directed relationship using `ms.relationship` and `ms.join_on`. Obtain the exact constructor with `marivo.help("semantic.relationship.define")`. If identity is (tenant, customer), include both parts; a customer number alone can match another tenant.
 
-`ms.load()` validates the declared mapping and derives structural cardinality without reading source rows. To check current matches or compare observed multiplicity with an expected cardinality, use `ms.source_check.relationship_matches(...)` or `ms.source_check.relationship_cardinality(...)` with `catalog.validate(..., checks=..., scope=...)`. These data checks require an explicit bounded scope and describe only that scope.
+`ms.load()` validates the declared mapping and derives structural cardinality without reading source rows. To check current matches or compare observed multiplicity with an expected cardinality, use `ms.source_check.relationship_matches(...)` or `ms.source_check.relationship_cardinality(...)` with `catalog.validate(..., checks=..., scope=...)`. These data checks require an explicit bounded scope and describe only that scope. `side='from'` checks source keys for target matches; `side='both'` also checks the reverse direction. `expected` accepts `one_to_one`, `many_to_one`, `one_to_many` or `many_to_many` in the declared direction.
 
 ### Decide how multiple memberships contribute
 
@@ -461,13 +461,13 @@ assert amount_entry.kind == "measure"
 amount = amount_entry.value
 validation = catalog.validate(
     [amount],
-    checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+    checks=[ms.source_check.not_null(amount_entry.ref)],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 )
 validation.show()
 ```
 
-`ms.load()` checks model declarations and project coherence without connecting to sources. Readiness checks requested physical dependencies and required temporal artifacts offline. Use `catalog.validate([amount_entry]).show()` to connect and check actual Entity output schemas, field bindings, numeric types and temporal parser/timezone contracts. It expands selected definitions to their physical dependency closure and reports declaration locations and repairs. Preview and analysis reuse the same field checks. To test source values, pass explicit checks and a bounded `scope` to `catalog.validate(...)`. Ordinary preview and validation do not change readiness or qualify every analysis method.
+`ms.load()` checks model declarations and project coherence without connecting to sources. Readiness accepts selected definitions, including declared Measures and Metrics, and checks their physical dependencies and required temporal artifacts offline. Its `analysis_ready_inputs` contains only directly requested ready physical refs. Use `catalog.validate([amount_entry]).show()` to connect and check actual Entity output schemas, field bindings, numeric types and temporal parser/timezone contracts. It expands selected definitions to their physical dependency closure and reports declaration locations and repairs. Preview and analysis reuse the same field checks. To test source values, pass explicit checks and a bounded `scope` to `catalog.validate(...)`; omit `scope` when `checks` is empty. Source-check builders accept native lookup symbols such as `amount_entry.ref`, not closed `.value` expressions. Ordinary preview and validation do not change readiness or qualify every analysis method.
 
 For `preview` and `preview_many`, `limit` must be an integer from 1 to 100 inclusive and bounds retained preview rows per result. `scope.max_rows` independently guards acquisition; invalid limits raise a structured semantic error before a connection opens. `preview.is_truncated` reports omitted preview rows, while `preview.coverage` reports acquisition completeness. `preview.show(n=...)` only changes how many retained rows are displayed.
 

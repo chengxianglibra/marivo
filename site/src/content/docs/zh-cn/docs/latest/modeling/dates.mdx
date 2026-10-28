@@ -199,7 +199,7 @@ assert period.kind == "calendar_period"
 period.show()
 ```
 
-预期 FY2026-W01 覆盖七个日期。这些日期组成一个期间，因此 `limit=1` 会保留完整期间预览，认证仍会读取完整日期范围。预览上限按期间记录计数，而不是按来源日期计数；有效值为 1 至 100。`scope.max_rows` 必须足以完成穷尽读取；读取失败或截断不会替换当前证书。通过 `calendar.details().snapshot_status` 查看证书状态。
+预期 FY2026-W01 覆盖七个日期。这些日期组成一个期间，因此 `limit=1` 会保留完整期间预览，认证仍会读取完整日期范围。预览上限按期间记录计数，而不是按来源日期计数；有效值为 1 至 100。`scope.max_rows` 必须足以完成穷尽读取；读取失败或截断不会替换当前证书。通过 `calendar.definition.snapshot_status` 查看证书状态。
 
 实际模型须提供权威业务期间和完整日期序列。若业务周由此日历定义，在分析时使用 `calendar.grain("week")` 选择已认证的业务周层级。
 

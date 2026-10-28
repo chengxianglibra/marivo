@@ -45,8 +45,8 @@ and dependencies may be declared later in the same complete load scope.
 
 `ms.ref.*` also produces exact native lookup selectors for Catalog description,
 readiness, preview and source checks. Metadata `.ref` and `.refs` return these
-selectors. Retrieve closed analysis inputs through the appropriate Catalog
-collection's `.get(path)`; ordinary Analysis never binds a lookup symbol implicitly.
+selectors. Retrieve an entry with `catalog.get("kind:path")`, check its kind,
+and use `.value` for closed analysis inputs. Analysis never binds a lookup symbol implicitly.
 Equality constructs a recipe. Do not use symbols for boolean identity, hash keys,
 sets, dictionary keys or container membership. Inspect identities through Catalog
 metadata rather than `.key`, `.path`, `.kind` or `.version` on a Deferred.
@@ -80,7 +80,8 @@ comprehensions, mutation, subscripting or arbitrary function calls.
 The function's lowercase snake_case name supplies declaration metadata. A Python
 alias does not rename it; arithmetic produces an anonymous expression. Model
 loading collects exported declaration roots and resolves their domain and
-qualified identity. Local named expressions can be composed without a loader or
+qualified identity: Measures use `<domain>.<entity>.<function_name>` from their
+contribution root; Metrics use `<domain>.<function_name>`. Local named expressions can be composed without a loader or
 Session. Session-bound Population dependencies cannot be published as reusable
 model closures; independently resolvable literal domains can be collected.
 

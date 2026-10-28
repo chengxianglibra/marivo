@@ -199,7 +199,8 @@ def test_source_type_repairs_and_help_explain_exact_conversions() -> None:
     assert ".cast('decimal(20,0)')" in caught.value.repair.action
     assert "unchecked int64" in caught.value.repair.action
     for target, required in (
-        ("semantic.entity.define", ("UInt64", "ibis.dtype", "submodules", "primary_key")),
+        ("semantic.entity.define", ("submodules", "primary_key", "semantic.row")),
+        ("semantic.row", ("UInt64", "ibis.dtype", "decimal(20,0)", "signed range")),
         ("semantic.entity.primary_key", ("Naive", "precision", "aware")),
         ("semantic.timestamp", ("does not rewrite Entity primary_key",)),
         ("analysis.analysis_frame.compute", ("UInt64", "naive", "semantic.entity.define")),

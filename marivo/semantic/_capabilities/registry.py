@@ -841,8 +841,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             ),
             checks=("readiness",),
             check_guidance=(
-                "Readiness accepts physical column-backed fields. For a declared row "
-                "expression, inspect catalog.get('kind:path').show() and check its physical dependencies."
+                "Readiness accepts this entry and checks its physical dependency closure. "
+                "Only directly requested ready physical refs enter analysis_ready_inputs."
             ),
         ),
         _object_contract(
@@ -910,9 +910,9 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             ),
             checks=("readiness",),
             check_guidance=(
-                "Readiness checks physical dependencies, not Metrics. Inspect the definition "
-                "with catalog.get('kind:path').show(); AnalysisFrame.compute()/persist() "
-                "qualifies the selected computation."
+                "Readiness accepts this Metric entry and checks its physical dependencies. "
+                "It does not return the Metric as an analysis_ready_input. "
+                "AnalysisFrame.compute()/persist() qualifies the selected computation."
             ),
         ),
         _object_contract(
@@ -2530,7 +2530,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "count_distinct",
             }:
                 inputs.append(_parameter_input("dependency", "Text", "nulls", optional=True))
-            summary = "Construct a native Deferred recipe at this receiver's stage without business source reads. "
+            summary = ""
             if prefix == "Metric" and method == "per":
                 summary += (
                     "per accepts a Dimension, TimeField, native field Grouping or membership, a nonempty tuple of these, "
@@ -2554,8 +2554,13 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Composite or sampled Metrics must filter the eligible child reduction. "
                     "This is distinct from AnalysisFrame.where on current rows."
                 )
+            elif prefix == "Metric" and method == "window":
+                summary += (
+                    "Attach one source-free observation WindowRule; nested windows are rejected."
+                )
             elif method in {"first", "last"}:
                 summary += (
+                    f"Select the {method} internal sample. "
                     "order_by may name an internal TimeField; when omitted, exactly one internal "
                     "TimeField must be inferable. Time keys must uniquely order the samples. "
                     "include_null defaults to False (skip NA); True retains the selected sample's NA."
@@ -2570,35 +2575,67 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Exact median/quantile uses linear interpolation h=(n-1)q on DuckDB, PostgreSQL, "
                     "MySQL, Trino and ClickHouse. Explicit approximate methods use DuckDB approx_quantile, "
                     "Trino approx_percentile or ClickHouse TDigest; PostgreSQL/MySQL reject approximation. "
-                    "Median uses q=0.5. Empty/all-NULL inputs return NA; nulls='error' rejects NULL inputs. "
+                    "Median uses q=0.5; quantile requires q in [0, 1]. Empty/all-NULL inputs return NA; nulls='error' rejects NULL inputs. "
                     "Native nonfinite values follow the backend. Integer/float results are float64; Decimal retains its declared "
                     "precision and scale. Algorithms may differ by backend; no cross-backend error bound "
                     "or automatic exact/approximate substitution is promised."
                 )
-            else:
+            elif method == "sum":
                 summary += (
                     "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
-                    "Integer SUM uses native Ibis accumulation (declared int64) without input widening; Decimal SUM returns Decimal(38,input_scale); count stays int64. "
-                    "Decimal source outputs bind p/s; rounding follows the kernel. Divide is float64 and mean keeps its declared type. "
-                    "Source and local arithmetic follow their actual kernel, including native errors, wrapping and nonfinite values; no extra overflow/finite scan or protective widening. "
-                    "Unevaluated source arithmetic need not fail. Identity/count/time/Duration stay exact. "
-                    "Native NaN/Infinity are retained in completed and saved Frames. "
-                    "window accepts a source-free rule and rejects nested windows. "
-                    "Use / for division; zero denominators and cancelling weight sums yield NA before arithmetic."
+                    "Integer SUM uses native int64 accumulation; Decimal SUM returns Decimal(38,input_scale). "
+                    "Native errors/wrapping differ by kernel; no protective integer widening. "
+                    "MySQL retains native widened SUM until safe Decimal transport. "
+                    "Native NaN/Infinity are retained in completed and saved Frames."
                 )
-                if method == "mean":
-                    summary += (
-                        " Mean skips NULLs and returns NA without valid inputs. "
-                        "Native time-sample AVG has no local fallback."
+            elif method == "mean":
+                summary += (
+                    "Mean skips NULLs and returns NA without valid inputs; it retains the declared mean type. "
+                    "Native time-sample AVG has no local fallback."
+                )
+            elif method == "weighted_mean":
+                summary += (
+                    "Compute sum(value * weight) / sum(weight) over valid pairs. "
+                    "Zero or cancelling weight sums yield NA. "
+                    + (
+                        "weight must be a completed Metric over the same internal samples."
+                        if prefix == "MetricSamples"
+                        else "weight must be a numeric row expression on the same contribution root."
                     )
-                if prefix == "MetricSamples" and method in {"mean", "weighted_mean"}:
-                    summary += (
-                        " Time samples use represented values without scheduled coverage or implicit fill, "
-                        "independently of formula shape or execution route. Explicit Population domains and existing "
-                        "NULL/weight policies remain unchanged; other nested reducers keep their own checks."
+                )
+            elif method in {"min", "max"}:
+                summary += (
+                    "Return the minimum numeric value. "
+                    if method == "min"
+                    else "Return the maximum numeric value. "
+                ) + "Skip NULLs; empty/all-NULL inputs return NA."
+            elif method == "count":
+                summary += (
+                    "Count complete Entity contribution rows. "
+                    if prefix == "Entity"
+                    else "Count non-NULL values. "
+                ) + "Empty input returns zero; the result is an int64 count with unit '1'."
+            elif method == "count_distinct":
+                summary += "Count distinct non-NULL values exactly; empty input returns zero. The result is an int64 count with unit '1'."
+            elif method == "approx_nunique":
+                summary += "Estimate the distinct non-NULL count explicitly; backend support is checked at execution. The result is an int64 count with unit '1'."
+            else:
+                summary += (
+                    "Reduce internal sample values with "
+                    + ("an explicit approximate " if method.startswith("approx_") else "an exact ")
+                    + (
+                        "median (q=0.5). "
+                        if method.endswith("median")
+                        else "quantile; pass q in [0, 1]. "
                     )
-                if method == "sum":
-                    summary += " SUM uses native accumulation without protective integer widening. Native errors/wrapping differ by kernel; transport must fit its declared carrier. Explicit Entity casts use .cast(ibis.dtype('decimal(38,0)')). MySQL retains native widened SUM until safe Decimal transport."
+                    + "Empty/all-NULL inputs return NA; no exact/approximate substitution is inferred."
+                )
+            if prefix == "MetricSamples" and method in {"mean", "weighted_mean"}:
+                summary += (
+                    " Time samples use represented values without scheduled coverage or implicit fill, "
+                    "independently of formula shape or execution route. Explicit Population domains "
+                    "and NULL/weight policies still apply."
+                )
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
                 summary += (
                     " nulls='ignore' adds no assertion; nulls='error' asserts no NULLs on the demanded input; "
@@ -2621,7 +2658,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.where"),
                     )
                     if prefix == "Metric" and method == "where"
-                    else (_target("expressions"),),
+                    else (
+                        (_target("expressions.row"),)
+                        if prefix in {"row", "MetricSamples", "Entity"}
+                        else (_target("expressions"),)
+                    ),
                 )
             )
     for target, _owner, _method, _output, parameter, family, example in (
@@ -2794,13 +2835,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "entity",
             "marivo.semantic._authoring_decorators.entity",
             (
-                "Declare a semantic entity backed by a datasource source. Table columns "
-                "map output names to physical column names; types come from source metadata "
-                "when execution needs them, not from this declaration. Use md.inspect for "
-                "current physical column names and types."
-                " Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own all downstream fields and identity/version rules."
-                " Naive timestamp identity retains wall-clock values and exact precision without a timezone; TimeDimension parse does not rewrite primary_key. Naive and aware keys require explicit compatible representations."
-                " UInt64 inputs use exact Decimal(20,0) before semantic arithmetic. Entity bodies admit the injected Table, inline literals, deterministic public ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin with at least one argument and concrete argument/return types; Python UDF bodies are not executed. Arbitrary helpers, Ibis submodules and Python/Pandas/Arrow UDFs are rejected. Cast with raw['column'].cast('decimal(20,0)') for UInt64, or .cast('int64') only for the signed range; ibis.dtype('int64') is also supported."
+                "Declare an Entity over one datasource source. Table columns map output "
+                "names to physical names; md.inspect supplies current names and types."
+                "\n  Explicit name declares directly; omitting name returns a one-expression "
+                "Table decorator whose output schema and grain own downstream fields and identity."
+                "\n  Entity bodies admit the injected Table, inline literals, deterministic public "
+                "ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin "
+                "with at least one argument and concrete argument/return types. Python UDF "
+                "bodies are not executed. Arbitrary helpers, Ibis submodules and "
+                "Python/Pandas/Arrow UDFs are rejected."
             ),
             output="EntitySymbol",
             inputs=(
@@ -2827,6 +2870,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             see_also=(
                 LiveHelpTarget(surface="datasource", canonical_id="table"),
                 LiveHelpTarget(surface="datasource", canonical_id="inspect"),
+                _target("expressions.row"),
             ),
             invocation_shape="direct",
         ),
@@ -3395,7 +3439,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check current physical semantic inputs, their compiled dependency closures and certified temporal artifacts without connecting or querying. Unrelated load warnings are excluded. Published expressions are inspected with catalog.get(); computing or persisting a source AnalysisFrame qualifies physical types and execution support.",
+            "Check selected definitions' physical dependency closures and certified temporal artifacts without connecting or querying. Declared Measures and Metrics are accepted; requested_ids and checked_ids retain the distinction. Unrelated load warnings are excluded. Analysis execution qualifies physical types and operation support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
@@ -3487,12 +3531,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     canonical_id=f"expressions.{prefix}",
                     label=prefix,
                     summary=(
-                        "Use row arithmetic within one contribution root, then reduce before Metric arithmetic. Numeric Dimensions do not gain aggregation permission. "
-                        "Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. "
+                        "Use row arithmetic within one contribution root, then reduce before Metric arithmetic. Numeric Dimensions do not gain aggregation permission."
+                        "\n  Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. "
                         "Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); "
                         "untyped Decimal literals bind their own digits/exponent. Source output casts bind p/s; rounding follows the kernel. "
-                        "Integer SUM uses native accumulation (Ibis int64); Decimal SUM returns Decimal(38,input_scale). Count stays int64; division converts numeric operands to float64 before dividing; mean keeps its declared type. "
-                        "Source and local overflow/rounding follow the actual kernel, including errors, wrapping and NaN/Infinity. No extra scans or protective widening. Saved values retain committed types."
+                        "\n  Integer SUM uses native accumulation (Ibis int64); Decimal SUM returns Decimal(38,input_scale). Count stays int64; division converts numeric operands to float64 before dividing; mean keeps its declared type."
+                        "\n  Source and local overflow/rounding follow the actual kernel, including errors, wrapping and NaN/Infinity. No extra scans or protective widening. Saved values retain committed types."
+                        "\n  UInt64 inputs use exact Decimal(20,0) before semantic arithmetic. Explicit Entity casts can use .cast('decimal(20,0)') or .cast(ibis.dtype('decimal(38,0)')); .cast('int64') requires the signed range."
+                        "\n  Ordinary scalar division retains its source unit; zero denominators yield NA before arithmetic."
                         if prefix == "row"
                         else "Choose an operation on the constructed receiver. Internal Metric samples must finish with a reducer before observation."
                     ),

@@ -276,6 +276,17 @@ class SourceCheckNamespace:
     """Closed constructors for explicit online validation expectations."""
 
     def not_null(self, field: FieldSymbol, /) -> NotNullSourceCheck:
+        """Build an explicit no-NULL expectation for one field.
+
+        Args:
+            field: Native field lookup symbol from ``ms.ref`` or an entry's ``.ref``.
+        Returns:
+            A check for ``catalog.validate(..., checks=[...], scope=...)``.
+        Example:
+            ``ms.source_check.not_null(ms.ref.measure('sales.orders.amount'))``.
+        Constraints:
+            Closed ``entry.value`` expressions are rejected. Construction reads no data.
+        """
         return NotNullSourceCheck(field=field)
 
     def allowed_values(
@@ -285,9 +296,34 @@ class SourceCheckNamespace:
         *,
         values: Sequence[SourceScalar],
     ) -> AllowedValuesSourceCheck:
+        """Build an explicit allowed-values expectation for a categorical or time field.
+
+        Args:
+            field: Native lookup symbol from ``ms.ref`` or a Catalog entry's ``.ref``.
+            values: Nonempty sequence of unique str, int, float or bool values.
+        Returns:
+            A check for ``catalog.validate(..., checks=[...], scope=...)``.
+        Example:
+            ``ms.source_check.allowed_values(ms.ref.dimension('sales.orders.region'), values=('US', 'EU'))``.
+        Constraints:
+            Closed ``entry.value`` expressions are rejected. Construction reads no data.
+        """
         return AllowedValuesSourceCheck(field=field, values=tuple(values))
 
     def unique(self, *, fields: Sequence[FieldSymbol]) -> UniqueSourceCheck:
+        """Build an explicit uniqueness expectation for a field tuple.
+
+        Args:
+            fields: Nonempty sequence of distinct native field lookup symbols.
+                Use ``ms.ref`` or Catalog entries' ``.ref`` values.
+        Returns:
+            A check for ``catalog.validate(..., checks=[...], scope=...)``.
+        Example:
+            ``ms.source_check.unique(fields=[ms.ref.dimension('sales.orders.order_id')])``.
+        Constraints:
+            Fields must share one Entity at validation. Closed ``.value`` expressions
+            are rejected. Construction reads no data.
+        """
         return UniqueSourceCheck(fields=tuple(fields))
 
     def freshness(
@@ -297,6 +333,20 @@ class SourceCheckNamespace:
         *,
         max_age: timedelta,
     ) -> FreshnessSourceCheck:
+        """Require a time field's maximum value to be within an explicit age.
+
+        Args:
+            field: Native TimeDimension lookup symbol from ``ms.ref`` or an entry's ``.ref``.
+            max_age: Strictly positive ``datetime.timedelta``.
+        Returns:
+            A check for ``catalog.validate(..., checks=[...], scope=...)``.
+        Example:
+            ``from datetime import timedelta``;
+            ``ms.source_check.freshness(entry.ref, max_age=timedelta(days=1))``.
+        Constraints:
+            Closed ``entry.value`` expressions are rejected. Construction reads no data;
+            validation tests only the selected bounded source scope.
+        """
         return FreshnessSourceCheck(field=field, max_age=max_age)
 
     def relationship_matches(
@@ -309,14 +359,15 @@ class SourceCheckNamespace:
         """Build a bounded check for unmatched relationship keys.
 
         Args:
-            relationship: Exact Relationship ref to inspect.
-            side: Check the directed ``from`` side or ``both`` sides.
+            relationship: Native Relationship lookup symbol from ``ms.ref`` or an entry's ``.ref``.
+            side: ``"from"`` checks source keys for target matches; ``"both"`` also
+                checks target keys for source matches in the selected bounded scopes.
 
         Returns:
             A check consumed by ``catalog.validate(..., checks=..., scope=...)``.
 
         Example:
-            ms.source_check._relationship_matches(
+            ms.source_check.relationship_matches(
                 ms.ref.relationship("sales.orders_to_customers"), side="from"
             )
 
@@ -333,6 +384,20 @@ class SourceCheckNamespace:
         *,
         expected: RelationshipCardinality,
     ) -> RelationshipCardinalitySourceCheck:
+        """Build an explicit directed relationship multiplicity expectation.
+
+        Args:
+            relationship: Native Relationship lookup symbol from ``ms.ref`` or an entry's ``.ref``.
+            expected: ``"one_to_one"``, ``"many_to_one"``, ``"one_to_many"`` or
+                ``"many_to_many"`` in the declared from_entity to to_entity direction.
+        Returns:
+            A check for ``catalog.validate(..., checks=[...], scope=...)``.
+        Example:
+            ``ms.source_check.relationship_cardinality(ms.ref.relationship('sales.orders_to_customers'), expected='many_to_one')``.
+        Constraints:
+            Closed ``entry.value`` expressions are rejected. Construction reads no data;
+            validation tests multiplicity only within the selected bounded scopes.
+        """
         return RelationshipCardinalitySourceCheck(
             relationship=relationship,
             expected=expected,

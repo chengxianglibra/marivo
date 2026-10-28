@@ -132,7 +132,8 @@ business datasource is read by load, search, get, show or related navigation.
 | Temporal preview | Complete declared finite authority source | Certified immutable calendar/set/schedule snapshot | Business fact capture or arbitrary Analysis support |
 | Frame.compute / persist | Explicit prepared analysis dependencies | Actual admitted computation; persist also commits it | Unrun providers, installed packages or release qualification |
 
-Readiness accepts selected entries and expands their physical dependency closures.
+Readiness accepts selected entries, closed values or exact lookup symbols,
+including declared Measures and Metrics, and expands their physical dependency closures.
 Requested and checked identities remain distinct in the report. Structured repairs
 list actual dependency candidates; derived expression selection is not execution proof.
 analysis_ready_inputs includes only directly requested physical refs whose
@@ -174,13 +175,17 @@ ClickHouse native timestamps are aware even when Ibis omits the zone label.
 Reports retain physical types, affected refs, declaration locations and repairs.
 Unknown/unavailable types cannot produce a successful validation result.
 
-Without explicit data checks, validation needs no scope and reads no business
+Without explicit data checks, validation forbids scope and reads no business
 rows. Preview and analysis share the same physical field checks when binding
 consumed inputs, before business-data execution. They recheck current source
 types; a previous validation is not a permanent certificate. The check does not
 qualify arbitrary analysis methods, inspect source values for parser compliance,
 or promote readiness. Explicit `ms.source_check` rules for missingness, enum, uniqueness, freshness, relationship
-matches or cardinality require a bounded scope when reading rows. Results report
+matches or cardinality require a bounded scope when reading rows. Their builders
+accept native lookup symbols from `ms.ref` or entries' `.ref`, not closed `.value`
+expressions. Relationship match `side` is `from` or `both`; cardinality is
+`one_to_one`, `many_to_one`, `one_to_many` or `many_to_many` in the declared
+from-Entity to to-Entity direction. Results report
 that actual scope and remain ephemeral. Analysis trusts declared identity,
 relationship cardinality and version grain without automatically running these
 checks. Missing scalar matches follow the consuming operator's NULL policy;

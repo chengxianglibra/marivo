@@ -156,13 +156,13 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 ### 6. Scoped readiness and targeted runtime checks
 
-When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
-the exact requested physical inputs and their governed dependency closures.
-Inspect published Measure/Metric definitions through `catalog.get("kind:path").definition` and select
-the physical fields and Entities they consume for readiness. Object Help states
-this input scope; a rejected expression supplies physical dependency candidates
-from the compiled closure and a direct retry when the complete list fits the
-repair bound. It never silently replaces the requested input. Readiness does not consume DiscoverySnapshot evidence: it evaluates
+Run `catalog.readiness(refs=[...])` on the selected current entries, closed values
+or exact lookup symbols. Declared Measures and Metrics automatically expand to
+their physical dependency closures; the report separates requested and checked
+identities. `analysis_ready_inputs` contains only directly requested ready physical
+refs, so select those explicitly when a physical handoff is needed. Inspect
+captured definitions through `catalog.get("kind:path").definition`.
+Readiness does not consume DiscoverySnapshot evidence: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 Readiness opens no connection or query. Follow its physical-definition or temporal
@@ -180,9 +180,10 @@ When current source or data drift matters, run
 `catalog.validate(refs, checks=..., scope=...)` separately. Omitting
 `checks` checks connectivity, actual Entity outputs, field bindings, numeric
 types and temporal parser/timezone contracts without querying user data and
-therefore requires no scope. Preview and analysis share these field checks. Null, enum, uniqueness, freshness,
+therefore forbids scope. Preview and analysis share these field checks. Null, enum, uniqueness, freshness,
 relationship, and cardinality expectations exist only when explicitly built
-with `ms.source_check`; those data-reading checks require an exact bounded
+with `ms.source_check` using native lookup symbols or Catalog entries' `.ref`,
+not their closed `.value`; those data-reading checks require an exact bounded
 scope and disclose it in every result. Online validation is ephemeral and never
 changes readiness or semantic source. A passing relationship-match check covers
 only the selected source rows. It cannot decide whether a consuming operation

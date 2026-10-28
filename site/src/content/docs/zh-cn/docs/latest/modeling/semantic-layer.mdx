@@ -161,7 +161,7 @@ def margin():
     return amount - cost
 ```
 
-成本示例使用下方完整模型新增的列。派生 Measure 的函数体不接收参数，组合类型化行级量。单位描述量纲，可加性描述在哪些轴上求和有意义；乘积不会自动变得可加，库存也不会自动沿时间可加。Help：`semantic.measure.from_column`、`semantic.measure.define`。
+成本示例使用下方完整模型新增的列。派生 Measure 的函数体不接收参数，组合类型化行级量。加载后通过 `catalog.get("measure:sales.orders.margin")` 获取此声明；其身份包含贡献 Entity。单位描述量纲，可加性描述在哪些轴上求和有意义；乘积不会自动变得可加，库存也不会自动沿时间可加。Help：`semantic.measure.from_column`、`semantic.measure.define`。
 
 | 声明 | 求和许可 |
 | --- | --- |
@@ -306,7 +306,7 @@ c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收�
 
 先声明具有完整主键的订单和客户实体，再使用 `ms.relationship` 与 `ms.join_on` 声明有向关系。通过 `marivo.help("semantic.relationship.define")` 获取精确构造方式。身份是 (tenant, customer) 时必须包含两个部分，只用客户编号可能误连其他租户。
 
-`ms.load()` 会校验已声明的关系映射并推导结构基数，不读取来源数据行。若要检查当前匹配情况，或将观测到的多重性与预期基数比较，可使用 `ms.source_check.relationship_matches(...)` 或 `ms.source_check.relationship_cardinality(...)`，再通过 `catalog.validate(..., checks=..., scope=...)` 执行。这些数据检查需要显式的有界范围，结果只描述该范围。
+`ms.load()` 会校验已声明的关系映射并推导结构基数，不读取来源数据行。若要检查当前匹配情况，或将观测到的多重性与预期基数比较，可使用 `ms.source_check.relationship_matches(...)` 或 `ms.source_check.relationship_cardinality(...)`，再通过 `catalog.validate(..., checks=..., scope=...)` 执行。这些数据检查需要显式的有界范围，结果只描述该范围。`side='from'` 检查来源键是否匹配目标键；`side='both'` 同时检查反向匹配。`expected` 按声明方向接受 `one_to_one`、`many_to_one`、`one_to_many` 或 `many_to_many`。
 
 ### 决定多重归属如何贡献
 
@@ -452,13 +452,13 @@ assert amount_entry.kind == "measure"
 amount = amount_entry.value
 validation = catalog.validate(
     [amount],
-    checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+    checks=[ms.source_check.not_null(amount_entry.ref)],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 )
 validation.show()
 ```
 
-`ms.load()` 离线检查模型声明与项目一致性。Readiness 离线检查指定物理依赖和必需时间产物。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
+`ms.load()` 离线检查模型声明与项目一致性。Readiness 接受所选定义（包括声明式 Measure 和 Metric），离线检查其物理依赖和必需时间产物；`analysis_ready_inputs` 仅包含直接请求且就绪的物理引用。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`；`checks` 为空时必须省略 `scope`。Source check 构造器接受 `amount_entry.ref` 等原生查找符号，不接受闭合的 `.value` 表达式。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
 
 `preview` 与 `preview_many` 的 `limit` 必须是 1 至 100（含两端）的整数，限制每份结果保留的预览行数。`scope.max_rows` 独立约束采集；无效的 limit 会在打开连接前抛出结构化语义错误。`preview.is_truncated` 表示预览行被省略，`preview.coverage` 表示采集是否完整。`preview.show(n=...)` 只改变已保留行的显示数量。
 

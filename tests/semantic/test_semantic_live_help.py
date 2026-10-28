@@ -437,8 +437,8 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
         (
             "semantic.metric",
             (
-                "Readiness checks physical dependencies, not Metrics",
-                "catalog.get('kind:path').show()",
+                "Readiness accepts this Metric entry and checks its physical dependencies",
+                "does not return the Metric as an analysis_ready_input",
                 "AnalysisFrame.compute()/persist()",
             ),
         ),
@@ -472,8 +472,8 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
             (
                 "without connecting or querying",
                 "Unrelated load warnings are excluded",
-                "computing or persisting a source AnalysisFrame",
-                "physical types and execution support",
+                "Declared Measures and Metrics are accepted",
+                "Analysis execution qualifies physical types and operation support",
             ),
         ),
         (
@@ -698,6 +698,50 @@ def test_mean_help_discloses_fixed_null_rules_and_sampling(
     if target == "semantic.metric_samples.mean":
         assert "without scheduled coverage or implicit fill" in page
         assert "independently of formula shape or execution route" in page
+
+
+@pytest.mark.parametrize(
+    ("target", "required", "unrelated"),
+    (
+        ("row.min", "minimum numeric value", "window accepts"),
+        ("row.max", "maximum numeric value", "Integer SUM"),
+        ("row.count", "Count non-NULL values", "sum requires business permission"),
+        ("entity.count", "Count complete Entity contribution rows", "cancelling weight"),
+        ("metric.window", "nested windows are rejected", "Decimal SUM"),
+    ),
+)
+def test_focused_expression_help_keeps_only_the_receivers_contract(
+    target: str,
+    required: str,
+    unrelated: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help(f"semantic.{target}")
+    page = capsys.readouterr().out
+    assert required in page
+    assert unrelated not in page
+    assert len(page) < 2000
+    if target != "metric.window":
+        assert 'marivo.help("semantic.row")' in page
+
+
+def test_validation_help_discloses_scope_and_relationship_choices(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help(ms.SemanticCatalog.validate)
+    page = capsys.readouterr().out
+    assert "Required with data checks; omit when checks is empty" in page
+    for target, choices in (
+        ("relationship_matches", ("from", "both")),
+        (
+            "relationship_cardinality",
+            ("one_to_one", "many_to_one", "one_to_many", "many_to_many"),
+        ),
+    ):
+        marivo.help(f"semantic.source_check.{target}")
+        page = capsys.readouterr().out
+        assert all(f"'{choice}'" in page for choice in choices)
+        assert "entry's .ref" in page
 
 
 def test_entity_help_preserves_the_supported_table_decorator(

@@ -26,8 +26,9 @@ catalog.validate([amount_entry]).show()
 ```
 
 `ms.load()` checks model declarations, references, dependency cycles, and
-expression contracts. `catalog.readiness(...)` checks the selected physical
-inputs and certified temporal artifacts. Neither step opens a datasource
+expression contracts. `catalog.readiness(...)` accepts definitions, including
+declared Measures and Metrics, and checks their physical dependencies and
+certified temporal artifacts. Neither step opens a datasource
 connection.
 
 `catalog.validate(...)` opens the datasource connections for the selected
@@ -50,5 +51,7 @@ Metrics with `session.observe(...).compute()` and explicit analysis inputs;
 Entity and physical field previews retain their own backend support.
 `catalog.validate(...)` checks physical contracts by default;
 it reads business rows only when you provide explicit checks
-and their bounded scope. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
+and their bounded scope. Omit `scope` when `checks` is empty. Build checks with
+native lookup symbols from `ms.ref` or an entry's `.ref`; closed `.value`
+expressions are not accepted by these builders. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
 has the complete preview and online validation examples.

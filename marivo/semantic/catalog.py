@@ -3823,10 +3823,11 @@ class SemanticCatalog(RenderableResult):
         self,
         refs: Sequence[_SemanticInput] | None = None,
     ) -> ReadinessReport:
-        """Check physical semantic inputs and certified temporal artifacts without querying.
+        """Check selected definitions' physical dependencies and temporal artifacts offline.
 
         Args:
-            refs: Current physical catalog values or entries, or exact typed refs.
+            refs: Current catalog values or entries, or exact lookup symbols,
+                including declared Measures and Metrics.
                 None checks all loaded physical objects. Explicit selections must
                 be nonempty and unique; their full dependency closures are checked.
 

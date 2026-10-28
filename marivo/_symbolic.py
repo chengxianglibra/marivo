@@ -134,8 +134,8 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs through the matching Catalog collection's
-            .get(path). Equality builds a recipe; bool, hashing and identity
+            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
         return EntitySymbol(symbol_from_ref(ref_factory.entity(path)))
@@ -152,8 +152,8 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs through the matching Catalog collection's
-            .get(path). Equality builds a recipe; bool, hashing and identity
+            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
         return DimensionSymbol(symbol_from_ref(ref_factory.dimension(path)))
@@ -170,8 +170,8 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs through the matching Catalog collection's
-            .get(path). Equality builds a recipe; bool, hashing and identity
+            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
         return TimeDimensionSymbol(symbol_from_ref(ref_factory.time_dimension(path)))
@@ -188,8 +188,8 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs through the matching Catalog collection's
-            .get(path). Equality builds a recipe; bool, hashing and identity
+            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
         return MeasureSymbol(symbol_from_ref(ref_factory.measure(path)))
@@ -206,8 +206,8 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs through the matching Catalog collection's
-            .get(path). Equality builds a recipe; bool, hashing and identity
+            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
         return MetricSymbol(symbol_from_ref(ref_factory.metric(path)))

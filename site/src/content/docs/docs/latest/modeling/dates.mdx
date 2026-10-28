@@ -199,7 +199,7 @@ assert period.kind == "calendar_period"
 period.show()
 ```
 
-Expect FY2026-W01 to cover seven dates. Those dates form one period, so `limit=1` retains the whole period preview while certification still acquires the complete date range. Preview limits count period entries, not source dates, and accept integers from 1 to 100. Keep `scope.max_rows` high enough for exhaustive acquisition; a failed or truncated read does not replace the current certificate. Check `calendar.details().snapshot_status` for its status.
+Expect FY2026-W01 to cover seven dates. Those dates form one period, so `limit=1` retains the whole period preview while certification still acquires the complete date range. Preview limits count period entries, not source dates, and accept integers from 1 to 100. Keep `scope.max_rows` high enough for exhaustive acquisition; a failed or truncated read does not replace the current certificate. Check `calendar.definition.snapshot_status` for its status.
 
 Real models need authoritative business periods and a complete date spine. When the business week is defined by this calendar, use `calendar.grain("week")` to select that certified level.
 

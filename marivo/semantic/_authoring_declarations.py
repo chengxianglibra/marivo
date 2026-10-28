@@ -125,6 +125,8 @@ def metric(
         Use a zero-argument pure body over constructed dependencies. No loader or
         Session is required. Source roots and operator policies belong to the expression.
         Declaration does not publish a Catalog Metric or execute a query.
+        To publish, save at model module top level and load; retrieve
+        ``metric:<domain>.<function_name>`` with ``catalog.get(...)``.
     """
     from marivo._definition.deferred import DeclarationRecord, declare
     from marivo._definition.types import SourceLocation

@@ -91,7 +91,7 @@ The preview limit is an integer from 1 to 100 inclusive and bounds retained
 preview entries without reducing certification coverage. PreviewResult.is_truncated
 can be True after successful exhaustive certification: only the retained preview
 entries are cut off. Read coverage for acquisition completeness and the calendar
-or temporal-set entry's details().snapshot_status for the current certificate.
+or temporal-set entry's definition.snapshot_status for the current certificate.
 A larger physical source may need a bounded upstream view/partition; sampling
 cannot certify it.
 Requested native query timeouts retain datasource support limits.

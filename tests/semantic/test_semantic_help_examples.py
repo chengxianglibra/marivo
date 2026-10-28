@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import textwrap
 from collections.abc import Callable, Iterator
+from datetime import timedelta
 from pathlib import Path
 
 import ibis
@@ -124,6 +126,71 @@ def test_metric_help_executes_the_declared_computed_measure(
     parents = SemanticCatalog(project)._state.dependencies[ref_factory.metric("sales.revenue")]
     assert ref_factory.measure("sales.orders.quantity") in parents
     assert ref_factory.measure("sales.orders.unit_price") in parents
+
+
+@pytest.mark.parametrize(
+    ("kind", "function_name", "identity"),
+    (
+        ("measure", "order_amount", "measure:sales.orders.order_amount"),
+        ("metric", "revenue", "metric:sales.revenue"),
+    ),
+)
+def test_named_expression_help_lookup_and_readiness_use_the_published_identity(
+    semantic_project_factory: ProjectFactory,
+    capsys: pytest.CaptureFixture[str],
+    kind: str,
+    function_name: str,
+    identity: str,
+) -> None:
+    target = f"semantic.{kind}.define"
+    page = _help_text(target, capsys)
+    lookup = re.search(r"Retrieve after loading: catalog.get\('([^']+)'\)", page)
+    assert lookup is not None
+    documented_identity = (
+        lookup.group(1)
+        .replace("<domain>", "sales")
+        .replace("<entity>", "orders")
+        .replace("<function_name>", function_name)
+    )
+    assert documented_identity == identity
+    project = _project(semantic_project_factory, _ORDERS + _example(target, capsys))
+    catalog = SemanticCatalog(project)
+    entry = catalog.get(documented_identity)
+    assert entry.id == identity
+    report = catalog.readiness(refs=[entry])
+    assert report.requested_ids == (identity,)
+    assert {
+        "measure:sales.orders.quantity",
+        "measure:sales.orders.unit_price",
+    } <= set(report.checked_ids)
+    assert report.analysis_ready_inputs == ()
+
+
+def test_freshness_help_distinguishes_lookup_symbols_from_closed_fields(
+    semantic_project_factory: ProjectFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = _project(
+        semantic_project_factory,
+        _ORDERS
+        + "created_at = ms.time_dimension_column(name='created_at', entity=orders, column='created_at')\n",
+    )
+    entry = SemanticCatalog(project).get("time_dimension:sales.orders.created_at")
+    assert entry.kind == "time_dimension"
+    page = _help_text("semantic.source_check.freshness", capsys)
+    assert "entry's .ref" in page
+    assert "closed .value expressions are not accepted" in page
+    check = ms.source_check.freshness(entry.ref, max_age=timedelta(days=1))
+    assert check.kind == "freshness"
+    with pytest.raises(TypeError, match="native lookup symbol"):
+        ms.source_check.freshness(entry.value, max_age=timedelta(days=1))
+
+
+def test_relationship_check_docstring_example_uses_the_public_method() -> None:
+    docstring = inspect.getdoc(ms.source_check.relationship_matches)
+    assert docstring is not None
+    example = textwrap.dedent(docstring.split("Example:\n", 1)[1].split("\n\n", 1)[0])
+    exec(compile(example, "<relationship-check-docstring>", "exec"), {"ms": ms})
 
 
 def test_bind_help_executes_cross_file_fields_before_their_declaration_file(

@@ -49,9 +49,9 @@ def period_calendar(
 ) -> PeriodCalendarSymbol:
     """Declare one finite governed calendar over an exhaustive civil-date spine.
 
-    The declaration fixes source fields and business coverage. Certification of
-    row values remains a separate query-free operation over one persisted
-    datasource snapshot.
+    The declaration fixes source fields and business coverage without reading
+    data. ``catalog.preview(..., scope=...)`` reads the current source over the
+    complete declared coverage and publishes a certified semantic snapshot.
 
     Args:
         name: Calendar name.

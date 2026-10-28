@@ -43,6 +43,9 @@ Measure and Metric functions remain pure zero-argument declarations.
 ``ms.load()`` publishes declarations bound at module level in their owning
 model files; aliases are collected once. Distinct declarations cannot share a
 full identity, and Session-owned closures are not admitted for publication.
+Published Measure identities include their contribution Entity:
+``catalog.get("measure:sales.orders.margin")``. Metric identities are domain-qualified:
+``catalog.get("metric:sales.revenue")``.
 
 Semantic objects need not remain bound to their original definition versions;
 a same-path definition change alone does not reject an input. The agent/user
@@ -139,8 +142,12 @@ Readiness & runtime checks
 the selected physical dependency closure: current connectivity, Entity output
 schemas, field bindings, numeric/duration types, and temporal parser/timezone contracts.
 Preview and analysis reuse the same field checks. It also runs explicitly
-declared data expectations. Construct expectations with ``source_check``.
-Metadata-only validation omits ``scope`` and never queries user data; declared
+declared data expectations. Construct expectations with ``source_check`` using
+native lookup symbols from ``ms.ref`` or entries' ``.ref``; closed ``.value``
+expressions are rejected by these builders. Relationship match ``side`` is
+``"from"`` or ``"both"``; expected cardinality is ``"one_to_one"``,
+``"many_to_one"``, ``"one_to_many"`` or ``"many_to_many"`` in the declared direction.
+Metadata-only validation forbids ``scope`` and never queries user data; declared
 data checks require an explicit bounded scope and never change readiness.
 
 .. autodata:: source_check
@@ -259,6 +266,9 @@ cursor and requires restarting the search.
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
 ``catalog.validate(...)``, and ``catalog.readiness(refs=[...])`` accept an
 exact ref, an entry owned by the current compiled catalog, or a catalog value.
+Readiness also accepts declared Measures and Metrics and expands their physical
+dependencies. Requested and checked identities remain separate;
+``analysis_ready_inputs`` contains only directly requested ready physical refs.
 Inputs normalize immediately to refs; readiness results, preview evidence,
 persistence, and recovery remain ref-based. Preview ``limit`` must be an integer
 from 1 to 100 inclusive and bounds retained preview rows per result, independently

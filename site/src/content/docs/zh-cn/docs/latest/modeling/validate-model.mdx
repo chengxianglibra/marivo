@@ -26,7 +26,7 @@ catalog.validate([amount_entry]).show()
 ```
 
 `ms.load()` 检查模型声明、引用、依赖循环和表达式契约。`catalog.readiness(...)`
-检查所选物理输入和已认证的时间产物。这两步都不会打开数据源连接。
+接受所选定义（包括声明式 Measure 和 Metric），检查其物理依赖和已认证的时间产物。这两步都不会打开数据源连接。
 
 `catalog.validate(...)` 会连接所选对象的完整物理依赖，使用实际 Entity 输出
 结构检查字段绑定、数值类型、时间解析器和时区契约。报告包含物理类型、受影响字段、
@@ -41,5 +41,5 @@ catalog.validate([amount_entry]).show()
 普通 Metric 预览仅支持 DuckDB，返回最多 10,000 行 Entity 输出的近似聚合结果。
 对于其他后端，请用 `session.observe(...).compute()` 和显式分析输入求值；
 Entity 和物理字段预览仍遵循各自的后端支持范围。
-`catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。
+`catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。`checks` 为空时必须省略 `scope`。检查规则使用 `ms.ref` 或条目的 `.ref` 原生查找符号构造，不接受闭合的 `.value` 表达式。
 [加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和在线校验示例。

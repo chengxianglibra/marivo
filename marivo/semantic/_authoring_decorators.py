@@ -620,7 +620,9 @@ def measure(
         decorator. For physical or Entity-derived numeric columns, use separate
         dimension_column and measure_column declarations with different semantic
         names. Fresh local expressions and a leading docstring are allowed.
-        No loader, Session, source reads, arbitrary calls, or Metric returns are allowed.
+        Naming needs no loader or Session and reads no source. Arbitrary calls and
+        Metric returns are rejected. To publish, save at model module top level and
+        load; retrieve ``measure:<domain>.<entity>.<function_name>`` with ``catalog.get(...)``.
         The function name must match ``[a-z][a-z0-9_]*``; assertions retain time constraints.
     """
     from marivo.refs import _validate_segment
@@ -777,9 +779,11 @@ def time_dimension(
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
     The body may return any ibis expression that represents the intended time
     axis. When ``parse`` is omitted, the parse variant is inferred from the
-    column type at analysis time. Use ``ms.timestamp(timezone=...)`` for a native naive source axis so readiness
-    can block an undeclared datasource-timezone fallback. Use ``ms.strptime(...)``
-    or ``ms.hour_prefix(...)`` for string/integer parsing.
+    column type at execution. Use ``ms.timestamp(timezone=...)`` to declare the
+    source timezone for naive timestamps, or retain an authoritative datasource
+    reader timezone. ``catalog.validate`` and execution check physical compatibility;
+    readiness does not read the schema. Use ``ms.strptime(...)`` or
+    ``ms.hour_prefix(...)`` for string/integer parsing.
 
     Args:
         name: Dimension name. Defaults to the function name.
@@ -790,8 +794,8 @@ def time_dimension(
             ``ms.hour_prefix(prefix)`` when explicit configuration is needed.
         is_default: Mark this dimension as the default time axis when multiple time dimensions
             exist on the entity. At most one time dimension per entity may carry
-            is_default=True. When observe() is called without time_dimension=, the default
-            dimension is used automatically.
+            is_default=True. Source reductions inherit this axis when ``time=``
+            is omitted. Observation time scopes belong in ``session.observe(by=...)``.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.

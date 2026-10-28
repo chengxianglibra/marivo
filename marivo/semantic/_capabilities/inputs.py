@@ -220,9 +220,34 @@ def authoring_inputs(
             )
         if canonical_id == "readiness" and requirement.role == "subject":
             fact = (
-                "Select physical inputs; for a derived expression inspect its definition and check its physical dependency closure. None checks the default physical input set.",
+                "Select current entries, values or exact lookup symbols, including declared Measures and Metrics. Their physical dependencies are checked automatically. None checks all loaded physical objects; analysis_ready_inputs contains only directly requested ready physical refs.",
                 _links("SemanticCatalog.get", "ref"),
             )
+        if canonical_id == "validate" and requirement.role == "scope":
+            fact = (
+                "Required with data checks; omit when checks is empty. Pass one scope for one checked Entity, or exact (Entity symbol, scope) pairs for multiple checked Entities.",
+                _links("datasource.unpruned", "datasource.time_range", "datasource.partition"),
+            )
+        if canonical_id.startswith("source_check."):
+            if requirement.role == "subject":
+                fact = (
+                    "Pass native lookup symbols from ms.ref or a Catalog entry's .ref; closed .value expressions are not accepted.",
+                    _links("ref", "SemanticCatalog.get"),
+                )
+            elif requirement.parameter_names == ("side",):
+                fact = (
+                    "'from' checks source keys for target matches; 'both' also checks target keys for source matches. Both use only the selected bounded scopes.",
+                    (),
+                )
+            elif requirement.parameter_names == ("expected",):
+                fact = (
+                    "Choose 'one_to_one', 'many_to_one', 'one_to_many' or 'many_to_many' in the declared from_entity -> to_entity direction.",
+                    (),
+                )
+            elif requirement.parameter_names == ("values",):
+                fact = ("Pass a nonempty sequence of unique str, int, float or bool values.", ())
+            elif requirement.parameter_names == ("max_age",):
+                fact = ("Pass a strictly positive datetime.timedelta.", ())
         if fact is not None:
             requirement = requirement.model_copy(
                 update={"description": fact[0], "acquisition": fact[1]}
@@ -276,13 +301,18 @@ def authoring_guidance(canonical_id: str) -> tuple[str, ...]:
         else ()
     )
     if canonical_id in {"measure", "metric"}:
+        identity = (
+            "measure:<domain>.<entity>.<function_name>"
+            if canonical_id == "measure"
+            else "metric:<domain>.<function_name>"
+        )
         return (
             *example_inputs,
             "Local use: naming an expression does not publish a Catalog definition.",
             "Project publication: save the declaration at module top level in",
             "  models/semantic/<domain>/<module>.py; ms.load() collects declarations",
             "  defined in that model, binds their dependencies and publishes the Catalog.",
-            f"Retrieve after loading: catalog.get('{canonical_id}:<domain>.<function_name>')",
+            f"Retrieve after loading: catalog.get('{identity}')",
             'Project Help: marivo.help("semantic.load")',
         )
     return example_inputs
