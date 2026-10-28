@@ -557,8 +557,8 @@ def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes
     if target == "additive_all":
         assert "semi_additive" not in text
     if target in {"preview", "preview_many"}:
-        assert "previews require DuckDB" in text
-        assert "session.observe(...).compute()" in text
+        assert "previews support" in text
+        assert "min(scope.max_rows, 10,000)" in text
         assert "analysis.session.observe" in text
     if target == "preview":
         for scope in ("unpruned", "time_range", "partition"):

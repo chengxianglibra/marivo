@@ -274,9 +274,11 @@ persistence, and recovery remain ref-based. Preview ``limit`` must be an integer
 from 1 to 100 inclusive and bounds retained preview rows per result, independently
 from the ``scope.max_rows`` acquisition guard. Invalid limits raise a structured
 ``SemanticRuntimeError`` before connection acquisition, with expected/received
-input and a repair. Published Metrics support bounded DuckDB ordinary source reductions and arithmetic
-previews through the shared nullable Row/Metric kernel. Population/sample
-and path/attribute-anchor preview preparation is unavailable and fails before opening a source. Published
+input and a repair. Published Metrics support ordinary source reductions and arithmetic
+previews on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse through the shared nullable
+Row/Metric kernel. Each Entity contributes at most ``min(scope.max_rows, 10_000)``
+output rows. Population/sample/window and path/attribute-anchor preview preparation
+is unavailable and fails before opening a source. Published
 Measures still have no physical preview; published expression certification
 and source checks remain unavailable. One ``ms.load()`` is the project-level static validation event for a
 dependency-coherent authored slice; there is no separate per-object verify step.
@@ -362,6 +364,17 @@ and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
 accompany successful exhaustive temporal certification when only the retained
 preview entries are bounded. Scope coverage, sampling and warnings remain visible
 independently of display omissions. ``PreviewBatchResult`` remains a batch summary.
+
+Ordinary preview reuses datasource metadata-only physical scope preflight before
+business reads; batches check all input scopes first. Captured partition evidence
+requires complete partition values or a supported temporal range. Unavailable
+partition values retain the explicit unpruned fallback; no partition is chosen
+automatically. ``coverage.entity_rows`` and ``entity_row_limits`` report actual
+Entity inputs and caps. A reached cap leaves exhaustion unknown; result-row
+counts remain separate. ``execution_limits`` reports the requested native timeout
+and actual support. No scan row/byte cap is requested, and physical scan statistics
+are unknown. Entity aggregation and deduplication can scan beyond output limits.
+Unordered input subsets are not representative samples or full-source estimates.
 
 Returned authoring and report records
 -------------------------------------

@@ -37,7 +37,7 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.metadata import ColumnMetadata
-from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
+from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource, _apply_scope
 from marivo.preview import normalize_preview_cell
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult
@@ -539,10 +539,6 @@ def acquire_snapshot(
         pushed_predicate: tuple[tuple[str, ...], ...]
         if isinstance(scope, PartitionScope) and scope._time_range is not None:
             time_predicate = scope._time_range
-            expression = expression.filter(
-                (expression[time_predicate.column] >= time_predicate.start)
-                & (expression[time_predicate.column] < time_predicate.end)
-            )
             pushed_predicate = (
                 (
                     "time_range",
@@ -553,10 +549,9 @@ def acquire_snapshot(
             )
         elif isinstance(scope, PartitionScope):
             pushed_predicate = tuple(("eq", column, value) for column, value in scope.values)
-            for column, value in scope.values:
-                expression = expression.filter(expression[column] == value)
         else:
             pushed_predicate = ()
+        expression = _apply_scope(expression, scope)
         expression = expression.select(*columns).limit(scope.max_rows + 1)
         try:
             with (

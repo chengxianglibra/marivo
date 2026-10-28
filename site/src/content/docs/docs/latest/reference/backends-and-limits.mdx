@@ -66,6 +66,16 @@ Local operations may keep all required vectors in memory. A display limit change
 it does not cap computation or source scan work. Query timeouts use native driver settings,
 may be unsupported, and do not bound the full client call and result fetch.
 
+Ordinary Metric preview uses all five SQL backends over explicitly scoped,
+unordered Entity inputs. Each Entity contributes at most
+`min(scope.max_rows, 10_000)` output rows. Captured partition evidence requires explicit partition values or a supported
+temporal range. Unavailable values retain the explicit unpruned fallback; no
+latest partition is inferred.
+`coverage.entity_rows` and `entity_row_limits` disclose sampled inputs.
+`execution_limits` reports requested native timeouts and actual support; no
+scan row/byte cap is requested, and scan statistics are unknown. A partition can
+still be large, and Entity aggregation/deduplication happens before output limits.
+
 `md.raw_sql()` requests a 600-second native query timeout by default. Override it with
 `timeout_seconds`; Trino receives it as `query_max_run_time`. Connection acquisition
 uses separate native 30-second settings. The query timeout is not a complete-call

@@ -8,8 +8,8 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from collections.abc import Iterable, Mapping, Sequence
-from contextlib import nullcontext
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
@@ -69,6 +69,7 @@ from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
     PreviewCoverage,
+    PreviewExecutionLimits,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
@@ -167,11 +168,14 @@ from marivo.semantic.preview_scope import (
     normalize_preview_batch_scopes,
     normalize_preview_limit,
     normalize_preview_scope,
+    preflight_preview_scope,
 )
 
 CalendarDate = date
 
 if TYPE_CHECKING:
+    from ibis.backends import BaseBackend
+
     from marivo._authoring.model import AuthoringRepair
     from marivo.semantic._compiled_state import CompiledSemanticState
     from marivo.semantic.reader import SemanticProject
@@ -227,7 +231,8 @@ def _metric_preview_warning() -> PreviewWarning:
         kind="approximate_preview",
         message=(
             f"metric preview aggregates at most {METRIC_PREVIEW_SAMPLE_SIZE:,} Entity "
-            "output rows; treat the result as approximate"
+            "output rows per Entity, also bounded by scope.max_rows; unordered input "
+            "is not a representative sample or an estimate of the full Metric"
         ),
     )
 
@@ -359,37 +364,36 @@ class _BatchPreviewItem:
     bindings: NormalizedPreviewScope
 
 
-def _require_metric_preview_backend(
-    ref: Ref[SemanticKindTag], bindings: NormalizedPreviewScope
-) -> None:
-    """Reject unavailable Metric routes before any single or batch source access."""
-    if ref.kind is not SemanticKind.METRIC or bindings.backend == "duckdb":
-        return
-    from marivo._authoring.model import AuthoringRepair
-    from marivo.introspection.live.model import LiveHelpTarget
-
-    action = (
-        "Evaluate this Metric with session.observe(...).compute(), supplying the "
-        "time scope or Population required by the question. This performs actual "
-        "analysis over the selected inputs."
+@contextmanager
+def _preview_reader(
+    bindings: NormalizedPreviewScope, connections: DatasourceConnectionService
+) -> Iterator[BaseBackend]:
+    """Apply native query limits before metadata or business-data resolution."""
+    profile = require_profile_for_backend_type(bindings.backend)
+    timeout = profile.native_query_timeout
+    connection_scope = (
+        connections.terminal_scope(bindings.timeout_seconds)
+        if bindings.backend in {"trino", "postgres", "mysql"}
+        else nullcontext()
     )
-    _raise(
-        ErrorKind.MATERIALIZE_FAILED,
-        "Ordinary Metric preview is available only on DuckDB.",
-        cls=SemanticRuntimeError,
-        refs=(ref.key,),
-        expected="ordinary Metric preview on a DuckDB datasource",
-        received=f"backend={bindings.backend}; datasource={bindings.datasource_id}",
-        details={
-            "query_executed": False,
-            "backend": bindings.backend,
-            "datasource_id": bindings.datasource_id,
-        },
-        hint=action,
-        repair_value=AuthoringRepair(
-            kind="user_choice",
-            help_target=LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
-            action=action,
+    with connection_scope:
+        backend = connections.session_backend(bindings.datasource_id)
+        with (
+            cr.backend_errors(backend),
+            timeout(backend, bindings.timeout_seconds) if timeout is not None else nullcontext(),
+        ):
+            yield backend
+
+
+def _preview_execution_limits(
+    bindings: NormalizedPreviewScope, backend: BaseBackend
+) -> PreviewExecutionLimits:
+    return PreviewExecutionLimits(
+        backend=bindings.backend,
+        timeout_seconds=bindings.timeout_seconds,
+        timeout_enforced=(
+            require_profile_for_backend_type(bindings.backend).native_query_timeout is not None
+            and getattr(backend, "_marivo_native_timeout_unsupported", False) is not True
         ),
     )
 
@@ -4053,10 +4057,14 @@ class SemanticCatalog(RenderableResult):
             Input ownership and membership are checked before connection
             acquisition or materialization. ``limit`` is independent from the
             ``scope.max_rows`` acquisition guard and does not reduce temporal
-            certification coverage. Ordinary Metric previews require DuckDB,
-            aggregate at most 10,000 scoped input rows and are approximate.
-            For other backends, use session.observe(...).compute() with explicit
-            analysis inputs to evaluate the Metric.
+            certification coverage. Ordinary Metric previews support DuckDB,
+            PostgreSQL, MySQL, Trino and ClickHouse and reuse datasource physical
+            partition preflight. Each Entity contributes at most
+            min(scope.max_rows, 10,000) output rows. Coverage reports actual
+            Entity input counts; reaching a cap leaves exhaustion unknown.
+            execution_limits reports requested native limits, not a total
+            deadline. No scan row/byte cap is requested; scanning is unknown.
+            Unordered samples are not full-source estimates.
         """
         limit = normalize_preview_limit(limit, operation="preview")
         target = _normalize_semantic_input(
@@ -4119,9 +4127,11 @@ class SemanticCatalog(RenderableResult):
             The complete input sequence is normalized before any preview
             begins. Duplicate canonical refs are rejected. ``limit`` is
             independent from the ``scope.max_rows`` acquisition guard. Ordinary
-            Metric previews require DuckDB, aggregate at most 10,000 Entity output
-            rows and are approximate. For other backends, evaluate Metrics with
-            session.observe(...).compute() and explicit analysis inputs.
+            Metric previews support all five SQL backends and aggregate at most
+            min(scope.max_rows, 10,000) output rows per Entity. All physical
+            scopes pass datasource partition preflight before any business read.
+            Coverage and execution_limits disclose sampled inputs and native
+            limits; output limits do not bound physical scanning.
         """
         limit = normalize_preview_limit(limit, operation="preview_many")
         normalized_refs = tuple(
@@ -4153,6 +4163,7 @@ class SemanticCatalog(RenderableResult):
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
+        preflighted: bool = False,
     ) -> PreviewResult:
         """Execute the existing one-object preview contract."""
         reg = self._require_ready()
@@ -4174,7 +4185,6 @@ class SemanticCatalog(RenderableResult):
             metric = self._index.values.get(ref_obj)
             assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
-        _require_metric_preview_backend(ref_obj, bindings)
         if kind in {
             SemanticKind.PERIOD_CALENDAR,
             SemanticKind.TEMPORAL_SET,
@@ -4256,9 +4266,6 @@ class SemanticCatalog(RenderableResult):
         selected_context_input = tuple(context_columns) if context_columns is not None else None
         from marivo.datasource.timezone import system_timezone_name
 
-        profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.native_query_timeout
-
         def execute_preview() -> PreviewResult:
             from functools import partial
 
@@ -4283,14 +4290,14 @@ class SemanticCatalog(RenderableResult):
 
                 metric = self._index.values.get(ref_obj)
                 assert isinstance(metric, Deferred)
-                expression, checks = lower_preview_metric(metric, resolver)
+                expression, checks, samples = lower_preview_metric(metric, resolver)
                 frame = connections.collect_source(
                     bindings.datasource_id, expression, purpose="semantic.preview", max_rows=1
                 )
                 for name, check in checks:
                     if frame[name].fillna(False).any():
                         numeric_failure(check.expected, f"{ref_str}: {check.received}")
-                return preview_from_pandas(
+                result = preview_from_pandas(
                     frame.loc[:, ["value"]],
                     kind="semantic_metric",
                     ref=ref_str,
@@ -4300,6 +4307,27 @@ class SemanticCatalog(RenderableResult):
                     ),
                     types={"value": str(expression.value.type())} if include_types else {},
                     warnings=(_metric_preview_warning(),),
+                )
+                entity_rows = tuple(
+                    (entity_id, int(frame[name].iloc[0])) for entity_id, name in samples
+                )
+                entity_limits = tuple(
+                    (entity_id, min(scope.max_rows, METRIC_PREVIEW_SAMPLE_SIZE))
+                    for entity_id, scope in bindings.scopes
+                )
+                limits = dict(entity_limits)
+                return replace(
+                    result,
+                    coverage=replace(
+                        result.coverage,
+                        entity_rows=entity_rows,
+                        entity_row_limits=entity_limits,
+                        scope_exhaustion=(
+                            "exhaustive"
+                            if all(count < limits[entity_id] for entity_id, count in entity_rows)
+                            else "unknown"
+                        ),
+                    ),
                 )
             if kind == SemanticKind.ENTITY:
                 table = resolver.entity(_make_ref(ref_str, SemanticKind.ENTITY))
@@ -4452,22 +4480,14 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        connection_scope = (
-            connections.terminal_scope(bindings.timeout_seconds)
-            if bindings.backend in {"trino", "postgres", "mysql"}
-            else nullcontext()
-        )
-        with connection_scope:
-            backend = connections.session_backend(bindings.datasource_id)
-            with (
-                cr.backend_errors(backend),
-                (
-                    timeout(backend, bindings.timeout_seconds)
-                    if timeout is not None
-                    else nullcontext()
-                ),
-            ):
-                result = execute_preview()
+        with _preview_reader(bindings, connections) as backend:
+            if not preflighted:
+                preflight_preview_scope(
+                    bindings, registry=reg, connections=connections, project_root=self.workspace_dir
+                )
+            result = replace(
+                execute_preview(), execution_limits=_preview_execution_limits(bindings, backend)
+            )
         return _attach_preview_scope(
             result,
             bindings=bindings,
@@ -4551,8 +4571,15 @@ class SemanticCatalog(RenderableResult):
             source_bindings=source_bindings,
             registry=reg,
         )
-        for ref_obj, bindings in zip(ref_objects, normalized, strict=True):
-            _require_metric_preview_backend(ref_obj, bindings)
+        checked_scopes: set[tuple[tuple[str, AuthoringScope], ...]] = set()
+        for bindings in normalized:
+            if bindings.scopes in checked_scopes:
+                continue
+            with _preview_reader(bindings, connections):
+                preflight_preview_scope(
+                    bindings, registry=reg, connections=connections, project_root=self.workspace_dir
+                )
+            checked_scopes.add(bindings.scopes)
         items = tuple(
             _BatchPreviewItem(order, ref_obj, kind, bindings)
             for order, (ref_obj, (_ref_id, kind), bindings) in enumerate(
@@ -4582,29 +4609,20 @@ class SemanticCatalog(RenderableResult):
             try:
                 if group_key[0] == "row":
                     bindings = group_items[0].bindings
-                    profile = require_profile_for_backend_type(bindings.backend)
-                    timeout = profile.native_query_timeout
-                    connection_scope = (
-                        connections.terminal_scope(bindings.timeout_seconds)
-                        if bindings.backend in {"trino", "postgres", "mysql"}
-                        else nullcontext()
-                    )
-                    with connection_scope:
-                        backend = connections.session_backend(bindings.datasource_id)
-                        with (
-                            cr.backend_errors(backend),
-                            (
-                                timeout(backend, bindings.timeout_seconds)
-                                if timeout is not None
-                                else nullcontext()
-                            ),
-                        ):
-                            raw_results = self._preview_row_group(
-                                tuple(group_items),
-                                connections=connections,
-                                limit=preview_limit,
-                                include_types=include_types,
+                    with _preview_reader(bindings, connections) as backend:
+                        raw_results = self._preview_row_group(
+                            tuple(group_items),
+                            connections=connections,
+                            limit=preview_limit,
+                            include_types=include_types,
+                        )
+                        raw_results = tuple(
+                            replace(
+                                result,
+                                execution_limits=_preview_execution_limits(bindings, backend),
                             )
+                            for result in raw_results
+                        )
                     results = tuple(
                         _attach_preview_scope(result, bindings=item.bindings)
                         for item, result in zip(group_items, raw_results, strict=True)
@@ -4618,9 +4636,10 @@ class SemanticCatalog(RenderableResult):
                             bindings=item.bindings,
                             limit=preview_limit,
                             include_types=include_types,
+                            preflighted=True,
                         ),
                     )
-            except SemanticRuntimeError:
+            except (SemanticRuntimeError, DatasourceError):
                 raise
             except Exception as exc:
                 _raise(

@@ -19,7 +19,7 @@ from marivo.datasource import credentials as cr
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
-from marivo.datasource.source import AuthoringScope, PartitionScope
+from marivo.datasource.source import AuthoringScope, _apply_scope
 from marivo.datasource.table_source import table_source_expression
 from marivo.refs import EntityKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
@@ -267,12 +267,14 @@ class Materializer:
         # Row budgets bound Entity output, after the authored relation, so a
         # full aggregate or deduplication completes before truncation.
         scope = self._entity_scopes.get(semantic_id)
-        if scope is not None:
+        if scope is not None and self._sample_size is None:
             # Preview needs one extra row to distinguish an exhaustive scope
             # from a bounded sample without performing another query.
             table = table.limit(scope.max_rows + 1)
         if self._sample_size is not None:
-            table = table.limit(self._sample_size)
+            table = table.limit(
+                min(self._sample_size, scope.max_rows) if scope is not None else self._sample_size
+            )
 
         # Cache the result
         self._entity_cache[semantic_id] = table
@@ -284,18 +286,9 @@ class Materializer:
     def _apply_input_scope(self, semantic_id: str, source_table: ibis.Table) -> ibis.Table:
         """Filter the physical Source by an explicitly requested input scope."""
         scope = self._entity_scopes.get(semantic_id)
-        if scope is None or not isinstance(scope, PartitionScope):
+        if scope is None:
             return source_table
-        if scope._time_range is not None:
-            predicate = scope._time_range
-            return source_table.filter(
-                (source_table[predicate.column] >= predicate.start)
-                & (source_table[predicate.column] < predicate.end)
-            )
-        filtered = source_table
-        for column, value in scope.values:
-            filtered = filtered.filter(filtered[column] == value)
-        return filtered
+        return _apply_scope(source_table, scope)
 
     def _materialize_entity_output(
         self,

@@ -267,7 +267,9 @@ def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
     ):
         catalog.preview(
             ms.ref.entity("sales.unscoped"),
-            scope=scope,
+            scope=md.time_range(
+                "updated_at", start="2026-01-01", end="2026-01-03", max_rows=100, timeout_seconds=30
+            ),
         )
     assert preview_info.value.kind == ErrorKind.SQL_ESCAPE_HATCH
 

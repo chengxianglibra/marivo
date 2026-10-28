@@ -428,7 +428,20 @@ catalog.readiness(refs=[amount]).show()
 
 Catalog 搜索返回一页结果。卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。后续页须通过 `next_cursor` 获取，取消展示预算不会自动翻页。
 
-普通 Metric 预览仅支持 DuckDB，最多聚合 10,000 行 Entity 输出，结果应视为近似值。对于 Trino、ClickHouse 等其他后端，请用 `session.observe(...).compute()`，结合当前问题所需的显式分析输入求值。此项 Metric 限制与 Entity 和物理字段预览的支持范围分别判断。
+普通 Metric 预览支持 DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse。
+每个依赖 Entity 最多贡献 `min(scope.max_rows, 10_000)` 行输出；这些无序输入
+不代表总体样本，也不能用于估计或放大全量指标。预览复用 datasource 分区预检：
+已有分区值证据时，必须通过 `md.partition(...)` 完整指定，或使用支持的
+`md.time_range(...)`。通过 `inspection.partitions().show()` 查看物理分区值与
+范围模板；预览不会自动选择最新分区。分区状态未知或无法枚举分区值时，可显式
+使用 `md.unpruned(...)` 选择广泛读取，或使用支持的时间范围。
+
+`preview.coverage.entity_rows` 和 `entity_row_limits` 披露每个 Entity 的实际
+输入行数和上限。达到上限时，范围是否穷尽标为 unknown。`preview.show()` 还展示
+实际范围和 `execution_limits`：请求的原生超时、实际超时支持，以及扫描行数和
+字节数上限（`None` 表示未请求）。物理扫描统计保持 unknown。过滤发生在 Entity
+主体之前；Entity 内部聚合或去重仍可能扫描超过输出上限的数据。Population、
+窗口和 path/attribute 准备仍须使用 Analysis observation。
 
 {/* example: readiness-1 */}
 

@@ -437,7 +437,23 @@ catalog.readiness(refs=[amount]).show()
 
 Catalog search returns one page. Its card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Follow `next_cursor` to retrieve later pages: removing the display budget does not fetch them.
 
-Ordinary Metric previews require DuckDB and aggregate at most 10,000 Entity output rows, so treat the result as approximate. For Trino, ClickHouse and other backends, evaluate Metrics with `session.observe(...).compute()` and the explicit analysis inputs your question needs. This Metric restriction is separate from Entity and physical field preview support.
+Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse.
+Each dependency Entity contributes at most `min(scope.max_rows, 10_000)` output rows;
+these unordered inputs are not a representative sample or a full-source estimate.
+Preview reuses datasource partition preflight: captured partition-value evidence requires
+`md.partition(...)` with every field, or a supported `md.time_range(...)`. Use
+`inspection.partitions().show()` to inspect physical values and scope templates;
+preview does not choose a latest partition automatically. An unknown partition
+state or unavailable partition values permit explicit `md.unpruned(...)` as a
+broad-read fallback, or a supported temporal range.
+
+`preview.coverage.entity_rows` and `entity_row_limits` disclose actual input counts
+and caps per Entity. Reaching a cap leaves exhaustion unknown. `preview.show()`
+also displays selected scopes and `execution_limits`: requested native timeout,
+actual timeout support, and scan row/byte caps (`None` means none requested).
+Physical scan statistics remain unknown. Filtering precedes the Entity body;
+Entity aggregation or deduplication can scan beyond the output cap. Population,
+window and path/attribute preparation require an Analysis observation.
 
 {/* example: readiness-1 */}
 

@@ -6,6 +6,7 @@ import textwrap
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Literal
 from unittest.mock import MagicMock, Mock
 
@@ -20,19 +21,26 @@ import marivo.semantic as ms
 from marivo.datasource import backends
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.inspection import (
+    ExecutionCapabilities,
+    Partitioning,
+    PhysicalExtent,
+    SourceInspection,
+)
 from marivo.datasource.ir import (
     DatasourceIR,
     EntitySourceIR,
     QueryParamScalar,
     QueryParamScalarList,
 )
+from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.datasource.source import AuthoringScope
-from marivo.introspection.live.model import LiveHelpTarget
+from marivo.datasource.source import AuthoringScope, TableSource
 from marivo.preview import PreviewResult
+from marivo.refs import ref as ref_factory
 from marivo.semantic import catalog as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import SemanticError, SemanticRuntimeError
+from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 
 _BackendKind = Literal["trino", "postgres", "mysql", "clickhouse"]
@@ -47,6 +55,7 @@ class _Driver:
     identity: int
     read_only: bool = False
     rollbacks: int = 0
+    params: dict[str, object] = field(default_factory=dict)
 
     def thread_id(self) -> int:
         return self.identity
@@ -193,6 +202,32 @@ def _probe(
 
     monkeypatch.setattr(service, "bind_source", bind)
     monkeypatch.setattr(service, "collect_source", collect)
+
+    def inspect_source(
+        datasource: DatasourceIR,
+        source: TableSource,
+        *,
+        project_root: Path,
+        connections: DatasourceConnectionService,
+    ) -> SourceInspection:
+        assert probe.active_backend is connections.session_backend(datasource.name)
+        return SourceInspection(
+            _datasource=ref_factory.datasource(datasource.name),
+            source=source,
+            physical_extent=PhysicalExtent(None, "unknown", None, "unknown", "test", ()),
+            partitioning=Partitioning("none", (), None, (), False, False),
+            execution_capabilities=ExecutionCapabilities(True, False, True, False),
+            schema=tuple(
+                ColumnMetadata(name, dtype, None, None, index)
+                for index, (name, dtype) in enumerate(
+                    (("order_id", "int64"), ("amount", "float64"), ("region", "string")), 1
+                )
+            ),
+            warnings=(),
+            _project_root=project_root,
+        )
+
+    monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
     monkeypatch.setattr(
         "marivo.datasource.engines.mysql.execute_provider_statement",
         lambda *_args, **_kwargs: ({"@@session.max_execution_time": 30000},),
@@ -219,7 +254,7 @@ def _preview(probe: _Probe, path: _PreviewPath, scope: AuthoringScope) -> tuple[
 
 
 @pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
-@pytest.mark.parametrize("path", ("single", "rows"))
+@pytest.mark.parametrize("path", ("single", "rows", "metrics"))
 def test_preview_prepares_deadline_before_source_resolution(
     backend_kind: _BackendKind,
     path: _PreviewPath,
@@ -246,14 +281,14 @@ def test_preview_prepares_deadline_before_source_resolution(
             assert probe.drivers[1].read_only and not probe.drivers[1].autocommit
             assert probe.drivers[1].rollbacks == 1
         else:
-            assert len(probe.created) == 2
+            assert len(probe.created) >= 2
             assert not hasattr(probe.created[1], "_marivo_authoring_cancel_control")
             assert probe.created[1]._marivo_configured_query_timeout_seconds == 30
 
 
 @pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
 @pytest.mark.parametrize("failure", ("bind", "read"))
-@pytest.mark.parametrize("path", ("single", "rows"))
+@pytest.mark.parametrize("path", ("single", "rows", "metrics"))
 def test_preview_releases_remote_connections_and_restores_cache_after_failure(
     backend_kind: _BackendKind,
     failure: Literal["bind", "read"],
@@ -266,7 +301,7 @@ def test_preview_releases_remote_connections_and_restores_cache_after_failure(
         ordinary = service.session_backend("warehouse")
         probe.failure = failure
         with pytest.raises(
-            SemanticError if failure == "bind" or path == "rows" else RuntimeError,
+            SemanticError if failure == "bind" or path in {"rows", "metrics"} else RuntimeError,
             match=f"source {failure} failed",
         ):
             _preview(probe, path, md.unpruned(max_rows=10, timeout_seconds=30))
@@ -303,6 +338,8 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
         )
         assert len(probe.collected) == 2
         assert [backend._marivo_terminal_timeout_seconds for backend in probe.created] == [
+            30,
+            11,
             30,
             11,
         ]
@@ -342,7 +379,7 @@ def test_invalid_batch_is_rejected_before_connection(
 
 @pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql", "clickhouse"))
 @pytest.mark.parametrize("path", ("single", "batch", "entity_first_batch"))
-def test_remote_metric_preview_reports_unqualified_route(
+def test_remote_metric_preview_uses_native_timeout_and_reports_inputs(
     backend_kind: _BackendKind,
     path: Literal["single", "batch", "entity_first_batch"],
     semantic_project_factory: _ProjectFactory,
@@ -350,24 +387,20 @@ def test_remote_metric_preview_reports_unqualified_route(
 ) -> None:
     with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
         scope = md.unpruned(max_rows=10, timeout_seconds=30)
-        with pytest.raises(SemanticRuntimeError, match="only on DuckDB") as caught:
-            if path == "entity_first_batch":
-                probe.catalog.preview_many(
-                    [ms.ref.entity("sales.orders"), ms.ref.metric("sales.revenue")], scope=scope
-                )
-            elif path == "batch":
-                _preview(probe, "metrics", scope)
-            else:
-                probe.catalog.preview(ms.ref.metric("sales.revenue"), scope=scope)
-        error = caught.value
-        assert error.semantic_refs == ("metric:sales.revenue",)
-        assert error.expected == "ordinary Metric preview on a DuckDB datasource"
-        assert error.received == f"backend={backend_kind}; datasource=warehouse"
-        assert error.details["backend"] == backend_kind
-        assert error.details["query_executed"] is False
-        assert error.repair is not None
-        assert error.repair.help_target == LiveHelpTarget(
-            surface="analysis", canonical_id="session.observe"
-        )
-        assert "session.observe(...).compute()" in error.repair.action
-        assert not probe.created and not probe.resolved and not probe.collected
+        if path == "entity_first_batch":
+            result = probe.catalog.preview_many(
+                [ms.ref.entity("sales.orders"), ms.ref.metric("sales.revenue")], scope=scope
+            ).results[-1]
+        elif path == "batch":
+            result = _preview(probe, "metrics", scope)[0]
+        else:
+            result = probe.catalog.preview(ms.ref.metric("sales.revenue"), scope=scope)
+        assert result.kind == "semantic_metric"
+        assert result.coverage.entity_row_limits == (("sales.orders", 10),)
+        assert result.execution_limits is not None
+        assert result.execution_limits.backend == backend_kind
+        assert result.execution_limits.timeout_enforced
+        assert result.execution_limits.scan_rows is None
+        assert result.execution_limits.scan_bytes is None
+        assert probe.collected[-1] == ("semantic.preview", 1)
+        assert all(active for _seconds, active in probe.resolved)

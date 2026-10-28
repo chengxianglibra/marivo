@@ -3287,15 +3287,15 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.SemanticCatalog.preview",
             (
                 "Run one scoped data preview for a current catalog entry or exact ref. "
-                "Ordinary Metric previews require DuckDB and reuse the nullable Row/Metric kernel; Population/sample preparation rejects. For other backends, evaluate Metrics with session.observe(...).compute() and explicit analysis inputs. Metric previews aggregate at most 10,000 Entity output rows and report "
+                "Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse, reusing the nullable Row/Metric kernel; Population/sample/window preparation rejects. Each Entity contributes at most min(scope.max_rows, 10,000) output rows and reports "
                 "an approximate result; period calendars and temporal sets "
                 "publish their dedicated certified artifacts. Build scopes with "
                 "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
                 "md.partition (physical partition values), all with positive row/time guards. "
-                "For multiple dependency Entities, supply an exact Entity-ref-to-scope mapping. "
+                "Physical scopes reuse datasource partition preflight; no partition is selected automatically. For multiple dependency Entities, supply exact (EntitySymbol, scope) pairs. "
                 "limit must be an integer from 1 to 100 inclusive and bounds retained preview "
                 "rows; scope.max_rows independently guards source acquisition. A temporal "
-                "preview can certify complete coverage while retaining fewer preview rows."
+                "preview can certify complete coverage while retaining fewer preview rows. coverage reports Entity input counts and caps; exhaustion is unknown when a cap is reached. execution_limits reports native timeout enforcement; no scan row/byte cap is requested and scan statistics are unknown. Unordered samples are not full-source estimates."
             ),
             kind="method",
             output="PreviewResult",
@@ -3335,13 +3335,16 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.SemanticCatalog.preview_many",
             (
                 "Run scoped data previews for a non-empty entry/ref sequence. Ordinary Metric "
-                "previews require DuckDB; for other backends, evaluate Metrics with "
-                "session.observe(...).compute() and explicit analysis inputs. Metric previews "
-                "aggregate at most 10,000 Entity output rows and report an "
+                "previews support all five SQL backends and reuse datasource partition preflight "
+                "for every input before any business read. Each Entity contributes at most "
+                "min(scope.max_rows, 10,000) output rows and reports an "
                 "approximate result; period calendars and temporal sets "
                 "publish their dedicated certified artifacts through preview. limit must "
                 "be an integer from 1 to 100 inclusive and bounds retained preview rows "
-                "per result; scope.max_rows independently guards source acquisition."
+                "per result; scope.max_rows independently guards Entity output acquisition. "
+                "coverage reports actual Entity input counts and caps. execution_limits "
+                "reports native timeout enforcement; no scan row/byte cap is requested. "
+                "Physical scan statistics remain unknown."
             ),
             kind="method",
             output="PreviewBatchResult",
@@ -3991,6 +3994,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "warnings",
             "timezones",
             "sample_policy",
+            "execution_limits",
         ),
         methods=show_render,
         type_page_methods=show_render,

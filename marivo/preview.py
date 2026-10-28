@@ -89,8 +89,21 @@ class PreviewSamplePolicy:
 class PreviewCoverage:
     scopes: tuple[tuple[str, AuthoringScope], ...]
     rows_observed: int
-    scope_exhaustion: Literal["exhaustive", "truncated"]
+    scope_exhaustion: Literal["exhaustive", "truncated", "unknown"]
     scope_exactness: Literal["scope_exact", "sample_only"]
+    entity_rows: tuple[tuple[str, int], ...] = ()
+    entity_row_limits: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class PreviewExecutionLimits:
+    """Native limits requested by this preview; None means no scan cap requested."""
+
+    backend: str
+    timeout_seconds: int
+    timeout_enforced: bool
+    scan_rows: int | None = None
+    scan_bytes: int | None = None
 
 
 @dataclass(frozen=True, repr=False)
@@ -137,6 +150,7 @@ class PreviewResult(_DataResult):
             limit=PREVIEW_DEFAULT_LIMIT,
         )
     )
+    execution_limits: PreviewExecutionLimits | None = None
 
     def _repr_identity(self) -> str:
         return (
@@ -152,6 +166,38 @@ class PreviewResult(_DataResult):
             facts.append(("order_by", ", ".join(self.sample_policy.order_by)))
         if self.sample_policy.filters:
             facts.append(("filters", repr(self.sample_policy.filters)))
+        for entity_id, scope in self.coverage.scopes:
+            facts.append((f"scope {entity_id}", scope.render()))
+        row_limits = dict(self.coverage.entity_row_limits)
+        for entity_id, count in self.coverage.entity_rows:
+            facts.append(
+                (f"Entity input {entity_id}", f"rows={count} limit={row_limits[entity_id]}")
+            )
+        if self.execution_limits is not None:
+            limits = self.execution_limits
+            facts.extend(
+                (
+                    ("backend", limits.backend),
+                    (
+                        "native_timeout",
+                        f"{limits.timeout_seconds}s enforced={limits.timeout_enforced}",
+                    ),
+                    (
+                        "scan_row_limit",
+                        str(limits.scan_rows) if limits.scan_rows is not None else "not requested",
+                    ),
+                    (
+                        "scan_byte_limit",
+                        str(limits.scan_bytes)
+                        if limits.scan_bytes is not None
+                        else "not requested",
+                    ),
+                    (
+                        "scan_statistics",
+                        "unknown; output row limits do not bound physical scanning",
+                    ),
+                )
+            )
         for column, info in sorted(self.timezones.items()):
             facts.append(
                 (column, f"read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}")

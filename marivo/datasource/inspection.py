@@ -598,6 +598,12 @@ def _preflight_sample(
                 ),
                 scope_state=state,
             )
+    _preflight_scope(inspection, scope=scope)
+
+
+def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> None:
+    """Validate physical pruning independently from snapshot column selection."""
+    state = inspection.partitioning.state
     if not isinstance(scope, PartitionScope | UnprunedScope):
         raise TypeError(
             "scope must be produced by md.partition(), md.time_range(), or md.unpruned()."
@@ -689,9 +695,8 @@ def _preflight_sample(
                 scope_state=state,
             )
     elif state == "known" and inspection.partitioning.value_source is not None:
-        # Partition values were captured from metadata (possibly incomplete or
-        # truncated), so a bounded unpruned scope is not the intended path: the
-        # author should rescope with the captured partition evidence.
+        # Captured partition evidence requires an explicitly pruned scope.
+        # Unavailable values retain the deliberate unpruned fallback.
         raise _authoring_error(
             code="incomplete_partition_fields",
             stage="preflight",
@@ -1477,6 +1482,21 @@ def _inspect_bound_source(
             reason=f"datasource {datasource.path!r} is not registered in the active project",
             scope_state=None,
         )
+    return _inspect_resolved_source(
+        datasource_ir, source, project_root=project_root, connections=connections
+    )
+
+
+def _inspect_resolved_source(
+    datasource_ir: DatasourceIR,
+    source: TableSource,
+    *,
+    project_root: Path,
+    connections: DatasourceConnectionService,
+) -> SourceInspection:
+    """Inspect the caller's captured datasource without reloading declarations."""
+    datasource_name = datasource_ir.name
+    datasource = ref_factory.datasource(datasource_name)
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
 
     projected_metadata_unavailable = False

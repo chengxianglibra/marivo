@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
+import ibis
 
 from marivo._compat import UTC
 from marivo.datasource.ir import (
@@ -20,6 +22,9 @@ from marivo.datasource.ir import (
     normalize_json_body,
 )
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    import ibis.expr.types as ir
 
 TableSource: TypeAlias = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
@@ -116,6 +121,23 @@ class UnprunedScope(RenderableResult):
 
 
 AuthoringScope: TypeAlias = PartitionScope | UnprunedScope
+
+
+def _apply_scope(table: ir.Table, scope: AuthoringScope) -> ir.Table:
+    """Lower physical scopes with typed literals, keeping source columns bare."""
+    if not isinstance(scope, PartitionScope):
+        return table
+    if scope._time_range is not None:
+        predicate = scope._time_range
+        return table.filter(
+            (table[predicate.column] >= predicate.start) & (table[predicate.column] < predicate.end)
+        )
+    return table.filter(
+        *(
+            table[column] == ibis.literal(value).cast(table[column].type())
+            for column, value in scope.values
+        )
+    )
 
 
 def _require_positive(value: int, *, field: str) -> None:

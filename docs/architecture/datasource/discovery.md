@@ -70,7 +70,10 @@ Scope and explicit columns are required. `md.unpruned(max_rows=...,
 timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
 Both values must be positive. Row limits remain enforced; query timeouts
 request native settings and are skipped when unsupported. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
-still be large.
+still be large. Known partition fields with captured value evidence require an
+explicit complete partition scope or a supported temporal range. Unavailable
+partition values retain the explicit unpruned fallback. Semantic ordinary previews
+reuse this physical preflight before business reads.
 
 Scope `show()` / `render()` cards expose only the scope kind, positive guards,
 and a bounded predicate preview. Large partition predicates report omissions

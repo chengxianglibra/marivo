@@ -155,14 +155,38 @@ still accepts one AuthoringScope; source_bindings always explicitly names its En
 Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
 persist a general validation checkpoint.
 
-Ordinary Metric preview supports DuckDB source reductions/formulas over at most
-10,000 Entity output rows and reports an approximate result. Other backends reject
-Metric preview before source access; evaluate those Metrics with
-`session.observe(...).compute()` and explicit analysis inputs. This restriction
-applies to Metrics, independently from Entity and physical field preview support.
-Population/internal-sample preparation is rejected there; use an actual Analysis
-observation for that work. The display limit is independent from acquisition and
-aggregate scope.
+Ordinary Metric preview supports source reductions/formulas on DuckDB, PostgreSQL,
+MySQL, Trino and ClickHouse. It reuses datasource metadata inspection and physical
+scope preflight before business reads; a batch preflights every input first.
+Known partition fields with captured partition-value evidence require an explicit
+complete partition scope or a supported temporal range. Unknown partition state or
+unavailable partition values permit explicit `md.unpruned(...)` as the deliberate
+broad-read fallback; supported temporal ranges are also available. No latest
+partition is inferred, and no business-table scan discovers partition values.
+Physical predicates apply before the authored Entity body. A valid predicate is not
+proof of actual optimizer partition pruning or small scan cost.
+
+Each dependency Entity contributes at most `min(scope.max_rows, 10_000)` output
+rows after its authored relation. Aggregation, sorting or deduplication inside an
+Entity can therefore process more physical rows. The unordered subset is not a
+representative sample, a full-source estimate or a basis for scaling totals.
+Exact and explicit approximate reducers retain their algorithm contracts on that
+subset. Exact median/quantile use linear interpolation over native order statistics
+where a native exact aggregate is unavailable. Population/internal-sample, window
+and path/attribute preparation remain unavailable; use an Analysis observation.
+All dependency Entities must share one datasource.
+
+`PreviewResult.coverage.entity_rows` records actual Entity input counts;
+`entity_row_limits` records their caps. These counts come from the bounded inputs
+in the same query, not a full-source count. `rows_observed` counts result rows.
+Reaching an input cap leaves `scope_exhaustion="unknown"`; a lower count proves
+exhaustion of that scoped Entity input. Metric coverage remains `sample_only`.
+`execution_limits` reports the backend, requested timeout and actual native timeout
+support. No scan-row or scan-byte cap is requested by preview; these limits are
+`None`, and physical scan statistics are unknown. Server-side policies can impose
+additional limits. Native timeouts are not end-to-end deadlines; failures never
+publish partial aggregates as successful preview results. The display limit is
+independent from input acquisition and aggregate scope.
 
 `catalog.validate(refs)` connects to the selected definitions' complete physical
 dependency closure. For each selected Entity source it establishes the Entity

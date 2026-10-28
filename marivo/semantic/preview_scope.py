@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._symbolic import EntitySymbol, native_symbol_ref
@@ -16,6 +17,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 
 if TYPE_CHECKING:
+    from marivo.datasource.runtime import DatasourceConnectionService
     from marivo.semantic.validator import Registry
 
 PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]
@@ -70,6 +72,29 @@ class NormalizedPreviewScope:
     @property
     def entity_scopes(self) -> Mapping[str, AuthoringScope]:
         return dict(self.scopes)
+
+
+def preflight_preview_scope(
+    bindings: NormalizedPreviewScope,
+    *,
+    registry: Registry,
+    connections: DatasourceConnectionService,
+    project_root: Path,
+) -> None:
+    """Reuse datasource's metadata-only physical pruning checks for every input."""
+    from marivo.datasource import credentials as cr
+    from marivo.datasource.inspection import _inspect_resolved_source, _preflight_scope
+
+    with connections.resolution_context(), cr.operation_context(project_root=project_root):
+        for entity_id, scope in bindings.scopes:
+            entity = registry.entities[entity_id]
+            inspection = _inspect_resolved_source(
+                registry.datasources[entity.datasource],
+                entity.source,
+                project_root=project_root,
+                connections=connections,
+            )
+            _preflight_scope(inspection, scope=scope)
 
 
 def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:

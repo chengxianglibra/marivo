@@ -16,6 +16,7 @@ import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import runtime as datasource_runtime
+from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DomainEntry,
@@ -177,13 +178,14 @@ def test_ordinary_preview_ignores_history_and_writes_no_check(scoped_catalog) ->
     assert after == before
 
 
-def test_partition_and_half_open_time_range_are_applied(scoped_catalog) -> None:
+def test_nonpartition_column_rejects_and_half_open_time_range_is_applied(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
 
-    partitioned = catalog.preview(
-        ms.ref.entity("sales.orders"),
-        scope=md.partition({"region": "east"}, max_rows=10, timeout_seconds=30),
-    )
+    with pytest.raises(DatasourceAuthoringError, match="partition"):
+        catalog.preview(
+            ms.ref.entity("sales.orders"),
+            scope=md.partition({"region": "east"}, max_rows=10, timeout_seconds=30),
+        )
     ranged = catalog.preview(
         ms.ref.entity("sales.orders"),
         scope=md.time_range(
@@ -195,7 +197,6 @@ def test_partition_and_half_open_time_range_are_applied(scoped_catalog) -> None:
         ),
     )
 
-    assert [row["order_id"] for row in partitioned.rows] == [1, 3]
     assert [row["order_id"] for row in ranged.rows] == [1, 2]
 
 
@@ -254,7 +255,9 @@ def test_multi_entity_preview_requires_exact_complete_scope_pairs(scoped_catalog
             ),
         )
 
-    orders_scope = md.partition({"region": "east"}, max_rows=10, timeout_seconds=30)
+    orders_scope = md.time_range(
+        "ts", start="2026-07-10", end="2026-07-11", max_rows=10, timeout_seconds=30
+    )
     refunds_scope = md.unpruned(max_rows=1, timeout_seconds=15)
     result = catalog.preview(
         net_revenue,
@@ -640,3 +643,138 @@ def test_native_calendar_certification_requires_date_schema_and_nonempty_coverag
         assert caught.value.details["query_executed"] is False
     else:
         assert "completely cover" in caught.value.message
+
+
+def test_metric_input_cap_is_exact_and_disclosed(scoped_catalog) -> None:
+    catalog, _root = scoped_catalog
+    result = catalog.preview(ms.ref.metric("sales.revenue"), scope=default_scope(max_rows=1))
+    assert result.coverage.entity_rows == (("sales.orders", 1),)
+    assert result.coverage.entity_row_limits == (("sales.orders", 1),)
+    assert result.coverage.scope_exhaustion == "unknown"
+    assert result.coverage.scope_exactness == "sample_only"
+    assert result.rows[0]["value"] in (10, 20, 30)
+    assert result.execution_limits is not None
+    assert not result.execution_limits.timeout_enforced
+    card = result.render()
+    for text in (
+        "Entity input sales.orders",
+        "rows=1 limit=1",
+        "scan_row_limit: not requested",
+        "scan_byte_limit: not requested",
+        "scan_statistics: unknown",
+        "scope sales.orders",
+    ):
+        assert text in card
+
+
+def test_metric_input_hard_cap_does_not_count_full_source(scoped_catalog) -> None:
+    catalog, root = scoped_catalog
+    backend = ibis.duckdb.connect(str(root / "warehouse.duckdb"))
+    try:
+        backend.raw_sql("DELETE FROM orders")
+        backend.raw_sql(
+            "INSERT INTO orders SELECT i, 1.0, 'east', TIMESTAMP '2026-07-10' FROM range(10001) t(i)"
+        )
+    finally:
+        backend.disconnect()
+    result = catalog.preview(ms.ref.metric("sales.revenue"), scope=default_scope(max_rows=20000))
+    assert result.rows == ({"value": 10000},)
+    assert result.coverage.entity_rows == (("sales.orders", 10000),)
+    assert result.coverage.entity_row_limits == (("sales.orders", 10000),)
+    assert result.coverage.scope_exhaustion == "unknown"
+
+
+@pytest.mark.parametrize("operation", ("preview", "preview_many"))
+@pytest.mark.parametrize("pruned", (False, True))
+def test_metric_preview_reuses_physical_partition_preflight(
+    scoped_catalog, monkeypatch: pytest.MonkeyPatch, operation: str, pruned: bool
+) -> None:
+    from dataclasses import replace
+
+    from marivo.datasource.inspection import _inspect_resolved_source
+    from marivo.datasource.metadata import PartitionMetadata
+
+    catalog, _root = scoped_catalog
+
+    def inspect_source(*args, **kwargs):
+        inspection = _inspect_resolved_source(*args, **kwargs)
+        return replace(
+            inspection,
+            partitioning=replace(
+                inspection.partitioning,
+                state="known",
+                fields=(PartitionMetadata(name="region", type="string"),),
+                value_source="metadata",
+            ),
+        )
+
+    monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
+    metric = ms.ref.metric("sales.revenue")
+    scope = (
+        md.partition({"region": "east"}, max_rows=10, timeout_seconds=30)
+        if pruned
+        else default_scope()
+    )
+
+    def preview():
+        return (
+            catalog.preview(metric, scope=scope)
+            if operation == "preview"
+            else catalog.preview_many([metric], scope=scope).results[0]
+        )
+
+    if pruned:
+        result = preview()
+        assert result.rows == ({"value": 40},)
+        assert result.coverage.entity_rows == (("sales.orders", 2),)
+        assert result.coverage.scopes == (("sales.orders", scope),)
+    else:
+        monkeypatch.setattr(
+            datasource_runtime.DatasourceConnectionService,
+            "collect_source",
+            lambda *args, **kwargs: pytest.fail("preflight read business data"),
+        )
+        with pytest.raises(DatasourceAuthoringError) as caught:
+            preview()
+        assert caught.value.code == "incomplete_partition_fields"
+        assert caught.value.effect_observed.query_executed is False
+
+
+def test_batch_preflights_later_inputs_before_any_business_read(
+    scoped_catalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from marivo.datasource.inspection import _inspect_resolved_source
+    from marivo.datasource.metadata import PartitionMetadata
+
+    catalog, _root = scoped_catalog
+
+    def inspect_source(*args, **kwargs):
+        inspection = _inspect_resolved_source(*args, **kwargs)
+        if inspection.source.table == "refunds":
+            return replace(
+                inspection,
+                partitioning=replace(
+                    inspection.partitioning,
+                    state="known",
+                    fields=(PartitionMetadata(name="refund_id", type="int64"),),
+                    value_source="metadata",
+                ),
+            )
+        return inspection
+
+    monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
+    monkeypatch.setattr(
+        datasource_runtime.DatasourceConnectionService,
+        "collect_source",
+        lambda *args, **kwargs: pytest.fail("batch read before full preflight"),
+    )
+    with pytest.raises(DatasourceAuthoringError):
+        catalog.preview_many(
+            [ms.ref.metric("sales.revenue"), ms.ref.entity("sales.refunds")],
+            scope=(
+                (ms.ref.entity("sales.orders"), default_scope()),
+                (ms.ref.entity("sales.refunds"), default_scope()),
+            ),
+        )
