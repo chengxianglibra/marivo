@@ -44,7 +44,8 @@ marivo = "marivo.cli:main"
 
 [project.optional-dependencies]
 semantic-search = ["sentence-transformers>=3.0,<6.0"]
-duckdb = ["ibis-framework[duckdb]>=12.0.0"]
+# Keep the validated DuckDB version until Ibis supports DuckDB 2.0.
+duckdb = ["ibis-framework[duckdb]>=12.0.0", "duckdb==1.5.3"]
 trino = ["ibis-framework[trino]>=12.0.0"]
 # PyMySQL 1.2.3 breaks uncached caching_sha2_password RSA authentication.
 mysql = ["PyMySQL[rsa]>=1.1.2,<1.2", "pyarrow-hotfix>=0.4", "rich>=12.4.4"]
@@ -52,6 +53,7 @@ postgres = ["ibis-framework[postgres]>=12.0.0"]
 clickhouse = ["ibis-framework[clickhouse]>=12.0.0"]
 all = [
     "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
+    "duckdb==1.5.3",
     "PyMySQL[rsa]>=1.1.2,<1.2",
 ]
 docs = [
@@ -60,6 +62,7 @@ docs = [
 ]
 dev = [
     "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
+    "duckdb==1.5.3",
     "clickhouse-connect>=1.4.0",  # Ships PEP 561 type information for datasource test helpers.
     "pytest>=8",
     "pytest-xdist>=3.2.1",

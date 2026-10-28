@@ -30,10 +30,15 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
     for backend_type in SUPPORTED_BACKEND_TYPES:
         assert backend_type in optional_dependencies
-        if backend_type != "mysql":
+        if backend_type not in {"duckdb", "mysql"}:
             assert optional_dependencies[backend_type] == [
                 f"ibis-framework[{backend_type}]>=12.0.0"
             ]
+
+    assert optional_dependencies["duckdb"] == [
+        "ibis-framework[duckdb]>=12.0.0",
+        "duckdb==1.5.3",
+    ]
 
     assert optional_dependencies["mysql"] == [
         "PyMySQL[rsa]>=1.1.2,<1.2",
@@ -43,6 +48,7 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
     assert optional_dependencies["all"] == [
         "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
+        "duckdb==1.5.3",
         "PyMySQL[rsa]>=1.1.2,<1.2",
     ]
 
