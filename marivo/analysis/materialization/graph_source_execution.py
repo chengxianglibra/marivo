@@ -16,6 +16,7 @@ from ibis.common.exceptions import IbisError
 
 from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.compiler.graph_plan import (
+    AttributeFrequencyRead,
     AttributeRead,
     ReductionRead,
     local_steps,
@@ -393,6 +394,39 @@ def qualify_original_source(
             ):
                 return "Remote original recipes require typed physical inputs from one source owner"
     return None
+
+
+def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -> None:
+    """Reuse native physical-input and collation qualification before capture."""
+    from marivo.analysis.compiler.attribute_inputs import input_failure
+    from marivo.datasource.ir import TableSourceIR
+
+    for path, bound in prepared.bound.items():
+        owner = prepared.sources.get(path, prepared.source)
+        if not isinstance(bound.source, TableSourceIR):
+            input_failure(
+                "unqualified_contribution_route", "replacement states require native tables"
+            )
+        physical = tuple(bound.relation.op().find(ops.DatabaseTable))
+        if not physical or any(
+            _original_input_fact(prepared, owner, bound, leaf) != "qualified" for leaf in physical
+        ):
+            input_failure(
+                "unqualified_contribution_route",
+                f"{owner.provider.name}: replacement capture lacks qualified physical input/collation metadata",
+            )
+    for stage in plan.stages:
+        if not isinstance(stage, SourceRead):
+            continue
+        relation = prepared.relations.get(stage.stage_id)
+        if relation is None:
+            relation = prepared.relations[stage.source_id]
+        string_columns = tuple(
+            name for _, name in stage.field_columns if relation[name].type().is_string()
+        )
+        issue = qualify_original_strings(prepared, relation, string_columns)
+        if issue is not None:
+            input_failure("unqualified_contribution_route", issue)
 
 
 def _preparation_error(
@@ -1393,6 +1427,13 @@ def read_stage(
             stage="source_execution",
             help_target="analysis_frame.compute",
         ) from error
+    if isinstance(stage.program, AttributeFrequencyRead):
+        return _capture_attribute_state(
+            stage,
+            frame,
+            complete_attribute_frequencies(stage, frame, lowered.numeric_checks),
+            source.provider.name,
+        )
     if read_attribute(stage) is not None:
         from marivo.analysis.materialization.query_components import complete_attribute_inputs
 
@@ -1459,8 +1500,227 @@ def read_stage(
             source_rows=len(frame),
         )
     if read_members(stage):
-        return _complete_common_read(stage, frame, lowered.numeric_checks)
-    return _complete_source_frame(stage, frame, lowered.numeric_checks, value_keys=value_keys)
+        output = _complete_common_read(stage, frame, lowered.numeric_checks)
+    else:
+        output = _complete_source_frame(stage, frame, lowered.numeric_checks, value_keys=value_keys)
+    return _capture_attribute_state(stage, frame, output, source.provider.name)
+
+
+def _capture_attribute_state(
+    stage: SourceRead, raw: pd.DataFrame, output: StageOutput, provider: str
+) -> StageOutput:
+    from marivo.analysis.compiler.attribute_frequencies import AttributeStateCapture
+
+    if not stage.attribute_state:
+        return output
+    members = read_members(stage) or (stage,)
+    slots = tuple(
+        reduction.value_slot
+        for member in members
+        if (reduction := read_reduction(member)) is not None
+    )
+    frequencies = output.attribute_frequencies
+    route: Literal["sufficient_statistics", "typed_frequencies", "typed_membership", "key_domain"]
+    route = (
+        ("typed_membership" if frequencies[0].kind == "distinct" else "typed_frequencies")
+        if frequencies
+        else "sufficient_statistics"
+        if slots
+        else "key_domain"
+    )
+    capture = AttributeStateCapture(
+        stage.stage_id,
+        provider,
+        route,
+        slots or stage.keys,
+        frequencies[0].state_entries if frequencies else len(raw) * len(slots or stage.keys),
+        pa.Table.from_pandas(
+            raw.loc[
+                :,
+                list(
+                    dict.fromkeys(
+                        (
+                            *stage.keys,
+                            *(
+                                ("__attribute_frequency_value", "__attribute_frequency")
+                                if frequencies
+                                else slots
+                            ),
+                        )
+                    )
+                ),
+            ],
+            preserve_index=False,
+        ).nbytes,
+        len(raw),
+        pa.Table.from_pandas(raw, preserve_index=False).nbytes,
+        stage.attribute_input_types,
+        tuple(
+            (column.slot_id, column.dtype) for column in output.columns if column.slot_id in slots
+        ),
+    )
+    return replace(output, attribute_state_captures=(capture,))
+
+
+def complete_attribute_frequencies(
+    stage: SourceRead,
+    frame: pd.DataFrame,
+    numeric_checks: tuple[tuple[str, NumericCheck], ...],
+) -> StageOutput:
+    """Retain typed tall frequencies and restore the ordinary scalar stage shape."""
+    from decimal import Decimal
+
+    from marivo._definition.expressions import SourceAggregate
+    from marivo.analysis.compiler.attribute_frequencies import AttributeFrequencyCapture
+    from marivo.analysis.core.data_validation import typed_null_mask
+    from marivo.analysis.methods.attribute_quantiles import (
+        FrequencyRankIndex,
+        FrequencyState,
+        FrequencyValue,
+        frequency_state,
+    )
+
+    assert isinstance(stage.program, AttributeFrequencyRead)
+    reduction = stage.program.reduction
+    assert isinstance(reduction.node, SourceAggregate)
+    assert stage.program.input_type is not None
+    _validate_source_checks(stage, frame, numeric_checks)
+    members = stage.program.members or (stage,)
+    reductions = tuple(require_reduction(member) for member in members)
+    output_types = {c.slot_id: c.dtype for c in stage.columns}
+    finishers = dict(stage.program.finishers)
+    key_arrays = tuple(pa.array(frame[name], from_pandas=True) for name in stage.keys)
+    positions: dict[tuple[pa.Scalar | None, ...], list[int]] = {}
+    for position in range(len(frame)):
+        token = tuple(
+            cell if cell.is_valid else None for array in key_arrays for cell in (array[position],)
+        )
+        positions.setdefault(token, []).append(position)
+    if not stage.keys and not positions:
+        positions[()] = []
+    records: list[dict[str, object]] = []
+    groups: list[tuple[tuple[object, ...], FrequencyState]] = []
+    for token, indexes in positions.items():
+        rows = frame.iloc[indexes]
+        entries: list[tuple[FrequencyValue | None, int]] = []
+        missing_values = typed_null_mask(rows["__attribute_frequency_value"])
+        missing_counts = typed_null_mask(rows["__attribute_frequency"])
+        for value, count, missing_value, missing_count in zip(
+            rows["__attribute_frequency_value"],
+            rows["__attribute_frequency"],
+            missing_values,
+            missing_counts,
+            strict=True,
+        ):
+            if missing_count:
+                continue
+            numeric: FrequencyValue | None = None
+            if not missing_value:
+                scalar = value if type(value) in (int, float, Decimal) else pa.scalar(value).as_py()
+                if not isinstance(scalar, (int, float, Decimal)) or isinstance(scalar, bool):
+                    raise MaterializationError(
+                        expected="a native numeric frequency value",
+                        received=repr(scalar),
+                        repair="Retain the original numeric operand type during source grouping.",
+                        stage="attribute_frequency_capture",
+                        help_target="analysis_frame.attribute",
+                    )
+                numeric = scalar
+            entries.append((numeric, int(count)))
+        try:
+            state = frequency_state(stage.program.input_type, entries)
+        except ValueError as error:
+            raise MaterializationError(
+                expected="native typed value-frequency states with exact positive counts",
+                received=str(error),
+                repair="Inspect the original numeric values and captured frequency counts before retrying attribution.",
+                stage="attribute_frequency_capture",
+                help_target="analysis_frame.attribute",
+            ) from error
+        index = FrequencyRankIndex((state,))
+        index.add(state)
+        key = tuple(cell.as_py() if cell is not None else None for cell in token)
+        groups.append((key, state))
+        record: dict[str, object] = {
+            name: value
+            for name, value in (rows.iloc[0].to_dict().items() if len(rows) else ())
+            if isinstance(name, str)
+            and name not in ("__attribute_frequency_value", "__attribute_frequency")
+        }
+        record.update(zip(stage.keys, key, strict=True))
+        for requested in reductions:
+            assert isinstance(requested.node, SourceAggregate)
+            if requested.node.reducer == "count_distinct":
+                record[requested.value_slot] = index.distinct_count
+            else:
+                q = 0.5 if requested.node.reducer == "median" else requested.node.q
+                assert q is not None
+                record[requested.value_slot] = index.quantile(
+                    q, output_types[requested.value_slot], finisher=finishers[requested.value_slot]
+                )
+        for name in (
+            *(name for name, _ in numeric_checks),
+            "__numeric_present",
+            "__sample_present",
+        ):
+            if name in rows:
+                record[name] = bool(rows[name].astype("boolean").fillna(False).any())
+        records.append(record)
+    scalar_frame = pd.DataFrame(
+        records,
+        columns=list(
+            dict.fromkeys(
+                (
+                    *(
+                        name
+                        for name in frame.columns
+                        if name not in ("__attribute_frequency_value", "__attribute_frequency")
+                    ),
+                    *(requested.value_slot for requested in reductions),
+                )
+            )
+        ),
+        dtype=object,
+    )
+    for requested in reductions:
+        if output_types[requested.value_slot] == ScalarDataType("float64"):
+            scalar_frame[requested.value_slot] = pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(
+                        scalar_frame[requested.value_slot].tolist(),
+                        type=pa.float64(),
+                        from_pandas=False,
+                    )
+                ),
+                index=scalar_frame.index,
+            )
+    output = _complete_source_frame(
+        replace(stage, program=ReductionRead(reduction)), scalar_frame, numeric_checks
+    )
+    captured_groups = tuple(groups)
+    captures = []
+    for member, requested in zip(members, reductions, strict=True):
+        assert isinstance(requested.node, SourceAggregate)
+        distinct = requested.node.reducer == "count_distinct"
+        q = None if distinct else 0.5 if requested.node.reducer == "median" else requested.node.q
+        captures.append(
+            AttributeFrequencyCapture(
+                stage.stage_id,
+                member.occurrence,
+                stage.keys,
+                tuple(c for c in output.columns if c.slot_id in stage.keys),
+                captured_groups,
+                next(c.dtype for c in output.columns if c.slot_id == requested.value_slot),
+                q,
+                requested.value_slot,
+                "distinct" if distinct else "quantile",
+                sum(len(state.values) + int(state.null_count > 0) for _, state in groups),
+                len(frame),
+                pa.Table.from_pandas(frame, preserve_index=False).nbytes,
+                finishers[requested.value_slot],
+            )
+        )
+    return replace(output, attribute_frequencies=tuple(captures), source_rows=len(frame))
 
 
 def _validate_source_checks(

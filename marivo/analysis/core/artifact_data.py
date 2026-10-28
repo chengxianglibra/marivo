@@ -221,7 +221,7 @@ class ArtifactManifest:
     data: ArtifactData
     metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
-    semantics_version: Literal["frame.v8"] = "frame.v8"
+    semantics_version: Literal["frame.v9"] = "frame.v9"
 
     @property
     def result_id(self) -> str:
@@ -243,7 +243,7 @@ class ArtifactManifest:
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not StoredFrameMetadata
-            or self.semantics_version != "frame.v8"
+            or self.semantics_version != "frame.v9"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

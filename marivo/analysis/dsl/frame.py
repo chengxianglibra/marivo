@@ -696,12 +696,22 @@ class AnalysisFrame:
             statistics.append((name, bound._definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
 
-    def attribute(self, *, by: tuple[Deferred | Grouping, ...] | Population) -> AnalysisFrame:
+    def attribute(
+        self,
+        *,
+        by: tuple[Deferred | Grouping, ...] | Population,
+        permutations: int = 1024,
+        seed: int = 0,
+    ) -> AnalysisFrame:
         """Explain selected source targets with contributions on new business axes.
 
         Args:
             by: Nonempty tuple of new semantic classifications, or one complete
                 Population retaining its correlated keys and allocation rules.
+            permutations: Complete sampled permutations for replacement-game targets,
+                at least two; default 1024. Rejects bool. Exact targets do not sample.
+            seed: Nonnegative integer seed, excluding bool; default zero. Controls the
+                versioned permutation stream for a fixed parent and player domain.
 
         Returns:
             A lazy AnalysisFrame with original parent axes, new fine axes,
@@ -713,7 +723,10 @@ class AnalysisFrame:
         Constraints: Requires retained process-local source declarations for every
         direct Metric or admitted comparison target. Select and rename direct outputs;
         define ratio/linear Metrics before observation. Rules bind per target before
-        business reads; quantiles and general nonlinear formulas remain unsupported.
+        business reads. Admitted paired nonlinear formulas use whole-Metric Shapley
+        permutation sampling over fixed group states. All required replacement states
+        must have a proven domain. Unsupported state routes fail without switching
+        algorithms. Level retains admitted share rules, without a zero baseline.
         Fixed division retains its typed
         divisor and division order; Metric rescale also declares the result unit.
         Pending components expose their own units. Completion freezes parent keys
@@ -735,13 +748,21 @@ class AnalysisFrame:
         numeric rounding budget. Integer/count, Decimal and Duration retain their typed
         policies. Relative contributions and effects use one absolute fresh parent
         baseline. Failures never change rules or redistribute residuals.
+        Shapley reports contribution_std_error for permutation error only; exact
+        targets have no synthetic error column. Contributions and standard errors
+        retain the target unit, with common parent normalization for relative targets.
+        Source capture does not grow with permutations; exact value-frequency states
+        can transfer O(N) entries. For n players, cached coalition evaluations are
+        bounded by min(2**n, 2 + permutations*(n-1)); this is not a fixed accuracy or
+        latency guarantee. No row sampling, player truncation, adaptive sample count,
+        per-coalition source rescan or partial publication applies.
         Qualified physical tables use the native backend
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.
         """
         from marivo.analysis.binding.frame_attribute import attribute
 
-        return attribute(self, by=by)
+        return attribute(self, by=by, permutations=permutations, seed=seed)
 
     def over(self, statistic: _Statistic, *, by: tuple[FrameAxis, ...] = ()) -> Column:
         """Reduce each current partition and broadcast its statistic to the same rows.
@@ -1758,6 +1779,7 @@ def _value_summary(value: object, source: AnalysisFrame, depth: int = 0) -> str:
 
 def _operation_summary(binding: OperationFrameBinding) -> str:
     from marivo.analysis.binding.attribute_rules import rule_effects
+    from marivo.analysis.core.attribute_game import AttributeGameValues
     from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 
     operation, source = binding.operation, binding.inputs[0]
@@ -1802,6 +1824,12 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
             f"attribute(target={target.path!r}, kind={target.mode!r}, rule={rule!r})"
             if target is not None
             else "attribute(source_contribution)"
+        )
+    if isinstance(operation, AttributeGameValues):
+        return (
+            f"attribute(target={operation.target.path!r}, rule='group_replacement', "
+            f"permutations={operation.permutations}, seed={operation.seed}, "
+            "players=unknown, state_size=unknown)"
         )
     if isinstance(operation, AttributeInputsValues):
         return "private Attribute input preparation"

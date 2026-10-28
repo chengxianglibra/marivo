@@ -266,7 +266,7 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
 
 
 @pytest.mark.parametrize("distinct", (False, True), ids=("count", "exact_distinct"))
-def test_disjoint_counted_identities_allow_exact_contributions(
+def test_count_and_unproven_distinct_partition_follow_static_rules(
     session: Session, tmp_path: Path, distinct: bool
 ) -> None:
     with duckdb.connect(str(tmp_path / "oracles.duckdb")) as connection:
@@ -311,8 +311,14 @@ def test_disjoint_counted_identities_allow_exact_contributions(
     assert rows["contribution.q"].tolist() == expected
     assert rows["contribution_share.q"].tolist() == ([2, -1] if distinct else [0.5, 0.5])
     for path in ("detail.current.q", "detail.baseline.q", "detail.absolute.q", "contribution.q"):
-        assert _columns(result)[path].dtype == ScalarDataType("int64")
+        assert _columns(result)[path].dtype == ScalarDataType(
+            "float64" if distinct and path == "contribution.q" else "int64"
+        )
         assert _columns(result)[path].unit == "1"
+    method = result.method_facts[0].parents[0].metrics[0].method
+    assert method.kind == ("shapley" if distinct else "additive")
+    if distinct:
+        assert rows["contribution_std_error.q"].tolist() == [0.0, 0.0]
     assert _columns(result)["contribution_share.q"].unit == "1"
     _present(rows)
 

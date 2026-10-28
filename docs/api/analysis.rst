@@ -269,7 +269,7 @@ coordinate interpretation without a full export.
 Explicit source investigation and contribution
 ----------------------------------------------
 
-``frame.attribute(*, by=tuple | Population)`` returns an ordinary lazy
+``frame.attribute(*, by=tuple | Population, permutations=1024, seed=0)`` returns an ordinary lazy
 AnalysisFrame. Its receiver supplies the complete selected parent keys, observed
 values and direct source targets. Direct Metric/current/baseline outputs explain
 levels; a comparison absolute or relative output explains that target's change.
@@ -296,8 +296,11 @@ Paired mean, weighted mean and admitted component ratios additionally expose
 denominator; mixed additive/rate formulas also expose ``effect.additive.<target>``.
 Effects sum to each group's contribution and use the same absolute fresh parent
 baseline for relative targets. Level and pure additive targets have no synthetic
-rate/mix effects. Rules bind before business reads; quantiles and general nonlinear
-targets remain unsupported, with no sampling configuration or method override.
+rate/mix effects. Rules bind before business reads. Qualified paired quantile and
+nonlinear targets use whole-Metric group-replacement Shapley over fixed states;
+there is no method override or group-count threshold. ``permutations`` is an integer
+at least two and ``seed`` a nonnegative integer; both reject bool. Exact targets do
+not sample. Level retains its existing share rules.
 
 Rate/mix requires nonnegative group denominators and effective paired weights,
 positive parent denominators, consistent parent/fine components and original
@@ -305,6 +308,38 @@ positive-support group values matching N/D. Zero support requires zero numerator
 mass. These checks and effect closure use versioned numeric rounding budgets
 without a business percentage allowance. Failures never switch rules or allocate
 residuals. Facts retain the symmetric rule, component and entry/exit policy versions.
+
+Sampled targets add ``contribution_std_error.<target>`` for permutation sampling
+error only. One joint group key switches every leaf occurrence together; the complete
+original formula is evaluated on each fixed-state coalition. All possible coalition
+domains need proof, including demand-sensitive branches and original NULL policies.
+Typed marginal subtraction precedes Float64 averaging. Relative contributions and
+standard errors use the same absolute fixed-state baseline. Complete permutations
+close to the state endpoint difference within the numeric conversion/summation
+budget; no residual is redistributed and failed targets never trigger fallback.
+
+State capture uses qualified small sufficient statistics or lossless typed value-frequency
+buckets; exact frequency transfer can be O(N). Source submissions do not increase
+with permutations; cached unique coalitions are bounded by
+``min(2**n, 2 + permutations*(n-1))`` for n>=1. Original native approximate algorithms
+need a verified reusable native summary route; unsupported routes reject before
+business reads where possible. There is no raw-row coalition expansion, alternate
+quantile algorithm, business-row sampling or automatic reduction of players/counts.
+Float SUM components and native AVG reconstruction are unqualified for games and
+reject before business reads. Existing exact mean/rate-mix rules remain available.
+Integer/Decimal weighted components preserve the original per-operand Float64 casts
+before division. Native approximate quantile games are also unqualified.
+DuckDB native integer/Float quantiles admit q=0/1; interior interpolation rejects
+before business reads. Its Decimal/UInt64 rank-bound route supports all q. PostgreSQL
+retains its qualified original native finisher; MySQL/Trino/ClickHouse retain their
+qualified rank-bound finisher. Ordinary observation algorithms are unchanged.
+Games currently require single-valued classification tuples. Explicit Population
+grouping and multi-membership lack a qualified complete-coverage state route and
+reject before business reads; exact rules retain their existing Population support.
+Closed Shapley method facts disclose original reducer/types/masks/q, nonexecuting
+formula identities and domain proof, state routes, actual capture/evaluation costs
+and unknown provider statistics. No frequencies, sketches or executable formulas
+are persisted. Read ``analysis.frame_shapley_method`` and its nested fact targets.
 
 ``by`` accepts nonempty semantic classification tuples or one complete Population
 with its correlated keys, membership and allocation rules. Frozen interval,
@@ -337,7 +372,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 19 writer transaction. Memory persist never reevaluates. Stored
+single Store 20 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -349,10 +384,10 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 19 uses ``marivo.frame_output/v8``, ``frame.v8`` and ``frame-output-v8`` for
-all Frames, under ``.marivo/analysis/generations/v19/``. Owned method files share
+Store 20 uses ``marivo.frame_output/v9``, ``frame.v9`` and ``frame-output-v9`` for
+all Frames, under ``.marivo/analysis/generations/v20/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 19 refuses older-generation Session/result/audit data unchanged, without
+Store 20 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve

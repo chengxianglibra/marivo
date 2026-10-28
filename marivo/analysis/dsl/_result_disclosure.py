@@ -190,20 +190,29 @@ def provider() -> DisclosureProvider:
             parameters=(
                 P(
                     "by",
-                    "Nonempty semantic classification tuple or one complete Population preserving joint keys and allocation.",
+                    "Nonempty classifications or complete Population with joint keys/allocation.",
                     ("inputs.catalog", "inputs.population"),
+                ),
+                P(
+                    "permutations",
+                    "Complete permutations >=2; default1024. Int, not bool; Shapley only.",
+                ),
+                P(
+                    "seed",
+                    "Nonnegative int, not bool; default0. Repeatable stream for fixed parent/player keys.",
                 ),
             ),
             output="AnalysisFrame",
             constraints=(
-                "Every output must be a direct source Metric or admitted compare/align target. Bind each target before reads to exact additive, rate/mix or fixed linear decomposition. No method override. Level keeps admitted share rules. Define formulas before observation; arbitrary Column arithmetic has no source declaration. Typed fixed division/rescale retain order and units. Quantiles and general nonlinear formulas remain unsupported.",
-                "compute and same-process persist retain the source declaration; independent reopen does not. Complete parent keys and observed values stay fixed. Parent and fine reads are independent, with no shared-snapshot or source-version guarantee.",
-                "Qualified physical tables use native backends under type/source/state restrictions. Trust semantic identity, cardinality and version grain, including physical nullable keys; no full-source NULL or uniqueness precheck. Coverage, overlap, distinct partition and frozen time checks remain. Rate/mix requires nonnegative effective weights and group denominators, positive parent denominators, consistent parent/fine components and defined original group rates. Failure never switches rules. Component/effect checks use numeric budgets; unchanged additive/level Float64 closure keeps max(1% of abs(total), numeric rounding budget). One unsupported or nonclosing target rejects the request.",
-                "Per target: contribution, total, observed_total, contribution_share, fine diagnostics and presence. Paired rate/mix adds effect.within, effect.mix and effect.entry_exit; mixed linear formulas add effect.additive. Relative contributions/effects use one absolute fresh parent baseline. Zero totals give NA shares. Filtering preserves the original complete contribution domain, effects and facts. Level and pure additive targets have no synthetic rate/mix columns. Float64 facts retain captured values without arithmetic recomputation.",
+                "Bind each target before reads: exact additive/rate-mix/linear, or paired whole-Metric group-replacement Shapley. No method override, n threshold or runtime fallback. Level keeps share rules. Use retained Metric/compare/align outputs; define formulas before observe. Column arithmetic has no source declaration. Typed division/rescale retain order/units.",
+                "compute/same-process persist retain declarations; independent reopen does not. Parent keys/observed values stay fixed. Reads are independent; no shared snapshot. Game endpoints use captured states; observed_total preserves history.",
+                "Qualified physical tables only. Trust semantic identity/cardinality/version grain, including nullable keys; no full-source NULL/uniqueness precheck. Check coverage, overlap, distinct partition and frozen time. Rate/mix needs nonnegative weights/group denominators, positive parent denominators and consistent components/original N/D. Games need qualified states and domain proof for all coalitions; Float SUM/native AVG states are unqualified. Failure never switches rules; any failed target rejects the request.",
+                "contribution/total/observed_total/contribution_share retain diagnostics/presence. Rate/mix adds effect.within/mix/entry_exit; mixed linear adds effect.additive. Shapley adds contribution_std_error for permutation error only. Relative outputs share abs(fresh baseline); zero totals give NA shares. Filtering retains domain/facts; Float64 facts preserve values without arithmetic recomputation.",
+                "State capture reads do not grow with permutations. Frequencies may transfer O(N); cached coalitions <=min(2**n,2+permutations*(n-1)). Native approximate needs verified native summaries. No row sampling, top-k, adaptive count or rescans. Use numeric budgets; unchanged additive/level Float64 keeps max(1% of abs(total), numeric rounding budget).",
             ),
-            effects="Capture only. compute reads fresh source facts after evaluating and fixing the parent selection; persist publishes the completed report without serializing declarations.",
+            effects="Lazy capture; compute fixes parents and reads states; persist publishes results without declarations.",
             failures=(
-                "AnalysisError: follow the target-specific expected/received/repair; rebuild explicit source observations when declarations are unavailable, or use population_from/in_population and observe for an ordinary investigation.",
+                "AnalysisError: follow repairs; rebuild missing declarations or investigate with population_from/in_population and observe.",
             ),
             example=ExampleInput(
                 "result = source_frame.attribute(by=(region,))",

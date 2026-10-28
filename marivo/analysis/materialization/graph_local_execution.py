@@ -65,9 +65,20 @@ def run_local(
 
         attribute_methods: tuple[AttributeMethodPayload, ...] = ()
         attachments: tuple[OutputAttachment, ...]
+        from marivo.analysis.core.attribute_game import AttributeGameProgram
         from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
 
-        if isinstance(stage.program, AttributeMergeProgram):
+        if isinstance(stage.program, AttributeGameProgram):
+            from marivo.analysis.methods.frame_attribute_shapley import attribute_game_data
+
+            frame, payload = attribute_game_data(stage.program, inputs)
+            attachments = tuple(
+                attachment
+                for attachment in inputs[0].frame_attachments
+                if attachment.name in required
+            )
+            attribute_methods = (payload,)
+        elif isinstance(stage.program, AttributeMergeProgram):
             from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
 
             frame, attachments = merge_attribute_data(stage.program, inputs)
@@ -318,4 +329,18 @@ def run_local(
         components=components if isinstance(stage.program, FormulaProgram) else (),
         population_frames=population_frames if isinstance(stage.program, FormulaProgram) else (),
         attribute_inputs=attribute_inputs,
+        attribute_state_captures=tuple(
+            {
+                capture.stage_id: capture
+                for source in inputs
+                for capture in source.attribute_state_captures
+            }.values()
+        ),
+        attribute_frequencies=tuple(
+            {
+                (capture.stage_id, capture.value_slot): capture
+                for source in inputs
+                for capture in source.attribute_frequencies
+            }.values()
+        ),
     )

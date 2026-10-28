@@ -23,7 +23,9 @@ head:
 
 ## 归因受支持的变化
 
-当需要按新的语义分类，拆解选定的直接 Metric 或受支持的比较输出时，使用 `attribute(by=...)`。报告包含贡献、贡献占比、新读取的 `total`、输入 Frame 中的 `observed_total`，以及用于说明计算方式的方法事实。如果原始观察之后来源数据可能已变化，请同时查看这两个合计值：归因会固定已完成的父级键和值，再分别读取父级和细分输入，因此不保证这些读取来自同一数据快照。
+当需要按新的语义分类，拆解选定的直接 Metric 或受支持的比较输出时，使用 `attribute(by=...)`。报告包含贡献、贡献占比、新读取的 `total`、输入 Frame 中的 `observed_total`，以及用于说明计算方式的方法事实。如果原始观察之后来源数据可能已变化，请同时查看这两个合计值：归因会固定已完成的父级键和值。精确规则分别读取父级和细分输入，Shapley 从捕获状态求两端值；独立读取不保证来自同一数据快照。
+
+精确的 additive/rate-mix 规则继续使用精确分解。合格的配对非线性与分位数目标使用完整 Metric 的分组替换 Shapley，默认 `permutations=1024, seed=0`。它先捕获固定来源状态，再在本地采样完整替换顺序；增加排列数会增加本地开销，不增加捕获读取。`contribution_std_error.<name>` 表示排列采样误差，所有可能联盟都必须具有可证明的有限定义域。使用原生分位数目标前，请查看 [DSL 的状态与后端限制](/zh-cn/docs/latest/analysis/dsl/#attribute解释来源贡献)。
 
 下面的示例使用[分析 DSL 设置](/zh-cn/docs/latest/analysis/dsl/)中的 `session`、`revenue`、`july`、`august` 和 `region`，按地区归因示例中的绝对变化：
 

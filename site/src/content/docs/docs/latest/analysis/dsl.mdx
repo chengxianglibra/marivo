@@ -303,12 +303,13 @@ Division retains its original typed divisor and arithmetic order. `rescale` decl
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `by` | Yes | — | Nonempty new semantic classifications or a complete Population. The receiver must retain a source declaration for every selected admitted target. |
+| `permutations` | No | `1024` | Complete permutations for Shapley; integer ≥ 2, excluding bool. Exact decomposition ignores it. |
+| `seed` | No | `0` | Nonnegative integer, excluding bool; fixes the versioned permutation stream for captured parent/player keys. |
 
 Outputs include `contribution.<name>`, `contribution_share.<name>`, `total.<name>`, `observed_total.<name>` and fine diagnostics. `method_facts` retains the method explanation through filtering and persistence.
 
-Attribute fixes the selected parent keys and observed values, then reads fresh parent
-and fine-grain inputs separately. The reads can reflect different source states.
-`total` uses the fresh parent formula; `observed_total` preserves the value from the
+Attribute fixes the selected parent keys and observed values. Exact decomposition reads fresh parent and fine-grain inputs separately; Shapley computes endpoints and coalitions from captured states. Independent source reads can reflect different source states.
+`total` uses the fresh formula; `observed_total` preserves the value from the
 input Frame. Qualified physical tables use native backend execution for supported
 methods, types and source shapes.
 
@@ -318,7 +319,7 @@ appear in multiple groups, numeric validity, complete time correspondence and
 closure of requested final targets. `method_facts` preserve captured finite Float64 values and their
 method explanation without recalculating the arithmetic. The closure rules below
 apply to requested targets; relative targets use the absolute fresh parent baseline.
-Define a supported linear or ratio Metric before observing it; general Frame
+Define the complete Metric formula before observing it; general Frame
 Column arithmetic has no attribution method. Reopening a saved Frame retains
 values and method facts, but not the source declaration needed for another
 attribute request.
@@ -328,7 +329,15 @@ Numeric source division converts both operands to Float64 before dividing, prese
 
 Rules bind per target before business reads; there is no `method` parameter. Additive Metrics and admitted ratios, mean, weighted_mean and fixed linear formulas use exact decomposition. Paired rate/mix targets add `effect.within.<name>`, `effect.mix.<name>` and `effect.entry_exit.<name>`; mixed additive terms also add `effect.additive.<name>`. Their sum is each group's contribution. Entry/exit uses a zero-denominator, zero-numerator-mass boundary without filling an undefined group rate. Group denominators and effective pair weights must be nonnegative, parent denominators positive, and parent/fine components and original group rates consistent. Failure never changes the bound rule.
 
-Quantiles and general nonlinear targets remain unsupported. Level retains its admitted share rules without an artificial zero baseline. Ordinary Column arithmetic has no source authority.
+Paired targets outside the exact rules can use whole-Metric group-replacement Shapley when every leaf has a qualified state route and the complete formula is defined and finite for every coalition. Supported leaves include sufficient statistics, exact typed quantile frequencies and qualified numeric distinct membership. The rule is selected before business reads, without a group-count threshold or a fallback after failure. Level retains its admitted share rules; ordinary Column arithmetic has no source authority.
+
+Shapley returns `contribution_std_error.<name>` for permutation sampling error. Each complete permutation replaces every joint-key group once. Raising `permutations` increases local coalition work and cache use, while source capture reads stay fixed. Weighted states use paired masks; exact quantile/distinct state can transfer O(N) values. This is permutation sampling, with no source-row sampling, top-k or adaptive stopping. `method_facts` records the game, original leaf types/finishers, capture costs, permutation count and seed. Unknown scan/wire statistics remain unknown.
+
+Native approximate quantiles require a verified native summary route and are currently rejected for attribution. DuckDB native integer/Float quantiles admit q=0/1, while interior interpolation rejects before business reads. Its Decimal/UInt64 rank-bound route supports all q. PostgreSQL retains its qualified original native finisher; MySQL/Trino/ClickHouse retain qualified rank-bound finishing. Ordinary observation keeps its existing backend algorithms.
+
+Float SUM components and native AVG reconstruction are currently unqualified for Shapley and reject before business reads. Integer/Decimal sums, counts, extrema and qualified frequency states remain available; integer/Decimal weighted states preserve the original per-operand Float64 casts before division. Existing exact mean/rate-mix rules remain available.
+
+The current Shapley route requires single-valued classification tuples. Explicit Population grouping and multi-membership are rejected before business reads because their complete-coverage state route is not yet qualified; exact decomposition keeps its existing Population support. String and floating distinct membership also require separate equality/collation qualification.
 
 New rate/mix component and effect closure checks use versioned numeric budgets without a 1% business allowance. Unchanged additive/level Float64 routes retain `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`; integer, Decimal and Duration retain their typed policies. Residuals are never redistributed. Relative contributions and effects all divide by the same absolute fresh parent baseline; zero or undefined baselines fail.
 
@@ -355,6 +364,29 @@ assert all(name in average_rows.columns for name in effect_columns)
 ```
 
 Within effects explain changes in regional means, mix effects changes in valid-sample shares, and entry/exit effects retain support boundaries separately.
+
+{/* example: attribute-shapley */}
+
+```python
+squared = revenue * revenue
+squared_current = session.observe({"squared": squared}, by=(august,))
+squared_baseline = session.observe({"squared": squared}, by=(july,))
+squared_change = squared_current.compare(
+    {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
+).compute()
+squared_target = squared_change.select(
+    {"squared": squared_change["reference.absolute.squared"]}
+)
+squared_explained = squared_target.attribute(
+    by=(region,), permutations=256, seed=42
+).compute()
+squared_rows = squared_explained.to_pandas()
+assert "contribution_std_error.squared" in squared_rows.columns
+squared_method = squared_explained.method_facts[0].parents[0].metrics[0].method
+assert squared_method.kind == "shapley"
+```
+
+The squared Metric is evaluated as a whole for each coalition. Its group contributions explain the overall squared-revenue change; they are not squared regional differences. Standard errors describe sampling variation, not metric approximation or causal uncertainty.
 
 ### Observe a fresh breakdown
 
@@ -417,7 +449,7 @@ A new grouped observation reads source facts again. Contribution uses a supporte
 
 Inspect `method_facts` for the complete original explanation. Filtering the report does not recalculate its original denominator. Reopening saved data preserves explanations but does not restore a source declaration for another contribution request.
 
-The squared-revenue example is a valid grouped comparison, but its differences do not add up to the original overall nonlinear change. Use it as an investigation, without claiming exact contribution. Check [backend and method limits](/docs/latest/reference/backends-and-limits/).
+The separate grouped squared-revenue comparison remains an investigation: its regional differences do not add up to the overall nonlinear change. Use the Shapley report above for contributions to that overall change. Check [backend and method limits](/docs/latest/reference/backends-and-limits/).
 
 None of these arithmetic decompositions proves a causal explanation. To investigate a hypothesis, obtain data that can distinguish it from alternatives.
 

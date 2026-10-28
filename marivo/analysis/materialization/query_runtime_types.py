@@ -77,6 +77,29 @@ def effective_frame_schema(schema: DataSchema, columns: tuple[DataColumn, ...]) 
 def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> FrameCompute:
     """Infer this invocation's local Frame program from consumed value types."""
     program = stage.program
+    from marivo.analysis.core.attribute_game import AttributeGameProgram, game_schema
+
+    if isinstance(program, AttributeGameProgram):
+        schemas = tuple(
+            item.frame_schema or effective_frame_schema(schema, item.columns)
+            for schema, item in zip(
+                (program.parent_schema, program.left_schema, program.right_schema),
+                inputs[:3],
+                strict=True,
+            )
+        )
+        output = game_schema(schemas[1], schemas[2], schemas[0], program.operation)
+        assert isinstance(output, DataSchema)
+        return replace(
+            stage,
+            program=replace(
+                program,
+                parent_schema=schemas[0],
+                left_schema=schemas[1],
+                right_schema=schemas[2],
+                output_schema=output,
+            ),
+        )
     from marivo.analysis.core.frame_attribute_merge import (
         AttributeMergeProgram,
         infer_attribute_merge_schema,

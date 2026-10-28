@@ -23,7 +23,9 @@ See [compare baselines in the Analysis DSL](/docs/latest/analysis/dsl/#compare-a
 
 ## Attribute a supported change
 
-Use `attribute(by=...)` when you need contributions for a selected direct Metric or supported comparison output, broken down by a new semantic classification. The report includes contributions, contribution shares, a freshly read `total`, the input Frame's `observed_total`, and method facts that describe the calculation. Read both totals when a source may have changed since the original observation: attribution fixes the completed parent keys and values, then reads parent and fine inputs independently, without a shared-snapshot guarantee.
+Use `attribute(by=...)` when you need contributions for a selected direct Metric or supported comparison output, broken down by a new semantic classification. The report includes contributions, contribution shares, a freshly read `total`, the input Frame's `observed_total`, and method facts that describe the calculation. Read both totals when a source may have changed since the original observation: attribution fixes the completed parent keys and values. Exact rules read parent and fine inputs separately; Shapley derives endpoints from captured states. Independent reads have no shared-snapshot guarantee.
+
+Exact additive/rate-mix rules remain exact. Qualified paired nonlinear and quantile targets use whole-Metric group-replacement Shapley with `permutations=1024, seed=0` by default. It captures fixed source states, then samples complete replacement orders locally; more permutations increase local work without increasing capture reads. `contribution_std_error.<name>` measures permutation sampling error. Every possible coalition must have a proven finite domain. Read the [DSL's state and backend restrictions](/docs/latest/analysis/dsl/#attribute--explain-source-contributions) before using native quantile targets.
 
 This example uses `session`, `revenue`, `july`, `august`, and `region` from the [DSL setup](/docs/latest/analysis/dsl/). It attributes the absolute change in the shared sample by region:
 

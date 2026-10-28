@@ -12,8 +12,8 @@ class MaterializationLayout:
     project_root: Path
 
     @property
-    def generation(self) -> Literal[19]:
-        return 19
+    def generation(self) -> Literal[20]:
+        return 20
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_root", self.project_root.resolve())

@@ -19,6 +19,7 @@ from marivo._definition.query import (
 from marivo._definition.relations import AttributeKeys, FrameKeys
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
+    AttributeFrequencyRead,
     AttributeRead,
     CommonRead,
     FrameCompute,
@@ -39,6 +40,11 @@ from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
     FrameCompareProgram,
     FrameProgram,
+)
+from marivo.analysis.core.attribute_game import (
+    AttributeGameProgram,
+    AttributeGameValues,
+    game_schema,
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
@@ -103,7 +109,7 @@ def _prefix(stage: QueryStage, names: Mapping[str, str], namespace: str) -> Quer
     inputs = tuple(_name(names, name, namespace) for name in stage.inputs)
     if isinstance(stage, SourceRead):
         source_program = stage.program
-        if isinstance(source_program, (CommonRead, AttributeRead)):
+        if isinstance(source_program, (CommonRead, AttributeRead, AttributeFrequencyRead)):
             source_program = replace(
                 source_program,
                 members=tuple(_prefix_read(s, names, namespace) for s in source_program.members),
@@ -344,6 +350,75 @@ def plan_frame(
             stages.append(merged)
             operations[id(node)] = (merged.stage_id, merged_schema)
             return merged.stage_id, merged_schema
+        if isinstance(node.operation, AttributeGameValues):
+            from marivo.analysis.compiler.populations import plan_frame_keys
+
+            parent, parent_schema = visit(node.inputs[0])
+            for endpoint_node in node.inputs[1:]:
+                assert isinstance(endpoint_node, SourceFrameInput)
+                for key_stage in source_plans[endpoint_node.input_id].lowered.plan.stages:
+                    if isinstance(key_stage, FrameKeysInput) and isinstance(
+                        key_stage.parameter.definition.root, AttributeKeys
+                    ):
+                        projection = plan_frame_keys(key_stage.parameter, parent, parent_schema)
+                        if projection.stage_id not in projections:
+                            stages.append(projection)
+                            projections[projection.stage_id] = projection.stage_id
+            left, left_schema = visit(node.inputs[1])
+            right, right_schema = visit(node.inputs[2])
+            game_output = game_schema(left_schema, right_schema, parent_schema, node.operation)
+            assert isinstance(game_output, DataSchema)
+            original_slots = []
+            state_slots = []
+            for endpoint, game in zip(node.inputs[1:], node.operation.games, strict=True):
+                assert isinstance(endpoint, SourceFrameInput)
+                formula = next(
+                    stage.program
+                    for stage in reversed(source_plans[endpoint.input_id].lowered.plan.stages)
+                    if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram)
+                )
+                original_slots.append(
+                    tuple(
+                        (
+                            leaf.occurrence,
+                            next(
+                                value.column.slot_id
+                                for value in formula.values
+                                if value.occurrence == (game.target_slot, *leaf.occurrence[1:])
+                            ),
+                        )
+                        for leaf in game.leaves
+                    )
+                )
+                state_slots.append(
+                    tuple(
+                        (value.occurrence[0], value.column.slot_id)
+                        for value in formula.values
+                        if len(value.occurrence) >= 1
+                    )
+                )
+            game_program = AttributeGameProgram(
+                node.operation,
+                parent_schema,
+                left_schema,
+                right_schema,
+                game_output,
+                (original_slots[0], original_slots[1]),
+                (state_slots[0], state_slots[1]),
+            )
+            bridges = tuple(
+                "attribute-bridge:" + identifier
+                for identifier in (
+                    node.operation.mapping.left_projection,
+                    node.operation.mapping.right_projection,
+                )
+            )
+            compute = FrameCompute(
+                f"frame:{len(stages)}", (parent, left, right, *bridges), game_program
+            )
+            stages.append(compute)
+            operations[id(node)] = (compute.stage_id, game_output)
+            return compute.stage_id, game_output
         if isinstance(node.operation, AttributeContributionValues):
             from marivo.analysis.core.attribute import (
                 AttributeContributionProgram,
@@ -639,6 +714,11 @@ def frame_expression_schema(
             assert isinstance(merged_schema, DataSchema)
             memo[id(expression)] = merged_schema
             return merged_schema
+        if isinstance(expression.operation, AttributeGameValues):
+            game_result = game_schema(inputs[1], inputs[2], inputs[0], expression.operation)
+            assert isinstance(game_result, DataSchema)
+            memo[id(expression)] = game_result
+            return game_result
         if isinstance(expression.operation, AttributeContributionValues):
             from marivo.analysis.core.attribute import (
                 pending_contribution_schema,

@@ -23,6 +23,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
+from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
@@ -160,7 +161,9 @@ def derive(
         # Projection carries keys only.
         values = ()
         presence = ()
-    elif isinstance(operation, (AttributeContributionValues, AttributeInputsValues)):
+    elif isinstance(
+        operation, (AttributeContributionValues, AttributeInputsValues, AttributeGameValues)
+    ):
         mapping = operation.mapping
         endpoints = tuple(frame.lineage for frame in inputs[1:])
         left = endpoints[0]
@@ -173,11 +176,28 @@ def derive(
         domain = union(
             domain, *(endpoint._domain for endpoint in endpoints), *(all_origins(a) for a in axes)
         )
-        indices = operation.source_indices or (0, 0)
+        indices = (
+            tuple(game.target_slot for game in operation.games)
+            if isinstance(operation, AttributeGameValues)
+            else operation.source_indices or (0, 0)
+        )
         lvalue = tuple(left.values.values())[indices[0]]
         rvalue = tuple(right.values.values())[indices[1]]
         both = merge(lvalue, rvalue)
-        if isinstance(operation, AttributeContributionValues) and operation.target is not None:
+        if isinstance(operation, AttributeGameValues):
+            game_target = operation.target
+            observed = values[game_target.observed]
+            values = tuple(
+                observed
+                if path == ("observed_total", *game_target.path)
+                else lvalue
+                if path == ("detail", "current", *game_target.path)
+                else rvalue
+                if path == ("detail", "baseline", *game_target.path)
+                else both
+                for path in schema.value_paths
+            )
+        elif isinstance(operation, AttributeContributionValues) and operation.target is not None:
             target = operation.target
             observed = values[target.observed]
 

@@ -221,6 +221,8 @@ def lower_observation(
     columns: Mapping[str, str],
     predicates: tuple[PredicateExpression, ...],
     row_checks: tuple[tuple[str, str, str], ...] = (),
+    *,
+    frequency: bool = False,
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
     if prepared.mean_fold is not None and prepared.mean_fold[2] == "mean":
@@ -295,6 +297,20 @@ def lower_observation(
     axes = _reduction_axes(prepared, fields, window_slot)
     from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 
+    if frequency:
+        from marivo.analysis.errors import AnalysisStageUnavailableError
+
+        assert isinstance(prepared.node, SourceAggregate)
+        dtype = lower_row(prepared.node.operand, fields).value.type()
+        distinct = prepared.node.reducer == "count_distinct"
+        if not dtype.is_numeric() or (distinct and not (dtype.is_integer() or dtype.is_decimal())):
+            raise AnalysisStageUnavailableError(
+                stage="attribute_state_binding",
+                expected="native numeric quantile values or integer/Decimal distinct membership with exact equality",
+                received=f"{prepared.provider}: {prepared.node.reducer}({dtype})",
+                repair="Use a qualified numeric state input. String collation and floating special-value equality have no qualified membership carrier; inspect the original observations before changing the business definition. No business row was read.",
+                target="analysis_frame.attribute",
+            )
     admit_source_aggregate(prepared, fields)
     item = lower_source_reduction(prepared.node, filtered, fields)
     metrics = {
@@ -318,12 +334,23 @@ def lower_observation(
         if node.reducer == "mean":
             metrics[prepared.value_slot] = ops.Cast(ticks.sum().fill_null(0), to=dt.int64).to_expr()
             metrics["__duration_count"] = ticks.count()
+
     if inline_presence:
         # Its numeric groups already contain precisely the presence domain.
         metrics["__sample_present"] = filtered.count() > 0
         metrics["__numeric_present"] = ibis.literal(True)
+    grouped_axes = axes
+    if frequency:
+        assert isinstance(prepared.node, SourceAggregate)
+        grouped_axes = {
+            **axes,
+            "__attribute_frequency_value": lower_row(prepared.node.operand, fields).value,
+        }
+        metrics["__attribute_frequency"] = filtered.count()
     result = (
-        filtered.group_by(**axes).aggregate(**metrics) if axes else filtered.aggregate(**metrics)
+        filtered.group_by(**grouped_axes).aggregate(**metrics)
+        if grouped_axes
+        else filtered.aggregate(**metrics)
     )
     checks = [(f"numeric_check.{i}", check) for i, check in enumerate(item.checks)]
     if predicate_summary is not None:

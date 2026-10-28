@@ -68,6 +68,12 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
+    FrameShapleyCapture,
+    FrameShapleyGame,
+    FrameShapleyLeaf,
+    FrameShapleyMethod,
+    FrameShapleyQuantile,
+    FrameShapleyReduction,
 )
 from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.analysis.errors import AnalysisError
@@ -91,7 +97,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 19 Frame output v8 value",
+        expected="a complete Store 20 Frame output v9 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -159,6 +165,12 @@ _RECORDS = (
     FrameMethodSupport,
     FrameMethodValue,
     FrameRatioMethod,
+    FrameShapleyCapture,
+    FrameShapleyGame,
+    FrameShapleyLeaf,
+    FrameShapleyMethod,
+    FrameShapleyQuantile,
+    FrameShapleyReduction,
     LocalReceipt,
     FileEntry,
     OutputCoordinate,
@@ -177,9 +189,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v8"
+FORMAT = "marivo.frame_output/v9"
 
-# One closed Store19 field inventory. No older field set or dataclass fallback.
+# One closed Store20 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "SemanticObjectIdentity": ("kind", "path", "definition_id"),
     "ColumnLineage": ("value_origins", "context_origins"),
@@ -289,6 +301,67 @@ _FIELDS = {
         "boundary_policy",
     ),
     "FrameLinearTerm": ("coefficient", "method"),
+    "FrameShapleyGame": (
+        "kind",
+        "semantics_version",
+        "current_formula_id",
+        "baseline_formula_id",
+        "player_domain",
+        "domain_policy",
+        "domain_proof",
+        "metric_approximation",
+        "standard_error",
+        "closure_policy",
+    ),
+    "FrameShapleyReduction": ("kind", "reducer"),
+    "FrameShapleyQuantile": ("kind", "reducer", "q", "finisher"),
+    "FrameShapleyLeaf": (
+        "occurrence",
+        "current_capture_ids",
+        "baseline_capture_ids",
+        "reduction",
+        "input_types",
+        "output",
+        "mask_policy",
+        "null_policy",
+        "weight_null_policy",
+    ),
+    "FrameShapleyCapture": (
+        "capture_id",
+        "endpoint",
+        "backend",
+        "backend_version",
+        "state_route",
+        "state_entries",
+        "state_bytes",
+        "returned_rows",
+        "returned_bytes",
+        "source_reads",
+        "native_parameter_bytes",
+        "native_batches",
+        "scanned_rows",
+        "scanned_bytes",
+        "wire_bytes",
+    ),
+    "FrameShapleyMethod": (
+        "kind",
+        "left",
+        "right",
+        "change",
+        "permutations",
+        "seed",
+        "algorithm_version",
+        "state_route",
+        "state_entries",
+        "player_count",
+        "unique_coalitions",
+        "coalition_evaluations",
+        "captured_source_reads",
+        "sampled_transitions",
+        "game",
+        "leaves",
+        "captures",
+    ),
     "FrameDivisionMethod": ("kind", "left", "right", "change", "divisor", "operation", "method"),
     "FrameLevelDivisionMethod": ("kind", "value", "divisor", "operation", "method"),
     "FrameLinearMethod": ("kind", "left", "right", "change", "terms"),
@@ -459,7 +532,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v8; obsolete output format received")
+            raise invalid("expected Frame output v9; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
@@ -485,7 +558,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v8 method record")
+            raise invalid("expected Frame output v9 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

@@ -135,6 +135,23 @@ positive-support original N/D checks precede the new effect closure. These check
 add no identity or uniqueness preflight and do not certify a shared snapshot. Cold
 reads retain captured policy versions and do not reread sources or reapply checks.
 
+Sampled targets use the closed `FrameShapleyMethod` variant. It retains native typed
+endpoints/change, permutation count/seed/version, player count and actual unique
+coalition/transition costs. `game` holds nonexecuting endpoint formula digests,
+replacement/domain/closure policies and captured proof clauses; `leaves` retains
+original typed reducers, q and NULL masks with both endpoint capture directories.
+`captures` records each actual submitted input stage once, including domain/diagnostic
+or shared sibling work. A leaf may reference multiple captures, and an identical
+actual capture may serve both endpoints. Decoded returned bytes and logical state
+payload bytes are distinct from unknown scanned/wire bytes and process memory.
+The directory supports truthful sharing/cost inspection without saved state or SQL.
+Sampled contributions and SE are Float64 in the target unit; endpoint diagnostics,
+total and observed_total retain their owning common carrier. SE measures permutation
+sampling error only. No rate/mix effect columns are manufactured for sampled targets.
+Successful game execution records its fixed-state domain/closure check on the local
+consumer. Cold recovery validates closed types, references, costs and payload digests;
+it does not rerun the formula, source, game or a newer numeric policy.
+
 Float64 method values are finite captured facts, not arithmetic identities to
 recompute. Validation skips floating ratio, linear, division, endpoint-difference and relative
 arithmetic before formula evaluation, with no second tolerance. Exact non-floating
@@ -149,8 +166,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 19 uses marivo.frame_output/v8,
-frame.v8 and frame-output-v8. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+Memory roots retain the complete records. Store 20 uses marivo.frame_output/v9,
+frame.v9 and frame-output-v9. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
 source/check/Finding counts, internal collection digests and owned-payload
 descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
 opening a manifest never loads either collection. Atomic publication writes both

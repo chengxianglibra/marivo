@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from marivo.analysis.binding.attribute_game import AttributeGame
     from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.core.frame_expression import AttributeFrameValues
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -26,3 +27,5 @@ class AttributeInputRequest:
     ) = None
     source_indices: tuple[int, int] | None = None
     source_sides: tuple[int, int] | None = None
+
+    games: tuple[AttributeGame, AttributeGame] | None = None

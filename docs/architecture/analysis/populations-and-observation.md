@@ -241,9 +241,10 @@ become a source Metric; combine ratios or fixed linear formulas before observe.
 The restricted align endpoint difference is an explicit admitted exception.
 
 The current complete receiver rows fix the parent key domain and observed totals.
-Attribute first completes any pending selection, then independently reads parent
-and fine inputs. These reads need not share a snapshot, source version or raw identity
-set. The parent formula uses its original scope before the new classification;
+Attribute first completes any pending selection. Exact decomposition independently
+reads parent and fine inputs; replacement games capture both endpoint group states
+and derive their totals from those fixed states. Reads need not share a snapshot,
+source version or raw identity set. The parent formula uses its original scope before the new classification;
 fine inputs add that classification. Original predicates,
 Population allocation, window dependencies, strict formulas and numeric checks stay
 attached. A fixed parent selection is never reranked against the new source values.
@@ -296,8 +297,9 @@ NA shares. Filtering the report preserves original totals and method facts.
 
 Rules bind per target before business reads. Additive, native mean/weighted mean,
 component ratios and captured fixed linear formulas retain their original total
-contributions. Quantiles and general nonlinear formulas remain unsupported; there
-is no public method selector or sampling configuration.
+contributions. A paired target outside the exact rules may bind a qualified
+whole-Metric group-replacement Shapley game. There is no public method selector
+or player-count threshold, and failed exact checks never switch to a game.
 
 Paired rate/mix rules add `effect.within`, `effect.mix` and `effect.entry_exit` for
 each target. For a group supported at both endpoints, let r be its numerator divided
@@ -340,9 +342,74 @@ budget. All totals, residuals and budgets must be finite. Historical observed to
 remain separate; passing closure does not certify a cross-source snapshot. Inert
 cold facts preserve their original versioned explanation without rerunning checks.
 
+### Fixed-state Shapley games
+
+`attribute(by=..., permutations=1024, seed=0)` validates both sampling inputs before
+reads: permutations is an integer at least two and seed a nonnegative integer;
+both exclude bool. Exact targets do not sample or publish synthetic standard-error
+columns. Paired absolute/relative nonlinear targets bind a complete Metric formula,
+not a composition of local subexpression contributions. Level keeps its existing
+share admission; it has no artificial baseline.
+
+One complete joint fine key is a player. The domain is the endpoint union, including
+NULL classification keys. Each player
+switches all its leaf occurrences from baseline to current together. State sharing
+requires the same actual input binding, scope, masks, dependencies and execution
+identity; names or equal fingerprints alone do not establish it. Different exact
+quantile parameters can share one distribution while retaining separate finishing.
+New game inputs require qualified native physical tables and unique fact grouping;
+unsupported membership/state/equality routes fail explicitly without new identity
+or uniqueness scans.
+The current game route accepts single-valued classification tuples. Explicit
+Population grouping and multi-membership require a separately qualified complete
+coverage receipt and are rejected before business reads; exact rules retain their
+existing Population contract.
+
+Qualified small states retain exact integer/Decimal masses, valid/row counts, co-valid weighted components or extrema. Float SUM components and native AVG state reconstruction are currently unqualified and rejected before business reads; existing exact mean/rate-mix rules remain available. Weighted finishing casts each exact component to Float64 before division through the original numeric owner. Exact quantiles capture typed value-frequency buckets and use an incremental
+integer cumulative-rank index, preserving q, duplicate values, original numeric
+ordering and qualified finishing. Numeric distinct uses qualified typed membership
+states; other equality/collation routes require independent qualification. NULL and
+nonfinite support retain the owning source policy. No-fact sum zero remains distinct
+from a present all-NULL sum. Native approximate quantiles require a verified original
+native summary carrier/merge/finish route; no substitute sketch, exact algorithm or
+raw-value coalition expansion is used when that route is unavailable.
+The current game route rejects native approximate quantiles and unverified DuckDB
+native interior interpolation before business reads. DuckDB native q=0/1 extrema remain qualified, while its Decimal/UInt64 rank-bound route supports all q. Rank-bound finishing remains qualified;
+the PostgreSQL native finisher retains its original operation order and must pass
+the finite-domain proof. This does not change ordinary observation algorithms.
+
+The captured states must prove the domain for every possible coalition, not just
+sampled ones. The finite interval/demand proof can reject requests it cannot prove;
+that is not proof that the business game is mathematically impossible. It preserves
+source-owned strict-NULL checks and checks actual demanded expression branches.
+Native overflow and invalid sampled values still fail through their numeric owner;
+there is no retry, skipped coalition, adaptive permutation count or partial result.
+
+Independent uniform complete permutations use a versioned deterministic stream over
+typed parent/player keys and seed. A target's display name and physical return order
+do not select the stream. Each coalition is evaluated once and cached in the call;
+all leaves finish first, then the original whole formula executes. Typed marginal
+subtraction precedes Float64 conversion. Contribution is the marginal mean and
+`contribution_std_error` is its sample standard error, not source, approximation or
+business uncertainty. Complete permutations telescope to the fixed-state endpoint
+change; versioned conversion/summation budgets check closure without a 1% allowance
+or residual repair. Relative contributions and SE divide by one absolute fixed-state
+baseline, which must be defined and nonzero. Fine endpoint diagnostics and historical
+`observed_total` remain separate.
+
+For n>=1 players, unique coalition values are bounded by
+`min(2**n, 2 + permutations*(n-1))`; per-coalition state/formula costs remain.
+State construction and source submissions do not grow with permutations. Exact
+frequency transport is O(D), worst O(N); decoded returned/state bytes do not mean
+wire bytes or peak memory. Captured costs count actual submitted stage reads and
+retain unknown backend scan/wire/version statistics as unknown. Physical scan
+claims require independent execution-plan/profile evidence. Facts preserve the
+original game after filtering/ranking/reduction; they never reconstruct an executable
+Metric, distribution, sketch or source connection on cold recovery.
+
 compute and same-process persist retain the instance declaration. Independent
 reopen retains fixed data and explanatory method facts but no executable declaration.
-For quantile, overlapping distinct or missing declarations, continue ordinary
+For an unqualified state route or missing declarations, continue ordinary
 investigation explicitly: population_from on governed ordinary parent axes,
 in_population to restrict facts, then observe and compare/align. A multi-time parent
 requires its complete period-specific joint keys, not a global region projection.

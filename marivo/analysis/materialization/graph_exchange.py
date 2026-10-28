@@ -23,6 +23,10 @@ from marivo.analysis.core.data_validation import (
 )
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.attribute_frequencies import (
+        AttributeFrequencyCapture,
+        AttributeStateCapture,
+    )
     from marivo.analysis.core.attribute import AttributeMethodPayload
     from marivo.analysis.core.frame_data import CompletedFrameData
     from marivo.analysis.materialization.query_components import AttributeRootInputs, ComponentFrame
@@ -114,6 +118,8 @@ class StageOutput:
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     attribute_methods: tuple[AttributeMethodPayload, ...] = ()
     frame_schema: DataSchema | None = None
+    attribute_frequencies: tuple[AttributeFrequencyCapture, ...] = ()
+    attribute_state_captures: tuple[AttributeStateCapture, ...] = ()
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
@@ -145,6 +151,8 @@ class StageOutput:
         attribute_inputs: tuple[AttributeRootInputs, ...] = (),
         attribute_methods: tuple[AttributeMethodPayload, ...] = (),
         frame_schema: DataSchema | None = None,
+        attribute_frequencies: tuple[AttributeFrequencyCapture, ...] = (),
+        attribute_state_captures: tuple[AttributeStateCapture, ...] = (),
     ) -> StageOutput:
         return cls(
             columns,
@@ -161,6 +169,8 @@ class StageOutput:
             attribute_inputs,
             attribute_methods,
             frame_schema,
+            attribute_frequencies,
+            attribute_state_captures,
         )
 
     @classmethod

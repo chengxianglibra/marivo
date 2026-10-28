@@ -127,12 +127,16 @@ def test_attribute_entry_has_one_concrete_typed_signature_and_no_alias() -> None
     import inspect
 
     signature = inspect.signature(ma.AnalysisFrame.attribute)
-    assert tuple(signature.parameters) == ("self", "by")
+    assert tuple(signature.parameters) == ("self", "by", "permutations", "seed")
     assert signature.parameters["by"].kind is inspect.Parameter.KEYWORD_ONLY
     assert (
         str(signature.parameters["by"].annotation) == "tuple[Deferred | Grouping, ...] | Population"
     )
     assert str(signature.return_annotation) == "AnalysisFrame"
+    for name, default in (("permutations", 1024), ("seed", 0)):
+        parameter = signature.parameters[name]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert str(parameter.annotation) == "int" and parameter.default == default
     assert not hasattr(ma.Session, "attribute")
     for name in (
         "AttributeEndpoint",

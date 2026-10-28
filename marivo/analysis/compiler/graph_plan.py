@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
@@ -26,6 +26,7 @@ from marivo.analysis.core.attribute import (
     AttributeProjectProgram,
     AttributeSourceParentBinding,
 )
+from marivo.analysis.core.attribute_game import AttributeGameProgram
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
@@ -167,6 +168,18 @@ class ReductionRead:
 
 
 @dataclass(frozen=True, slots=True)
+class AttributeFrequencyRead:
+    """Exact typed distribution state over one governed source occurrence."""
+
+    reduction: ReductionInput
+    input_type: DataType | None = None
+    members: tuple[SourceRead, ...] = ()
+    finishers: tuple[
+        tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...
+    ] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentRead:
     layout: ComponentLayout
 
@@ -190,7 +203,13 @@ class NativeRead:
 
 
 SourceProgram: TypeAlias = (
-    ProjectionRead | ReductionRead | ComponentRead | CommonRead | AttributeRead | NativeRead
+    ProjectionRead
+    | ReductionRead
+    | AttributeFrequencyRead
+    | ComponentRead
+    | CommonRead
+    | AttributeRead
+    | NativeRead
 )
 
 
@@ -214,11 +233,13 @@ class SourceRead:
     binding_id: str = ""
     native_reductions: tuple[ReductionInput, ...] = ()
     native_reads: tuple[SourceRead, ...] = ()
+    attribute_state: bool = False
+    attribute_input_types: tuple[tuple[str, tuple[DataType, ...]], ...] = ()
 
 
 def read_reduction(stage: SourceRead) -> ReductionInput | None:
     program = stage.program
-    if isinstance(program, ReductionRead):
+    if isinstance(program, (ReductionRead, AttributeFrequencyRead)):
         return program.reduction
     if isinstance(program, ComponentRead):
         return program.layout.reduction
@@ -244,7 +265,11 @@ def read_attribute(stage: SourceRead) -> AttributeRootLayout | None:
 
 
 def read_members(stage: SourceRead) -> tuple[SourceRead, ...]:
-    return stage.program.members if isinstance(stage.program, (CommonRead, AttributeRead)) else ()
+    return (
+        stage.program.members
+        if isinstance(stage.program, (CommonRead, AttributeRead, AttributeFrequencyRead))
+        else ()
+    )
 
 
 def common_program(
@@ -359,6 +384,7 @@ class FrameCompute:
         | AttributeInputProgram
         | AttributeContributionProgram
         | AttributeMergeProgram
+        | AttributeGameProgram
     )
 
     @property

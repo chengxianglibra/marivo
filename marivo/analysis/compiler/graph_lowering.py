@@ -10,6 +10,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import PredicateExpression
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
+    AttributeFrequencyRead,
     AttributeRead,
     NativeRead,
     QueryPlan,
@@ -116,6 +117,75 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
             conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
+        if stage.attribute_state:
+            from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
+            from marivo.analysis.core.value_types import data_type
+            from marivo.analysis.errors import AnalysisStageUnavailableError
+            from marivo.semantic._numeric_lowering import lower_row
+
+            fields = {path: filtered[name] for path, name in columns.items()}
+            for member in read_members(stage) or (stage,):
+                reduction = read_reduction(member)
+                if reduction is None:
+                    continue
+                node = reduction.node
+                operands = (
+                    (node.operand,)
+                    if isinstance(node, SourceAggregate)
+                    and node.reducer not in ("count", "count_distinct")
+                    else (node.value, node.weight)
+                    if isinstance(node, SourceWeightedMean)
+                    else ()
+                )
+                operand_types = tuple(
+                    lower_row(operand, fields).value.type() for operand in operands
+                )
+                if isinstance(node, SourceAggregate) and node.reducer == "mean":
+                    raise AnalysisStageUnavailableError(
+                        stage="attribute_state_binding",
+                        expected="a qualified original native AVG state and finisher",
+                        received=f"mean input types: {', '.join(map(str, operand_types))}",
+                        repair="Inspect the original observations with observe/compare. Native mean replacement games have no qualified fixed-state finisher; no business row was read.",
+                        target="analysis_frame.attribute",
+                    )
+                if (
+                    (isinstance(node, SourceAggregate) and node.reducer == "sum")
+                    or isinstance(node, SourceWeightedMean)
+                ) and any(dtype.is_floating() for dtype in operand_types):
+                    raise AnalysisStageUnavailableError(
+                        stage="attribute_state_binding",
+                        expected="exact Integer/Decimal sufficient SUM components",
+                        received=f"{type(node).__name__} input types: {', '.join(map(str, operand_types))}",
+                        repair="Inspect the original observations with observe/compare. Floating SUM components have no qualified fixed-state merge preserving the original accumulation order; no business row was read.",
+                        target="analysis_frame.attribute",
+                    )
+                if any(not dtype.is_numeric() for dtype in operand_types):
+                    raise AnalysisStageUnavailableError(
+                        stage="attribute_state_binding",
+                        expected="numeric source states for a numeric replacement-game expression",
+                        received=f"{type(node).__name__}: nonnumeric reduction input",
+                        repair="Inspect the original observations or use a qualified numeric Metric. Counting rows or non-NULL values remains available; no business row was read.",
+                        target="analysis_frame.attribute",
+                    )
+            input_types = tuple(
+                (
+                    reduction.value_slot,
+                    tuple(
+                        data_type(lower_row(operand, fields).value.type())
+                        for operand in (
+                            (reduction.node.operand,)
+                            if isinstance(reduction.node, SourceAggregate)
+                            else (reduction.node.value, reduction.node.weight)
+                            if isinstance(reduction.node, SourceWeightedMean)
+                            else ()
+                        )
+                    ),
+                )
+                for member in (read_members(stage) or (stage,))
+                if (reduction := read_reduction(member)) is not None
+            )
+            stage = replace(stage, attribute_input_types=input_types)
+            effective_stages[stage.stage_id] = stage
         if read_attribute(stage) is not None:
             from marivo.analysis.compiler.attribute_inputs import (
                 attribute_preparation_key,
@@ -178,7 +248,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             effective_stages[stage.stage_id] = stage
             lowered.append(LoweredRead(stage.stage_id, expression, checks))
             continue
-        if read_members(stage):
+        if read_members(stage) and not isinstance(stage.program, AttributeFrequencyRead):
             from marivo.analysis.compiler.original import lower_common_components
 
             expression, checks = lower_common_components(
@@ -205,11 +275,30 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
             else:
                 expression, checks = lower_observation(
-                    require_reduction(stage), filtered, columns, stage.predicates
+                    require_reduction(stage),
+                    filtered,
+                    columns,
+                    stage.predicates,
+                    frequency=isinstance(stage.program, AttributeFrequencyRead),
                 )
             expression, checks = _attach_preparation_checks(
                 expression, table, checks, stage.preparation_checks
             )
+            if isinstance(stage.program, AttributeFrequencyRead):
+                from marivo.analysis.compiler.attribute_frequencies import frequency_finishers
+                from marivo.analysis.core.value_types import data_type
+
+                stage = replace(
+                    stage,
+                    program=replace(
+                        stage.program,
+                        input_type=data_type(expression["__attribute_frequency_value"].type()),
+                        finishers=frequency_finishers(
+                            stage, {path: filtered[name] for path, name in columns.items()}
+                        ),
+                    ),
+                )
+                effective_stages[stage.stage_id] = stage
             lowered.append(LoweredRead(stage.stage_id, expression, checks))
         else:
             conditions = [_query_predicate(p, filtered, columns) for p in stage.predicates]

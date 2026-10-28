@@ -16,7 +16,7 @@ import marivo.datasource as md
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
-from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
+from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value
@@ -275,6 +275,7 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
         "attribute-default-investigation",
         "attribute-contribution-facts",
         "attribute-rate-effects",
+        "attribute-shapley",
         "attribute-explicit-default-after-refusal",
         "comparison-endpoint-followup",
         "broadcast-reference",
@@ -341,6 +342,13 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert isinstance(method, FrameAdditiveMethod)
     assert method.change.value == -200
     assert namespace["original_explanation"] == explained.method_facts
+    sampled = namespace["squared_explained"]
+    assert isinstance(sampled, mv.AnalysisFrame)
+    sampled_rows = sampled.to_pandas()
+    assert sampled_rows["contribution.squared"].sum() == -360000
+    sampled_method = sampled.method_facts[0].parents[0].metrics[0].method
+    assert isinstance(sampled_method, FrameShapleyMethod)
+    assert sampled_method.permutations == 256 and sampled_method.seed == 42
     nonlinear = namespace["nonlinear_investigation"]
     assert isinstance(nonlinear, mv.AnalysisFrame) and nonlinear.method_facts == ()
     session = namespace["session"]

@@ -26,6 +26,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
+from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -154,6 +155,7 @@ FrameOperationKind: TypeAlias = (
     | AttributeContributionValues
     | AttributeProjectValues
     | AttributeMergeValues
+    | AttributeGameValues
 )
 
 

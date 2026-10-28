@@ -23,6 +23,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodFacts,
     FrameMethodValue,
     FrameRatioMethod,
+    FrameShapleyMethod,
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.frame_attribute_contribution import _numeric_binary, _Value
@@ -97,7 +98,11 @@ def _division_equal(
 
 
 def _method(
-    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod,
+    method: FrameAdditiveMethod
+    | FrameRatioMethod
+    | FrameLinearMethod
+    | FrameDivisionMethod
+    | FrameShapleyMethod,
 ) -> None:
     _binary_equal("sub", method.left, method.right, method.change, finish=False)
     if isinstance(method, FrameDivisionMethod):
@@ -204,7 +209,23 @@ def _target(metric: FrameAttributeMetric) -> None:
                     metric.total,
                 )
         else:
-            _equal(_value(method.change), metric.total)
+            captured = _value(method.change)
+            if isinstance(method, FrameShapleyMethod):
+                from marivo.analysis.methods.frame_attribute_report import _report_value
+
+                if method.change.column.unit != metric.total.column.unit:
+                    reject(
+                        "the native change unit retained by the absolute sampled report",
+                        metric.total.column.name,
+                        "Preserve the original target unit when aligning the report carrier.",
+                        "frame.method_facts",
+                        canonical_id="analysis_frame.method_facts",
+                    )
+                # Native subtraction was checked above. The report can widen
+                # that captured result losslessly to share the historical total's
+                # carrier; it does not change the endpoint or difference recipe.
+                captured = _report_value(captured, metric.total.column)
+            _equal(captured, metric.total)
 
 
 def validate_method_facts(facts: FrameMethodFacts) -> None:

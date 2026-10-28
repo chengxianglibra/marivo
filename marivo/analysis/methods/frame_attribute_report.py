@@ -42,6 +42,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
+    FrameShapleyMethod,
     _key_order,
     _LevelMethod,
     _Method,
@@ -220,6 +221,7 @@ def _closure(
                         FrameRatioMethod,
                         FrameLinearMethod,
                         FrameDivisionMethod,
+                        FrameShapleyMethod,
                     ),
                 )
                 else (rule.value,)

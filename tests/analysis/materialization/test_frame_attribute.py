@@ -109,10 +109,15 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
     assert fixed.method_facts == () and terminal_runs(session) == ()
 
 
-def test_attribute_has_only_receiver_and_keyword_classifications(session: Session) -> None:
+def test_attribute_has_only_receiver_and_keyword_configuration(session: Session) -> None:
     import inspect
 
-    assert tuple(inspect.signature(AnalysisFrame.attribute).parameters) == ("self", "by")
+    assert tuple(inspect.signature(AnalysisFrame.attribute).parameters) == (
+        "self",
+        "by",
+        "permutations",
+        "seed",
+    )
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     original = {"q": amount}

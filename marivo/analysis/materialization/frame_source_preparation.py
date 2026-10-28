@@ -157,6 +157,21 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
         prepared = None
         schemas: tuple[SourceSchema, ...] = ()
         if isinstance(binding, SourceFrameBinding):
+            if input_id in captured.games:
+                from marivo.analysis.errors import AnalysisStageUnavailableError
+                from marivo.datasource.ir import TableSourceIR
+                from marivo.semantic.validator import normalize_target_entity
+
+                for entity in _query_entities(binding.graph, binding.state):
+                    physical = normalize_target_entity(binding.state.registry, entity).source
+                    if not isinstance(physical, TableSourceIR):
+                        raise AnalysisStageUnavailableError(
+                            stage="attribute_state_binding",
+                            expected="a native physical table source for replacement-game capture",
+                            received=f"{entity}: {type(physical).__name__}",
+                            repair="Use a qualified native table-backed source for attribution, or inspect the original observations. No business row was read.",
+                            target="analysis_frame.attribute",
+                        )
             key_schemas = {
                 item.input_id: frame_expression_schema(
                     expressions[item.input_id], source_schemas, memo=key_schema_cache
@@ -189,9 +204,41 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
             )
             prepared_by_input[input_id] = prepared
         else:
-            plan = optimize_query(plan_query(binding.graph, schemas, memo=memo))
+            plan = plan_query(binding.graph, schemas, memo=memo)
+            if input_id in captured.games:
+                from marivo._definition.expressions import SourceAggregate
+                from marivo.analysis.compiler.attribute_frequencies import (
+                    frequency_read,
+                    share_frequency_reads,
+                )
+                from marivo.analysis.compiler.graph_plan import read_reduction
+
+                plan = replace(
+                    plan,
+                    stages=tuple(
+                        replace(
+                            frequency_read(stage)
+                            if (reduction := read_reduction(stage)) is not None
+                            and isinstance(reduction.node, SourceAggregate)
+                            and reduction.node.reducer in ("median", "quantile", "count_distinct")
+                            else stage,
+                            attribute_state=True,
+                        )
+                        if isinstance(stage, SourceRead)
+                        else stage
+                        for stage in plan.stages
+                    ),
+                )
+                assert prepared is not None
+                from marivo.analysis.materialization.graph_source_execution import (
+                    qualify_attribute_game_sources,
+                )
+
+                qualify_attribute_game_sources(prepared, plan)
+                plan = share_frequency_reads(plan)
+            plan = optimize_query(plan)
         lowered = lower_query(plan, {} if prepared is None else prepared.relations)
-        if prepared is not None and input_id not in requested:
+        if prepared is not None and input_id not in requested and input_id not in captured.games:
             from marivo.analysis.materialization.query_key_fusion import (
                 fuse_query_keys,
                 fuse_query_terminal,

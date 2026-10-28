@@ -33,6 +33,12 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodTarget,
     FrameMethodValue,
     FrameRatioMethod,
+    FrameShapleyCapture,
+    FrameShapleyGame,
+    FrameShapleyLeaf,
+    FrameShapleyMethod,
+    FrameShapleyQuantile,
+    FrameShapleyReduction,
 )
 from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -171,6 +177,7 @@ def provider() -> DisclosureProvider:
             (
                 "frame_additive_method",
                 "frame_ratio_method",
+                "frame_shapley_method",
                 "frame_linear_method",
                 "frame_division_method",
                 "frame_level_additive_method",
@@ -209,6 +216,47 @@ def provider() -> DisclosureProvider:
             "frame_ratio_method",
             "Read metric.method or a linear term's method when kind is ratio_component; components are parent totals.",
             ("frame_method_value", "frame_method_support"),
+        ),
+        (
+            FrameShapleyMethod,
+            "frame_shapley_method",
+            "Read metric.method when kind is shapley for the fixed replacement game, sampling and capture costs.",
+            (
+                "frame_method_value",
+                "frame_shapley_game",
+                "frame_shapley_leaf",
+                "frame_shapley_capture",
+            ),
+        ),
+        (
+            FrameShapleyGame,
+            "frame_shapley_game",
+            "Read shapley_method.game for inert formula identities, player semantics, domain proof and error policies.",
+            (),
+        ),
+        (
+            FrameShapleyLeaf,
+            "frame_shapley_leaf",
+            "Read shapley_method.leaves for original typed reducer occurrences, masks and capture references.",
+            ("frame_shapley_reduction", "frame_shapley_quantile"),
+        ),
+        (
+            FrameShapleyCapture,
+            "frame_shapley_capture",
+            "Read shapley_method.captures for actual statement/state costs; decoded bytes differ from wire and scanned bytes.",
+            (),
+        ),
+        (
+            FrameShapleyReduction,
+            "frame_shapley_reduction",
+            "Read shapley_leaf.reduction for a non-quantile original reducer identity.",
+            (),
+        ),
+        (
+            FrameShapleyQuantile,
+            "frame_shapley_quantile",
+            "Read shapley_leaf.reduction for the original exact median/quantile and q.",
+            (),
         ),
         (
             FrameLinearTerm,
@@ -386,6 +434,12 @@ def provider() -> DisclosureProvider:
                         "frame_linear_term.method",
                         "frame_division_method.method",
                     ),
+                    FrameShapleyMethod: ("frame_attribute_metric.method",),
+                    FrameShapleyGame: ("frame_shapley_method.game",),
+                    FrameShapleyLeaf: ("frame_shapley_method.leaves",),
+                    FrameShapleyCapture: ("frame_shapley_method.captures",),
+                    FrameShapleyReduction: ("frame_shapley_leaf.reduction",),
+                    FrameShapleyQuantile: ("frame_shapley_leaf.reduction",),
                     FrameLinearMethod: (
                         "frame_division_method.method",
                         "frame_attribute_metric.method",

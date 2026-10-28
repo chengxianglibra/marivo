@@ -284,18 +284,20 @@ report = source.attribute(by=(region,)).compute()
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `by` | 是 | — | 非空的新语义分类或完整 Population；接收方必须为每个选定的受支持目标保留来源声明。 |
+| `permutations` | 否 | `1024` | Shapley 的完整排列数；整数 ≥ 2，不接受 bool。精确分解不使用此参数。 |
+| `seed` | 否 | `0` | 非负整数，不接受 bool；固定已捕获父键/玩家键的版本化排列流。 |
 
 输出包含 `contribution.<name>`、`contribution_share.<name>`、`total.<name>`、`observed_total.<name>` 及细分诊断。`method_facts` 在筛选与持久化后保留方法说明。
 
-Attribute 固定选中的父键和原观察值，然后分别重新读取父级与细分输入。两次读取可能来自
-不同的数据状态。`total` 使用新读的父级公式；`observed_total` 保留输入 Frame 中的值。
+Attribute 固定选中的父键和原观察值。精确分解分别重新读取父级与细分输入，Shapley 则从捕获状态求两端与联盟值。独立的来源读取可能来自
+不同的数据状态。`total` 使用新读的公式；`observed_total` 保留输入 Frame 中的值。
 符合条件的物理表会在方法、类型和来源形状受支持时使用原生 backend 执行。
 
 Attribute 信任已声明的身份、关系基数和版本粒度。它会检查 membership 与 Population 的
 覆盖和重叠、distinct 值是否同时出现在多个组、数值有效性、完整时间对应，以及请求目标的闭合情况。
 `method_facts` 保留捕获的有限 Float64 值和方法说明，不会重新计算原算术。Float64 目标
-按下文闭合规则验收；相对目标以新读父级基准的绝对值为分母。应在观测之前定义受支持的
-线性或比率 Metric；普通 Frame Column 运算没有来源归因方法。重新打开保存的 Frame 会保留
+按下文闭合规则验收；相对目标以新读父级基准的绝对值为分母。应在观测之前定义完整
+Metric 公式；普通 Frame Column 运算没有来源归因方法。重新打开保存的 Frame 会保留
 值和方法事实，但不保留再次请求 Attribute 所需的来源声明。
 Help：`analysis.analysis_frame.attribute`。
 
@@ -303,7 +305,15 @@ Help：`analysis.analysis_frame.attribute`。
 
 规则在读取业务数据之前按每个目标固定，不提供 `method` 参数。可加指标与受支持的比率、mean、weighted_mean、固定线性组合使用精确分解。配对的 rate/mix 目标增加 `effect.within.<name>`、`effect.mix.<name>` 和 `effect.entry_exit.<name>`；混合可加项时另有 `effect.additive.<name>`。效果之和等于该组贡献。进入退出按零分母且零分子质量的边界定义；不会把未定义的组内率填成零。组分母和有效配对权重必须非负，父分母必须为正，父级/细组组件和原始组率必须一致。失败不会换规则。
 
-分位数和一般非线性目标保持不支持。单端 level 保持原有份额准入，不制造零基准；普通 Column 算术不获得来源资格。
+不属于精确规则的配对目标，在每个叶子都有合格状态路线、且完整公式对所有联盟均有定义并有限时，可以使用完整 Metric 的分组替换 Shapley。支持充分统计量、精确的带类型分位数频数和合格的数值 distinct 成员状态。规则在业务读取前选择，不按分组数切换，失败后也不回退。单端 level 保持原有份额准入；普通 Column 算术不获得来源资格。
+
+Shapley 返回 `contribution_std_error.<name>`，表示排列采样误差。每次完整排列都将所有联合键分组逐一替换。提高 `permutations` 会增加本地联盟求值和缓存开销，来源状态捕获的读取量不随之增长。weighted_mean 状态保留有效配对掩码；精确分位数和 distinct 状态可能传输 O(N) 个值。这是排列采样，不采样来源行、不截取 top-k，也不自适应停止。`method_facts` 保留博弈、原始叶子类型/收尾算法、捕获成本、排列数和种子；未知扫描量、网络量仍为未知。
+
+原生近似分位数需要验证过的原生摘要路线，目前不能用于归因。DuckDB 原生整数/Float 分位数允许 q=0/1，内部插值在业务读取前拒绝；其 Decimal/UInt64 rank-bound 路线支持所有 q。PostgreSQL 保留经过验证的原生收尾算法，MySQL/Trino/ClickHouse 保留合格的 rank-bound 收尾算法。普通观察继续使用既有后端算法。
+
+Float SUM 组件和原生 AVG 状态重建当前尚不合格，Shapley 会在业务读取前拒绝。整数/Decimal 求和、count、extrema 和合格频数状态仍可使用；整数/Decimal 加权状态按原规则将两个组件分别转为 Float64 后相除。既有的精确 mean/rate-mix 规则仍可使用。
+
+当前 Shapley 路线要求单值分类元组。显式 Population 分组和多归属尚无合格的完整覆盖状态路线，因此在业务读取前拒绝；精确分解保留既有的 Population 支持。字符串和浮点 distinct 成员状态也需要单独验证相等与排序规则。
 
 新 rate/mix 组件、效果闭合只使用版本化数值预算，不采用 1% 业务余量。未改变的可加/level Float64 路线仍接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值舍入预算)`；整数、Decimal 和 Duration 保持相应类型规则。残差不会重新分配。相对贡献和效果均除以同一个新读父级基准的绝对值，零或未定义基准拒绝。
 
@@ -330,6 +340,29 @@ assert all(name in average_rows.columns for name in effect_columns)
 ```
 
 组内效果解释地区自身均值的变化，结构效果解释有效样本量份额的变化，进入退出效果单独保留。
+
+{/* example: attribute-shapley */}
+
+```python
+squared = revenue * revenue
+squared_current = session.observe({"squared": squared}, by=(august,))
+squared_baseline = session.observe({"squared": squared}, by=(july,))
+squared_change = squared_current.compare(
+    {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
+).compute()
+squared_target = squared_change.select(
+    {"squared": squared_change["reference.absolute.squared"]}
+)
+squared_explained = squared_target.attribute(
+    by=(region,), permutations=256, seed=42
+).compute()
+squared_rows = squared_explained.to_pandas()
+assert "contribution_std_error.squared" in squared_rows.columns
+squared_method = squared_explained.method_facts[0].parents[0].metrics[0].method
+assert squared_method.kind == "shapley"
+```
+
+每个联盟都对收入平方 Metric 的完整公式求值，贡献解释整体收入平方的变化，不是各地区差异的平方。标准误描述排列采样波动，不代表指标近似误差或因果不确定性。
 
 ### 读取新的拆分
 
@@ -392,7 +425,7 @@ nonlinear_investigation = fine_current.compare(
 
 通过 `method_facts` 读取完整原始说明。筛选报告不会重算原分母。重开保存数据会保留说明，但不会恢复可再次请求贡献的来源声明。
 
-收入平方示例是有效的分组比较，但各组差异不能直接相加重建整体非线性变化。可以继续调查，不能称为精确贡献。参阅[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+单独的收入平方分组比较仍用于调查：各地区差异不能直接相加重建整体非线性变化。解释整体变化的贡献时，应使用上面的 Shapley 报告。参阅[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
 
 这些算术分解均不证明业务因果。调查原因假设时，需要能区分不同解释的数据。
 

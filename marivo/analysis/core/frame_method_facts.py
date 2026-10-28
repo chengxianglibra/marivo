@@ -27,6 +27,7 @@ from marivo.analysis.core.data_schema import (
 )
 from marivo.analysis.core.data_types import (
     DataColumn,
+    DataType,
     DecimalDataType,
     DurationDataType,
     ScalarDataType,
@@ -47,9 +48,13 @@ from marivo.analysis.core.model import reject
 from marivo.semantic.unit_algebra import ratio_unit
 
 _MethodScalar: TypeAlias = bool | int | float | str | date | Decimal | None
-_Method: TypeAlias = (
+_ExactMethod: TypeAlias = (
     "FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod"
 )
+_Method: TypeAlias = "_ExactMethod | FrameShapleyMethod"
+_StateRoute: TypeAlias = Literal[
+    "typed_sufficient_state/v1", "typed_value_frequency/v1", "typed_sufficient_frequency/v1"
+]
 
 
 def _fail(
@@ -71,6 +76,20 @@ def _fail(
 def _text(value: str) -> None:
     if type(value) is not str or not value or any(c in value for c in "\n\r\t"):
         _fail("a nonempty single-line fact identity", type(value).__name__)
+
+
+def _count(value: int) -> None:
+    if type(value) is not int or value < 0:
+        _fail("an exact nonnegative integer count or byte size", repr(value))
+
+
+def _digest_identity(value: str) -> None:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+    ):
+        _fail("a nonexecutable lowercase SHA256 formula identity", repr(value))
 
 
 def _short(value: str, limit: int = 100) -> str:
@@ -338,8 +357,22 @@ def _method(value: _Method) -> None:
         FrameRatioMethod,
         FrameLinearMethod,
         FrameDivisionMethod,
+        FrameShapleyMethod,
     ):
         _fail("a closed additive, ratio_component or linear method", type(value).__name__)
+
+
+def _exact_method(value: _ExactMethod) -> None:
+    if type(value) not in (
+        FrameAdditiveMethod,
+        FrameRatioMethod,
+        FrameLinearMethod,
+        FrameDivisionMethod,
+    ):
+        _fail(
+            "an exact child rule; sampled replacement owns the complete target",
+            type(value).__name__,
+        )
 
 
 def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
@@ -348,6 +381,10 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
     def method_values(method: _Method) -> Iterator[str]:
         for value in (method.left, method.right, method.change):
             yield repr(value.value)
+        if isinstance(method, FrameShapleyMethod):
+            for leaf in method.leaves:
+                if isinstance(leaf.reduction, FrameShapleyQuantile):
+                    yield repr(leaf.reduction.q)
         if isinstance(method, FrameRatioMethod):
             for value in (
                 method.numerator_left,
@@ -372,6 +409,7 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
                 FrameRatioMethod,
                 FrameLinearMethod,
                 FrameDivisionMethod,
+                FrameShapleyMethod,
             ),
         ):
             yield from method_values(method)
@@ -406,7 +444,11 @@ def same_method_facts(left: FrameMethodFacts, right: FrameMethodFacts) -> bool:
 
 def _method_lines(method: _Method) -> Iterator[str]:
     yield f"{method.kind}: left={_cell(method.left.value)}, right={_cell(method.right.value)}, change={_cell(method.change.value)}"
-    if isinstance(method, FrameDivisionMethod):
+    if isinstance(method, FrameShapleyMethod):
+        yield f"game=group_replacement; algorithm={method.algorithm_version}; route={method.state_route}"
+        yield f"permutations={_coefficient_text(method.permutations)}; seed={_coefficient_text(method.seed)}; players={_coefficient_text(method.player_count)}; entries={_coefficient_text(method.state_entries)}"
+        yield f"unique_coalitions={_coefficient_text(method.unique_coalitions)}; evaluations={_coefficient_text(method.coalition_evaluations)}; capture_reads={_coefficient_text(method.captured_source_reads)}; transitions={_coefficient_text(method.sampled_transitions)}"
+    elif isinstance(method, FrameDivisionMethod):
         yield f"{method.operation} divisor={_coefficient_text(method.divisor)}"
         yield from _method_lines(method.method)
     elif isinstance(method, FrameLinearMethod):
@@ -503,6 +545,367 @@ class FrameRatioMethod(_FactRecord):
         yield from _method_lines(self)
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyGame(_FactRecord):
+    """Describe a fixed replacement game without retaining its executable formula.
+
+    Read ``metric.method.game`` after attribution. Formula identities are SHA256
+    digests; proof clauses describe checks over captured states. Neither can
+    reopen a source or reconstruct the original Metric.
+    """
+
+    kind: Literal["group_replacement"]
+    semantics_version: Literal["group_replacement/v1"]
+    current_formula_id: str
+    baseline_formula_id: str
+    player_domain: Literal["joint_key_union/v1"]
+    domain_policy: Literal["finite_interval_demand/v1"]
+    domain_proof: tuple[str, ...]
+    metric_approximation: Literal["exact_metric/v1"]
+    standard_error: Literal["permutation_mean/v1"]
+    closure_policy: Literal["typed_marginal_float64_sum/v1"]
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind != "group_replacement"
+            or self.semantics_version != "group_replacement/v1"
+            or self.player_domain != "joint_key_union/v1"
+            or self.domain_policy != "finite_interval_demand/v1"
+            or self.metric_approximation != "exact_metric/v1"
+            or self.standard_error != "permutation_mean/v1"
+            or self.closure_policy != "typed_marginal_float64_sum/v1"
+        ):
+            _fail(
+                "closed replacement, domain, approximation, error and closure policies",
+                repr(self.kind),
+            )
+        _digest_identity(self.current_formula_id)
+        _digest_identity(self.baseline_formula_id)
+        if type(self.domain_proof) is not tuple or not self.domain_proof:
+            _fail("nonempty immutable captured domain certificate clauses", repr(self.domain_proof))
+        for clause in self.domain_proof:
+            _text(clause)
+
+    def _summary(self) -> str:
+        return f"kind=group_replacement, formula={self.current_formula_id[:12]}, proof_clauses={len(self.domain_proof)}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyReduction(_FactRecord):
+    """Name an original non-quantile reducer; no executable reduction is retained."""
+
+    kind: Literal["aggregate"]
+    reducer: Literal[
+        "sum", "count", "entity_count", "count_distinct", "mean", "weighted_mean", "min", "max"
+    ]
+
+    def __post_init__(self) -> None:
+        if self.kind != "aggregate" or self.reducer not in (
+            "sum",
+            "count",
+            "entity_count",
+            "count_distinct",
+            "mean",
+            "weighted_mean",
+            "min",
+            "max",
+        ):
+            _fail("a closed original reducer identity", repr(self.reducer))
+
+    def _summary(self) -> str:
+        return f"kind=aggregate, reducer={self.reducer}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyQuantile(_FactRecord):
+    """Capture original exact quantile parameters and the qualified finishing recipe.
+
+    The finisher is captured from the original reduction rather than inferred
+    from its backend or transport type. It remains separate from sampling error.
+    """
+
+    kind: Literal["quantile"]
+    reducer: Literal["median", "quantile"]
+    q: float
+    finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
+
+    def __post_init__(self) -> None:
+        if self.kind != "quantile" or self.reducer not in ("median", "quantile"):
+            _fail("an exact median or quantile reducer", repr(self.reducer))
+        if type(self.q) is not float or not isfinite(self.q) or not 0 <= self.q <= 1:
+            _fail("a finite captured Float64 quantile in [0, 1]", repr(self.q))
+        if self.reducer == "median" and self.q != 0.5:
+            _fail("q=0.5 for the median reducer", repr(self.q))
+        if self.finisher not in ("rank_bounds", "duckdb_native", "postgres_native"):
+            _fail("the closed original quantile finishing recipe", repr(self.finisher))
+
+    def _summary(self) -> str:
+        return f"kind=quantile, reducer={self.reducer}, q={self.q!r}, finisher={self.finisher}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyLeaf(_FactRecord):
+    """Associate one typed original reducer occurrence with its fixed input captures.
+
+    Read ``metric.method.leaves`` for original input/output types and NULL masks.
+    Capture identifiers reference inert cost records, not connections or state.
+    Weighted mean repeats its single captured paired NULL policy in the value
+    and weight fields; it does not declare independent NULL-policy inputs.
+    """
+
+    occurrence: tuple[int, ...]
+    current_capture_ids: tuple[str, ...]
+    baseline_capture_ids: tuple[str, ...]
+    reduction: FrameShapleyReduction | FrameShapleyQuantile
+    input_types: tuple[DataType, ...]
+    output: DataColumn
+    mask_policy: Literal["rows", "non_null_value", "co_valid_value_weight"]
+    null_policy: Literal["skip", "error", "not_applicable"]
+    weight_null_policy: Literal["skip", "error", "not_applicable"]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.occurrence) is not tuple
+            or not self.occurrence
+            or any(type(part) is not int or part < 0 for part in self.occurrence)
+        ):
+            _fail("an immutable nonempty original leaf occurrence", repr(self.occurrence))
+        for captured in (self.current_capture_ids, self.baseline_capture_ids):
+            if type(captured) is not tuple or not captured:
+                _fail("nonempty immutable unique endpoint capture references", repr(captured))
+            for capture_id in captured:
+                _text(capture_id)
+            if len(set(captured)) != len(captured):
+                _fail("nonempty immutable unique endpoint capture references", repr(captured))
+        if type(self.reduction) not in (FrameShapleyReduction, FrameShapleyQuantile):
+            _fail("a closed original reducer or quantile record", type(self.reduction).__name__)
+        if type(self.output) is not DataColumn:
+            _fail("the original concrete typed reducer output", type(self.output).__name__)
+        if type(self.input_types) is not tuple or any(
+            type(dtype)
+            not in (ScalarDataType, DecimalDataType, TimestampDataType, DurationDataType)
+            for dtype in self.input_types
+        ):
+            _fail("immutable concrete original input types", repr(self.input_types))
+        weighted = (
+            isinstance(self.reduction, FrameShapleyReduction)
+            and self.reduction.reducer == "weighted_mean"
+        )
+        entity = (
+            isinstance(self.reduction, FrameShapleyReduction)
+            and self.reduction.reducer == "entity_count"
+        )
+        if len(self.input_types) != (2 if weighted else 0 if entity else 1):
+            _fail("original reducer input arity", repr(self.occurrence))
+        expected_mask = (
+            "co_valid_value_weight" if weighted else "rows" if entity else "non_null_value"
+        )
+        if self.mask_policy != expected_mask:
+            _fail("the original reducer's effective support mask", repr(self.mask_policy))
+        if self.null_policy not in (("not_applicable",) if entity else ("skip", "error")):
+            _fail("the original value NULL policy", repr(self.null_policy))
+        if self.weight_null_policy not in (("skip", "error") if weighted else ("not_applicable",)):
+            _fail(
+                "the original weight NULL policy only for paired weights",
+                repr(self.weight_null_policy),
+            )
+        if weighted and self.weight_null_policy != self.null_policy:
+            _fail(
+                "one captured NULL policy for the co-valid value/weight pair",
+                repr(self.weight_null_policy),
+            )
+
+    def _summary(self) -> str:
+        return f"kind=leaf, occurrence={self.occurrence}, reducer={self.reduction.reducer}, output={_short(self.output.name)!r}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyCapture(_FactRecord):
+    """Describe actual state capture and transport costs without retaining the state.
+
+    The complete prepared-input directory includes auxiliary player-domain,
+    diagnostic and shared sibling inputs even when no leaf references them.
+
+    ``returned_bytes`` measures decoded Arrow bytes, not wire or scanned bytes.
+    ``state_bytes`` measures the typed logical state payload, not process memory.
+    Unknown backend scan/wire statistics and backend version stay None. Actual
+    executed capture statements are counted by source_reads; physical scans and
+    unobserved schema/catalog work are not inferred from that count.
+    """
+
+    capture_id: str
+    endpoint: Literal["current", "baseline", "both"]
+    backend: str
+    backend_version: str | None
+    state_route: _StateRoute
+    state_entries: int
+    state_bytes: int
+    returned_rows: int
+    returned_bytes: int
+    source_reads: int
+    native_parameter_bytes: int
+    native_batches: int
+    scanned_rows: int | None
+    scanned_bytes: int | None
+    wire_bytes: int | None
+
+    def __post_init__(self) -> None:
+        _text(self.capture_id)
+        _text(self.backend)
+        if self.backend_version is not None:
+            _text(self.backend_version)
+        if self.endpoint not in ("current", "baseline", "both") or self.state_route not in (
+            "typed_sufficient_state/v1",
+            "typed_value_frequency/v1",
+            "typed_sufficient_frequency/v1",
+        ):
+            _fail("a captured endpoint and qualified typed state route", repr(self.endpoint))
+        for value in (
+            self.state_entries,
+            self.state_bytes,
+            self.returned_rows,
+            self.returned_bytes,
+            self.source_reads,
+            self.native_parameter_bytes,
+            self.native_batches,
+        ):
+            _count(value)
+        for optional in (self.scanned_rows, self.scanned_bytes, self.wire_bytes):
+            if optional is not None:
+                _count(optional)
+
+    def _summary(self) -> str:
+        return f"kind=capture, input={_short(self.capture_id)!r}, endpoint={self.endpoint}, route={self.state_route}"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShapleyMethod(_FactRecord):
+    """Explain sampled group replacement over fixed states, without source authority.
+
+    Acquire through ``frame.method_facts`` after a successful paired attribute.
+    Native endpoints and change retain their owning carriers; contributions and
+    standard errors are Float64. Captured metadata contains no state or program.
+    """
+
+    kind: Literal["shapley"]
+    left: FrameMethodValue
+    right: FrameMethodValue
+    change: FrameMethodValue
+    permutations: int
+    seed: int
+    algorithm_version: Literal["permutation/v1"]
+    state_route: _StateRoute
+    state_entries: int
+    player_count: int
+    unique_coalitions: int
+    coalition_evaluations: int
+    captured_source_reads: int
+    sampled_transitions: int
+    game: FrameShapleyGame
+    leaves: tuple[FrameShapleyLeaf, ...]
+    captures: tuple[FrameShapleyCapture, ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "shapley" or self.algorithm_version != "permutation/v1":
+            _fail("the versioned permutation sampling rule", repr(self.kind))
+        _totals(self.left, self.right, self.change)
+        if type(self.permutations) is not int or self.permutations < 2:
+            _fail("at least two complete sampled permutations", repr(self.permutations))
+        for value in (
+            self.seed,
+            self.state_entries,
+            self.player_count,
+            self.unique_coalitions,
+            self.coalition_evaluations,
+            self.captured_source_reads,
+            self.sampled_transitions,
+        ):
+            _count(value)
+        if self.sampled_transitions != self.permutations * self.player_count:
+            _fail(
+                "one transition per player in every complete permutation",
+                repr(self.sampled_transitions),
+            )
+        minimum = 1 if self.player_count == 0 else 2
+        maximum = 1 if self.player_count == 0 else 2 + self.permutations * (self.player_count - 1)
+        if (
+            not minimum <= self.unique_coalitions <= maximum
+            or self.coalition_evaluations < self.unique_coalitions
+            or (
+                self.player_count < self.unique_coalitions.bit_length()
+                and self.unique_coalitions != 1 << self.player_count
+            )
+        ):
+            _fail(
+                "actual coalition and evaluation counts within sampled path bounds",
+                repr(self.unique_coalitions),
+            )
+        if (
+            type(self.game) is not FrameShapleyGame
+            or type(self.leaves) is not tuple
+            or not self.leaves
+            or any(type(leaf) is not FrameShapleyLeaf for leaf in self.leaves)
+        ):
+            _fail("a closed game and immutable original leaf directory", type(self.game).__name__)
+        if (
+            type(self.captures) is not tuple
+            or not self.captures
+            or any(type(capture) is not FrameShapleyCapture for capture in self.captures)
+        ):
+            _fail("immutable actual input capture records", type(self.captures).__name__)
+        directory = {capture.capture_id: capture for capture in self.captures}
+        if len(directory) != len(self.captures) or len(
+            {leaf.occurrence for leaf in self.leaves}
+        ) != len(self.leaves):
+            _fail("unique capture identities and original leaf occurrences", self.left.column.name)
+        for leaf in self.leaves:
+            for capture_ids, endpoint in (
+                (leaf.current_capture_ids, "current"),
+                (leaf.baseline_capture_ids, "baseline"),
+            ):
+                resolved = tuple(directory.get(capture_id) for capture_id in capture_ids)
+                for capture_id, capture in zip(capture_ids, resolved, strict=True):
+                    if capture is None or capture.endpoint not in (endpoint, "both"):
+                        _fail(
+                            "original leaves resolving to the correct fixed endpoint captures",
+                            capture_id,
+                        )
+                if (
+                    isinstance(leaf.reduction, FrameShapleyQuantile)
+                    or leaf.reduction.reducer == "count_distinct"
+                ) and not any(
+                    capture is not None
+                    and capture.state_route
+                    in ("typed_value_frequency/v1", "typed_sufficient_frequency/v1")
+                    for capture in resolved
+                ):
+                    _fail(
+                        "an exact frequency input among the original leaf's captured components",
+                        repr(capture_ids),
+                    )
+        if self.state_entries != sum(
+            capture.state_entries for capture in self.captures
+        ) or self.captured_source_reads != sum(capture.source_reads for capture in self.captures):
+            _fail("aggregate costs counting each actual capture once", self.left.column.name)
+        routes = {capture.state_route for capture in self.captures}
+        expected_route = next(iter(routes)) if len(routes) == 1 else "typed_sufficient_frequency/v1"
+        if self.state_route != expected_route:
+            _fail("the state route matching the actual captured inputs", self.state_route)
+
+    def _summary(self) -> str:
+        return f"kind=shapley, column={_short(self.left.column.name)!r}, players={_coefficient_text(self.player_count)}, permutations={_coefficient_text(self.permutations)}"
+
+    def _lines(self) -> Iterator[str]:
+        yield from _method_lines(self)
+        yield from self.game._lines()
+        for leaf in self.leaves:
+            yield repr(leaf)
+            yield from leaf._lines()
+        for capture in self.captures:
+            yield repr(capture)
+            yield from capture._lines()
+
+
 def _divisor(value: int | float | Decimal, operation: str) -> None:
     if (
         type(value) not in (int, float, Decimal)
@@ -531,14 +934,14 @@ class FrameDivisionMethod(_FactRecord):
     change: FrameMethodValue
     divisor: int | float | Decimal
     operation: Literal["divide", "rescale"]
-    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
+    method: _ExactMethod
 
     def __post_init__(self) -> None:
         if self.kind != "division":
             _fail("kind='division'", repr(self.kind))
         _totals(self.left, self.right, self.change)
         _divisor(self.divisor, self.operation)
-        _method(self.method)
+        _exact_method(self.method)
         if self.operation == "divide" and self.method.left.column.unit != self.left.column.unit:
             _fail("division preserving the child unit", self.left.column.name)
         if self.operation == "rescale" and self.left.column.unit is None:
@@ -562,7 +965,7 @@ class FrameLinearTerm(_FactRecord):
     """
 
     coefficient: int | float | Decimal
-    method: FrameAdditiveMethod | FrameRatioMethod | FrameLinearMethod | FrameDivisionMethod
+    method: _ExactMethod
 
     def __post_init__(self) -> None:
         if (
@@ -571,7 +974,7 @@ class FrameLinearTerm(_FactRecord):
             or (isinstance(self.coefficient, Decimal) and not self.coefficient.is_finite())
         ):
             _fail("a finite non-bool original numeric coefficient", type(self.coefficient).__name__)
-        _method(self.method)
+        _exact_method(self.method)
 
     def _summary(self) -> str:
         return f"kind=linear_term, child={self.method.kind}, column={_short(self.method.left.column.name)!r}"
@@ -831,6 +1234,7 @@ class FrameMethodOutput(_FactRecord):
         "effect_mix",
         "effect_entry_exit",
         "effect_additive",
+        "contribution_std_error",
     ]
     path: tuple[str, ...]
 
@@ -860,6 +1264,7 @@ class FrameMethodOutput(_FactRecord):
             "effect_mix",
             "effect_entry_exit",
             "effect_additive",
+            "contribution_std_error",
         ):
             _fail("a closed report output role", repr(self.role))
         if (
@@ -923,6 +1328,7 @@ class FrameAttributeMetric(_FactRecord):
         | FrameRatioMethod
         | FrameLinearMethod
         | FrameDivisionMethod
+        | FrameShapleyMethod
     )
     observed_total: FrameMethodValue
     total: FrameMethodValue
@@ -960,6 +1366,7 @@ class FrameAttributeMetric(_FactRecord):
                     FrameRatioMethod,
                     FrameLinearMethod,
                     FrameDivisionMethod,
+                    FrameShapleyMethod,
                 ),
             ):
                 _fail("a two-endpoint change rule", self.name)
@@ -969,6 +1376,8 @@ class FrameAttributeMetric(_FactRecord):
         support_by_root: dict[tuple[str, str], tuple[str, int, int]] = {}
 
         def supports(method: _Method | _LevelMethod) -> Iterator[tuple[str, str, str, int, int]]:
+            if isinstance(method, FrameShapleyMethod):
+                return
             if isinstance(method, (FrameDivisionMethod, FrameLevelDivisionMethod)):
                 yield from supports(method.method)
             elif isinstance(method, (FrameLinearMethod, FrameLevelLinearMethod)):
@@ -1039,6 +1448,8 @@ class FrameAttributeMetric(_FactRecord):
         actual_effects = {role for role in roles if role.startswith("effect_")}
         if expected_effects != actual_effects:
             _fail("exact effect mappings selected by the closed rule", self.name)
+        if ("contribution_std_error" in roles) != isinstance(self.method, FrameShapleyMethod):
+            _fail("sampling standard error exactly for the group-replacement rule", self.name)
         if self.share_state != ("zero_total" if self.total.value == 0 else "defined"):
             _fail("share state matching the exact reread total", self.name)
 
@@ -1310,11 +1721,20 @@ class FrameMethodFacts(_FactRecord):
                 "observed_total",
                 *(effect_role for effect_role in typed if effect_role.startswith("effect_")),
             ):
-                if typed[main_role].dtype != total.dtype or typed[main_role].unit != total.unit:
+                expected_type = (
+                    ScalarDataType("float64")
+                    if main_role == "contribution" and "contribution_std_error" in typed
+                    else total.dtype
+                )
+                if typed[main_role].dtype != expected_type or typed[main_role].unit != total.unit:
                     _fail(
-                        "main totals and contributions sharing the exact carrier and unit",
+                        "main report outputs matching their native or sampled carrier and target unit",
                         repr(target.target),
                     )
+            if "contribution_std_error" in typed:
+                error = typed["contribution_std_error"]
+                if error.dtype != ScalarDataType("float64") or error.unit != total.unit:
+                    _fail("Float64 permutation standard error in the target unit", error.name)
             share = typed["share"]
             if isinstance(share.dtype, DurationDataType) or share.unit != (
                 None if total.unit is None else "1"

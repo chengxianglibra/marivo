@@ -316,6 +316,8 @@ def _evaluate_frame(
                 StageOutput.from_completed(completed),
                 receipts=output.receipts,
                 attribute_inputs=output.attribute_inputs,
+                attribute_frequencies=output.attribute_frequencies,
+                attribute_state_captures=output.attribute_state_captures,
             )
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
@@ -423,6 +425,28 @@ def _evaluate_frame(
                 AttributeInputProgram,
                 AttributeProjectProgram,
             )
+            from marivo.analysis.core.attribute_game import AttributeGameProgram
+
+            if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeGameProgram):
+                game_target = stage.program.operation.target
+                checks.append(
+                    OutputEvidence(
+                        "check",
+                        "Fixed-state replacement domain and typed sampled marginals passed the versioned numeric closure policy; sampling error does not certify individual contribution accuracy.",
+                        (
+                            ("stage", stage.stage_id),
+                            ("check", "attribute_shapley"),
+                            ("policy", "typed_marginal_float64_sum/v1"),
+                            ("target", ".".join(game_target.path)),
+                            ("mode", game_target.mode),
+                            (
+                                "parent_count",
+                                sum(len(payload.parents) for payload in output.attribute_methods),
+                            ),
+                            ("result", "passed"),
+                        ),
+                    )
+                )
 
             if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
                 for receipt in output.receipts:

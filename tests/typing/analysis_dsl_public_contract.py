@@ -29,6 +29,10 @@ if TYPE_CHECKING:
                     elif method.kind == "division" or method.kind == "level_division":
                         assert_type(method.divisor, int | float | Decimal)
                         assert_type(method.operation, Literal["divide", "rescale"])
+                    elif method.kind == "shapley":
+                        assert_type(method.permutations, int)
+                        assert_type(method.seed, int)
+                        assert_type(method.game.kind, Literal["group_replacement"])
                     else:
                         if method.kind == "level_ratio_component":
                             assert_type(

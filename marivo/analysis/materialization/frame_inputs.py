@@ -9,6 +9,7 @@ from marivo._definition.query import FilterValues, SelectValues, TopValues
 from marivo.analysis.core.artifact_data import (
     DataSchema,
 )
+from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
 from marivo.analysis.core.frame_audit import (
     FrameOperationName,
@@ -51,6 +52,7 @@ class CapturedFrameInputs:
     dependencies: dict[str, tuple[str, ...]]
     requested: dict[str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]]
     operations: tuple[FrameOperationName, ...]
+    games: tuple[str, ...] = ()
 
 
 def capture_frame_inputs(
@@ -63,6 +65,7 @@ def capture_frame_inputs(
     collected: dict[str, FrameKeyInput] = {}
     dependencies: dict[str, tuple[str, ...]] = {}
     operations: list[FrameOperationName] = []
+    game_inputs: list[str] = []
     contribution_requests: dict[
         str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]
     ] = {}
@@ -93,7 +96,7 @@ def capture_frame_inputs(
                 expression: FrameExpression = FrameOperation(inputs, root.operation)
                 operation: FrameOperationName = (
                     "attribute"
-                    if isinstance(root.operation, AttributeMergeValues)
+                    if isinstance(root.operation, (AttributeMergeValues, AttributeGameValues))
                     else "align"
                     if isinstance(root.operation, AlignFrameValues)
                     else "compare"
@@ -108,6 +111,8 @@ def capture_frame_inputs(
                     if isinstance(root.operation, FixFrameValues)
                     else "reduce"
                 )
+                if isinstance(root.operation, AttributeGameValues):
+                    game_inputs.extend(endpoint._input_id for endpoint in root.inputs[1:])
                 if isinstance(root.operation, AttributeContributionValues):
                     operation = "attribute"
                     for side, endpoint_frame in enumerate(root.inputs[1:]):
@@ -166,4 +171,5 @@ def capture_frame_inputs(
         dependencies,
         requested,
         tuple(operations),
+        tuple(dict.fromkeys(game_inputs)),
     )
