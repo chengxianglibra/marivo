@@ -303,6 +303,20 @@ def provider() -> DisclosureProvider:
             ),
         ),
     )
+    fact_constraints: dict[type[object], tuple[str, ...]] = {
+        FrameMethodFacts: (
+            "Inherited facts explain origin_result_id, not derived values; they grant no new computation authority.",
+            "targets retains explicit role-to-output paths even when parents is empty.",
+        ),
+        FrameAttributeMetric: (
+            "observed_total retains the receiver value; total is the fresh parent result. share_state is defined or zero_total.",
+        ),
+        FrameMethodValue: (
+            "Values preserve their physical types, Decimal precision and integer time ticks.",
+        ),
+        FrameMethodSupport: ("Counts do not prove source qualification.",),
+        FrameLevelSupport: ("Counts do not prove source qualification.",),
+    }
     for fact_owner, target, acquisition, nested in fact_types:
         descriptors.append(
             value_type(
@@ -381,8 +395,8 @@ def provider() -> DisclosureProvider:
                 }[fact_owner],
                 consumers=("frame_method_facts.show", *nested),
                 constraints=(
-                    "Read-only typed data; no Metric, source address, executable recipe or new computation authority. Inherited facts explain their origin, not derived values. facts.targets retains explicit role-to-output paths even when facts.parents is empty.",
-                    "Complete fields remain available independently of bounded show output. observed_total retains the receiver value and total the fresh parent result; share_state is defined or zero_total. Level methods contain one endpoint. Numeric values retain actual physical types, Decimal precision and integer time ticks; counts do not prove source qualification.",
+                    "Read-only facts; bounded show does not truncate typed fields.",
+                    *fact_constraints.get(fact_owner, ()),
                 ),
             )
         )

@@ -104,7 +104,15 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
         "catalog.temporal_sets.occurrence": 'scope = temporal_set.occurrence("launch")',
         "catalog.temporal_sets.occurrences": "result = temporal_set.occurrences(limit=5)",
     }
-    prefix = "import marivo.semantic as ms\ncatalog = session.catalog\n"
+    prefix = "catalog = session.catalog\n"
+    requirements = {
+        "catalog.period_calendars.grain": "Use an exact declared level. A current certified snapshot is captured when available; otherwise the result is an unbound lookup. Certify the calendar before using its Grain with scope.by; this lookup does not certify it.",
+        "catalog.period_calendars.period": "Use an exact declared level and certified key from the current snapshot; missing keys or unavailable certification reject.",
+        "catalog.period_calendars.period_on": "Use an exact declared level and a civil date covered by the current certified snapshot; missing coverage rejects.",
+        "catalog.period_calendars.periods": "Use a certified level and limit=1..100, excluding bool. Pass page.next_cursor for the same snapshot and level; omit cursor for the first page. Continue until next_cursor is None.",
+        "catalog.temporal_sets.occurrence": "Use an exact occurrence key from the current certified snapshot; unavailable certification or missing keys reject.",
+        "catalog.temporal_sets.occurrences": "Use the current certified snapshot and preserve the selected filters when continuing a page.",
+    }
     result = []
     for descriptor in descriptors:
         preparation = ""
@@ -117,8 +125,10 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             replace(
                 descriptor,
                 example=prefix + preparation + example,
-                acquisition="Use the existing question-scoped Session; catalog = session.catalog. Temporal reads require certified authored inputs.",
-                related=("session.get_or_create",),
+                acquisition=requirements[descriptor.id],
+                related=("session.get_or_create", "semantic.preview")
+                if descriptor.id == "catalog.period_calendars.grain"
+                else ("session.get_or_create",),
             )
         )
     return tuple(result)

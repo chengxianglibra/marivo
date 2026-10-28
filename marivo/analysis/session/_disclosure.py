@@ -286,6 +286,8 @@ def provider() -> DisclosureProvider:
                         if name == "values" and n == "by"
                         else "Deferred field/Population contribution condition. Population.count domains stay fixed; count-only conditions reject."
                         if name == "observe" and n == "where"
+                        else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
+                        if name == "read" and n == "population"
                         else acquisition[n],
                         (
                             "inputs.catalog",

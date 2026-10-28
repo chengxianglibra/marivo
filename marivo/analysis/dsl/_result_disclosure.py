@@ -22,6 +22,7 @@ def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
     requires: tuple[str, ...]
     group: str | None
+    constraints: tuple[str, ...]
     descriptors: list[Descriptor] = [
         operation(
             "baseline",
@@ -601,26 +602,50 @@ def provider() -> DisclosureProvider:
     ):
         function = getattr(Column, name)
         unary = name in ("__neg__", "__invert__")
+        boolean = name in ("__and__", "__or__", "__invert__")
+        comparison = name in ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__")
+        if boolean:
+            constraints = (
+                {
+                    "__and__": "Three-valued boolean logic: False & NULL is False; True & NULL is NULL.",
+                    "__or__": "Three-valued boolean logic: True | NULL is True; False | NULL is NULL.",
+                    "__invert__": "Boolean negation preserves NULL: ~NULL is NULL.",
+                }[name],
+            )
+        elif comparison:
+            constraints = (
+                "Compatible value kinds and matching Column units are required. Return a unitless boolean Column; NULL comparisons give NULL. Use is_null() to test missing values.",
+            )
+        else:
+            constraints = (
+                "Numeric and legal Duration operands use their native kernels, including rounding, errors, wrapping and nonfinite values. NULL propagates; no extra overflow/finite scans, widening or retry.",
+                "Numeric division is float64; Duration / numeric retains the original Duration tick unit with half-even rounding, and Duration / Duration is float64. Numeric / Duration rejects. Known units divide or cancel; zero denominators give NA before arithmetic."
+                if name in ("__truediv__", "__rtruediv__")
+                else "Known Column units multiply; a numeric literal preserves the Column unit. Duration scaling retains its tick unit with half-even rounding."
+                if name in ("__mul__", "__rmul__")
+                else "Preserve the operand's kind and unit."
+                if unary
+                else "Column units must match; compatible literals retain the Column unit. Duration addition/subtraction requires compatible tick units.",
+            )
         descriptors.append(
             operation(
                 "Column." + name,
                 "column." + name,
                 function,
                 bindings=(bind(function, Column),),
-                summary="Construct a pointwise result expression on one exact Frame input.",
+                summary=(function.__doc__ or "").splitlines()[0].strip(),
                 parameters=()
                 if unary
                 else (
                     P(
                         "other",
-                        "Same-input Column or compatible immutable literal; boolean operators require Columns.",
+                        "Boolean Column from this exact input."
+                        if boolean
+                        else "Column from this exact input or a compatible non-null immutable literal.",
                     ),
                 ),
                 output="Column",
-                constraints=(
-                    "Arithmetic follows its actual kernel, including rounding, errors, wrapping and nonfinite values. No extra overflow/finite scan, protective widening or retry. Local int64 SUM stays int64; division is float64. NULL, identity, time, units and storage contracts apply.",
-                    "Nullable values propagate; known units and literal kinds must agree. Use / for division; zero denominators give NA before arithmetic.",
-                ),
+                constraints=constraints,
                 effects="Capture a result expression without I/O.",
                 failures=(
                     "AnalysisError: use the exact AnalysisFrame input and compatible types/units.",

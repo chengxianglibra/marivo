@@ -47,7 +47,7 @@ def provider() -> DisclosureProvider:
     constructors = (
         (
             identity,
-            "Grouping",
+            "Grouping | Deferred",
             "Capture a complete identity grouping without selecting keys.",
             "result = mv.identity(entity)",
             ("entity",),
@@ -55,7 +55,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             coordinates,
-            "Population",
+            "Population | Deferred",
             "Capture complete field and identity tuples; None is a field Null category.",
             "result = mv.coordinates(by=(region,), keys=(('east',), ('west',)))",
             ("region",),
@@ -63,7 +63,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             membership,
-            "Grouping",
+            "Grouping | Deferred",
             "Capture one correlated member-field tuple and explicit directed allocation paths.",
             "result = mv.membership(tag, via=((order_tags,),), unmatched='exclude')",
             ("tag", "order_tags"),
@@ -71,7 +71,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             product,
-            "Population",
+            "Population | Deferred",
             "Form the Cartesian product of disjoint complete domains, preserving axis order.",
             "result = mv.product(regions, calendar)",
             ("regions", "calendar"),
@@ -133,20 +133,20 @@ def provider() -> DisclosureProvider:
         "Population.classify": "Pass direct same-Entity fields, field groupings or the receiver's existing identity. Rejects membership, interval/calendar groupings and routed fields; requires one identity-axis Population.",
     }
     parameter_facts = {
-        "target": "Pass a resolved Entity or a nonempty connected directed relationship path; its endpoint determines the Entity.",
+        "target": "Pass a closed Entity, native Entity symbol or nonempty connected directed relationship path; its endpoint determines the Entity.",
         "keys": "Give one value per ordered axis; each identity value is a complete nonnull primary-key tuple. Duplicate complete tuples collapse; field None remains a category.",
         "entity": "Pass a resolved Entity from session.catalog.get('entity:<path>').value or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
         "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
-        "factors": "Pass at least two Populations, CalendarAxis or TimeScope values with disjoint axes and compatible owners.",
-        "population": "Pass a literal domain or a Population captured in the same Session.",
+        "factors": "Pass at least two Populations, CalendarAxis or TimeScope values, or native Deferred parameters; closed factors need disjoint axes and compatible owners.",
+        "population": "Pass a literal or same-Session Population, or a native Deferred parameter for loader binding.",
         "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
-        "count": "Pass a positive integer; evaluating this rule requires a CalendarAxis.",
-        "start": "Pass an aware datetime or an exact session.instant(...).",
+        "count": "Pass a positive integer excluding bool; evaluation requires complete CalendarAxis buckets.",
+        "start": "Pass an aware datetime or session.instant(...), strictly before every consumed endpoint.",
         "grain": "Pass mv.grain(unit), ms.calendar_grain(calendar=ref, level=...), or a Catalog grain. Unbound semantic reset grains resolve in the Session's frozen certified scope; captured snapshots must match it.",
         "predicate": "Pass in_population(...) or its closed &, | and ~ combinations over existing axes.",
-        "other": "Pass a Population with identical ordered bound business axes; project to matching coordinates before combining.",
-        "targets": "Pass the path target Entity's single identity-axis Population from the same Session.",
+        "other": "Pass a Population with identical ordered bound business axes, or a native Deferred parameter. Project closed domains to matching coordinates before combining.",
+        "targets": "Pass the path target Entity's same-Session single identity-axis Population, or a native Deferred parameter.",
         "at": "Pass an exact InstantAnchor when required attribute/version reads need it; omit otherwise.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -163,8 +163,21 @@ def provider() -> DisclosureProvider:
         "start": ("session.instant",),
         "grain": ("grain.define", "catalog.period_calendars.grain"),
     }
+    constructor_constraints = {
+        "identity": "Pass by=(grouping,) to observe. Identity grouping does not select keys; use coordinates for a finite domain. Observation binds complete primary keys through single-valued routes and validates version anchors.",
+        "coordinates": "Duplicate complete tuples collapse. Literal domains select only their captured complete keys; use product to combine calendar domains.",
+        "membership": "Place membership in observe.by or Metric.per; it expands its full ordered fields without splitting its correlated rule. For rule=(tag, channel), (rule, customer, channel) locates channel explicitly; the first field cannot be repeated. For R=(a,b), S=(c,d), (R,S,b,d) yields (a,c,b,d). Reject overlapping rules or reordered fields. (P, rule) retains P axes and joint keys; observe requires output coverage, per allows a subset. Each nested layer retains independent rules.",
+        "product": "Preserve factor order and complete joint keys; overlapping axes or conflicting Session owners reject.",
+        "in_population": "Match complete null-safe tuples on existing axes; membership does not introduce new output coordinates.",
+        "all_history": "Source retention still limits available history; the endpoint is exclusive.",
+        "trailing_duration": "Use elapsed time, independent of civil clock changes; the endpoint is exclusive.",
+        "trailing_periods": "Require complete day/week/month/quarter/year or certified named-calendar buckets; partial buckets and subday grains reject. Count calendar predecessors, not positions in a sparse axis. Named calendars must certify the required predecessor coverage.",
+        "since": "The start is inclusive and each actual observation endpoint is exclusive; start must precede every endpoint.",
+        "to_date": "Each nominal output bucket must lie inside one reset period. At an exact reset boundary, the just-completed period owns the endpoint.",
+    }
     for function, output, summary, code, requires, group in constructors:
         name = function.__name__
+        is_window = group == "inputs.time.windows"
         descriptors.append(
             operation(
                 name,
@@ -182,23 +195,25 @@ def provider() -> DisclosureProvider:
                     for name in signature(function).parameters
                 ),
                 output=output,
-                constraints=(
+                constraints=(constructor_constraints[name],)
+                + (
                     (
-                        "Pass by=(grouping,) to observe. Identity grouping does not select keys; "
-                        "mv.coordinates(by=(mv.identity(entity),), keys=...) constructs a complete domain. Observation "
-                        "binds complete primary keys through single-valued routes and validates version anchors."
+                        "Closed inputs return the concrete value; native lookup symbols return a Deferred parameter requiring loader binding before analysis.",
                     )
-                    if function is identity
-                    else "Place membership in observe.by or Metric.per; it expands its full ordered fields without splitting its correlated rule. For rule=(tag, channel), (rule, customer, channel) locates channel explicitly; the first field cannot be repeated. For R=(a,b), S=(c,d), (R,S,b,d) yields (a,c,b,d). Reject overlapping rules or reordered fields. (P, rule) retains P axes and joint keys; observe requires output coverage, per allows a subset. Each nested layer retains independent rules."
-                    if function is membership
-                    else "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; explicit Population domains select only their complete keys.",
+                    if " | Deferred" in output
+                    else ()
                 ),
-                effects="Capture an immutable domain, allocation descriptor, predicate or window rule.",
+                effects="Capture only; no schema or business reads.",
                 failures=(
                     "AnalysisError or SemanticError: inspect expected/received input and the concrete repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
                 discovery_group=group,
+                related=("observation_window", "semantic.metric.window")
+                if is_window
+                else ("semantic.predicate",)
+                if function is in_population
+                else (),
             )
         )
         exports.append(ExportInput(name, function, name))
@@ -301,6 +316,9 @@ def provider() -> DisclosureProvider:
         ),
     )
     for owner, name, output, summary, code, method_requires in methods:
+        symbolic_output = owner is Population and output == "Population"
+        if symbolic_output:
+            output = "Population | Deferred"
         target = f"{'ObservationWindow' if owner is _Window else owner.__name__}.{name}"
         function = getattr(owner, name)
         descriptors.append(
@@ -323,9 +341,18 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact conditions/windows do not reselect the domain; count-only conditions/windows reject."
                     if owner is Population and name == "count"
-                    else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative.",
+                    else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative."
+                    if owner is Population and name != "show"
+                    else "Captured metadata only.",
+                )
+                + (
+                    (
+                        "Closed inputs return a Population; native lookup symbols return a Deferred parameter requiring loader binding before analysis.",
+                    )
+                    if symbolic_output
+                    else ()
                 ),
-                effects="Return a new immutable definition or bounded source-free disclosure.",
+                effects="Capture or inspect only; no schema or business reads.",
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
                 example=ExampleInput(code, method_requires, "result", output),
                 discovery_group=(
@@ -378,9 +405,9 @@ def provider() -> DisclosureProvider:
             summary="A closed source-free endpoint window rule.",
             acquisition="Use all_history, trailing_duration, trailing_periods, since or to_date. Direct construction and extension are unsupported.",
             producers=("all_history", "trailing_duration", "trailing_periods", "since", "to_date"),
-            consumers=("ObservationWindow.show",),
+            consumers=("semantic.metric.window", "ObservationWindow.show"),
             constraints=(
-                "Attach with metric.window(rule); supply a TimeScope or CalendarAxis in the consuming observation by.",
+                "Attach with metric.window(rule); supply an explicit TimeScope or CalendarAxis in observe.by. Nested windows reject.",
             ),
         )
     )

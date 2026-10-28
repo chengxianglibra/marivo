@@ -69,7 +69,7 @@ def provider() -> DisclosureProvider:
                     "Direct construction is unsupported; scope reads never rebuild a range."
                     if type_value is TimeScope
                     else "Use mv.grain for builtin units; ms.calendar_grain for source-free lookup; "
-                    "calendar.grain(level) for a certified snapshot-bound Grain. Direct construction is unsupported."
+                    "calendar.grain(level) captures a current certified snapshot when available, otherwise returns an unbound lookup. Direct construction is unsupported."
                 ),
                 producers=(
                     "session.time_scope",
@@ -83,7 +83,7 @@ def provider() -> DisclosureProvider:
                 if type_value is TimeScope
                 else ("grain.define", "catalog.period_calendars.grain"),
                 constraints=(
-                    "The source-free lookup factory is marivo.help('semantic.calendar_grain'). Equality/hash include captured snapshot identity; an unbound lookup differs from a captured Grain. Scope.by requires calendar.grain(level).",
+                    "Equality/hash include captured snapshot identity. scope.by requires a captured calendar Grain: certify the calendar before calling calendar.grain(level). An unbound lookup can instead resolve in a consuming Session's certified scope, such as to_date.",
                 )
                 if type_value is Grain
                 else (
