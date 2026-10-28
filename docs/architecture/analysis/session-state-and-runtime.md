@@ -127,8 +127,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 16 is under `<project_root>/.marivo/analysis/generations/v16/`. One closed
-`marivo.frame_output/v5` protocol stores values, complete axes, independent presence, typed
+Store 17 is under `<project_root>/.marivo/analysis/generations/v17/`. One closed
+`marivo.frame_output/v6` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and audit directly.
@@ -253,8 +253,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v5`, `frame.v5` and `frame-output-v5` under
-`.marivo/analysis/generations/v16/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v6`, `frame.v6` and `frame-output-v6` under
+`.marivo/analysis/generations/v17/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -332,3 +332,14 @@ holds local ownership without a producer Session.
 [graph_reading.py](../../../marivo/analysis/materialization/graph_reading.py) owns
 metadata/preview/complete readers; [pandas_export.py](../../../marivo/analysis/materialization/pandas_export.py)
 owns isolated export.
+
+## Captured semantic lineage
+
+Completed result metadata includes immutable, non-executable semantic column
+lineage. Pending Frames derive it from explicit inputs at construction; compute,
+publication and cold recovery preserve it. Store 17 / output v6 requires the
+complete value/axis/presence directories and their captured identities. Missing or
+invalid saved lineage is an integrity failure, rather than empty lineage. A saved
+derivative owns its complete lineage without requiring ancestor artifacts or the
+original model. Reading frame.lineage does not consume rows, coordinate attachments,
+method payloads, or source connections. Older Store/output formats are not migrated.

@@ -694,7 +694,12 @@ def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServi
         (PendingDataColumn("v", "amount", "numeric", True, "USD"),),
         (("amount",),),
     )
-    paired = AnalysisFrame._bind(local, schema, _memory_backing(frame), "paired-input")
+    from marivo._definition.query import SelectValues, ValueSlot
+    from marivo.analysis.core.frame_data import OperationFrameBinding
+
+    paired = AnalysisFrame._from_expression(
+        local, schema, OperationFrameBinding(SelectValues((("amount", ValueSlot(0)),)), (frame,))
+    )
     scalar = frame.reduce({"rows": row_count()})
     with pytest.raises(AnalysisError, match="without paired axes"):
         paired.compare({"reference": mv.baseline(scalar, on=())})

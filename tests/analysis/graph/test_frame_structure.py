@@ -47,6 +47,7 @@ from marivo.analysis.core.frame_structure import (
     value_name,
 )
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import BoundSignature, CoreRuleError, ResultQuantity
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -389,7 +390,10 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
 
     def reopen(service: LocalFrameServices, artifact_id: str) -> AnalysisFrame:
         return AnalysisFrame._from_stored(
-            service, saved, artifact_id=artifact_id, metadata=metadata("r")
+            service,
+            saved,
+            artifact_id=artifact_id,
+            metadata=replace(metadata("r"), lineage=empty_lineage(saved.schema)),
         )
 
     first, second = reopen(local, "artifact_1"), reopen(local, "artifact_1")

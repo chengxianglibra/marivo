@@ -44,3 +44,31 @@ An `AnalysisFrame` may be a pending expression, completed in-memory data, or a s
 On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays metadata and audit summaries without reading result rows. Use `findings()` to read committed Findings and `evidence_digest()` to read saved Evidence. A plain observation's saved audit records source and evaluation facts; it may have no Findings. Supported contribution analyses retain their method explanations in `method_facts`.
 
 Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope describes the period, filters, and source constraints used for the read; it does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.
+
+## Inspect semantic column origins
+
+Every Frame exposes `lineage`, including pending expressions. Reading it does not
+execute the analysis or read business rows. It remains available after saving and
+independent recovery without the original models or source connection.
+
+```python
+lineage = saved.lineage
+lineage.show()
+lineage.values["reference.absolute.revenue"].show()
+origins = lineage.values["reference.absolute.revenue"].value_origins
+for origin in origins:
+    print(origin.kind, origin.path, origin.definition_id)
+```
+
+`value_origins` records semantic declarations and inputs used for the value.
+`context_origins` records filters, grouping, time, relationships and row matching.
+A filtered column retains its filter dependencies after projection. The `axes`
+directory uses `frame.axes[i].token`; `presence` uses complete presence names.
+Named Measures used in filters remain context origins, including inside a Metric.
+Coordinates also retain row selection context. In weighted-mean attribution,
+the denominator takes value origins from weights; valid-pair selection contributes
+context origins from both values and weights. Valid-pair counts have context origins only.
+For direct ratios, each component retains its own named Metric origins.
+These are static logical dependencies, including all declared conditional branches;
+they do not prove row-level contribution, successful reads, or causation. Display
+is bounded; typed mappings and origin tuples retain the complete captured facts.

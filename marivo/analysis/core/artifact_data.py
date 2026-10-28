@@ -221,19 +221,29 @@ class ArtifactManifest:
     data: ArtifactData
     metadata: FrameResultMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
-    semantics_version: Literal["frame.v5"] = "frame.v5"
+    semantics_version: Literal["frame.v6"] = "frame.v6"
 
     @property
     def result_id(self) -> str:
         return self.metadata.result_id
 
     def __post_init__(self) -> None:
+        from marivo.analysis.core.lineage import validate
+
+        if self.metadata.lineage is None:
+            reject(
+                "complete saved semantic lineage",
+                "missing lineage",
+                "Open a complete current-format Frame.",
+                "frame.lineage",
+            )
+        validate(self.metadata.lineage, self.data.schema)
         for name in ("store_id", "artifact_id", "session_id", "run_id"):
             require_data_text(getattr(self, name), f"artifact.{name}")
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not FrameResultMetadata
-            or self.semantics_version != "frame.v5"
+            or self.semantics_version != "frame.v6"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

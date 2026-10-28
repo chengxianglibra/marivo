@@ -382,4 +382,4 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
     assert saved.evidence_digest().evidence_count > 0
-    assert case.session._runtime.store.layout.generation == 16
+    assert case.session._runtime.store.layout.generation == 17

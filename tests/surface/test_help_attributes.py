@@ -126,9 +126,20 @@ def test_window_attribute_identifies_its_public_constructor() -> None:
         (
             mv.AnalysisFrame,
             "analysis_frame",
-            ("session_id", "artifact_id", "output_names", "axes", "presence_names", "method_facts"),
+            (
+                "session_id",
+                "artifact_id",
+                "output_names",
+                "axes",
+                "presence_names",
+                "method_facts",
+                "lineage",
+            ),
         ),
         (mv.FrameAxis, "frame_axis", ("token", "name", "role", "key_names")),
+        (mv.FrameLineage, "frame_lineage", ("values", "axes", "presence")),
+        (mv.ColumnLineage, "column_lineage", ("value_origins", "context_origins")),
+        (mv.SemanticObjectIdentity, "semantic_object_identity", ("kind", "path", "definition_id")),
     ),
 )
 def test_frame_metadata_help_is_static_without_getter_execution(

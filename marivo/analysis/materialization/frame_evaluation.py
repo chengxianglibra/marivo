@@ -609,6 +609,7 @@ def _evaluate_frame(
             ),
         ),
     )
+    metadata = replace(metadata, lineage=frame.lineage)
     method_facts = _fold_method_facts(
         frame._input_id,
         captured.dependencies,

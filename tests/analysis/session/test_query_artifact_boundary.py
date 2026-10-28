@@ -39,6 +39,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import BoundQuantity, CoreRuleError
 from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
@@ -70,7 +71,8 @@ def _manifest() -> ArtifactManifest:
         ArtifactData(schema, ParquetHandle(receipt)),
         FrameResultMetadata(
             "result_exact",
-            FrameAudit(
+            lineage=empty_lineage(schema),
+            audit=FrameAudit(
                 (), EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ("literal",))
             ),
         ),
@@ -299,7 +301,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id)
     named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 16
+    assert MaterializationLayout(tmp_path).generation == 17
     assert terminal_runs(resumed) == ()
 
 
@@ -348,7 +350,7 @@ def test_old_session_is_not_found_without_rewriting_files(
     assert caught.value.repair is not None
     assert "v11" in caught.value.repair.action
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
-    assert not (path.parent.parent / "v16").exists()
+    assert not (path.parent.parent / "v17").exists()
 
 
 @pytest.mark.parametrize("columns", (None, False, 0, {}))

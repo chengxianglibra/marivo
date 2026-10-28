@@ -425,7 +425,18 @@ def _compose(
         ):
             permission = SumNone()
         return RowFacts(
-            RowExpression(construct(captured), tuple(inputs)),
+            RowExpression(
+                construct(captured),
+                tuple(inputs),
+                tuple(
+                    dict.fromkeys(
+                        origin
+                        for row in rows
+                        if isinstance(row.node, RowExpression)
+                        for origin in row.node.origins
+                    )
+                ),
+            ),
             root,
             unit,
             permission,
@@ -884,6 +895,14 @@ def _consume(recipe: Resolver) -> _Facts:
                 received=type(value).__name__,
             )
         assert isinstance(value, RowFacts)
+        if declaration.reference is not None:
+            value = replace(
+                value,
+                node=replace(
+                    value.node,
+                    origins=tuple(dict.fromkeys((*value.node.origins, declaration.reference))),
+                ),
+            )
         unit = value.unit if declaration.unit is None else declaration.unit
         permission = value.permission if declaration.permission is None else declaration.permission
         if unit == value.unit and permission == value.permission:
@@ -1011,7 +1030,12 @@ def _consume(recipe: Resolver) -> _Facts:
                     receiver,
                     field=field,
                     node=RowField(
-                        field.reference, field.root, field.unit, field.permission, read=read
+                        field.reference,
+                        field.root,
+                        field.unit,
+                        field.permission,
+                        read=read,
+                        origins=receiver.node.origins,
                     ),
                 )
             if name == "within":
@@ -1105,7 +1129,12 @@ def _consume(recipe: Resolver) -> _Facts:
                     root=relationships[0].from_entity,
                     field=field,
                     node=RowField(
-                        field.reference, field.root, field.unit, field.permission, read=read
+                        field.reference,
+                        field.root,
+                        field.unit,
+                        field.permission,
+                        read=read,
+                        origins=receiver.node.origins,
                     ),
                 )
             if name in _REDUCERS | {"weighted_mean"}:
@@ -1331,7 +1360,13 @@ def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
             row_inputs: list[RowField | MeasureAssertion] = []
             row_recipe = _row_recipe(value, row_inputs)
             slot = Variable(f"slot_{len(inputs)}")
-            inputs.append(RowExpression(row_recipe, tuple(row_inputs)))
+            inputs.append(
+                RowExpression(
+                    row_recipe,
+                    tuple(row_inputs),
+                    value.node.origins if isinstance(value.node, RowExpression) else (),
+                )
+            )
             roots.setdefault(value.root.ref.key, value.root)
             return slot
         if isinstance(item, BinaryOperator) and item.func in (operator.and_, operator.or_):
@@ -1387,7 +1422,7 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
             return RescaleResolver(bind(recipe.recipe, active), recipe.divisor, recipe.unit)
         if isinstance(recipe, DeclarationResolver):
             declaration = recipe.declaration
-            if declaration.reference is not None:
+            if declaration.reference is not None and declaration.kind == "metric":
                 target = declaration.reference.ref
                 if target.path in active:
                     _fail(

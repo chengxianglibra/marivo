@@ -307,7 +307,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 16 writer transaction. Memory persist never reevaluates. Stored
+single Store 17 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -319,10 +319,10 @@ promise complete data lineage. Retain Session and Artifact IDs for exact reopeni
 Lost return references require explicit resubmission, accepting duplicate saved
 outputs and possibly changed source data. There is no public result directory.
 
-Store 16 uses ``marivo.frame_output/v5``, ``frame.v5`` and ``frame-output-v5`` for
-all Frames, under ``.marivo/analysis/generations/v16/``. Owned method files share
+Store 17 uses ``marivo.frame_output/v6``, ``frame.v6`` and ``frame-output-v6`` for
+all Frames, under ``.marivo/analysis/generations/v17/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 16 refuses older-generation Session/result/audit data unchanged, without
+Store 17 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty; create cannot bypass an old-only project. Preserve required
 old results by exporting with their original version or retaining a compatible
@@ -340,6 +340,9 @@ Canonical public exports
    :caption: Classes
 
    FrameMethodFacts
+   FrameLineage
+   ColumnLineage
+   SemanticObjectIdentity
    AnalysisFrame
    FrameAxis
    Column
@@ -444,3 +447,18 @@ missing instants; at most six groups are shown, with explicit truncation flags.
 The rendered error includes the same facts and a concrete repair. Represented
 NULL samples are distinct from missing clocks. Native diagnostics use the same
 business statement, without a follow-up query.
+
+Semantic column origins
+-----------------------
+
+``frame.lineage`` returns immutable ``values``, ``axes`` and ``presence`` mappings
+on every carrier without evaluation or row reads. Values use complete output
+names; axes use local tokens. Each ``ColumnLineage`` separates ``value_origins``
+from ``context_origins``. Origins retain kind, path and consumed definition_id.
+They preserve naming-only Measures, filtering context and independent recovery,
+without restoring semantic execution authority or a historical producer graph.
+Named Measures used in predicates contribute context origins; coordinates retain
+row selection context too. Attribute weighted-mean denominators take value origins
+from weights and context origins from valid-pair selection. Valid-pair counts
+have context origins only. Direct-ratio components retain their own named Metric origins.
+Use ``marivo.help("analysis.frame_lineage")`` for fields and bounded display.

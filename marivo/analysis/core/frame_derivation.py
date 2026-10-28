@@ -305,8 +305,16 @@ def complete_declaration(
                 else:
                     raise AssertionError("Evaluated source key dependency has no checkpoint")
             # The carrier is deliberately source-free and contains no value history.
+            from marivo.analysis.core.lineage import directory
+
+            lineage = directory(
+                data.schema,
+                (),
+                tuple(original.lineage.axes.values()),
+                domain=original.lineage._domain,
+            )
             carrier = AnalysisFrame._from_memory(
-                original._local, CompletedFrameResult(data, metadata)
+                original._local, CompletedFrameResult(data, replace(metadata, lineage=lineage))
             )
             carrier = AnalysisFrame._bind(
                 carrier._local, carrier._schema, carrier._backing, dependency.input_id

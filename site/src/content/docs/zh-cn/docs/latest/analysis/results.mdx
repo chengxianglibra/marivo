@@ -44,3 +44,27 @@ rows.to_csv("comparison.csv", index=False)
 保存的 Frame 上，`session_id` 和 `artifact_id` 标识已提交结果。`show(n=0)` 展示元数据和审计摘要，不读取结果行。使用 `findings()` 读取已提交的 Finding，使用 `evidence_digest()` 读取保存的 Evidence。普通观测的已保存审计会记录来源与评估事实，但可能没有 Finding。受支持的贡献分析会通过 `method_facts` 保留方法说明。
 
 来源读取、计算完成和提交保存的时间各不相同。判断结果是否新鲜时，应查看记录中的来源范围和时间；后续观测可能读到变化后的数据。记录的范围说明本次读取使用的时间段、筛选条件和来源约束；它不能证明来源包含所有相关数据，也不能证明多个来源使用了一致快照。贡献拆分说明所选方法如何分配变化，但本身不能证明变化原因。
+
+## 查看每列的语义对象来源
+
+每种载体的 Frame 都提供 `lineage`，待执行表达式也可读取。查看血缘不会执行分析或
+读取业务行；保存并在独立进程恢复后，无需原始模型或来源连接仍可查看。
+
+```python
+lineage = saved.lineage
+lineage.show()
+lineage.values["reference.absolute.revenue"].show()
+origins = lineage.values["reference.absolute.revenue"].value_origins
+for origin in origins:
+    print(origin.kind, origin.path, origin.definition_id)
+```
+
+`value_origins` 记录值使用的语义声明与输入，`context_origins` 记录筛选、分组、时间、
+关系和行匹配依赖。筛选条件涉及的列在投影中丢弃后，其选择上下文仍保留。`axes`
+目录使用 `frame.axes[i].token`，`presence` 使用完整 presence 名。
+筛选中使用的命名 Measure 保留为上下文来源，包括 Metric 内部的筛选。坐标同样保留
+行选择上下文。加权平均归因的分母以权重为值来源，值与权重的有效配对条件作为上下文；
+有效配对数仅有上下文来源。
+直接比值的分子与分母分别保留各自的命名 Metric 来源。
+这些是静态逻辑依赖，包含所有声明的条件分支，不证明逐行实际贡献、已成功读取或
+因果关系。显示有界，typed mappings 和 origins tuple 保留完整捕获事实。

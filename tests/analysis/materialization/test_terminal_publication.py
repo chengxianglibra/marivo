@@ -46,6 +46,7 @@ from marivo.analysis.core.frame_data import (
     StoredFrameBacking,
 )
 from marivo.analysis.core.frozen_calendar import FrozenKey
+from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
@@ -199,7 +200,7 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         artifact.show()
         assert artifact.findings().items == ()
         digest = artifact.evidence_digest()
-        assert digest.digest_version == "frame-output-v5"
+        assert digest.digest_version == "frame-output-v6"
         assert not any(item.kind == "read" for item in digest.items)
     published = terminal_runs(session, status="succeeded")
     assert all(run.lifecycle == "succeeded" for run in published)
@@ -278,7 +279,12 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
         for column in schema.columns:
             assert isinstance(output[column.slot_id].dtype, pd.ArrowDtype)
         manifest = ArtifactManifest(
-            "store", "artifact", "session", "run", ArtifactData(schema, handle), result_metadata()
+            "store",
+            "artifact",
+            "session",
+            "run",
+            ArtifactData(schema, handle),
+            replace(result_metadata(), lineage=empty_lineage(schema)),
         )
         from marivo.analysis.materialization.pandas_export import export_frame
 
@@ -322,7 +328,7 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
         "session",
         "run",
         ArtifactData(DataSchema((), ()), handle),
-        result_metadata(),
+        replace(result_metadata(), lineage=empty_lineage(DataSchema((), ()))),
     )
     exported = export_frame(manifest.data.schema, output)
     assert exported.shape == (count, 0)
@@ -685,7 +691,7 @@ def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
         assert record is not None
         assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert (old.parent.parent / "v16").exists()
+    assert (old.parent.parent / "v17").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -1086,7 +1092,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     assert artifact.findings().items == ()
     artifact.evidence_digest()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store16 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store17 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1266,7 +1272,12 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
     handle = write_output(tmp_path, tmp_path / "staging", tmp_path / "saved", schema, rows)
     os.rename(tmp_path / "staging", tmp_path / "saved")
     manifest = ArtifactManifest(
-        "store", "artifact", "session", "run", ArtifactData(schema, handle), result_metadata()
+        "store",
+        "artifact",
+        "session",
+        "run",
+        ArtifactData(schema, handle),
+        replace(result_metadata(), lineage=empty_lineage(schema)),
     )
     exported = export_frame(schema, read_output(tmp_path, schema, handle))
     assert exported[exported.attrs["axes"][0]["name"]].tolist() == [
@@ -1360,7 +1371,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v5"
+    assert value.semantics_version == "frame.v6"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0

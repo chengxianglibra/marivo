@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import operator
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Generic, Literal, NoReturn, TypeAlias, TypeVar
 
@@ -186,6 +186,7 @@ class AdditiveRule:
         | RuleDivide[AdditiveRule]
         | RuleRescale[AdditiveRule]
     )
+    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,6 +395,8 @@ def build_attribute_rule(
             active.add(item.ref)
             result = visit(declared[item.ref], (*path, 0))
             active.remove(item.ref)
+            if isinstance(result, AdditiveRule):
+                result = replace(result, origins=(*result.origins, item.ref))
             return result
         if isinstance(item, ContributionFilter):
             return visit(item.operand, (*path, 0))

@@ -1,4 +1,4 @@
-"""Store16 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store17 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -459,11 +459,12 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v5"
-    assert local.store.layout.generation == 16
+    assert FORMAT == "marivo.frame_output/v6"
+    assert local.store.layout.generation == 17
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
-    assert value.metadata == metadata()
+    assert replace(value.metadata, lineage=None) == metadata()
+    assert value.metadata.lineage == saved.lineage
     assert tuple(field.name for field in fields(InvocationInput)) == ("result_id",)
     run = terminal_run(local, value.run_id)
     assert run.dataset_input == InvocationInput(metadata().result_id)
@@ -830,7 +831,7 @@ def test_sequence_spans_batches_and_row_groups(
         assert parquet.num_row_groups == 4
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16])
 def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
     old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
@@ -839,7 +840,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v16").exists()
+    assert not (old.parent.parent / "v17").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -1061,7 +1062,7 @@ def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFram
         local.read_complete(backing)
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16])
 def test_every_old_generation_entry_preserves_old_tree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: int
 ) -> None:
@@ -1101,7 +1102,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v16").exists()
+    assert (old.parent.parent / "v17").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:

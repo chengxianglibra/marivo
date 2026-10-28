@@ -318,7 +318,11 @@ def _encode_fields(node: DefinitionNode, memo: dict[int, str]) -> dict[str, obje
         }
     return {
         "node": type(node).__name__,
-        **{field.name: _encode(getattr(node, field.name), memo) for field in fields(node)},
+        **{
+            field.name: _encode(getattr(node, field.name), memo)
+            for field in fields(node)
+            if field.name != "origins"
+        },
     }
 
 
@@ -406,6 +410,8 @@ def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKi
 def _consumed_refs(node: DefinitionNode, into: set[ExactRef]) -> None:
     """Collect the exact refs one node's own fields consume; authorization is provenance."""
     for item in fields(node):
+        if item.name == "origins":
+            continue
         if isinstance(node, MeasureAssertion) and item.name == "authorization":
             continue
         _collect_refs(getattr(node, item.name), into)

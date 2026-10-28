@@ -34,6 +34,7 @@ from marivo.analysis.core.frame_method_facts import (
     FrameMethodValue,
     FrameRatioMethod,
 )
+from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.temporal import CalendarAxis
@@ -65,6 +66,7 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.show",
                 "analysis_frame.to_pandas",
                 "analysis_frame.method_facts",
+                "analysis_frame.lineage",
                 "analysis_frame.findings",
                 "analysis_frame.evidence_digest",
             ),
@@ -96,6 +98,57 @@ def provider() -> DisclosureProvider:
             ),
         ),
     ]
+    for lineage_owner, target, acquisition, producer, lineage_nested in (
+        (
+            FrameLineage,
+            "frame_lineage",
+            "Read frame.lineage on any carrier without evaluation.",
+            "analysis_frame.lineage",
+            ("column_lineage",),
+        ),
+        (
+            ColumnLineage,
+            "column_lineage",
+            "Read a frame.lineage values, axes or presence entry.",
+            "frame_lineage",
+            ("semantic_object_identity",),
+        ),
+        (
+            SemanticObjectIdentity,
+            "semantic_object_identity",
+            "Read a column lineage origin tuple.",
+            "column_lineage",
+            (),
+        ),
+    ):
+        descriptors.append(
+            value_type(
+                target,
+                lineage_owner,
+                summary=lineage_owner.__doc__ or target,
+                acquisition=acquisition,
+                producers=(producer,),
+                consumers=(*lineage_nested, target + ".show"),
+                constraints=(
+                    "Immutable static logical origins. No business rows, Catalog lookup, execution or semantic authority. Typed fields are complete independently of bounded display.",
+                ),
+            )
+        )
+        descriptors.append(
+            operation(
+                target + ".show",
+                "lineage.show",
+                lineage_owner.show,
+                bindings=(bind(lineage_owner.show, lineage_owner),),
+                summary="Print bounded captured semantic lineage.",
+                parameters=(),
+                output="None",
+                constraints=("Metadata only; use typed fields for complete identities.",),
+                effects="Print captured metadata.",
+                failures=(),
+                example=ExampleInput("result = lineage.show()", ("lineage",), "result", "None"),
+            )
+        )
     fact_types: tuple[tuple[type[object], str, str, tuple[str, ...]], ...] = (
         (
             FrameMethodFacts,
@@ -643,6 +696,11 @@ def provider() -> DisclosureProvider:
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
             ExportInput("FrameMethodFacts", FrameMethodFacts, "frame_method_facts"),
+            ExportInput("FrameLineage", FrameLineage, "frame_lineage"),
+            ExportInput("ColumnLineage", ColumnLineage, "column_lineage"),
+            ExportInput(
+                "SemanticObjectIdentity", SemanticObjectIdentity, "semantic_object_identity"
+            ),
             *populations.exports,
             *results.exports,
         ),

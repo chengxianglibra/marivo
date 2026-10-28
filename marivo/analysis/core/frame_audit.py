@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
+from marivo.analysis.core.lineage import FrameLineage
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.output_records import OutputEvidence, OutputFinding
 
@@ -161,6 +162,7 @@ class FrameResultMetadata:
     result_id: str
     audit: FrameAudit
     findings: tuple[OutputFinding, ...] = ()
+    lineage: FrameLineage | None = None
 
     def __post_init__(self) -> None:
         _identity(self.result_id)

@@ -3,11 +3,13 @@
 Row and Metric arithmetic use distinct stage types. Operator policies are
 resolved at construction and stored with the rule version on the node that
 owns them; declarations add names and metadata without changing computation.
+Row origins retain naming provenance at the usage site, outside equality,
+computation fingerprints and executable dependency resolution.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import Resolver
@@ -79,6 +81,7 @@ class RowField:
     unit: str | None
     permission: SumPermission
     read: FieldRead | None = None
+    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ref.ref.kind not in _FIELD_KINDS:
@@ -105,6 +108,7 @@ class MeasureAssertion:
     unit: str | None
     permission: SumPermission | None
     authorization: Authorization
+    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.unit is None and self.permission is None:
@@ -125,6 +129,7 @@ class RowExpression:
 
     recipe: Resolver
     inputs: tuple[RowField | MeasureAssertion, ...]
+    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
 
 
 RowNode: TypeAlias = RowField | MeasureAssertion | RowExpression

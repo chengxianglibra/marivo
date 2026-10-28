@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
@@ -21,6 +21,7 @@ from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.lineage import empty, validate
 from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
@@ -169,6 +170,12 @@ class CompletedFrameResult:
     method_facts: tuple[FrameMethodFacts, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.metadata.lineage is None:
+            object.__setattr__(
+                self, "metadata", replace(self.metadata, lineage=empty(self.data.schema))
+            )
+        assert self.metadata.lineage is not None
+        validate(self.metadata.lineage, self.data.schema)
         if (
             type(self.data) is not CompletedFrameData
             or type(self.metadata) is not FrameResultMetadata
@@ -226,6 +233,14 @@ class StoredFrameBacking:
                 "Open committed metadata.",
                 "frame.stored",
             )
+        if self.metadata.lineage is None:
+            reject(
+                "saved column lineage",
+                "missing lineage",
+                "Open a complete current-format Frame.",
+                "frame.lineage",
+            )
+        validate(self.metadata.lineage, self.data.schema)
         require_complete_structure(self.data.schema)
         _attachments(
             self.data.schema, tuple(attachment.name for attachment in self.data.attachments)

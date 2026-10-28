@@ -53,6 +53,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_source_facts import source_scope
 from marivo.analysis.core.frame_structure import PendingDataSchema
+from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl._frame_inputs import (
@@ -479,7 +480,7 @@ def _stored(session: Session, schema: DataSchema, *, digest: str = "same") -> An
         session._runtime.local,
         ArtifactData(schema, ParquetHandle(receipt, digest)),
         artifact_id="committed-selection",
-        metadata=_metadata("stored-result"),
+        metadata=replace(_metadata("stored-result"), lineage=empty_lineage(schema)),
     )
 
 

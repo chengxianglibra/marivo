@@ -244,6 +244,7 @@ _PAGES = (
         related=(
             "analysis_frame.show",
             "analysis_frame.method_facts",
+            "analysis_frame.lineage",
             "FrameMethodFacts",
             "analysis_frame.persist",
         ),
@@ -253,6 +254,10 @@ _PAGES = (
             ("analysis_frame.findings", "Read a bounded page of saved Findings."),
             ("analysis_frame.evidence_digest", "Read saved Evidence facts and collection digests."),
             ("analysis_frame.method_facts", "Access captured original method facts on this Frame."),
+            (
+                "analysis_frame.lineage",
+                "Inspect semantic origins of every output without reading data.",
+            ),
             ("FrameMethodFacts", "Understand original method facts and their limits."),
             ("analysis_frame.persist", "Save current results when a committed result is needed."),
         ),

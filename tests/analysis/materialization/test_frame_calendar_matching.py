@@ -533,7 +533,7 @@ def test_generated_pair_tokens_and_names_avoid_independent_input_names(
         rows = data.copy_rows().rename(columns={"region": "frame.paired.0.1.key"})
         result = CompletedFrameResult(
             CompletedFrameData(schema, rows, data.copy_attachments()),
-            _memory_backing(frame).metadata,
+            replace(_memory_backing(frame).metadata, lineage=None),
         )
         return AnalysisFrame._from_memory(local, result)
 
@@ -576,7 +576,7 @@ def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
                 CompletedFrameData(
                     replace(data.schema, axes=(endpoint,)), data.copy_rows(), (attachment,)
                 ),
-                _memory_backing(frame).metadata,
+                replace(_memory_backing(frame).metadata, lineage=None),
             ),
         )
 
@@ -659,7 +659,7 @@ def test_paired_mapping_preserves_valid_minimum_temporal_endpoint_keys(
             local,
             CompletedFrameResult(
                 CompletedFrameData(replace(data.schema, axes=(endpoint,)), rows, (attachment,)),
-                _memory_backing(frame).metadata,
+                replace(_memory_backing(frame).metadata, lineage=None),
             ),
         )
 

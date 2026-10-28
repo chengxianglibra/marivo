@@ -75,6 +75,8 @@ from marivo.analysis.core.frame_structure import (
     column_kind,
     require_complete_structure,
 )
+from marivo.analysis.core.lineage import FrameLineage
+from marivo.analysis.core.lineage import validate as validate_lineage
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
@@ -85,6 +87,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
 FrameSchema: TypeAlias = DataSchema | PendingDataSchema
+
 
 if TYPE_CHECKING:
     from ibis.common.deferred import Deferred
@@ -106,6 +109,7 @@ class AnalysisFrame:
     _schema: FrameSchema
     _backing: FrameBacking
     _derivation: FrameDerivation | None
+    _lineage: FrameLineage
 
     def __init__(self) -> None:
         raise TypeError("Use Session methods or Frame operations.")
@@ -184,6 +188,20 @@ class AnalysisFrame:
         object.__setattr__(result, "_schema", schema)
         object.__setattr__(result, "_backing", backing)
         object.__setattr__(result, "_derivation", derivation)
+        if isinstance(backing, ExpressionFrameBacking):
+            if isinstance(backing.root, OperationFrameBinding):
+                from marivo.analysis.core.frame_lineage import derive
+
+                lineage = derive(schema, backing.root.operation, backing.root.inputs)
+            else:
+                from marivo.analysis.binding.lineage import source_lineage
+
+                lineage = source_lineage(schema, backing.root)
+        else:
+            assert backing.metadata.lineage is not None
+            lineage = backing.metadata.lineage
+        validate_lineage(lineage, schema)
+        object.__setattr__(result, "_lineage", lineage)
         return result
 
     def __repr__(self) -> str:
@@ -195,6 +213,17 @@ class AnalysisFrame:
             else "stored"
         )
         return f"<AnalysisFrame input={self._input_id[:16]} backing={kind} outputs={len(self._schema.values)}; use .show()>"
+
+    @property
+    def lineage(self) -> FrameLineage:
+        """Return captured semantic origins for every value, complete axis and presence.
+
+        Args: None. Returns: Immutable FrameLineage directories.
+        Example: ``frame.lineage.values["revenue"].show()``.
+        Constraints: Metadata only on every carrier; no evaluation, row read or Catalog lookup.
+        Static dependencies do not grant source or semantic execution authority.
+        """
+        return self._lineage
 
     @property
     def output_names(self) -> tuple[str, ...]:
@@ -1413,9 +1442,9 @@ class AnalysisFrame:
         card = Card(
             identity=repr(self),
             available=available,
-            omission_recovery="pass max_output_bytes=None; use .output_names and .axes for structure; compute() for data"
+            omission_recovery="max_output_bytes=None; .output_names/.axes/.lineage for metadata; compute() for data"
             if isinstance(self._backing, ExpressionFrameBacking)
-            else "pass max_output_bytes=None; use .output_names for names and .to_pandas() for complete fixed data",
+            else "max_output_bytes=None; .output_names/.lineage for metadata; .to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
         declaration = self._derivation

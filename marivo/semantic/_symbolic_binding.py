@@ -489,6 +489,14 @@ def publish_declarations(
             )
             resolver.advance()
             if target.kind is SemanticKind.MEASURE:
+                captured = resolver_of(value)
+                assert isinstance(captured, DeclarationResolver)
+                value = Deferred(
+                    DeclarationResolver(
+                        captured.recipe,
+                        replace(captured.declaration, reference=resolver.exact(target)),
+                    )
+                )
                 registry.declared_measures[target.path] = value
                 closed[id(resolver_of(original))] = value
             else:

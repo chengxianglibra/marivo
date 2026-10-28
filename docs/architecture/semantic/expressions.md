@@ -320,3 +320,18 @@ admitted routes; native time-sample mean does not require scheduled sample
 coverage. Other captured
 NULL/zero/domain policies, identity and Duration contracts retain their owners.
 No extra arithmetic is run to verify overflow.
+
+## Analysis lineage handoff
+
+Resolved named declarations retain inert origin identities when consumed by
+Analysis. This includes naming-only Measures whose numeric expression needs no
+new unit or additivity assertion. Origin recording does not add numeric nodes or
+change computation fingerprints. Analysis captures actual consumed declaration
+identities and dependency roles before physical compilation; completed Frames
+retain static identities rather than executable semantic objects. See the
+[Frame lineage contract](../analysis/analysis-frame.md#静态语义对象血缘).
+
+Named Measure origins stay on their row nodes through expression flattening and
+predicate capture. They are excluded from node equality, computation fingerprints
+and executable dependency lookup. Predicate usage therefore contributes context
+origins, while value usage contributes value origins, including when both occur.

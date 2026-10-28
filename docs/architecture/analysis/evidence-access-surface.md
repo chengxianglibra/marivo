@@ -7,6 +7,18 @@ a source of hidden Metric state or a stored business narrative.
 [Observation](populations-and-observation.md#explicit-endpoint-investigation)
 owns endpoint and contribution admission.
 
+## Static semantic origins
+
+`frame.lineage` exposes complete immutable value, axis and presence directories on
+all carriers, including pending expressions. Each column separates value origins
+from context origins; identities retain kind, path and consumed definition_id.
+These inert facts survive independent recovery without model or source access.
+They explain logical dependencies, including selection context, independently of
+actual read/evaluation evidence. They do not grant source execution or original
+Metric authority. Lineage does not reconstruct a producer graph or use method
+facts as a current-column lineage index. Metadata access reads no result rows or
+complete method payloads. See [Frame lineage](analysis-frame.md#静态语义对象血缘).
+
 ## Saved audit access
 
 A persisted Frame exposes its captured session_id and artifact_id, plus
@@ -111,8 +123,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 16 uses marivo.frame_output/v5,
-frame.v5 and frame-output-v5. Stored manifests carry bounded target/schema,
+Memory roots retain the complete records. Store 17 uses marivo.frame_output/v6,
+frame.v6 and frame-output-v6. Stored manifests carry bounded target/schema,
 origin/count/digest and owned-payload descriptors. The explicit getter validates
 complete method files without reading primary rows, Catalog, model or sources.
 Pending access requires compute/persist. facts.show(n=0) controls only display

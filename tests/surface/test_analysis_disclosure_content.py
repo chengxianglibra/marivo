@@ -585,6 +585,9 @@ def test_construction_type_families_and_retired_surface() -> None:
         "runtime.session_summary_page",
         "runtime.session_summary",
         "analysis_frame",
+        "frame_lineage",
+        "column_lineage",
+        "semantic_object_identity",
         "frame_axis",
         "frame_method_facts",
         "frame_method_parent",
@@ -613,7 +616,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 17
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 20
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

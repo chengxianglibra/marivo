@@ -46,6 +46,44 @@ session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅�
 持久根 compute 返回的内存根没有提交身份。show 展示有界输入、操作和来源事实/检查/Finding
 数量，持久根另展示提交时间；show(n=0) 不读取结果行、坐标附件或完整方法/审计载荷。
 
+## 静态语义对象血缘
+
+`frame.lineage` 在表达式、完整内存和持久载体上返回同一不可变目录，读取不执行分析，
+不读取业务行、坐标附件、完整方法文件或当前 Catalog。`values` 按完整输出名查找，
+`axes` 按当前轴 token 查找，`presence` 按完整 presence 名查找；复合身份仍为完整轴。
+
+每个 `ColumnLineage` 提供确定排序、去重的 `value_origins` 和 `context_origins`。
+前者记录值表达式及命名声明来源，后者记录分组、时间、关系、筛选、排名、行域和对应
+依赖。两组允许交叠。`SemanticObjectIdentity` 只保留 kind、path、definition_id，
+不含定义正文、可执行 Ref、连接或凭证。同路径不同定义分别保留；相同计算的不同
+命名声明也分别保留。标识解释实际消费定义，不要求原定义仍存在或拒绝同路径更新。
+
+语义声明展开前捕获身份，Frame 构造时按槽位表达式传播。select 重命名保持来源；
+where/top/fix 增加选择上下文，即使相关列或轴随后移除也保留。reduce/over 保留当前
+输入与分组依赖，row_count 无值来源但保留行域上下文。align/compare 按端点映射，
+attribute 分别承接旧观察与新读来源。字面量本身没有语义值来源。投影不会引入无关
+输出的私有值依赖。条件分支保留静态依赖，空结果、乘零与物理下推不消除逻辑来源。
+
+命名 Measure 在公共 where、Metric 内部 where 和 reduction 的 where 参数中都按
+谓词上下文保留；同一 Measure 同时参与值与筛选时，两组都保留其身份。坐标目录也
+保留筛选、排名与行域上下文。attribute 的加权平均分子承接值与权重，分母的值来源
+仅承接权重，值与权重的非空配对条件进入上下文；有效配对数没有语义值来源。
+普通平均的分母同样以非空值筛选作为上下文，直接比值则分别承接分子与分母表达式，
+包括各自实际消费的命名 Metric。
+
+compute/persist 和独立 reopen 保留结果血缘；每个保存结果自包含，不依赖原模型、
+来源连接或祖先 Artifact。血缘属于独立结果元数据，不进入数据结构等价、计算权限、
+来源声明或 method_facts。它不证明已执行读取、源数据一致性、业务身份等价或因果关系。
+show 有界展示，typed fields 完整；没有逐行实际贡献或完整历史算子图查询。
+
+```python
+lineage = frame.lineage
+lineage.show()
+lineage.values["revenue"].show()
+origins = lineage.values["revenue"].value_origins
+axis_origins = lineage.axes[frame.axes[0].token]
+```
+
 ## 完整 pandas 导出
 
 `to_pandas()` 只接受完整内存或持久 Frame，返回隔离副本；表达式须先显式
@@ -238,7 +276,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 16 / marivo.frame_output/v5 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
+Store 17 / marivo.frame_output/v6 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
 
 ### Calendar matching
 

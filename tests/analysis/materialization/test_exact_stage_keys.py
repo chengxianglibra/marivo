@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -252,7 +253,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
         assert keys.cast(pa.int64()).to_pylist() == list(_TICKS)
     assert continued.to_pandas()["next"].tolist() == [2, 3, 4, 5]
     assert isinstance(loaded._backing, MemoryFrameBacking)
-    assert loaded._backing.metadata == metadata
+    assert replace(loaded._backing.metadata, lineage=None) == metadata
     assert len(terminal_runs(session)) == 1
 
 

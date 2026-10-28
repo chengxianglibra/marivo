@@ -16,6 +16,7 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameResult,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -188,7 +189,10 @@ def test_show_respects_row_and_byte_limits_with_exact_counts(
         pd.DataFrame({"key": [f"cluster-{i:02d}" for i in range(26)], "value": list(range(26))}),
     )
     frame = AnalysisFrame._from_memory(
-        local, CompletedFrameResult(data, _memory(local)._backing.metadata)
+        local,
+        CompletedFrameResult(
+            data, replace(_memory(local)._backing.metadata, lineage=empty_lineage(data.schema))
+        ),
     )
     frame.show()
     default = capsys.readouterr().out
@@ -289,7 +293,10 @@ def test_show_unlimited_preserves_wide_rows_and_escaped_cells(
         schema, pd.DataFrame({f"v{i}": [long_value if i == 9 else str(i)] for i in range(10)})
     )
     frame = AnalysisFrame._from_memory(
-        local, CompletedFrameResult(data, _memory(local)._backing.metadata)
+        local,
+        CompletedFrameResult(
+            data, replace(_memory(local)._backing.metadata, lineage=empty_lineage(data.schema))
+        ),
     )
     frame.show(n=1, max_output_bytes=None)
     output = capsys.readouterr().out
