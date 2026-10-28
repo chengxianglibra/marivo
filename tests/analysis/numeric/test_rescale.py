@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from tests.shared_fixtures import catalog_value
 
@@ -135,3 +136,63 @@ def test_rescale_decimal_division_and_divisor_one_keep_existing_numeric_null_rul
         "ordinary": "CNY",
         "assertion": "other_dimension",
     }
+
+
+def test_large_integer_rescale_and_mixed_metrics_use_float64_before_local_arithmetic(
+    traffic_session: Session,
+    tmp_path: Path,
+) -> None:
+    with duckdb.connect(str(tmp_path / "traffic.duckdb")) as connection:
+        connection.execute("UPDATE flows SET bytes = 9007199254740993 WHERE id = 1")
+        connection.execute("UPDATE flows SET bytes = 0 WHERE id = 2")
+    other_path = tmp_path / "other.duckdb"
+    with duckdb.connect(str(other_path)) as connection:
+        connection.execute("CREATE TABLE other(id BIGINT, bytes BIGINT, floating DOUBLE)")
+        connection.execute("INSERT INTO other VALUES (1, 1, 2.0)")
+    (tmp_path / "models/datasources/other.py").write_text(
+        f"import marivo.datasource as md\nmd.duckdb(name='other', path={str(other_path)!r})\n"
+    )
+    (tmp_path / "models/semantic/traffic/other.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "other = ms.entity(name='other', datasource=ms.ref.datasource('other'), "
+        "source=md.table('other'), primary_key=['id'])\n"
+        "bytes = ms.measure_column(name='bytes', entity=other, column='bytes', "
+        "unit='By', additivity=ms.additive_all())\n"
+        "floating = ms.measure_column(name='floating', entity=other, column='floating', "
+        "unit='By', additivity=ms.additive_all())\n"
+    )
+    session = mv.session.get_or_create("large-rescale", timezone="UTC")
+    large = catalog_value(session.catalog, "traffic.flows.total_in_flow_value", kind="field")
+    small = catalog_value(session.catalog, "traffic.other.bytes", kind="field")
+    floating = catalog_value(session.catalog, "traffic.other.floating", kind="field")
+    native = (
+        session.observe({"native_pib": ms.rescale(large.sum(), divisor=1024**5, unit="PiB")})
+        .compute()
+        .to_pandas()
+    )
+    assert native["native_pib"].tolist() == [8.0]
+    result = (
+        session.observe(
+            {
+                "integer": large.sum(),
+                "local_pib": ms.rescale(large.sum() + small.sum(), divisor=1024**5, unit="PiB"),
+                "mixed": large.sum() + floating.sum(),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert result["integer"].tolist() == [9007199254740993]
+    assert result["local_pib"].tolist() == [8.000000000000002]
+    assert result["mixed"].tolist() == [9007199254740994.0]
+
+    with duckdb.connect(str(tmp_path / "traffic.duckdb")) as connection:
+        connection.execute("UPDATE flows SET bytes = 9223372036854775807 WHERE id = 1")
+    with pytest.raises(MaterializationError) as captured:
+        session.observe({"overflowing_bytes": large.sum() + small.sum()}).compute()
+    error = captured.value
+    assert error.expected == "valid demanded numeric values"
+    assert "overflowing_bytes" in error.received
+    assert "Add" in error.received
+    assert "int64[pyarrow]" in error.received
+    assert error.repair

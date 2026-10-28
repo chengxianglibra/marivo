@@ -28,14 +28,14 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.preview import PreviewResult
 from marivo.semantic import catalog as catalog_module
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import SemanticError
+from marivo.semantic.errors import SemanticError, SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
-from tests.support.refs import as_ref
 
-_BackendKind = Literal["trino", "postgres", "mysql"]
+_BackendKind = Literal["trino", "postgres", "mysql", "clickhouse"]
 _PreviewPath = Literal["single", "rows", "metrics"]
 _ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 
@@ -295,7 +295,12 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
                 (ms.ref.entity("sales.refunds"), md.unpruned(max_rows=10, timeout_seconds=11)),
             ),
         )
-        assert batch.refs == tuple(as_ref(ref).path for ref in refs)
+        assert batch.refs == (
+            "sales.orders",
+            "sales.orders.amount",
+            "sales.refunds",
+            "sales.refunds.amount",
+        )
         assert len(probe.collected) == 2
         assert [backend._marivo_terminal_timeout_seconds for backend in probe.created] == [
             30,
@@ -335,13 +340,34 @@ def test_invalid_batch_is_rejected_before_connection(
         assert not probe.created and not probe.resolved and not probe.collected
 
 
-@pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
+@pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql", "clickhouse"))
+@pytest.mark.parametrize("path", ("single", "batch", "entity_first_batch"))
 def test_remote_metric_preview_reports_unqualified_route(
     backend_kind: _BackendKind,
+    path: Literal["single", "batch", "entity_first_batch"],
     semantic_project_factory: _ProjectFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
-        with pytest.raises(SemanticError, match="qualified DuckDB"):
-            _preview(probe, "metrics", md.unpruned(max_rows=10, timeout_seconds=30))
-        assert not probe.resolved and not probe.collected
+        scope = md.unpruned(max_rows=10, timeout_seconds=30)
+        with pytest.raises(SemanticRuntimeError, match="only on DuckDB") as caught:
+            if path == "entity_first_batch":
+                probe.catalog.preview_many(
+                    [ms.ref.entity("sales.orders"), ms.ref.metric("sales.revenue")], scope=scope
+                )
+            elif path == "batch":
+                _preview(probe, "metrics", scope)
+            else:
+                probe.catalog.preview(ms.ref.metric("sales.revenue"), scope=scope)
+        error = caught.value
+        assert error.semantic_refs == ("metric:sales.revenue",)
+        assert error.expected == "ordinary Metric preview on a DuckDB datasource"
+        assert error.received == f"backend={backend_kind}; datasource=warehouse"
+        assert error.details["backend"] == backend_kind
+        assert error.details["query_executed"] is False
+        assert error.repair is not None
+        assert error.repair.help_target == LiveHelpTarget(
+            surface="analysis", canonical_id="session.observe"
+        )
+        assert "session.observe(...).compute()" in error.repair.action
+        assert not probe.created and not probe.resolved and not probe.collected

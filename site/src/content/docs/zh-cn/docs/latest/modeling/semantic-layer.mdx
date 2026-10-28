@@ -383,6 +383,8 @@ catalog.readiness(refs=[amount]).show()
 
 Catalog 搜索返回一页结果。卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。后续页须通过 `next_cursor` 获取，取消展示预算不会自动翻页。
 
+普通 Metric 预览仅支持 DuckDB，最多聚合 10,000 行 Entity 输出，结果应视为近似值。对于 Trino、ClickHouse 等其他后端，请用 `session.observe(...).compute()`，结合当前问题所需的显式分析输入求值。此项 Metric 限制与 Entity 和物理字段预览的支持范围分别判断。
+
 {/* example: readiness-1 */}
 
 ```python

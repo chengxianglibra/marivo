@@ -143,6 +143,13 @@ restrictions and sum permissions, and uses existing division and null rules.
 Its captured recipe identifies the divisor and target unit; completed results
 retain that target unit.
 
+Division and rescale use Float64 operands, with ordinary floating rounding for
+integers above 2**53 in both native and local arithmetic. This conversion belongs
+to the authored arithmetic boundary; integer-only expressions, identity values
+and safe final storage conversion retain their existing rules. A Metric rescale
+is not automatically rewritten into row-level rescale before reduction, because
+that would change the rounding and overflow path.
+
 For a byte-valued `total_bytes` Metric over a complete 86400-second interval,
 and an established P95 of complete hourly byte totals:
 

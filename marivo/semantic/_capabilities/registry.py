@@ -3242,7 +3242,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.SemanticCatalog.preview",
             (
                 "Run one scoped data preview for a current catalog entry or exact ref. "
-                "Ordinary Metric reductions/formulas reuse the nullable Row/Metric kernel; Population/sample preparation rejects. Metric previews aggregate at most 10,000 Entity output rows and report "
+                "Ordinary Metric previews require DuckDB and reuse the nullable Row/Metric kernel; Population/sample preparation rejects. For other backends, evaluate Metrics with session.observe(...).compute() and explicit analysis inputs. Metric previews aggregate at most 10,000 Entity output rows and report "
                 "an approximate result; period calendars and temporal sets "
                 "publish their dedicated certified artifacts. Build scopes with "
                 "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
@@ -3275,19 +3275,24 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
             ),
             preconditions=("a current loaded SemanticCatalog",),
-            repair_kinds=("reconnect", "reauthor"),
+            repair_kinds=("reconnect", "reauthor", "user_choice"),
             public_entrypoint="catalog.preview",
-            see_also=tuple(
-                LiveHelpTarget(surface="datasource", canonical_id=target)
-                for target in ("unpruned", "time_range", "partition")
+            see_also=(
+                *(
+                    LiveHelpTarget(surface="datasource", canonical_id=target)
+                    for target in ("unpruned", "time_range", "partition")
+                ),
+                LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
             ),
         ),
         _capability(
             "preview_many",
             "marivo.semantic.catalog.SemanticCatalog.preview_many",
             (
-                "Run scoped data previews for a non-empty entry/ref sequence. Metric "
-                "previews aggregate at most 10,000 Entity output rows and report an "
+                "Run scoped data previews for a non-empty entry/ref sequence. Ordinary Metric "
+                "previews require DuckDB; for other backends, evaluate Metrics with "
+                "session.observe(...).compute() and explicit analysis inputs. Metric previews "
+                "aggregate at most 10,000 Entity output rows and report an "
                 "approximate result; period calendars and temporal sets "
                 "publish their dedicated certified artifacts through preview. limit must "
                 "be an integer from 1 to 100 inclusive and bounds retained preview rows "
@@ -3322,8 +3327,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
             ),
             preconditions=("a current loaded SemanticCatalog",),
-            repair_kinds=("reconnect", "reauthor"),
+            repair_kinds=("reconnect", "reauthor", "user_choice"),
             public_entrypoint="catalog.preview_many",
+            see_also=(LiveHelpTarget(surface="analysis", canonical_id="session.observe"),),
         ),
         _capability(
             "source_check",

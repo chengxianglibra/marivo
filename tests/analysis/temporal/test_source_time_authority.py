@@ -24,7 +24,15 @@ def test_aware_source_rejects_any_parser_timezone_and_repair_runs(declared: str)
         source_time(
             table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
         )
-    assert "Remove timezone" in caught.value.repair.action
+    error = caught.value
+    assert error.location == "analysis.source_time[time_dimension:sales.events.point]"
+    assert error.expected == "an aware source without parser timezone"
+    assert error.received is not None
+    assert "duckdb" in error.received
+    assert "timestamp('UTC')" in error.received
+    assert f"parser_timezone={declared!r}" in error.received
+    assert "sales.events.point" in error.repair.action
+    assert "parse=ms.timestamp()" in error.repair.action
     repaired, authority = source_time(
         table.point,
         replace(field, parse=TimestampParse()),
@@ -94,7 +102,8 @@ def test_aware_physical_source_rejects_strptime_timezone() -> None:
             engine="clickhouse",
         )
 
-    assert "Remove timezone" in caught.value.repair.action
+    assert caught.value.location == "analysis.source_time[time_dimension:sales.events.point]"
+    assert "parse=ms.timestamp()" in caught.value.repair.action
 
 
 def test_native_date_is_prepared_as_date_without_guessing_timestamp() -> None:

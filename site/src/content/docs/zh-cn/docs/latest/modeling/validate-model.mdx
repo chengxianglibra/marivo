@@ -28,5 +28,8 @@ catalog.readiness(refs=[amount]).show()
 检查所选物理输入和已认证的时间产物。这两步都不会打开数据源连接。
 
 若要查看当前来源数据，请用显式有界范围调用 `catalog.preview(...)`。
+普通 Metric 预览仅支持 DuckDB，返回最多 10,000 行 Entity 输出的近似聚合结果。
+对于其他后端，请用 `session.observe(...).compute()` 和显式分析输入求值；
+Entity 和物理字段预览仍遵循各自的后端支持范围。
 `catalog.source_health(...)` 默认检查当前连接与结构；只有显式传入检查规则及其有界范围时，才会读取业务数据。
 [加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和来源健康检查示例。

@@ -593,11 +593,18 @@ def source_time(
         and (physical.timezone is not None or engine == "clickhouse")
     )
     if declared is not None and physical_is_aware:
+        physical_type = frozen.physical_type if frozen is not None else str(physical)
         raise DatasetCompilationError(
             expected="an aware source without parser timezone",
-            received="timezone declared on an already-aware physical source",
-            repair="Remove timezone from ms.timestamp() or ms.strptime(...); the aware physical source already owns its clock.",
-            location="analysis.source_time",
+            received=(
+                f"{engine} physical_type={physical_type!r}, parser_timezone={declared!r}; "
+                "already-aware physical source"
+            ),
+            repair=(
+                f"Replace the parser on {axis.ref.path!r} with parse=ms.timestamp() "
+                "and reload the project; the physical source already owns its clock."
+            ),
+            location=f"analysis.source_time[{axis.ref.kind}:{axis.ref.path}]",
         )
     if isinstance(parse, HourPrefixParse):
         if prefix is None:

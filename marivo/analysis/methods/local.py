@@ -763,7 +763,9 @@ def _combine_program(
         expression = lower_metric_formula(node, (i,), values, declarations)
         for check in expression.checks:
             violation = (
-                evaluate_numeric(check.violation.op(), physical, domain.index)
+                evaluate_numeric(
+                    check.violation.op(), physical, domain.index, output_name=metric_name
+                )
                 .astype("boolean")
                 .fillna(False)
                 .astype(bool)
@@ -788,6 +790,7 @@ def _combine_program(
             physical,
             domain.index,
             exact_division=isinstance(column.dtype, DurationDataType),
+            output_name=metric_name,
         )
         # Match native Ibis's numeric result type, including integer true division.
         if isinstance(column.dtype, DurationDataType):

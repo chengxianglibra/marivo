@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from decimal import Decimal
 from fractions import Fraction
 
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import pandas as pd
 import pyarrow as pa
@@ -25,6 +26,17 @@ def _nulls(values: pd.Series) -> pd.Series:
     return pd.Series([_is_null(value) for value in values], index=values.index)
 
 
+def _float64_operand(values: pd.Series) -> pd.Series:
+    """Allow ordinary rounding only at an already-bound Float64 arithmetic boundary."""
+    if values.dtype == pd.ArrowDtype(pa.float64()):
+        return values
+    converted = pc.cast(
+        pa.array(values, from_pandas=False),
+        options=pc.CastOptions(pa.float64(), allow_float_truncate=True),
+    )
+    return pd.Series(pd.arrays.ArrowExtensionArray(converted), index=values.index)
+
+
 def evaluate_numeric(
     node: ops.Value,
     values: Mapping[str, pd.Series],
@@ -32,6 +44,7 @@ def evaluate_numeric(
     demand: pd.Series | None = None,
     *,
     exact_division: bool = False,
+    output_name: str | None = None,
 ) -> pd.Series:
     """Evaluate only demanded coordinates; static admission already covered all branches."""
     active = (
@@ -41,7 +54,14 @@ def evaluate_numeric(
     )
 
     def visit(child: ops.Value, needed: pd.Series = active) -> pd.Series:
-        return evaluate_numeric(child, values, index, needed, exact_division=exact_division)
+        return evaluate_numeric(
+            child,
+            values,
+            index,
+            needed,
+            exact_division=exact_division,
+            output_name=output_name,
+        )
 
     def constant(value: object) -> pd.Series:
         if value is None:
@@ -88,6 +108,11 @@ def evaluate_numeric(
                 index=index,
                 dtype=object,
             )
+        if (
+            isinstance(node, (ops.Add, ops.Subtract, ops.Multiply, ops.Divide))
+            and node.dtype == dt.float64
+        ):
+            a, b = _float64_operand(a), _float64_operand(b)
         computed = function(a, b)
         if not isinstance(computed, pd.Series):
             raise TypeError("native binary kernel must return a Series")
@@ -252,6 +277,8 @@ def evaluate_numeric(
                     pd.arrays.ArrowExtensionArray(pa.array(output, type=node.to.to_pyarrow())),
                     index=index,
                 )
+            if node.to == dt.float64 and node.arg.dtype.is_numeric():
+                return _float64_operand(source)
             return source.astype(pd.ArrowDtype(node.to.to_pyarrow()))
         if isinstance(node, ops.IsNull):
             return unary(
@@ -329,5 +356,13 @@ def evaluate_numeric(
                 )
             return result
     except (ArithmeticError, TypeError, ValueError) as error:
-        numeric_failure("valid demanded numeric values", f"{type(node).__name__}: {error}")
+        fields = sorted({field.name for field in node.find(ops.Field)})
+        inputs = ", ".join(f"{name}: {values[name].dtype}" for name in fields[:6])
+        if len(fields) > 6:
+            inputs += f", ... ({len(fields)} inputs)"
+        context = f"output={output_name!r}; " if output_name is not None else ""
+        numeric_failure(
+            "valid demanded numeric values",
+            f"{context}expression={type(node).__name__}; inputs=[{inputs}]; {error}",
+        )
     numeric_failure("a qualified local Ibis numeric operation", type(node).__name__)

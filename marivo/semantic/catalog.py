@@ -359,6 +359,41 @@ class _BatchPreviewItem:
     bindings: NormalizedPreviewScope
 
 
+def _require_metric_preview_backend(
+    ref: Ref[SemanticKindTag], bindings: NormalizedPreviewScope
+) -> None:
+    """Reject unavailable Metric routes before any single or batch source access."""
+    if ref.kind is not SemanticKind.METRIC or bindings.backend == "duckdb":
+        return
+    from marivo._authoring.model import AuthoringRepair
+    from marivo.introspection.live.model import LiveHelpTarget
+
+    action = (
+        "Evaluate this Metric with session.observe(...).compute(), supplying the "
+        "time scope or Population required by the question. This performs actual "
+        "analysis over the selected inputs."
+    )
+    _raise(
+        ErrorKind.MATERIALIZE_FAILED,
+        "Ordinary Metric preview is available only on DuckDB.",
+        cls=SemanticRuntimeError,
+        refs=(ref.key,),
+        expected="ordinary Metric preview on a DuckDB datasource",
+        received=f"backend={bindings.backend}; datasource={bindings.datasource_id}",
+        details={
+            "query_executed": False,
+            "backend": bindings.backend,
+            "datasource_id": bindings.datasource_id,
+        },
+        hint=action,
+        repair_value=AuthoringRepair(
+            kind="user_choice",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
+            action=action,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Kind-specific details
 # ---------------------------------------------------------------------------
@@ -4006,8 +4041,10 @@ class SemanticCatalog(RenderableResult):
             Input ownership and membership are checked before connection
             acquisition or materialization. ``limit`` is independent from the
             ``scope.max_rows`` acquisition guard and does not reduce temporal
-            certification coverage. Metric previews independently aggregate at
-            most 10,000 scoped input rows and must be treated as approximate.
+            certification coverage. Ordinary Metric previews require DuckDB,
+            aggregate at most 10,000 scoped input rows and are approximate.
+            For other backends, use session.observe(...).compute() with explicit
+            analysis inputs to evaluate the Metric.
         """
         limit = normalize_preview_limit(limit, operation="preview")
         target = _normalize_semantic_input(
@@ -4069,9 +4106,10 @@ class SemanticCatalog(RenderableResult):
         Constraints:
             The complete input sequence is normalized before any preview
             begins. Duplicate canonical refs are rejected. ``limit`` is
-            independent from the ``scope.max_rows`` acquisition guard; metric
-            previews independently aggregate at most 10,000 Entity output rows
-            and must be treated as approximate.
+            independent from the ``scope.max_rows`` acquisition guard. Ordinary
+            Metric previews require DuckDB, aggregate at most 10,000 Entity output
+            rows and are approximate. For other backends, evaluate Metrics with
+            session.observe(...).compute() and explicit analysis inputs.
         """
         limit = normalize_preview_limit(limit, operation="preview_many")
         normalized_refs = tuple(
@@ -4124,13 +4162,7 @@ class SemanticCatalog(RenderableResult):
             metric = self._index.values.get(ref_obj)
             assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
-        if kind is SemanticKind.METRIC and bindings.backend != "duckdb":
-            from marivo.semantic._numeric_lowering import numeric_failure
-
-            numeric_failure(
-                "a qualified DuckDB ordinary Metric preview",
-                f"unqualified {bindings.backend} numeric preview route",
-            )
+        _require_metric_preview_backend(ref_obj, bindings)
         if kind in {
             SemanticKind.PERIOD_CALENDAR,
             SemanticKind.TEMPORAL_SET,
@@ -4507,6 +4539,8 @@ class SemanticCatalog(RenderableResult):
             source_bindings=source_bindings,
             registry=reg,
         )
+        for ref_obj, bindings in zip(ref_objects, normalized, strict=True):
+            _require_metric_preview_backend(ref_obj, bindings)
         items = tuple(
             _BatchPreviewItem(order, ref_obj, kind, bindings)
             for order, (ref_obj, (_ref_id, kind), bindings) in enumerate(

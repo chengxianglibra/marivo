@@ -26,7 +26,12 @@ from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.local import query_combine
 from marivo.refs import ref
-from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_source_reduction
+from marivo.semantic._numeric_lowering import (
+    NumericCheck,
+    NumericValue,
+    lower_source_reduction,
+    numeric_binary,
+)
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DslCaseFactory, catalog_value
@@ -128,6 +133,64 @@ def test_combine_checks_only_demanded_completed_slots() -> None:
     left.loc[1, "a"] = 1
     with pytest.raises(SemanticExpressionError, match="non-NA source values"):
         query_combine(stage, (left, right))
+
+
+@pytest.mark.parametrize("operation", ("add", "subtract", "multiply", "divide"))
+def test_float64_arithmetic_rounds_large_integer_operands(operation: str) -> None:
+    table = ibis.table({"large": "int64", "floating": "float64"})
+    large, floating = NumericValue(table.large), NumericValue(table.floating)
+    expression = numeric_binary(operation, large, floating)
+    physical = {
+        "large": pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array([9007199254740993, None], type=pa.int64()))
+        ),
+        "floating": pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array([2.0, 2.0], type=pa.float64()))
+        ),
+    }
+    result = evaluate_numeric(expression.value.op(), physical, physical["large"].index)
+    # Float64 rounds the integer to 2**53 before performing the operation.
+    expected = {
+        "add": 9007199254740994.0,
+        "subtract": 9007199254740990.0,
+        "multiply": 18014398509481984.0,
+        "divide": 4503599627370496.0,
+    }[operation]
+    assert result.iloc[0] == expected
+    assert result.iloc[1] is pd.NA
+    assert result.dtype == pd.ArrowDtype(pa.float64())
+
+
+def test_large_integer_arithmetic_and_comparisons_remain_exact() -> None:
+    table = ibis.table({"large": "int64"})
+    physical = {
+        "large": pd.Series(
+            pd.arrays.ArrowExtensionArray(pa.array([9007199254740993, None], type=pa.int64()))
+        ),
+    }
+    index = physical["large"].index
+    result = evaluate_numeric((table.large + 1).op(), physical, index)
+    assert result.tolist() == [9007199254740994, pd.NA]
+    assert result.dtype == pd.ArrowDtype(pa.int64())
+    equal = evaluate_numeric((table.large == 9007199254740992).op(), physical, index)
+    assert equal.tolist() == [False, pd.NA]
+
+
+def test_float64_arithmetic_preserves_valid_nan_and_arrow_nulls() -> None:
+    table = ibis.table({"large": "int64", "floating": "float64"})
+    expression = numeric_binary("add", NumericValue(table.large), NumericValue(table.floating))
+    physical = {
+        "large": pd.Series(
+            pd.arrays.ArrowExtensionArray(
+                pa.array([9007199254740993, 9007199254740993, None], type=pa.int64())
+            )
+        ),
+        "floating": pd.Series([float("nan"), 2.0, 2.0]),
+    }
+    result = evaluate_numeric(expression.value.op(), physical, physical["large"].index)
+    assert math.isnan(result.iloc[0])
+    assert result.iloc[1] == 9007199254740994.0
+    assert pa.array(result).is_null().to_pylist() == [False, False, True]
 
 
 def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> None:

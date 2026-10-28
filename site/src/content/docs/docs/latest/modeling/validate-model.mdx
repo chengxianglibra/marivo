@@ -30,7 +30,11 @@ inputs and certified temporal artifacts. Neither step opens a datasource
 connection.
 
 To inspect current source data, use `catalog.preview(...)` with an explicit
-bounded scope. `catalog.source_health(...)` checks current connectivity and
+bounded scope. Ordinary Metric previews require DuckDB and return approximate
+results over at most 10,000 Entity output rows. For other backends, evaluate
+Metrics with `session.observe(...).compute()` and explicit analysis inputs;
+Entity and physical field previews retain their own backend support.
+`catalog.source_health(...)` checks current connectivity and
 schema by default; it reads business rows only when you provide explicit checks
 and their bounded scope. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
 has the complete preview and source-health examples.

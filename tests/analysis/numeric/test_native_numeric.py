@@ -506,7 +506,7 @@ def test_linear_respects_native_intermediate_boundaries(
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     members = session.members(session.catalog.get("entity:sales.facts").value)
     logical = session.observe({"value": metric}, by=mv.product(scope, members))
-    if family in {"float_negation", "float_prefix"}:
+    if family == "float_prefix":
         with pytest.raises(AnalysisError, match=r"range|overflow"):
             logical.compute()
         return
@@ -523,6 +523,9 @@ def test_linear_respects_native_intermediate_boundaries(
             ]
         elif family == "decimal_negation":
             assert result_values.tolist() == [Decimal("9223372036854775808.00")]
+        elif family == "float_negation":
+            assert result_values.tolist() == [9223372036854775808.0]
+            assert pa.array(result_values).type == pa.float64()
         else:
             assert result_values.tolist() == [float(2**63)]
 

@@ -44,7 +44,9 @@ def test_modeling_tutorial_capture_sequence(
     catalog = SemanticCatalog(project)
     from marivo.semantic._deferred_semantics import consume_field
 
-    value = catalog.get("dimension:sales.orders.normalized_region").value
+    entry = catalog.get("dimension:sales.orders.normalized_region")
+    assert entry.kind == "dimension"
+    value = entry.value
     assert consume_field(value).reference.ref == ref_factory.dimension(
         "sales.orders.normalized_region"
     )
@@ -457,6 +459,7 @@ def test_sampled_metric_status_axis_requires_its_own_fold(
         "Entity.count",
         "row.sum",
         "preview",
+        "preview_many",
     ),
 )
 def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes(
@@ -468,8 +471,8 @@ def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes
     assert len(text) <= 7000
     assert len(text.splitlines()) <= 72
     callable_target: PublicHelpTarget = (
-        ms.SemanticCatalog.preview
-        if target == "preview"
+        getattr(ms.SemanticCatalog, target)
+        if target in {"preview", "preview_many"}
         else "semantic.metric.where"
         if target == "Metric.where"
         else Entity.count
@@ -486,6 +489,10 @@ def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes
             assert _help_text(f"semantic.{consumer}", capsys)
     if target == "additive_all":
         assert "semi_additive" not in text
+    if target in {"preview", "preview_many"}:
+        assert "previews require DuckDB" in text
+        assert "session.observe(...).compute()" in text
+        assert "analysis.session.observe" in text
     if target == "preview":
         for scope in ("unpruned", "time_range", "partition"):
             assert f"datasource.{scope}" in text

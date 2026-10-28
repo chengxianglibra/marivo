@@ -54,6 +54,13 @@ widening, high-precision emulation or retry is added. Native errors propagate;
 wrapped values, Infinity and valid NaN remain values. Existing NULL, zero-division,
 identity, Duration and storage contracts still apply. Direct projection, is_null
 and persistence preserve validity without a numeric scan.
+At a bound Float64 arithmetic boundary, local operands are converted to Float64
+with ordinary rounding, including integers above 2**53. This applies to mixed
+integer/floating addition, subtraction and multiplication, and to division and
+Metric rescale, including an authored numeric cast to Float64. It does not change
+integer-only arithmetic, exact comparisons, identity conversion or safe final
+storage conversion. Failed local Metric formulas
+identify the output name, failing expression operation and captured input dtypes.
 An unevaluated source subexpression need not
 trigger overflow, including under empty output; explicit NULL/domain checks retain
 their demanded domains. Arrow-valid NaN is a floating value distinct from NULL.

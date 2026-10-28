@@ -94,6 +94,13 @@ of being clipped. Arithmetic inside a fused source expression still follows MySQ
 rules. Saved Frames export committed values as stored; export does not recompute or repair
 source precision or overflow.
 
+When arithmetic has a `float64` result, local execution converts its numeric operands
+to floating point with ordinary rounding. This includes mixed integer/float arithmetic,
+Metric division and `ms.rescale`; integers beyond `2**53` can lose low bits. Integer-only
+arithmetic retains its integer carrier, identity keys never pass through floating point,
+and final storage conversion remains safe. Rescale at the intended aggregation level:
+`sum(x) / divisor` and `sum(x / divisor)` can round differently.
+
 `mean()` skips NULLs by default and returns NULL when no values are valid. `nulls="error"`
 requires its demanded input to contain no NULLs; empty input passes. For
 `amount.mean(time=point).per(point).mean()`, Marivo averages each represented timestamp's

@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
+from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import (
     parse_strptime,
     source_time,
@@ -82,6 +83,23 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                     assert table.precise.type().timezone is None
                     assert table.precise.type().scale == 6
                     native_axis = replace(axis("%Y-%m-%d %H:%M:%S"), parse=TimestampParse())
+                    with pytest.raises(DatasetCompilationError) as caught:
+                        source_time(
+                            table.point,
+                            replace(native_axis, parse=TimestampParse(timezone="UTC")),
+                            boundary_timezone="UTC",
+                            read_timezone="America/New_York",
+                            engine="clickhouse",
+                        )
+                    error = caught.value
+                    assert error.location == (
+                        "analysis.source_time[time_dimension:sales.events.point]"
+                    )
+                    assert error.received is not None
+                    assert "clickhouse" in error.received
+                    assert "timestamp(0)" in error.received
+                    assert "parser_timezone='UTC'" in error.received
+                    assert "parse=ms.timestamp()" in error.repair.action
                     point, authority = source_time(
                         table.point,
                         native_axis,

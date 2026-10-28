@@ -154,10 +154,14 @@ still accepts one AuthoringScope; source_bindings always explicitly names its En
 Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
 persist a general validation checkpoint.
 
-Metric preview supports ordinary source reductions/formulas over at most 10,000
-Entity output rows and reports an approximate result. Population/internal-sample
-preparation is rejected there; use an actual Analysis observation for that work.
-The display limit is independent from acquisition and aggregate scope.
+Ordinary Metric preview supports DuckDB source reductions/formulas over at most
+10,000 Entity output rows and reports an approximate result. Other backends reject
+Metric preview before source access; evaluate those Metrics with
+`session.observe(...).compute()` and explicit analysis inputs. This restriction
+applies to Metrics, independently from Entity and physical field preview support.
+Population/internal-sample preparation is rejected there; use an actual Analysis
+observation for that work. The display limit is independent from acquisition and
+aggregate scope.
 
 Source health with checks omitted tests connectivity and schema/capability
 metadata without a business-data query, and needs no data scope. Explicit

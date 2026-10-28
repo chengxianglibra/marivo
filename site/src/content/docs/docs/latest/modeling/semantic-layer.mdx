@@ -388,6 +388,8 @@ catalog.readiness(refs=[amount]).show()
 
 Catalog search returns one page. Its card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Follow `next_cursor` to retrieve later pages: removing the display budget does not fetch them.
 
+Ordinary Metric previews require DuckDB and aggregate at most 10,000 Entity output rows, so treat the result as approximate. For Trino, ClickHouse and other backends, evaluate Metrics with `session.observe(...).compute()` and the explicit analysis inputs your question needs. This Metric restriction is separate from Entity and physical field preview support.
+
 {/* example: readiness-1 */}
 
 ```python
