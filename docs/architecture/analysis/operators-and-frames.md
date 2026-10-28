@@ -45,15 +45,22 @@ before conversion. Its explicit float64 result cast survives native compilation,
 even when Ibis already infers float64. This also prevents ClickHouse aggregate
 arithmetic optimization from extracting a NULL divisor from `AVG(x / NULL)`.
 Weighted means return NA when valid paired weights sum to zero,
-including signed cancellation. All backend-native numeric operations delegate
-overflow to the backend: its errors, wrapped values, Infinity and NaN are accepted
-without an overflow precheck, result rejection or local retry. Native field reads
-likewise retain backend floating values. Local computation also delegates numeric behavior to its actual pandas/Arrow or
-Decimal scalar kernel: no extra overflow precheck, finite-value scan, protective
+including signed cancellation.
+
+Ordinary source arithmetic delegates overflow to the backend: its errors, wrapped
+values, Infinity and NaN are accepted without an overflow precheck, result rejection
+or local retry. Native field reads likewise retain backend floating values.
+Ordinary local arithmetic delegates numeric behavior to its actual pandas/Arrow
+or Decimal scalar kernel: no extra overflow precheck, finite-value scan, protective
 widening, high-precision emulation or retry is added. Native errors propagate;
-wrapped values, Infinity and valid NaN remain values. Existing NULL, zero-division,
-identity, Duration and storage contracts still apply. Direct projection, is_null
-and persistence preserve validity without a numeric scan.
+wrapped values, Infinity and valid NaN remain values. The prepared operation and
+bound types determine the execution route; a native failure does not select another
+kernel or a wider carrier for recomputation. Existing NULL, zero-division, identity,
+Duration and storage contracts still apply. Method-specific finishing and saved
+metadata requirements remain owned by their methods, as described under
+[physical carriers](#physical-numeric-and-temporal-carriers). Direct projection,
+is_null and persistence preserve validity without a numeric scan.
+
 At a bound Float64 arithmetic boundary, local operands are converted to Float64
 with ordinary rounding, including integers above 2**53. This applies to mixed
 integer/floating addition, subtraction and multiplication, and to division and

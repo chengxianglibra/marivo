@@ -60,8 +60,11 @@ requested identity domain with NULL attributes. Relationship traversal uses its
 actual joins and set semantics when a source record is absent. Invalid declared
 uniqueness can multiply contributions; analysis does not repair it by choosing an
 arbitrary row. Use explicit source_check for source data-quality expectations.
-Actual identity outputs must still be non-null complete keys, and type, numeric,
-operation-specific coverage and stored-output integrity checks remain required.
+Actual identity outputs must still be non-null complete keys. Required type,
+captured NULL/domain, operation-specific coverage and stored-output integrity
+checks remain. Their numeric requirements follow the owning
+[arithmetic and method contracts](operators-and-frames.md#null-empty-and-arithmetic-policies),
+rather than a separate declaration-audit policy.
 
 project selects/reorders existing axes and deduplicates complete projected
 tuples. classify reads explicit attributes from one identity Entity when new

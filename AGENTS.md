@@ -135,6 +135,19 @@ The public entry points are `marivo.help`, `marivo.datasource`,
 
 - Top-level Frame APIs remain immutable; only `frame.to_pandas()` returns an
   isolated copy. Helpers consuming frames must enforce cross-session ownership.
+- Ordinary source and local arithmetic follow their actual backend or kernel.
+  Do not add generic overflow checks, finite-value scans, protective widening,
+  high-precision emulation or failure retries. Preserve operation-specific and
+  representation/storage contracts; see [numeric policies](docs/architecture/analysis/operators-and-frames.md#null-empty-and-arithmetic-policies).
+- Ordinary analysis trusts declared source identity, relationship cardinality
+  and version grain. Do not add full-source audits to re-prove declarations;
+  retain explicit `source_check` and required output/operation integrity checks.
+  See [declaration trust](docs/architecture/analysis/populations-and-observation.md#population-identity-and-set-semantics).
+- Fixed-data Frame operations and reopening consume captured results without
+  implicit source reads or producer replay. Cross-process reuse requires explicit
+  `persist()` and exact saved identities; new source dependencies remain explicit.
+  Do not introduce automatic persistence or cross-process result caches.
+  See [result retention](docs/architecture/analysis/session-state-and-runtime.md#session-and-invocation-ownership).
 - Persistent semantic and analysis state belongs in `<project_root>/.marivo/`.
   Author credentials as `*_env` references; never write secrets to project
   state. After a validated datasource round-trip, resolved secrets may be
