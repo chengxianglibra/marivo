@@ -14,6 +14,7 @@ from urllib.error import HTTPError
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo._errors import MarivoError
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
@@ -162,6 +163,57 @@ def test_closed_requests_support_observe_read_members_and_fixed_continuations(
         assert session._runtime.store.resources(session.id) == ()
 
 
+@pytest.mark.parametrize("method", ("GET", "POST"))
+@pytest.mark.parametrize("missing", (False, True))
+def test_unused_untyped_columns_allow_analysis_preview_and_sample(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    method: str,
+    missing: bool,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    rows = [
+        {"id": "a", "amount": 2, **({} if missing else {"observed": None})},
+        {"id": "b", "amount": 5, **({} if missing else {"observed": None})},
+    ]
+    with _api_server() as (url, api):
+        api.payload = {"data": rows}
+        source_text = (
+            f"md.json({url!r}, method={method!r}, body={'{}' if method == 'POST' else 'None'}, records_path='$.data', "
+            "columns={'id':'id','amount':'amount','observed':'observed'})"
+        )
+        _project(semantic_project_factory, (source_text,))
+        session = mv.session.get_or_create("untyped-json", timezone="UTC")
+        entity = catalog_value(session.catalog, "ops.entity0", kind="entity")
+        amount = catalog_value(session.catalog, "ops.entity0.amount0", kind="measure")
+        total = catalog_value(session.catalog, "ops.total0", kind="metric")
+        result = session.observe({"total": total, "count": entity.count()}).compute()
+        assert result.to_pandas()[["total", "count"]].values.tolist() == [[7, 2]]
+        assert len(api.requests) == 1
+        members = session.members(entity)
+        read = session.read(members, {"amount": amount}).compute().to_pandas()
+        assert read["amount"].tolist() == [2, 5]
+        assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == ["a", "b"]
+        scope = md.unpruned(max_rows=10, timeout_seconds=30)
+        preview = session.catalog.preview(amount, scope=scope)
+        assert preview.returned_row_count == 2
+        assert [row["amount0"] for row in preview.rows] == [2, 5]
+        source = md.json(
+            url,
+            method="POST" if method == "POST" else "GET",
+            body={} if method == "POST" else None,
+            records_path="$.data",
+            columns={"id": "id", "amount": "amount", "observed": "observed"},
+        )
+        inspection = md.inspect(md.DuckDBSpec(name="api").ref, source)
+        assert len(api.requests) == 4
+        sample = inspection.sample(scope=scope, columns=("id", "amount"), refresh=True)
+        assert sample.coverage.retained_row_count == 2
+        assert len(api.requests) == 5
+
+
 @pytest.mark.parametrize("same_entity", (True, False))
 def test_one_response_is_shared_across_frames_and_distinct_projections(
     tmp_path: Path,
@@ -304,6 +356,8 @@ def test_http_failures_are_structured_and_close_sources(
         assert error.expected and error.received and error.repair
         if failure == "http":
             assert "503" in error.received
+        elif failure == "null":
+            assert "numeric" in error.expected and "null" in error.received
         assert "no business row was read" not in str(error).lower()
         assert len(api.requests) == 1 and closed
         assert terminal_runs(session) == () and session._runtime.store.resources(session.id) == ()

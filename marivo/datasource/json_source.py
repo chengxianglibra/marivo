@@ -9,11 +9,13 @@ from typing import TypeAlias, cast
 from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from uuid import uuid4
 
+import ibis
 import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
+from ibis.backends import BaseBackend
 
 from marivo.datasource.ir import (
     JsonQueryParamValue,
@@ -326,16 +328,19 @@ def _arrow_table(
     if source.columns:
         for output, _path in source.columns:
             field = table.schema.get_field_index(output)
-            if field < 0 or pa.types.is_null(table.schema.field(field).type):
+            if field < 0:
                 raise ValueError(
                     f"Cannot infer a physical type for required JSON column {output!r}; "
-                    "the field is missing or null in every returned record."
+                    "the response contains no projected records."
                 )
-    create_table = getattr(backend, "create_table", None)
-    if not callable(create_table):
+    if not isinstance(backend, BaseBackend) or backend.name != "duckdb":
         raise RuntimeError("HTTP JSON sources require a DuckDB backend with Arrow registration")
-    name = "_marivo_json_" + uuid4().hex
-    return cast("ir.Table", create_table(name, obj=table, temp=True))
+    memory = ibis.memtable(table)
+    # Register Arrow directly: CREATE TABLE rejects null-typed columns, while
+    # DuckDB schema introspection assigns them an arbitrary integer type. Keep
+    # the captured Arrow schema so consumers apply their normal type contracts.
+    backend._register_in_memory_table(memory.op())
+    return ops.DatabaseTable(memory.op().name, schema=memory.schema(), source=backend).to_expr()
 
 
 def _apply_path(value: ir.Table | ir.Value, segments: tuple[tuple[str, object], ...]) -> ir.Value:

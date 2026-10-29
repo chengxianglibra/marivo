@@ -211,7 +211,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("json", "source_param"),
-        "JSON sources keep stable output aliases and correlate one shared array traversal. Analysis requires concrete GET/POST values; each response is reused per evaluation without pagination.",
+        "JSON sources keep stable output aliases and correlate one shared array traversal. HTTP all-null fields retain the null type; consumers validate used inputs. Analysis requires concrete GET/POST values; each response is reused per evaluation without pagination.",
         "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
         "Use columns for JSON field paths and records_path for wrapped records. Analysis requires concrete query/body values; md.source_param placeholders belong to explicit authoring reads. One evaluation reuses each response without pagination.",
         example=(

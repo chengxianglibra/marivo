@@ -124,12 +124,18 @@ such data, but its result cannot become a governed source binding.
 
 For a wrapped response, `records_path=` selects the array whose records are read.
 Additional object fields are ignored when a projection is supplied. Types are
-inferred from returned values; a required projected field missing from every
-record or null in every record fails clearly because no physical type can be
-inferred. The record path is intentionally limited to `$` plus object-member
+inferred from returned values. HTTP JSON fields missing from every record or
+null in every record retain Arrow's `null` type in the bound relation; they are
+not assigned a guessed scalar type. Declaring such a column does not block
+Analysis, field preview, or datasource sampling that does not use it. Consuming
+operations enforce their normal input-type contracts: an untyped Measure still
+fails, while an explicit cast or null predicate can produce a typed expression.
+Local JSON continues to use DuckDB's native type inference, which can differ
+from HTTP Arrow inference. The record path is intentionally limited to `$` plus object-member
 access, such as `$.data` or `$.result.items`; filters, wildcards, recursive
-descent, and array indexing are not supported. A present, empty array
-materializes as zero rows. A missing path or a non-array value fails at execution.
+descent, and array indexing are not supported. An empty records array cannot
+establish declared column types and fails when those types cannot be inferred.
+A missing path or a non-array value fails at execution.
 
 For JSON, each `columns=` value is a relative JSON path: `a.b` selects a nested
 object member, `a[0].b` selects a fixed array index, and `a[].b` traverses an

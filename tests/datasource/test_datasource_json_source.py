@@ -226,6 +226,30 @@ def test_post_json_source_uses_bound_session_execute() -> None:
     assert len(requests) == 1
 
 
+def test_http_json_retains_null_types_and_allows_explicit_expressions() -> None:
+    with _post_json_server([{"id": 1, "observed": None}, {"id": 2}]) as (url, requests):
+        backend = ibis.duckdb.connect(":memory:")
+        try:
+            table = read_json_source(
+                backend,
+                md.json(url, method="POST", body={}, columns={"id": "id", "observed": "observed"}),
+            )
+            assert table.observed.type().is_null()
+            assert table.count().execute() == 2
+            derived = table.select(
+                "id", missing=table.observed.isnull(), typed=table.observed.cast("string")
+            )
+            result = derived.execute()
+            assert result["id"].tolist() == [1, 2]
+            assert result["missing"].tolist() == [True, True]
+            assert result["typed"].isna().all()
+            assert derived.typed.type().is_string()
+            assert derived.select("id").execute()["id"].tolist() == [1, 2]
+            assert len(requests) == 1
+        finally:
+            backend.disconnect()
+
+
 def test_json_source_url_validates_parameters_declared_only_in_post_body() -> None:
     source = md.json(
         "https://api.example/query",
@@ -740,7 +764,7 @@ def test_wrapped_json_types_are_inferred_from_returned_values(tmp_path: Path) ->
         backend.disconnect()
 
 
-def test_wrapped_json_empty_records_array_materializes_zero_rows(tmp_path: Path) -> None:
+def test_wrapped_json_empty_records_array_cannot_infer_declared_types(tmp_path: Path) -> None:
     source_path = tmp_path / "events.json"
     source_path.write_text('{"code": 0, "result": {"items": []}}')
     backend = ibis.duckdb.connect(":memory:")

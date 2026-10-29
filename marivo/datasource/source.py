@@ -485,9 +485,11 @@ def json(
         traversal roots and multiple traversals in one path are rejected.
         A declared records path must resolve to an array at execution; a missing
         path or non-array value fails instead of materializing zero rows.
-        For wrapped records, requested fields are projected in mapping order;
+        For wrapped records, requested fields are projected in output-name order;
         missing fields become null and additional object fields are ignored.
-        A required field with no inferable physical type fails when consumed.
+        HTTP fields missing or null in every record retain the null type. Unused
+        fields do not block reads; consumers enforce their required input types.
+        Explicit casts and null predicates follow normal expression rules.
         Present field types are inferred from their values.
         A traversal path (``"a[].b"``) expands one row per element; a record
         whose traversal array is missing, empty, or null produces no rows, and

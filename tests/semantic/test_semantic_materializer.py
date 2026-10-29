@@ -9,7 +9,6 @@ from __future__ import annotations
 import textwrap
 
 import ibis
-import pyarrow as pa
 import pytest
 
 import marivo.datasource as md
@@ -419,16 +418,6 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
         }
     )
 
-    class _Backend:
-        def raw_sql(self, query):
-            assert "force_download" in query
-
-        def create_table(self, name, *, obj, temp):
-            assert name.startswith("_marivo_json_")
-            assert temp is True
-            assert isinstance(obj, pa.Table)
-            return ibis.memtable(obj)
-
     from marivo.datasource import json_source
 
     requests: list[str] = []
@@ -440,15 +429,19 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     monkeypatch.setattr(json_source, "_request_payload", request_payload)
 
-    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
-        table = _materialize_dataset(
-            project,
-            connections,
-            "sales.orders",
-            source_bindings={"sales.orders": {"start": "now-3600"}},
-        )
-
-    assert table.columns == ("value",)
+    backend = ibis.duckdb.connect(":memory:")
+    try:
+        with patch_semantic_connections(project, lambda _: backend) as connections:
+            table = _materialize_dataset(
+                project,
+                connections,
+                "sales.orders",
+                source_bindings={"sales.orders": {"start": "now-3600"}},
+            )
+            assert table.columns == ("value",)
+            assert table.execute().to_dict(orient="records") == [{"value": 1.25}]
+    finally:
+        backend.disconnect()
     assert len(requests) == 1
     assert requests[0] == (
         "https://api.example/query?tenant=main&"

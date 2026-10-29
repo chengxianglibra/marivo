@@ -455,7 +455,7 @@ class Materializer:
         if isinstance(source, JsonSourceIR):
             reader = getattr(backend, "read_json", None)
             is_http = source.path.lower().startswith(("http://", "https://"))
-            can_register_arrow = callable(getattr(backend, "create_table", None))
+            can_register_arrow = callable(getattr(backend, "_register_in_memory_table", None))
             if (not is_http and not callable(reader)) or (is_http and not can_register_arrow):
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
