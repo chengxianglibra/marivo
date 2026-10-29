@@ -102,10 +102,10 @@ def journey(phase: str, project: Path) -> dict[str, object]:
     state_path = project / "display.json"
     if phase == "produce":
         session = _create(project, "j2", "parquet")
-        members = session.members(session.catalog.get("entity:operations.device").value)
+        members = session.members(session.catalog.get("entity:operations.device"))
         grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         values = session.observe(
-            {"value": session.catalog.get("metric:operations.reading_count").value},
+            {"value": session.catalog.get("metric:operations.reading_count")},
             by=mv.product(grid, members),
         ).persist()
         categories = session.read(

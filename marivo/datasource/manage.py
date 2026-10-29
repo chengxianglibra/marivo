@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -24,6 +24,7 @@ from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.authoring import (
     DatasourceSpec,
+    _loaded_datasource_ref,
     _storage_name,
 )
 from marivo.datasource.backends import BuiltDatasourceBackend
@@ -48,6 +49,9 @@ from marivo.datasource.runtime import (
 from marivo.refs import DatasourceKind, Ref
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import Datasource
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 """Default requested native timeout for connection and probe settings.
@@ -370,12 +374,23 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
     )
 
 
-def _datasource_name(value: str | DatasourceSymbol) -> str:
+def _datasource_name(
+    value: str | DatasourceSymbol | Datasource, *, project_root: Path | None = None
+) -> str:
     if isinstance(value, str):
         return _storage_name(value)
-    reference = native_symbol_ref(value)
-    if reference is None or reference.kind.value != "datasource":
-        raise TypeError("datasource must be a name or native datasource lookup symbol.")
+    reference = _loaded_datasource_ref(value, project_root=cr.operation_root(project_root))
+    if reference is None:
+        symbolic = native_symbol_ref(value)
+        reference = (
+            ref_factory.datasource(symbolic.path)
+            if symbolic is not None and symbolic.kind.value == "datasource"
+            else None
+        )
+    if reference is None:
+        raise TypeError(
+            "datasource must be a name, loaded Datasource object, or native datasource lookup symbol."
+        )
     return reference.path
 
 
@@ -508,13 +523,13 @@ def _run_roundtrip(
 
 
 def _test_in_project(
-    name: str | DatasourceSymbol,
+    name: str | DatasourceSymbol | Datasource,
     *,
     timeout_seconds: int,
     project_root: Path | None,
     persist_env_secrets: bool,
 ) -> DatasourceTestResult:
-    datasource_name = _datasource_name(name)
+    datasource_name = _datasource_name(name, project_root=project_root)
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
 
@@ -556,7 +571,7 @@ def _test_in_project(
 
 
 def test_no_persist(
-    name: str | DatasourceSymbol,
+    name: str | DatasourceSymbol | Datasource,
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
@@ -564,7 +579,7 @@ def test_no_persist(
     """Round-trip the backend without persisting resolved secrets.
 
     Args:
-        name: The datasource name or native datasource lookup symbol to test.
+        name: The datasource name, loaded Datasource object, or native datasource lookup symbol to test.
         timeout_seconds: Requested native connection and probe-query timeouts.
             Unsupported query timeouts are skipped. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
@@ -587,7 +602,7 @@ def test_no_persist(
         complete call or cleanup.
     """
     return _test_in_project(
-        _datasource_name(name),
+        name,
         timeout_seconds=timeout_seconds,
         project_root=project_root,
         persist_env_secrets=False,
@@ -624,7 +639,7 @@ def _extract_raw_sql_frame(
 
 
 def raw_sql(
-    datasource: DatasourceSymbol,
+    datasource: DatasourceSymbol | Datasource,
     sql: str,
     *,
     reason: str,
@@ -635,7 +650,7 @@ def raw_sql(
     """Run terminal SQL exploration and load the complete query result.
 
     Args:
-        datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
+        datasource: Loaded Datasource object or a selector returned by ``ms.ref.datasource("warehouse")``.
         sql: Single read-only SQL statement in the datasource's native dialect.
             The statement executes verbatim, without parsing, rewriting, or an injected row limit.
         reason: Required exploration reason shown in the result. Name the
@@ -685,8 +700,15 @@ def raw_sql(
         raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
     statement = _require_nonempty_sql(sql)
-    reference = native_symbol_ref(datasource)
-    if reference is None or reference.kind.value != "datasource":
+    reference = _loaded_datasource_ref(datasource, project_root=cr.operation_root(project_root))
+    if reference is None:
+        symbolic = native_symbol_ref(datasource)
+        reference = (
+            ref_factory.datasource(symbolic.path)
+            if symbolic is not None and symbolic.kind.value == "datasource"
+            else None
+        )
+    if reference is None:
         raise TypeError("datasource must be a native datasource lookup symbol.")
     datasource_id = reference.path
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)

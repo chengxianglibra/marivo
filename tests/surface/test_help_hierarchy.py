@@ -328,7 +328,7 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
     entry = session.catalog.get(candidate.id)
     assert entry.kind == "metric"
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
-    fixed = session.observe({"value": entry.value}, by=(august,)).compute()
+    fixed = session.observe({"value": entry}, by=(august,)).compute()
     assert fixed.to_pandas()["value"].tolist() == [180]
 
     summary = fixed.reduce({"total": fixed["value"].sum()}).compute()

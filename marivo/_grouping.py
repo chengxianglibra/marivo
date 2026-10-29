@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from marivo._definition.relations import MembershipBinding
-    from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
+    from marivo._definition.types import (
+        AxisBinding,
+        CalendarCoordinate,
+        InputContext,
+        IntervalCoordinate,
+    )
 
 
 class Grouping(ABC):
@@ -22,6 +27,13 @@ class Grouping(ABC):
     """
 
     __slots__ = ()
+    _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def _context(self) -> InputContext:
+        from marivo._definition.types import InputContext
+
+        return InputContext()
 
     @property
     @abstractmethod

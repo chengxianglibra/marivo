@@ -7,10 +7,10 @@ from pathlib import Path
 import ibis
 import pytest
 import sqlglot
-from ibis.common.deferred import Deferred
 from sqlglot import expressions as sge
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._definition.types import IntervalCoordinate
 from marivo.analysis.materialization.graph_source_execution import _attribute_calendar_value
 from marivo.datasource.ir import TableSourceIR
@@ -112,7 +112,9 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
         event_time = catalog_value(session.catalog, "sales.events.event_time", kind="field")
         category = catalog_value(session.catalog, "sales.events.category", kind="field")
-        assert isinstance(amount, Deferred) and isinstance(event_time, Deferred)
+        assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
+            event_time, (ms.RowExpression, ms.MetricExpression)
+        )
         metric = amount.sum(time=event_time)
         scope = session.time_scope(start="2026-01-01", end="2026-01-04")
         grid = scope.by(mv.grain("day"))

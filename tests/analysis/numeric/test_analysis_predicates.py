@@ -22,11 +22,11 @@ from tests.support.paths import PROJECT_ROOT
 def _amounts(case: DslCase) -> mv.AnalysisFrame:
     grouping = mv.product(
         case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-        case.session.members(case.session.catalog.get("entity:sales.customer").value),
+        case.session.members(case.session.catalog.get("entity:sales.customer")),
     )
     assert isinstance(grouping, mv.Population)
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue").value},
+        {"value": case.session.catalog.get("metric:sales.revenue")},
         by=grouping,
     )
 
@@ -42,7 +42,7 @@ def test_numeric_string_category_persists_and_exports(
             f'UPDATE "{case.names.customer}" SET region = ? WHERE "{case.names.customer_id}" = ?',
             ["123", "A"],
         )
-    members = case.session.members(case.session.catalog.get("entity:sales.customer").value)
+    members = case.session.members(case.session.catalog.get("entity:sales.customer"))
     category = case.session.read(
         members,
         {"value": catalog_value(case.session.catalog, "sales.customer.region", kind="field")},
@@ -63,8 +63,8 @@ def test_public_multi_input_source_and_exported_pandas(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    members = session.members(session.catalog.get("entity:sales.customer"))
+    revenue = session.catalog.get("metric:sales.revenue")
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     buyer = catalog_value(session.catalog, f"sales.{case.names.buyer}", kind="relationship")
     grouping = mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members)
@@ -254,7 +254,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(case.session.catalog.get("entity:sales.customer").value)
+    members = case.session.members(case.session.catalog.get("entity:sales.customer"))
     values = case.session.read(
         members,
         {"value": catalog_value(case.session.catalog, "sales.customer.region", kind="field")},
@@ -262,7 +262,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
     fixed = values.compute()
     other_session = mv.session.get_or_create("foreign-r63", timezone="UTC")
     other = other_session.read(
-        other_session.members(other_session.catalog.get("entity:sales.customer").value),
+        other_session.members(other_session.catalog.get("entity:sales.customer")),
         {"value": catalog_value(other_session.catalog, "sales.customer.region", kind="field")},
     )
 
@@ -280,7 +280,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
         case.session.observe({"bad": fixed})  # type: ignore[dict-item]  # Fixed data is not a source Metric.
     with pytest.raises(AnalysisError, match="a Population from this Store and Session"):
         case.session.frame(
-            other_session.members(other_session.catalog.get("entity:sales.customer").value)
+            other_session.members(other_session.catalog.get("entity:sales.customer"))
         )
 
 

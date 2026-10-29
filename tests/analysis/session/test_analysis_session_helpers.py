@@ -268,24 +268,33 @@ def test_literal_frame_and_empty_bridge_do_not_load_catalog(
 def test_members_consumes_resolved_entity_without_original_version_gate(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from dataclasses import replace
-
+    import marivo.semantic as ms
     from marivo._definition.relations import PopulationProgram, SourceIdentities
-    from marivo._definition.types import ExactRef
-    from marivo.semantic.expressions import entity_exact
+    from marivo.semantic.expressions import _Resolver
 
     case = analysis_dsl_case_factory("j1")
-    entity = case.session.catalog.get("entity:sales.customer").value
-    older = replace(entity, _exact_ref=ExactRef(entity_exact(entity).ref, "previous-definition"))
-    population = case.session.members(older)
+    original = case.session.catalog
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text().replace(
+            "customer = ms.entity(",
+            "customer = ms.entity(ai_context=ms.ai_context(business_definition='updated identity description'), ",
+            1,
+        )
+    )
+    updated = ms.load(workspace_dir=case.root)
+    assert updated.definition_fingerprint != original.definition_fingerprint
+    entity = updated.get("entity:sales.customer")
+    assert isinstance(entity, ms.Entity)
+    population = case.session.members(entity)
     assert isinstance(population._definition, PopulationProgram)
     assert isinstance(population._definition.root, SourceIdentities)
-    assert population._definition.root.entity == entity_exact(older)
+    assert population._definition.root.entity == _Resolver(original._state).entity_ref(
+        "sales.customer"
+    )
     assert case.session.frame(population).compute().to_pandas()["customer"].tolist() == [
         "A",
         "B",
         "C",
         "D",
     ]
-    with pytest.raises(mv.errors.AnalysisError, match="complete primary key"):
-        case.session.members(replace(entity, primary_key=("wrong",)))

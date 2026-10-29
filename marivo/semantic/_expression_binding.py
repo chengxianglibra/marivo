@@ -21,6 +21,7 @@ import ibis
 import ibis.expr.types as ir
 from ibis.common.deferred import Deferred
 
+from marivo._definition.types import InputContext
 from marivo.refs import (
     EntityKind,
     FieldKind,
@@ -34,6 +35,12 @@ from marivo.semantic._definition_expression import describe_expression
 from marivo.semantic._definition_expression_types import (
     ExpressionDescription,
     _UnsupportedExpression,
+)
+from marivo.semantic._expression_values import (
+    NumericMetric,
+    NumericRow,
+    _as_deferred,
+    _ExpressionCarrier,
 )
 from marivo.semantic._ibis_builtin_udf import builtin_udf_token
 from marivo.semantic.errors import (
@@ -381,6 +388,7 @@ class _DeclarationExpressionBuilder:
         self.symbols = symbols
         self.name = name
         self.stage = stage
+        self.input_contexts: list[InputContext] = []
 
     def fail(
         self,
@@ -411,11 +419,25 @@ class _DeclarationExpressionBuilder:
         )
         from marivo._grouping import Grouping
         from marivo._temporal import Grain, InstantAnchor, TimeScope
-        from marivo.semantic.expressions import Entity, Relationship
+        from marivo.semantic.expressions import _Entity as Entity
+        from marivo.semantic.expressions import _Relationship as Relationship
 
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
-        if isinstance(value, (Grouping, PopulationParameter, Grain)):
+        if isinstance(value, (Grouping, PopulationParameter)):
+            self.input_contexts.append(value._context)
+            return value
+        if isinstance(value, Grain):
+            return value
+        if isinstance(value, _ExpressionCarrier):
+            self.input_contexts.append(value._context)
+            value = _as_deferred(value)
+        from marivo.semantic.catalog import Entity as CatalogEntity
+        from marivo.semantic.catalog import Relationship as CatalogRelationship
+
+        if isinstance(value, CatalogEntity | CatalogRelationship):
+            # Preserve the named boundary; controlled count/path capture owns conversion.
+            self.input_contexts.append(value._context)
             return value
         if isinstance(value, Deferred):
             self.capture(value)
@@ -462,7 +484,7 @@ class _DeclarationExpressionBuilder:
         from marivo._definition.types import DefinitionGraphError
 
         try:
-            inspect_capture(value)
+            self.input_contexts.append(inspect_capture(value).context)
         except DefinitionGraphError as error:
             raise SemanticExpressionError.from_definition(
                 error, operation=f"{self.stage} declaration {self.name}"
@@ -543,7 +565,8 @@ class _DeclarationExpressionBuilder:
 
     def value(self, node: ast.expr) -> object:
         from marivo._definition.deferred import NATIVE_METHODS, SEMANTIC_METHODS
-        from marivo.semantic.expressions import Entity
+        from marivo.semantic.catalog import Entity as CatalogEntity
+        from marivo.semantic.expressions import _Entity as Entity
 
         if isinstance(node, ast.Name):
             if node.id not in self.symbols:
@@ -652,7 +675,7 @@ class _DeclarationExpressionBuilder:
                         )
                     # Deferred attributes construct a recipe; they do not invoke author code.
                     method = cast("Callable[..., object]", getattr(receiver, name))
-                elif type(receiver) is Entity and name == "count":
+                elif isinstance(receiver, (Entity, CatalogEntity)) and name == "count":
                     method = receiver.count
             if method is None:
                 self.fail(
@@ -689,13 +712,17 @@ class _DeclarationExpressionBuilder:
                         str(error),
                         kind=ErrorKind.INVALID_EXPRESSION_VALUE,
                     )
-            return method(*args, **kwargs)
+            result = method(*args, **kwargs)
+            if isinstance(result, _ExpressionCarrier):
+                self.input_contexts.append(result._context)
+                return _as_deferred(result)
+            return result
         self.fail(node, "closed semantic expression syntax", ast.unparse(node))
 
 
 def _construct_declaration_expression(
     fn: Callable[..., object], *, stage: Literal["measure", "metric"]
-) -> object:
+) -> tuple[object, InputContext]:
     try:
         _, function = _load_function_ast(fn)
     except SemanticLoadError as error:
@@ -731,21 +758,42 @@ def _construct_declaration_expression(
                     builder.fail(
                         stmt.value, "a numeric row or completed Metric expression", native.key
                     )
-            return value
+            from marivo.semantic._expression_values import _merge
+
+            return value, _merge(*builder.input_contexts)
     raise AssertionError("validated declaration has no final return")
 
 
-def construct_measure_expression(fn: Callable[[], Deferred]) -> Deferred:
+def construct_measure_expression(fn: Callable[[], Deferred | NumericRow]) -> NumericRow:
     """Capture a pure declaration and validate its row-stage semantic facts."""
     from marivo.semantic._deferred_semantics import consume_row
 
-    result = _construct_declaration_expression(fn, stage="measure")
+    result, context = _construct_declaration_expression(fn, stage="measure")
     if isinstance(result, Deferred):
         from marivo._definition.deferred import inspect_deferred
 
         if not inspect_deferred(result).symbols:
-            consume_row(result)
-        return result
+            try:
+                consume_row(result)
+            except SemanticExpressionError as error:
+                # Named inputs are rebound by the receiving scope. Captured business
+                # facts cannot reject a formula whose current definitions may differ.
+                if context.project_root is None or (
+                    not error.details.get("defer_to_scope", False)
+                    and error.kind
+                    not in {
+                        ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
+                        ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
+                        ErrorKind.MISSING_SUM_PERMISSION,
+                        ErrorKind.INVALID_WHERE_SCOPE,
+                        ErrorKind.INVALID_TIME_PATH,
+                    }
+                ):
+                    raise
+        from marivo._definition.deferred import resolver_of
+        from marivo.semantic._expression_values import RowExpression
+
+        return RowExpression(resolver_of(result), context, "numeric")
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         message="Measure declaration returned the wrong expression stage.",
@@ -755,17 +803,36 @@ def construct_measure_expression(fn: Callable[[], Deferred]) -> Deferred:
     )
 
 
-def construct_metric_expression(fn: Callable[[], Deferred]) -> Deferred:
+def construct_metric_expression(fn: Callable[[], Deferred | NumericMetric]) -> NumericMetric:
     """Capture a pure declaration and validate its completed Metric stage."""
     from marivo.semantic._deferred_semantics import consume_metric
 
-    result = _construct_declaration_expression(fn, stage="metric")
+    result, context = _construct_declaration_expression(fn, stage="metric")
     if isinstance(result, Deferred):
         from marivo._definition.deferred import inspect_deferred
 
         if not inspect_deferred(result).symbols:
-            consume_metric(result)
-        return result
+            try:
+                consume_metric(result)
+            except SemanticExpressionError as error:
+                # Named inputs are rebound by the receiving scope. Captured business
+                # facts cannot reject a formula whose current definitions may differ.
+                if context.project_root is None or (
+                    not error.details.get("defer_to_scope", False)
+                    and error.kind
+                    not in {
+                        ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
+                        ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
+                        ErrorKind.MISSING_SUM_PERMISSION,
+                        ErrorKind.INVALID_WHERE_SCOPE,
+                        ErrorKind.INVALID_TIME_PATH,
+                    }
+                ):
+                    raise
+        from marivo._definition.deferred import resolver_of
+        from marivo.semantic._expression_values import MetricExpression
+
+        return MetricExpression(resolver_of(result), context, "numeric")
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         message="Metric declaration returned the wrong expression stage.",
@@ -776,7 +843,9 @@ def construct_metric_expression(fn: Callable[[], Deferred]) -> Deferred:
 
 
 def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
-    from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
+    from marivo.semantic.expressions import Dimension, Measure, TimeField
+    from marivo.semantic.expressions import _Entity as Entity
+    from marivo.semantic.expressions import _Relationship as Relationship
 
     if isinstance(value, Deferred):
         from marivo._symbolic import native_symbol_ref

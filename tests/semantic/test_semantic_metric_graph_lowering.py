@@ -85,8 +85,8 @@ def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
     assert computation_fingerprint(
         consume_metric(declarations["sales.revenue"]).node
     ) == computation_fingerprint(consume_metric(declarations["sales.revenue_alias"]).node)
-    first = catalog.get("metric:sales.revenue").value
-    second = catalog.get("metric:sales.revenue_alias").value
+    first = catalog.get("metric:sales.revenue")
+    second = catalog.get("metric:sales.revenue_alias")
     first_node, second_node = consume_metric(first).node, consume_metric(second).node
     assert isinstance(first_node, DeclaredMetricRef)
     assert isinstance(second_node, DeclaredMetricRef)
@@ -106,7 +106,7 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
         raise AssertionError("definition binding opened a source")
 
     monkeypatch.setattr("marivo.datasource.backends._build_backend_from_effective", forbidden)
-    query = session.observe({"nested": catalog.get("metric:sales.outer").value})
+    query = session.observe({"nested": catalog.get("metric:sales.outer")})
     graph = _captured_graph(query)
     assert isinstance(graph.root, ObserveQuery)
     closure = walk(

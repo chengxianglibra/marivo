@@ -164,7 +164,7 @@ def test_native_distribution(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r93-distribution", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        members = session.members(session.catalog.get("entity:sales.subjects"))
         field = catalog_value(
             session.catalog,
             "sales.facts.identity" if kind == "identity" else "sales.facts.amount",

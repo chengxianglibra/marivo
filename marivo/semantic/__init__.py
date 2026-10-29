@@ -8,7 +8,7 @@ Public surface::
     catalog = ms.load()                # returns SemanticCatalog
     catalog = ms.load(domains=['sales'])  # filter to specific domains
     catalog.search(kind="domain").show()
-    catalog.search(kind="metric").show()  # metric entries across loaded domains
+    catalog.search(kind="metric").show()  # Metric objects across loaded domains
 
     ms.domain(name="sales", owner="Mina Zhang", default=True)
     warehouse = md.duckdb("warehouse").ref
@@ -33,6 +33,7 @@ from marivo.refs import (
 )
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
+from marivo.semantic._expression_values import MetricExpression, RowExpression
 from marivo.semantic.authoring import (
     additive_all,
     additive_except,
@@ -87,23 +88,22 @@ from marivo.semantic.authoring import (
 )
 from marivo.semantic.catalog import (
     CalendarPeriodPage,
-    CatalogEntry,
-    DatasourceEntry,
-    DimensionEntry,
-    DomainEntry,
-    EntityEntry,
-    MeasureEntry,
-    MetricEntry,
-    PeriodCalendarEntry,
-    RelationshipEntry,
+    Datasource,
+    Dimension,
+    Domain,
+    Entity,
+    Measure,
+    Metric,
+    PeriodCalendar,
+    Relationship,
     SemanticCatalog,
     TemporalOccurrencePage,
-    TemporalSetEntry,
-    TimeDimensionEntry,
+    TemporalSet,
+    TimeDimension,
     load,
 )
 from marivo.semantic.catalog import (
-    SemanticEntry as SemanticEntry,
+    SemanticObject as SemanticObject,
 )
 from marivo.semantic.catalog_entries import (
     CatalogFilters,
@@ -136,40 +136,42 @@ from marivo.semantic.validation import (
 
 __all__ = [
     "CalendarPeriodPage",
-    "CatalogEntry",
     "CatalogFilters",
     "CatalogPage",
     "CatalogScope",
+    "Datasource",
     "DatasourceDefinition",
-    "DatasourceEntry",
-    "DimensionEntry",
+    "Dimension",
+    "Domain",
     "DomainDefinition",
-    "DomainEntry",
+    "Entity",
     "EntityDefinition",
-    "EntityEntry",
     "EntryProvenance",
     "ExpressionContract",
     "FieldDefinition",
     "JoinKey",
-    "MeasureEntry",
+    "Measure",
+    "Metric",
     "MetricDefinition",
-    "MetricEntry",
+    "MetricExpression",
     "MetricTimeBinding",
+    "PeriodCalendar",
     "PeriodCalendarDefinition",
-    "PeriodCalendarEntry",
     "PeriodCalendarKind",
     "PreviewBatchResult",
     "ReadinessReport",
+    "Relationship",
     "RelationshipDefinition",
-    "RelationshipEntry",
+    "RowExpression",
     "SemanticCatalog",
     "SemanticKind",
+    "SemanticObject",
     "SourceCheck",
     "TemporalOccurrencePage",
+    "TemporalSet",
     "TemporalSetDefinition",
-    "TemporalSetEntry",
     "TemporalSetKind",
-    "TimeDimensionEntry",
+    "TimeDimension",
     "ValidationReport",
     "additive_all",
     "additive_except",

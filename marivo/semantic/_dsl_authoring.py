@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass
-from typing import Literal, TypeAlias
+from dataclasses import InitVar, dataclass, field
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import Deferred
 
+from marivo._definition.types import InputContext, merge_input_contexts
 from marivo._symbolic import DimensionSymbol, TimeDimensionSymbol
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import Dimension, TimeDimension
 from marivo.refs import Ref, SemanticKind
 
 _TOKEN = object()
 CoordinateRef: TypeAlias = DimensionSymbol | TimeDimensionSymbol
-CoordinateInput: TypeAlias = CoordinateRef | Deferred
+CoordinateInput: TypeAlias = "CoordinateRef | Deferred | Dimension | TimeDimension"
 
 
 def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
@@ -41,9 +45,15 @@ def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
                 "use additive_all() for all axes or non_additive() for none.",
             ),
         )
+    from marivo.semantic.catalog import Dimension, TimeDimension
+
     paths: list[str] = []
     for coordinate in values:
-        value = _value_ref(coordinate)
+        value = (
+            coordinate._ref
+            if isinstance(coordinate, (Dimension, TimeDimension))
+            else _value_ref(coordinate)
+        )
         if type(value) is not Ref or value.kind not in {
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,
@@ -87,6 +97,7 @@ def _coordinates(values: tuple[CoordinateInput, ...]) -> tuple[str, ...]:
 class AdditiveOverV1:
     coordinates: tuple[str, ...]
     version: Literal[1] = 1
+    _context: InputContext = field(default_factory=InputContext)
     _token: InitVar[object] = None
 
     def __post_init__(self, _token: object) -> None:
@@ -98,6 +109,7 @@ class AdditiveOverV1:
 class AdditiveAllV1:
     exceptions: tuple[str, ...]
     version: Literal[1] = 1
+    _context: InputContext = field(default_factory=InputContext)
     _token: InitVar[object] = None
 
     def __post_init__(self, _token: object) -> None:
@@ -118,6 +130,14 @@ class NonAdditiveV1:
 AdditivityPolicy: TypeAlias = AdditiveOverV1 | AdditiveAllV1 | NonAdditiveV1
 
 
+def _axis_context(axes: tuple[CoordinateInput, ...]) -> InputContext:
+    from marivo.semantic.catalog import Dimension, TimeDimension
+
+    return merge_input_contexts(
+        *(axis._context for axis in axes if isinstance(axis, (Dimension, TimeDimension)))
+    )
+
+
 def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     """Declare exactly which native coordinates may be merged.
 
@@ -126,7 +146,7 @@ def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     Example: ``ms.additive_over(Region, Product)``.
     Constraints: Each coordinate must belong to the declared native support.
     """
-    return AdditiveOverV1(_coordinates(axes), _token=_TOKEN)
+    return AdditiveOverV1(_coordinates(axes), _context=_axis_context(axes), _token=_TOKEN)
 
 
 def additive_all() -> AdditiveAllV1:
@@ -152,7 +172,7 @@ def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     internal sample reduction owns temporal aggregation. Fixed coordinates
     alone do not require a status declaration.
     """
-    return AdditiveAllV1(_coordinates(axes), _token=_TOKEN)
+    return AdditiveAllV1(_coordinates(axes), _context=_axis_context(axes), _token=_TOKEN)
 
 
 def non_additive() -> NonAdditiveV1:

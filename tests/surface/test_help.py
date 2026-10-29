@@ -336,18 +336,19 @@ def test_every_public_attribute_has_an_independent_target() -> None:
     for owner, surface in _SURFACES.items():
         for type_obj, type_name in surface.type_index.items():
             for member in public_attributes(type_obj):
-                target = f"{owner}.{canonical_target(type_name)}.{member}"
+                type_target = surface.type_targets.get(type_obj, canonical_target(type_name))
+                target = f"{owner}.{type_target}.{member}"
                 text, _, _ = help_render.render_help_text(target)
                 assert f"Target: {target}\nKind: attribute" in text
 
 
 def test_semantic_concept_classes_share_their_canonical_object_pages() -> None:
     from marivo.introspection.live.targets import canonical_target
-    from marivo.semantic.expressions import Entity, Relationship
+    from marivo.semantic import Entity, Relationship
 
     for type_obj in (Entity, Relationship):
         assert help_render.render_help_text(type_obj) == help_render.render_help_text(
-            f"semantic.{canonical_target(type_obj.__name__)}"
+            f"semantic.{canonical_target(type_obj.__name__)}_object"
         )
 
 

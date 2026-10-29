@@ -22,6 +22,7 @@ from marivo.semantic._authoring_context import (
 )
 from marivo.semantic._authoring_retired import reject_parameters, retired_factory
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._expression_values import MetricExpression, NumericMetric, _as_deferred
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import DomainIR
@@ -109,7 +110,7 @@ def metric(
     *,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[], Deferred]], Deferred]:
+) -> Callable[[Callable[[], Deferred | NumericMetric]], NumericMetric]:
     """Name a completed Metric without changing its computation or policies.
 
     Args:
@@ -145,7 +146,7 @@ def metric(
         )
     _build_ai_context(ai_context)
 
-    def decorator(fn: Callable[[], Deferred]) -> Deferred:
+    def decorator(fn: Callable[[], Deferred | NumericMetric]) -> NumericMetric:
         location = _caller_location()
         try:
             _validate_segment(fn.__name__, role="Metric declaration name")
@@ -160,8 +161,8 @@ def metric(
             ) from error
         try:
             value = construct_metric_expression(fn)
-            return declare(
-                value,
+            declared = declare(
+                _as_deferred(value),
                 DeclarationRecord(
                     kind="metric",
                     name=fn.__name__,
@@ -170,6 +171,9 @@ def metric(
                     location=SourceLocation(location.file, location.line),
                 ),
             )
+            from marivo._definition.deferred import resolver_of
+
+            return MetricExpression(resolver_of(declared), value._context, "numeric")
         except SemanticExpressionError as error:
             error.location = location
             if not error.semantic_refs:

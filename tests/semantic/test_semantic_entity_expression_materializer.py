@@ -13,7 +13,6 @@ import ibis
 import pytest
 
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
@@ -88,7 +87,8 @@ def test_expression_entity_materializes_output_rows_and_metric(
 
     with patch_semantic_connections(project, lambda _name: connection):
         assert SemanticCatalog(project).preview(
-            ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+            SemanticCatalog(project).get("metric:sales.revenue"),
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
         ).rows == ({"value": 67.0},)
 
 
@@ -110,7 +110,7 @@ def test_expression_entity_grouping_exposes_output_grain(
     ]
     with patch_semantic_connections(project, lambda _name: connection):
         assert SemanticCatalog(project).preview(
-            ms.ref.metric("sales.regional_revenue"),
+            SemanticCatalog(project).get("metric:sales.regional_revenue"),
             scope=md.unpruned(max_rows=10, timeout_seconds=30),
         ).rows == ({"value": 97.0},)
 
@@ -266,7 +266,7 @@ def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
         pytest.raises(SemanticRuntimeError) as preview_info,
     ):
         catalog.preview(
-            ms.ref.entity("sales.unscoped"),
+            catalog.get("entity:sales.unscoped"),
             scope=md.time_range(
                 "updated_at", start="2026-01-01", end="2026-01-03", max_rows=100, timeout_seconds=30
             ),
@@ -444,7 +444,6 @@ def test_expression_entity_provenance_reports_physical_source(
 
 
 def test_entity_preview_reports_output_columns(semantic_project_factory) -> None:
-    import marivo.semantic as ms
 
     project = _expr_project(semantic_project_factory, _GROUPED_MODEL)
     connection = _warehouse_connection()
@@ -452,7 +451,7 @@ def test_entity_preview_reports_output_columns(semantic_project_factory) -> None
 
     with patch_semantic_connections(project, lambda _name: connection):
         result = catalog.preview(
-            ms.ref.entity("sales.regional_sales"),
+            catalog.get("entity:sales.regional_sales"),
             scope=md.unpruned(max_rows=100, timeout_seconds=30),
         )
 
@@ -465,7 +464,6 @@ def test_entity_preview_reports_output_columns(semantic_project_factory) -> None
 def test_metric_preview_over_expression_entity_keeps_sampling_disclosure(
     semantic_project_factory,
 ) -> None:
-    import marivo.semantic as ms
 
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)
     connection = _warehouse_connection()
@@ -473,7 +471,7 @@ def test_metric_preview_over_expression_entity_keeps_sampling_disclosure(
 
     with patch_semantic_connections(project, lambda _name: connection):
         result = catalog.preview(
-            ms.ref.metric("sales.revenue"),
+            catalog.get("metric:sales.revenue"),
             scope=md.unpruned(max_rows=100, timeout_seconds=30),
         )
 

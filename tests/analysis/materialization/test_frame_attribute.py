@@ -356,7 +356,7 @@ def test_compound_identity_parent_and_member_candidate_policy(
 ) -> None:
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     with duckdb.connect(str(tmp_path / "attribute.duckdb")) as connection:
         connection.execute(
             "INSERT INTO facts(id,tenant,region,channel,amount,denominator,day) VALUES (1,'other','east','C',99,1,'2026-08-01')"
@@ -391,8 +391,8 @@ def test_overlapping_membership_rejects_parent_attribution(session: Session) -> 
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     route = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     buckets = mv.membership((label, kind), via=(route,), unmatched="exclude")
     parent = session.observe(
@@ -511,7 +511,7 @@ def test_reduced_report_uses_explicit_source_bridge_without_slot_collisions(
 def test_population_count_classified_identity_domain_is_explicit_source_authority(
     session: Session,
 ) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     members = mv.coordinates(
         by=(mv.identity(entity),), keys=((("t", 1),), (("t", 2),), (("t", 3),))
@@ -531,8 +531,8 @@ def test_population_count_classified_identity_domain_is_explicit_source_authorit
 def test_member_count_effective_root_rejects_unrelated_identity_targets(
     session: Session,
 ) -> None:
-    tags = session.catalog.get("entity:sales.tags").value
-    links = session.catalog.get("entity:sales.links").value
+    tags = session.catalog.get("entity:sales.tags")
+    links = session.catalog.get("entity:sales.links")
     first = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     second = mv.coordinates(by=(mv.identity(links),), keys=(((1,),), ((2,),), ((3,),)))
     for scaled in (False, True):
@@ -564,7 +564,7 @@ def test_member_count_effective_root_rejects_unrelated_identity_targets(
 def test_selected_parent_scopes_member_count_before_fine_candidates(
     session: Session, complete_fine: bool
 ) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     members = mv.coordinates(
@@ -591,8 +591,8 @@ def test_correlated_overlapping_parent_membership_is_preserved_for_investigation
     kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     route = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
@@ -677,7 +677,7 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
 
 
 def test_member_count_compound_identity_and_nonleading_calendar_order(session: Session) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     region = catalog_value(session.catalog, "sales.facts.region", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     members = mv.coordinates(
@@ -723,8 +723,8 @@ def test_fix_keeps_allocated_parent_membership_for_attribute(
     kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     route = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
     frame = session.observe({"q": amount}, by=(membership, kind))

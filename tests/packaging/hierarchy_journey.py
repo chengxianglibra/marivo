@@ -79,7 +79,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "hierarchy.json"
     if phase == "produce":
         session = _create(root, "j1", "parquet")
-        members = session.members(session.catalog.get("entity:operations.device").value)
+        members = session.members(session.catalog.get("entity:operations.device"))
         category = catalog_value(session.catalog, "operations.device.zone", kind="field")
         amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
         time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")

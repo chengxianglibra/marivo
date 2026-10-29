@@ -578,8 +578,8 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "execution",
             (
-                "Validate stored data/method facts; pending inputs may read sources. Fixed derivations: lazy, no rereads. No result is persisted. Example needs numeric frame['value'].",
-                "JSON requests: datasource.json. UInt64/naive: semantic.entity.define.",
+                "Check stored facts; pending inputs may read sources. Fixed derivations: lazy, no rereads. No result is persisted. Example needs numeric 'value'.",
+                "JSON: datasource.json. UInt64/naive: semantic.entity.define.",
             ),
         ),
         (

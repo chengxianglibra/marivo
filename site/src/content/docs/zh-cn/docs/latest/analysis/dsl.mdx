@@ -98,13 +98,13 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
 revenue_entry = session.catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 amount_entry = session.catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 region_entry = session.catalog.get("dimension:sales.orders.region")
 assert region_entry.kind == "dimension"
-region = region_entry.value
+region = region_entry
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline = session.observe(revenue, by=(july, region)).compute()
@@ -139,13 +139,12 @@ saved_artifact_id = saved.artifact_id
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `metrics` | 是 | — | 单个闭合命名 Metric、非空 tuple，或非空的输出名 → 闭合 Metric 表达式 Mapping。 |
+| `metrics` | 是 | — | 单个命名 Metric 对象、非空 list 或 tuple，或非空的输出名 → 闭合 Metric 表达式 Mapping。 |
 | `by` | 否 | `()` | 有序语义字段、TimeScope、分组规则或一个完整 Population；`()` 请求一个单元，`by=P` 保留 P 的完整输出键。 |
 | `where` | 否 | `None` | 来源贡献谓词；`None` 不添加贡献筛选，与 by 中的输出选择独立。 |
 
 `session.observe(revenue)` 继承声明 Metric 的本地名 `revenue`；
-`session.observe((revenue, other_metric))` 保留 tuple 顺序。仅消费后的根
-`DeclaredMetricRef` 提供默认名。命名公式有自己的声明名，但在引用外追加算术、
+`session.observe([revenue, other_metric])` 保留 list 顺序；tuple 行为相同。仅已发布的根 Metric 对象 提供默认名。命名公式有自己的声明名，但在引用外追加算术、
 filter、window、per 或 rescale 必须使用 Mapping，例如
 `session.observe({"scaled_revenue": revenue / 1000})`。直接 source reducer、
 Entity/Population count 和未命名表达式同样需要显式名称，不读取 Python 变量名或依赖叶子。
@@ -330,7 +329,7 @@ Shapley 要求单值分类元组。显式 Population 分组与多归属仍在业
 ```python
 order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_time_entry.kind == "time_dimension"
-average = amount.mean(time=order_time_entry.value)
+average = amount.mean(time=order_time_entry)
 average_current = session.observe({"average": average}, by=(august,))
 average_baseline = session.observe({"average": average}, by=(july,))
 average_change = average_current.compare(
@@ -396,7 +395,7 @@ assert summary_method.game.metric_approximation == "summary_reconstruction/v1"
 {/* example: attribute-native-shapley */}
 
 ```python
-approximate = amount.approx_quantile(0.5, time=order_time_entry.value)
+approximate = amount.approx_quantile(0.5, time=order_time_entry)
 quantile_current = session.observe({"approximate": approximate}, by=(august,))
 quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
 quantile_change = quantile_current.compare(
@@ -417,7 +416,7 @@ assert quantile_method.game.input_consistency == "independent_reads/v1"
 {/* example: attribute-native-approx-distinct */}
 
 ```python
-approximate_reach = region.approx_nunique(time=order_time_entry.value) * revenue
+approximate_reach = region.approx_nunique(time=order_time_entry) * revenue
 reach_current = session.observe({"reach": approximate_reach}, by=(august,))
 reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
 reach_change = reach_current.compare(
@@ -650,7 +649,7 @@ assert normalized.to_pandas()["share"].tolist() == [0.25, 0.75]
 ```python
 orders_entry = session.catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-Orders = orders_entry.value
+Orders = orders_entry
 fixed_orders = mv.coordinates(
     by=(mv.identity(Orders),),
     keys=(((4,),), ((5,),), ((6,),)),

@@ -7,7 +7,6 @@ from pathlib import Path
 import ibis
 import pandas as pd
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo._authoring.model import AuthoringCapability
@@ -16,16 +15,17 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic.catalog import EntityEntry, MetricEntry
+from marivo.semantic._expression_values import FieldExpression, MetricExpression, RowExpression
+from marivo.semantic.catalog import Entity, Metric
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.support.documentation import _example as documentation_example
 
 
-def _field(session: Session, path: str) -> Deferred:
+def _field(session: Session, path: str) -> FieldExpression:
     value = catalog_value(session.catalog, path, kind="field")
-    assert isinstance(value, Deferred)
+    assert isinstance(value, RowExpression)
     return value
 
 
@@ -91,8 +91,8 @@ def test_weekly_calendar_samples_include_empty_days_and_finish_daily_p95(
     point = _field(session, "sales.facts.point")
     region = _field(session, "sales.facts.region")
     facts_entry = session.catalog.get("entity:sales.facts")
-    assert isinstance(facts_entry, EntityEntry)
-    facts = facts_entry.value
+    assert isinstance(facts_entry, Entity)
+    facts = facts_entry
     revenue = amount.sum(time=point)
     daily_p95 = revenue.per(point).quantile(0.95)
     weeks = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))
@@ -175,12 +175,9 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
         assert expected in (error.expected or "")
         assert received in (error.received or "")
         assert error.repair is not None and error.repair.action
-    with pytest.raises(SemanticExpressionError) as semantic_error:
-        consume_metric(metric.sum())
-    assert semantic_error.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
-    assert "Metric" in (semantic_error.value.received or "")
-    assert semantic_error.value.repair is not None
-    assert "per(" in semantic_error.value.repair.action
+    with pytest.raises(AttributeError):
+        absent = metric.sum
+        assert absent is None
     with pytest.raises(SemanticExpressionError) as semantic_error:
         consume_metric(metric.per(month).mean())
     assert semantic_error.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
@@ -207,8 +204,8 @@ def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(
 ) -> None:
     session = calendar_session
     daily_entry = session.catalog.get("metric:sales.daily_average")
-    assert isinstance(daily_entry, MetricEntry)
-    daily = daily_entry.value
+    assert isinstance(daily_entry, Metric)
+    daily = daily_entry
     scope = session.time_scope(start="2026-10-05", end="2026-11-02")
     rows = (
         session.observe({"v": daily.per(mv.grain("week")).max()}, by=(scope,)).compute().to_pandas()
@@ -296,7 +293,7 @@ def test_calendar_window_rejection_reaches_weighted_nested_and_declared_formulas
     session = calendar_session
     revenue = _field(session, "sales.facts.amount").sum(time=_field(session, "sales.facts.point"))
     daily = catalog_value(session.catalog, "sales.daily_average", kind="metric")
-    assert isinstance(daily, Deferred)
+    assert isinstance(daily, MetricExpression)
     metrics = (
         revenue.per(mv.grain("day")).weighted_mean(weight=revenue.window(mv.all_history())),
         revenue.window(mv.all_history()).per(mv.grain("hour")).max().per(mv.grain("day")).mean(),
@@ -335,7 +332,7 @@ def test_calendar_sample_formula_discloses_public_builtin_grain(
     calendar_session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
     entry = calendar_session.catalog.get("metric:sales.daily_average")
-    assert isinstance(entry, MetricEntry)
+    assert isinstance(entry, Metric)
     entry.show(max_output_bytes=None)
     text = capsys.readouterr().out
     assert ".per(Grain('day'))" in text

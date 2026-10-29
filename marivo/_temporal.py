@@ -40,7 +40,6 @@ from pydantic import (
 from pydantic_core import core_schema
 
 from marivo._grouping import Grouping
-from marivo._symbolic import PeriodCalendarSymbol, TemporalSetSymbol, symbol_factory
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
@@ -171,7 +170,7 @@ class Grain:
         _calendar: Ref[PeriodCalendarKind] | None
 
         @property
-        def calendar(self) -> PeriodCalendarSymbol | None: ...
+        def calendar_id(self) -> str: ...
 
         level: str | None
 
@@ -378,9 +377,9 @@ class _SemanticGrain(Grain):
     _captured_snapshot: PeriodCalendarSnapshotV2 | None
 
     @property
-    def calendar(self) -> PeriodCalendarSymbol:
-        """Native lookup selector for this grain's governed calendar."""
-        return symbol_factory.period_calendar(self._calendar.path)
+    def calendar_id(self) -> str:
+        """Canonical identity of this grain's captured governed calendar."""
+        return self._calendar.key
 
     def __init__(
         self,
@@ -702,9 +701,9 @@ class TimeScope(BaseModel):
         @property
         def _temporal_set(self) -> Ref[TemporalSetKind]: ...
         @property
-        def calendar(self) -> PeriodCalendarSymbol: ...
+        def calendar_id(self) -> str: ...
         @property
-        def temporal_set(self) -> TemporalSetSymbol: ...
+        def temporal_set_id(self) -> str: ...
 
         snapshot_digest: str
         boundary_timezone: str
@@ -1025,8 +1024,8 @@ class _CalendarPeriodTimeScope(TimeScope):
         return self.calendar_identity
 
     @property
-    def calendar(self) -> PeriodCalendarSymbol:
-        return symbol_factory.period_calendar(self._calendar.path)
+    def calendar_id(self) -> str:
+        return self._calendar.key
 
 
 class _TemporalOccurrenceTimeScope(TimeScope):
@@ -1043,8 +1042,8 @@ class _TemporalOccurrenceTimeScope(TimeScope):
         return self.temporal_set_identity
 
     @property
-    def temporal_set(self) -> TemporalSetSymbol:
-        return symbol_factory.temporal_set(self._temporal_set.path)
+    def temporal_set_id(self) -> str:
+        return self._temporal_set.key
 
 
 def _new_time_scope(**data: Any) -> TimeScope:

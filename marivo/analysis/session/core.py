@@ -7,22 +7,69 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ibis.common.deferred import Deferred
+
+from marivo._definition.types import Owner
+from marivo._grouping import Grouping
 from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic._expression_values import (
+    FieldExpression,
+    NumericMetric,
+    RowExpression,
+    RowPredicate,
+)
+from marivo.semantic.catalog import Entity, SemanticCatalog
 
 if TYPE_CHECKING:
-    from ibis.common.deferred import Deferred
-
-    from marivo._grouping import Grouping
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
     from marivo.analysis.dsl.population import Population
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.session._lazy_read_model import PersistedFrameSummaryPage
-    from marivo.semantic.expressions import Entity
+
+
+def _predicate_input(
+    value: RowPredicate | None, catalog: SemanticCatalog, owner: Owner, *, location: str
+) -> Deferred | None:
+    from marivo.analysis.core.model import reject
+    from marivo.semantic._consumption import bind_predicate
+
+    if value is None:
+        return None
+    if not isinstance(value, RowExpression) or value._role != "boolean":
+        reject(
+            "a row Predicate",
+            type(value).__name__,
+            "Use a condition built from loaded fields or in_population(...).",
+            location,
+        )
+    if value._context.owner not in (None, owner):
+        reject(
+            "a Predicate owned by this Session",
+            "another Store or Session",
+            "Rebuild the predicate in its owning Session.",
+            location,
+        )
+    return bind_predicate(value, catalog, owner=owner)
+
+
+def _field_input(
+    value: FieldExpression, catalog: SemanticCatalog, owner: Owner, *, location: str
+) -> Deferred:
+    from marivo.analysis.core.model import reject
+    from marivo.semantic._consumption import bind_field
+
+    if not isinstance(value, RowExpression) or value._role not in ("dimension", "time", "numeric"):
+        reject(
+            "a semantic field expression",
+            type(value).__name__,
+            "Obtain a field from the receiving Catalog.",
+            location,
+        )
+    return bind_field(value, catalog, owner=owner)
 
 
 class Session:
@@ -60,12 +107,12 @@ class Session:
             with cr.bind_resolver(config.resolver):
                 catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
             from marivo._temporal import PeriodCalendarSnapshotV2
-            from marivo.semantic.catalog import PeriodCalendarEntry
+            from marivo.semantic.catalog import PeriodCalendar
 
             snapshots: list[PeriodCalendarSnapshotV2] = []
             for identity in sorted(catalog._state.registry.period_calendars):
                 calendar = catalog.get("period_calendar:" + identity)
-                assert isinstance(calendar, PeriodCalendarEntry)
+                assert isinstance(calendar, PeriodCalendar)
                 status, snapshot = calendar._snapshot_with_status()
                 if status == "current" and snapshot is not None:
                     snapshots.append(snapshot)
@@ -140,14 +187,14 @@ class Session:
         entity: Entity,
         *,
         at: InstantAnchor | None = None,
-        where: Deferred | None = None,
+        where: RowPredicate | None = None,
     ) -> Population:
         """Capture a source identity Population without reading schema or rows.
 
         Args:
             entity: Resolved Entity definition.
             at: Exact version selection instant.
-            where: An optional same-root Deferred combining field and Population membership conditions.
+            where: An optional same-root row Predicate combining field and Population membership conditions.
 
         Returns:
             A lazy Population retaining this Session's ownership.
@@ -160,39 +207,34 @@ class Session:
             identities use mv.coordinates(by=(mv.identity(entity),), keys=...); compute keys with session.frame(population).
         """
         from marivo._definition.relations import PopulationProgram, SourceIdentities
-        from marivo._definition.types import AxisBinding, Owner
+        from marivo._definition.types import AxisBinding, InputContext, Owner
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.population import (
             Population,
             _owner,
             condition_populations,
         )
+        from marivo.semantic._consumption import bind_entity
         from marivo.semantic._deferred_semantics import consume_predicate
-        from marivo.semantic.expressions import Entity, _Resolver, entity_exact
+        from marivo.semantic.catalog import Entity
+        from marivo.semantic.expressions import entity_exact
 
         if not isinstance(entity, Entity):
             reject(
                 "a resolved Entity",
                 type(entity).__name__,
-                "Resolve the Entity with session.catalog.get('entity:' + path).value after checking kind.",
+                "Resolve the Entity with session.catalog.get('entity:' + path) after checking kind.",
                 "session.members.entity",
             )
-        resolved = _Resolver(self.catalog._state).entity(entity_exact(entity).ref.path)
-        if entity.primary_key != resolved.primary_key:
-            reject(
-                "an Entity with the receiving Catalog's complete primary key",
-                repr(entity.primary_key),
-                "Resolve an Entity with the same complete identity structure.",
-                "session.members.entity",
-            )
+        owner = self._runtime.local.owner
+        resolved = bind_entity(entity, self.catalog, owner=owner)
+        bound_where = _predicate_input(where, self.catalog, owner, location="Session.members.where")
         from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
 
         frame_inputs = (
-            collect_frame_key_inputs(where, owner=Owner(self.id, self._runtime.store.store_id))
-            if where is not None
-            else ()
+            collect_frame_key_inputs(where, owner=owner) if bound_where is not None else ()
         )
-        predicate = consume_predicate(where) if where is not None else None
+        predicate = consume_predicate(bound_where) if bound_where is not None else None
         if predicate is not None and any(
             root.ref != entity_exact(resolved).ref for root in predicate.roots
         ):
@@ -209,7 +251,7 @@ class Session:
                 "Construct at with session.instant(...).",
                 "session.members",
             )
-        axis = AxisBinding(entity_exact(entity), None, (), "identity", at)
+        axis = AxisBinding(entity_exact(resolved), None, (), "identity", at)
         if predicate is not None and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
             for domain in condition_populations(predicate.node)
@@ -221,13 +263,15 @@ class Session:
                 "session.members",
             )
         node = SourceIdentities(
-            entity_exact(entity),
+            entity_exact(resolved),
             at,
             predicate.node if predicate is not None else None,
         )
         return Population(
             PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,)),
             frame_inputs,
+            _context=InputContext(self.project_root, owner),
+            _identity_keys=((entity_exact(resolved).ref.key, resolved.primary_key),),
         )
 
     def instant(
@@ -269,19 +313,22 @@ class Session:
 
     def observe(
         self,
-        metrics: Deferred | tuple[Deferred, ...] | Mapping[str, Deferred],
+        metrics: NumericMetric
+        | list[NumericMetric]
+        | tuple[NumericMetric, ...]
+        | Mapping[str, NumericMetric],
         *,
-        by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
-        where: Deferred | None = None,
+        by: tuple[FieldExpression | Grouping | TimeScope | Population, ...] | Population = (),
+        where: RowPredicate | None = None,
     ) -> AnalysisFrame:
         """Capture Metric expressions as a lazy AnalysisFrame with fixed output names.
 
         Args:
-            metrics: One directly named Metric, a nonempty tuple of named Metrics, or a
-                nonempty ordered name-to-resolved-Metric mapping for explicit output names.
+            metrics: One directly named Metric, a nonempty list or tuple of named Metrics,
+                or a nonempty ordered mapping with explicit output names for expressions.
             by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
                 optionally followed by membership rules in a tuple.
-            where: Extra Deferred field/Population membership conditions on contributions.
+            where: Extra row Predicate combining field and Population membership conditions.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -300,18 +347,45 @@ class Session:
         pass; identity-output and operation checks remain. Use source_check.
         """
         from marivo.analysis.dsl import frame_sources
+        from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
+        from marivo.analysis.dsl.population import _bind_by
         from marivo.analysis.dsl.source_capture import _metric_inputs
+        from marivo.semantic._consumption import bind_metric
 
-        inputs = _metric_inputs(metrics)
+        selected_metrics = _metric_inputs(metrics)
+        for name, metric in selected_metrics:
+            if metric._context.owner not in (None, self._runtime.local.owner):
+                from marivo.analysis.core.model import reject
+
+                reject(
+                    "a Metric expression owned by this Session",
+                    "another Store or Session",
+                    "Rebuild the Metric in its owning Session.",
+                    f"Session.observe.metrics[{name!r}]",
+                )
+        captured_frame_inputs = collect_frame_key_inputs(
+            *(metric for _, metric in selected_metrics), where, owner=self._runtime.local.owner
+        )
+        inputs = tuple(
+            (name, bind_metric(metric, self.catalog, owner=self._runtime.local.owner))
+            for name, metric in selected_metrics
+        )
+        bound_by = _bind_by(
+            by, self.catalog, self._runtime.local.owner, location="Session.observe.by"
+        )
+        bound_where = _predicate_input(
+            where, self.catalog, self._runtime.local.owner, location="Session.observe.where"
+        )
         return frame_sources.observe(
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
             inputs,
-            by=by,
-            where=where,
+            by=bound_by,
+            where=bound_where,
             timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
+            _captured_frame_inputs=captured_frame_inputs,
         )
 
     def frame(self, population: Population) -> AnalysisFrame:
@@ -349,6 +423,15 @@ class Session:
                 "Rebuild the Population in this Session.",
                 "session.frame",
             )
+        from marivo.semantic._consumption import validate_context
+
+        validate_context(
+            population._context, project_root=self.project_root, owner=self._runtime.local.owner
+        )
+        if population._identity_keys:
+            from marivo.analysis.dsl.population import _validate_identity_keys
+
+            _validate_identity_keys(population._identity_keys, self.catalog)
         return frame_sources.frame(
             self._runtime.local,
             self.catalog._state if frame_sources.population_needs_state(population) else None,
@@ -356,7 +439,7 @@ class Session:
             population,
         )
 
-    def read(self, population: Population, fields: Mapping[str, Deferred]) -> AnalysisFrame:
+    def read(self, population: Population, fields: Mapping[str, FieldExpression]) -> AnalysisFrame:
         """Capture named scalar attributes for one complete Entity identity domain.
 
         Args:
@@ -375,20 +458,48 @@ class Session:
         business rows. Numeric reads preserve NULL, NaN and Infinity; finite local
         operations validate their demanded inputs. Value names follow the Frame name rules.
         """
+        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
+        from marivo.analysis.dsl.population import Population, _validate_population
 
+        if not isinstance(population, Population):
+            reject(
+                "a Population",
+                type(population).__name__,
+                "Pass a domain captured with members or coordinates.",
+                "Session.read.population",
+                canonical_id="session.read",
+            )
+        if not isinstance(fields, Mapping) or not fields:
+            reject(
+                "a nonempty named Field mapping",
+                type(fields).__name__,
+                "Pass session.read(population, {'output': loaded_field}).",
+                "Session.read.fields",
+                canonical_id="session.read",
+            )
+        _validate_population(population, self.catalog, self._runtime.local.owner)
+        bound_fields = {
+            name: _field_input(
+                value,
+                self.catalog,
+                self._runtime.local.owner,
+                location=f"Session.read.fields[{name!r}]",
+            )
+            for name, value in fields.items()
+        }
         return frame_sources.read(
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
             population,
-            fields,
+            bound_fields,
         )
 
     def values(
         self,
         *,
-        by: tuple[Deferred | Grouping, ...] = (),
+        by: tuple[FieldExpression | Grouping, ...] = (),
         columns: Mapping[str, str | None],
         rows: tuple[ValueRow, ...],
     ) -> AnalysisFrame:
@@ -422,11 +533,19 @@ class Session:
             )
         if not by:
             return frame_sources.values(self._runtime.local, columns=columns, rows=rows)
+        from marivo.analysis.dsl.population import _bind_by
+
+        bound_by = _bind_by(
+            by, self.catalog, self._runtime.local.owner, location="Session.values.by"
+        )
+        assert isinstance(bound_by, tuple)
+        assert all(isinstance(item, (Deferred, Grouping)) for item in bound_by)
+        coordinate_by = tuple(item for item in bound_by if isinstance(item, (Deferred, Grouping)))
         return frame_sources.coordinate_values(
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
-            by=by,
+            by=coordinate_by,
             columns=columns,
             rows=rows,
         )
@@ -495,7 +614,7 @@ class Session:
         self,
         frame: AnalysisFrame,
         *,
-        on: tuple[tuple[FrameAxis, Deferred | Entity], ...],
+        on: tuple[tuple[FrameAxis, FieldExpression | Entity], ...],
     ) -> Population:
         """Bind selected complete Frame axes to explicit semantic coordinates.
 
@@ -538,8 +657,33 @@ class Session:
                 "Build the Population in the selected Frame's owning Session.",
                 "session.population_from",
             )
+        from marivo.semantic._consumption import bind_entity
+
+        if not isinstance(on, tuple) or any(
+            not isinstance(pair, tuple) or len(pair) != 2 for pair in on
+        ):
+            reject(
+                "a tuple of (FrameAxis, semantic field or Entity) pairs",
+                type(on).__name__,
+                "Pass on=((frame.axes[0], loaded_field),).",
+                "Session.population_from.on",
+            )
+        bound_on = tuple(
+            (
+                axis,
+                bind_entity(target, self.catalog, owner=self._runtime.local.owner)
+                if isinstance(target, Entity)
+                else _field_input(
+                    target,
+                    self.catalog,
+                    self._runtime.local.owner,
+                    location=f"Session.population_from.on[{index}][1]",
+                ),
+            )
+            for index, (axis, target) in enumerate(on)
+        )
         return population_from(
-            self._runtime.local, self.catalog._state if on else None, frame, on=on
+            self._runtime.local, self.catalog._state if on else None, frame, on=bound_on
         )
 
     def render(self, *, max_output_bytes: int | None = 8192) -> str:

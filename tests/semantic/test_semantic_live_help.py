@@ -246,7 +246,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
 
     catalog = ms.load()
     entry = catalog.get("domain:sales")
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
 
     def fail(*args: object, **kwargs: object) -> object:
         raise AssertionError("reference help must not load or query")
@@ -372,7 +372,7 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
     expected = capsys.readouterr().out
     assert "region.isnull()" in expected
     descriptor = REGISTRY.by_canonical_id("dimension.isnull")
-    assert descriptor.callable_path is None
+    assert descriptor.callable_path == "marivo.semantic._expression_values.RowExpression.isnull"
     distances = {
         target.canonical_id: 1 for section in REGISTRY.root_sections for target in section.members
     }
@@ -411,22 +411,22 @@ def test_native_lookup_factories_have_owned_help_without_finalization_routes(
 def test_expression_display_has_one_owner_for_all_receiver_forms(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.semantic import expressions
+    from marivo.semantic import catalog as expressions
     from marivo.semantic._capabilities.registry import REGISTRY
 
     assert callable(marivo.help)
-    marivo.help("semantic.entity.show")
+    marivo.help("semantic.semantic_object.show")
     expected = capsys.readouterr().out
-    assert "orders.show()" in expected and "None" in expected
+    assert "entry.show(" in expected and "None" in expected
     for receiver in (expressions.Entity, expressions.Relationship):
         marivo.help(receiver.show)
         assert capsys.readouterr().out == expected
     owners = [
         row.canonical_id
         for row in REGISTRY.descriptors
-        if row.callable_path == "marivo.semantic.expressions._ExpressionDisplay.show"
+        if row.callable_path == "marivo.semantic.catalog._SemanticObject.show"
     ]
-    assert owners == ["entity.show"]
+    assert owners == ["semantic_object.show"]
     marivo.help("semantic.semantic_catalog.get")
     assert "catalog.get" in capsys.readouterr().out
 
@@ -443,21 +443,17 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
             ),
         ),
         (
-            "semantic.entity.show",
+            "semantic.semantic_object.show",
             (
-                "Entity or Relationship metadata without source reads",
-                "Deferred inputs have no show method",
-                "AnalysisFrame.show()",
-                "Pending Frame display does not evaluate or prepare schema",
+                "captured directory data",
+                "no datasource or model calls",
             ),
         ),
         (
-            "semantic.entity.contract",
+            "semantic.semantic_object.show",
             (
-                "definition metadata without source reads",
-                "Deferred inputs carry no contract method",
-                "AnalysisFrame.show()",
-                "without evaluating pending inputs",
+                "captured directory data",
+                "no datasource or model calls",
             ),
         ),
         (
@@ -481,7 +477,7 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
             (
                 "canonical kind:path identity",
                 "No model calls or datasource reads",
-                "entry.definition",
+                "object.definition",
             ),
         ),
         (
@@ -510,17 +506,16 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from marivo._help.render import render_help_text
-    from marivo.semantic.expressions import Entity, ExpressionContract, Relationship
+    from marivo.semantic.catalog import Entity, Relationship
+    from marivo.semantic.expressions import ExpressionContract
 
     catalog = ms.load()
-    orders = catalog.get("entity:sales.orders").value
-    contract = orders.contract()
+    orders = catalog.get("entity:sales.orders")
     for target, receivers in (
-        ("semantic.entity.show", (Entity.show, Relationship.show, orders.show)),
-        ("semantic.entity.contract", (Entity.contract, Relationship.contract, orders.contract)),
+        ("semantic.semantic_object.show", (Entity.show, Relationship.show, orders.show)),
         ("semantic.readiness", (ms.SemanticCatalog.readiness, catalog.readiness)),
         ("semantic.semantic_catalog.get", (ms.SemanticCatalog.get, catalog.get)),
-        ("semantic.expression_contract", (ExpressionContract, contract.show)),
+        ("semantic.expression_contract", (ExpressionContract,)),
     ):
         expected = render_help_text(target)[0]
         for receiver in receivers:
@@ -528,8 +523,6 @@ def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
             assert capsys.readouterr().out == expected + "\n"
 
     for source, method_name in (
-        ("semantic.entity.show", "show"),
-        ("semantic.entity.contract", "show"),
         ("semantic.semantic_catalog.get", "show"),
         ("semantic.metric.where", "where"),
         ("semantic.readiness", "compute"),
@@ -549,15 +542,15 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
     from collections import deque
 
     from marivo.semantic._capabilities.registry import REGISTRY
-    from marivo.semantic.expressions import Entity
+    from marivo.semantic.catalog import Entity
 
     assert callable(marivo.help)
-    marivo.help("semantic.entity.show")
+    marivo.help("semantic.semantic_object.show")
     expected = capsys.readouterr().out
     for operation in (Entity.show,):
         marivo.help(operation)
         assert capsys.readouterr().out == expected
-    assert "orders.show()" in expected
+    assert "entry.show(" in expected
     assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
     distances = {
         target.canonical_id: 1 for section in REGISTRY.root_sections for target in section.members
@@ -572,7 +565,7 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    assert distances["entity.show"] <= 3
+    assert distances["semantic_object.show"] <= 3
 
 
 def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> None:
@@ -627,9 +620,9 @@ def test_type_method_navigation_uses_the_actual_documentation_owner(
     page = capsys.readouterr().out
     assert 'preview: marivo.help("semantic.preview")' in page
     assert 'show: marivo.help("analysis.runtime.values.show")' in page
-    marivo.help("semantic.relationship")
-    assert 'contract: marivo.help("semantic.entity.contract")' in capsys.readouterr().out
-    marivo.help("semantic.period_calendar_entry")
+    marivo.help("semantic.relationship_object")
+    assert 'show: marivo.help("semantic.semantic_object.show")' in capsys.readouterr().out
+    marivo.help("semantic.period_calendar_object")
     assert (
         'period: marivo.help("analysis.catalog.period_calendars.period")' in capsys.readouterr().out
     )
@@ -666,10 +659,10 @@ def test_native_deferred_grammar_keeps_expression_kind_and_syntax(
 ) -> None:
     marivo.help(target)
     page = capsys.readouterr().out
-    assert f"Target: {target}\nKind: expression\n" in page
-    assert f"Syntax: {syntax}(...)" in page
+    assert f"Target: {target}\nKind: callable\n" in page
+    assert f"Entrypoint: {syntax}" in page
     assert "  Example:\n" in page
-    assert "Signature:" not in page
+    assert "Signature:" in page
 
 
 @pytest.mark.parametrize("target", ("semantic.row.sum", "semantic.metric_samples.sum"))
@@ -741,7 +734,7 @@ def test_validation_help_discloses_scope_and_relationship_choices(
         marivo.help(f"semantic.source_check.{target}")
         page = capsys.readouterr().out
         assert all(f"'{choice}'" in page for choice in choices)
-        assert "entry's .ref" in page
+        assert "native loaded fields/relationships" in page
 
 
 def test_entity_help_preserves_the_supported_table_decorator(
@@ -827,11 +820,11 @@ def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None
 
     metric = render_help_text("semantic.metric")[0]
     assert "lookup symbol: ms.ref.metric(path)" in metric
-    assert 'marivo.help("semantic.metric.define"); returns Deferred' in metric
+    assert 'marivo.help("semantic.metric.define"); returns NumericMetric' in metric
     assert "output: Ref[metric]" not in metric
     measure = render_help_text("semantic.measure")[0]
     assert 'marivo.help("semantic.measure.from_column"); returns MeasureSymbol' in measure
-    assert 'marivo.help("semantic.measure.define"); returns Deferred' in measure
+    assert 'marivo.help("semantic.measure.define"); returns NumericRow' in measure
 
 
 def test_authoring_help_discloses_shared_numeric_columns_builtin_udfs_and_lists() -> None:
@@ -868,7 +861,7 @@ def test_scalar_field_role_links_governed_acquisition_and_existing_grammar() -> 
 
     page = render_help_text("semantic.field")[0]
     assert "Kind: topic" in page
-    assert "Dimension, TimeField or Measure" in page
+    assert "Dimension, TimeDimension or Measure" in page
     for target in (
         "semantic.dimension",
         "semantic.time_dimension",
@@ -983,3 +976,17 @@ def test_ontology_authoring_remains_the_exact_load_callable() -> None:
     assert render_help_text(mo.load)[0] == exact
     for target in ("authoring", "influences", "related_to"):
         assert f'marivo.help("ontology.{target}")' in render_help_text("ontology")[0]
+
+
+@pytest.mark.parametrize("carrier", (ms.RowExpression, ms.MetricExpression))
+def test_typed_carrier_methods_have_one_native_callable_owner(carrier: type) -> None:
+    from marivo._help.route import NativeHelpRoute, native_route_target, route_help_target
+
+    for name, method in vars(carrier).items():
+        if name.startswith("_") or not callable(method):
+            continue
+        route = route_help_target(method)
+        assert isinstance(route, NativeHelpRoute), (carrier, name)
+        assert route.owner == "semantic"
+        target = native_route_target(route)
+        assert route_help_target(target).resolved == route.resolved

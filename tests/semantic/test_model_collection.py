@@ -107,8 +107,8 @@ def test_published_versions_follow_consumed_definitions(
 ) -> None:
     first = _catalog(semantic_project_factory)
     changed = _DECLARATIONS_PY.replace('status == "paid"', 'status == "settled"')
-    root = tmp_path / "changed"
-    root.mkdir()
+    # These tests compare two completed scopes of the same consuming project.
+    root = tmp_path
     project = semantic_project_factory(
         {"sales/_domain.py": _DOMAIN_PY, "sales/objects.py": changed},
         load=False,
@@ -233,7 +233,7 @@ def test_catalog_closure_reports_an_unpublished_metric(
 
     catalog = _catalog(semantic_project_factory)
     missing = declare(
-        catalog.get("metric:sales.revenue").value,
+        resolve(catalog, ms.ref.metric("sales.revenue")),
         DeclarationRecord(
             kind="metric",
             name="missing",
@@ -279,28 +279,26 @@ def test_published_single_source_metric_keeps_where(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     status = catalog_value(catalog, "sales.orders.status", kind="field")
-    order_count = catalog.get("metric:sales.order_count").value
+    order_count = catalog.get("metric:sales.order_count")
     paid = order_count.where(status == "paid")
     assert isinstance(consume_metric(paid).node, ContributionFilter)
     assert isinstance(consume_metric(paid).node.operand, DeclaredMetricRef)
     settled = paid.where(status != "void")
     assert isinstance(consume_metric(settled).node, ContributionFilter)
     assert isinstance(
-        consume_metric(catalog.get("metric:sales.revenue").value.where(status == "paid")).node,
+        consume_metric(catalog.get("metric:sales.revenue").where(status == "paid")).node,
         ContributionFilter,
     )
     with pytest.raises(SemanticExpressionError) as raised:
-        consume_metric(
-            catalog.get("metric:sales.average_order_value").value.where(status == "paid")
-        )
+        consume_metric(catalog.get("metric:sales.average_order_value").where(status == "paid"))
     assert raised.value.kind == ErrorKind.INVALID_WHERE_SCOPE
 
 
 def _changed_catalog(
     factory: ProjectFactory, tmp_path: Path, old: str, new: str
 ) -> SemanticCatalog:
-    root = tmp_path / "changed"
-    root.mkdir()
+    # These tests compare two completed scopes of the same consuming project.
+    root = tmp_path
     project = factory(
         {"sales/_domain.py": _DOMAIN_PY, "sales/objects.py": _DECLARATIONS_PY.replace(old, new)},
         load=False,
@@ -316,13 +314,16 @@ def test_closure_resolves_an_updated_metric_by_current_path(
     from marivo.semantic.expressions import catalog_closure
 
     first = _catalog(semantic_project_factory)
-    old_revenue = resolve(first, ms.ref.metric("sales.revenue"))
+    old_revenue = first.get("metric:sales.revenue")
+    assert isinstance(old_revenue, ms.Metric)
+    captured_formula = old_revenue.definition.formula
     assert isinstance(consume_metric(old_revenue).node, DeclaredMetricRef)
     old_version = consume_metric(old_revenue).node.ref.version
     second = _changed_catalog(
         semantic_project_factory, tmp_path, 'status == "paid"', 'status == "settled"'
     )
-    current = resolve(second, ms.ref.metric("sales.revenue"))
+    current = second.get("metric:sales.revenue")
+    assert isinstance(current, ms.Metric)
     assert isinstance(consume_metric(current).node, DeclaredMetricRef)
     assert consume_metric(current).node.ref.version != old_version
     closure = catalog_closure(second, old_revenue)
@@ -336,6 +337,7 @@ def test_closure_resolves_an_updated_metric_by_current_path(
         in closure.order
     )
     assert consume_metric(old_revenue).node.ref.version == old_version
+    assert old_revenue.definition.formula == captured_formula
 
 
 def test_closure_rechecks_where_scope_against_the_current_definition(
@@ -345,7 +347,7 @@ def test_closure_rechecks_where_scope_against_the_current_definition(
 
     first = _catalog(semantic_project_factory)
     status = catalog_value(first, "sales.orders.status", kind="field")
-    paid_orders = first.get("metric:sales.order_count").value.where(status == "paid")
+    paid_orders = first.get("metric:sales.order_count").where(status == "paid")
     second = _changed_catalog(
         semantic_project_factory,
         tmp_path,

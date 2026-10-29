@@ -63,8 +63,8 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     session = case.session
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
-        by=mv.product(grid, session.members(session.catalog.get("entity:sales.customer").value)),
+        {"value": session.catalog.get("metric:sales.order_count")},
+        by=mv.product(grid, session.members(session.catalog.get("entity:sales.customer"))),
     ).persist()
     frame = plain(artifact)
     assert len(frame) == 3003

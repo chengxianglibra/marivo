@@ -164,7 +164,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     session = original_source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     members = members.classify(by=(members.axes[0], region))
     fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
@@ -174,7 +174,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     control = session.observe({"members": members.count()}).compute()
     assert control.to_pandas()["members"].tolist() == [3]
     selected_members = session.members(
-        session.catalog.get("entity:sales.orders").value, where=mv.in_population(keys)
+        session.catalog.get("entity:sales.orders"), where=mv.in_population(keys)
     )
     result = session.observe({"members": selected_members.count()}).compute()
     assert result.to_pandas()["members"].tolist() == [2]
@@ -192,9 +192,7 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     session = original_source_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
-    members = session.members(
-        session.catalog.get("entity:sales.orders").value, where=region == "East"
-    )
+    members = session.members(session.catalog.get("entity:sales.orders"), where=region == "East")
     members = members.classify(by=(members.axes[0], region, channel))
     result = session.observe({"members": members.count()}, by=(region, channel)).compute()
     assert result.to_pandas()["members"].tolist() == [1, 1]
@@ -208,8 +206,8 @@ def test_version_coordinate_is_part_of_the_complete_contribution_identity(
     amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="field")
     first = session.instant("2026-01-01T12:00:00+00:00")
     second = session.instant("2026-01-02T12:00:00+00:00")
-    first_members = session.members(session.catalog.get("entity:sales.snapshots").value, at=first)
-    second_members = session.members(session.catalog.get("entity:sales.snapshots").value, at=second)
+    first_members = session.members(session.catalog.get("entity:sales.snapshots"), at=first)
+    second_members = session.members(session.catalog.get("entity:sales.snapshots"), at=second)
     one = session.read(first_members, {"amount": amount.at(first)}).compute().to_pandas()
     two = session.read(second_members, {"amount": amount.at(second)}).compute().to_pandas()
     assert one["amount"].tolist() == [10, 300]
@@ -273,11 +271,11 @@ def test_drill_attribute_template_retains_complete_output_key_integrity(
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     segment = catalog_value(session.catalog, "sales.profiles.segment", kind="field")
-    east = session.members(session.catalog.get("entity:sales.orders").value, where=region == "East")
+    east = session.members(session.catalog.get("entity:sales.orders"), where=region == "East")
     rows = session.read(east, {"channel": channel, "segment": segment}).compute().to_pandas()
     assert rows["channel"].tolist() == ["Web", "Store"]
     assert rows["segment"].tolist() == ["Good", "Good"]
-    west = session.members(session.catalog.get("entity:sales.orders").value, where=region == "West")
+    west = session.members(session.catalog.get("entity:sales.orders"), where=region == "West")
     with pytest.raises(AnalysisError, match="complete unique stage key"):
         session.read(west, {"segment": segment}).compute()
 

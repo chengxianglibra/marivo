@@ -8,7 +8,6 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._symbolic import (
     EntitySymbol,
-    LookupSymbol,
     MeasureSymbol,
     PeriodCalendarSymbol,
     TemporalSetSymbol,
@@ -27,14 +26,13 @@ from marivo.refs import (
 )
 from marivo.semantic import bind
 from marivo.semantic.catalog import (
-    DomainEntry,
-    EntityEntry,
-    MeasureEntry,
-    MetricEntry,
+    Domain,
+    Entity,
+    Measure,
+    Metric,
     SemanticCatalog,
 )
 from marivo.semantic.catalog_entries import CatalogPage
-from marivo.semantic.expressions import Entity
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
 assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])
@@ -81,26 +79,28 @@ def _metric_is_not_a_row_field_contract(table: Table) -> None:
 
 
 def _catalog_entry_contract(catalog: SemanticCatalog) -> None:
-    assert_type(catalog.search(kind="domain"), CatalogPage[DomainEntry])
+    assert_type(catalog.search(kind="domain"), CatalogPage[Domain])
     entity = catalog.get("entity:sales.orders")
-    if isinstance(entity, EntityEntry):
-        assert_type(entity.value, Entity)
+    if isinstance(entity, Entity):
+        assert_type(entity, Entity)
     metric = catalog.get("metric:sales.revenue")
-    if isinstance(metric, MetricEntry):
-        assert_type(metric.value, Deferred)
+    if isinstance(metric, Metric):
+        assert_type(metric, Metric)
 
 
 def _native_selector_roundtrip(catalog: SemanticCatalog, ordinary: Deferred) -> None:
     for entry in catalog.search().items:
-        assert_type(entry.ref, LookupSymbol)
+        assert_type(entry, ms.SemanticObject)
         catalog.get(entry.id)
     amount = catalog.get("measure:sales.orders.amount")
-    if isinstance(amount, MeasureEntry):
-        assert_type(amount.value, Deferred)
+    if isinstance(amount, Measure):
+        assert_type(amount, Measure)
         for identity in amount.definition.dependencies:
             catalog.get(identity)
-    report = catalog.readiness(refs=[ms.ref.entity("sales.orders")])
+    entity = catalog.get("entity:sales.orders")
+    assert entity.kind == "entity"
+    report = catalog.readiness(refs=[entity])
     for selector in report.analysis_ready_inputs:
-        assert_type(selector, LookupSymbol)
+        assert_type(selector, ms.SemanticObject)
     catalog.get(ordinary)  # type: ignore[arg-type]  # Exact lookup requires a canonical identity string.
     catalog.get(ms.ref.measure("sales.orders.amount") + 1)  # type: ignore[arg-type]

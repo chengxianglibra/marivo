@@ -10,7 +10,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
@@ -95,7 +94,7 @@ def test_published_metric_preview_matches_source_equation(
     expected = connection.con.execute(f"SELECT {oracle} FROM orders").fetchone()[0]
     connection.disconnect()
     result = catalog.preview(
-        ms.ref.metric(f"sales.{metric}"),
+        catalog.get(f"metric:sales.{metric}"),
         scope=md.unpruned(max_rows=10, timeout_seconds=30),
     )
     assert result.rows == ({"value": expected},)
@@ -120,7 +119,7 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(catalog.workspace_dir))
     session = mv.session.get_or_create("current-metric", timezone="UTC")
     current = session.catalog
-    named = current.get("metric:sales.revenue").value
+    named = current.get("metric:sales.revenue")
     anonymous = catalog_value(current, "sales.orders.amount", kind="field").sum()
     artifact = session.observe({"named": named, "anonymous": anonymous}).persist()
     expected = artifact.to_pandas()

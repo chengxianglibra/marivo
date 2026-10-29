@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import ibis
 
@@ -15,7 +15,7 @@ from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
 from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
-from marivo.datasource.authoring import _storage_name
+from marivo.datasource.authoring import _loaded_datasource_ref, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
 from marivo.datasource.errors import (
@@ -59,6 +59,9 @@ from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref, SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import Datasource
 
 _PARTITION_VALUE_LIMIT = 100
 
@@ -1383,7 +1386,7 @@ def _structured_inspection_warnings(
 
 
 def inspect(
-    datasource: DatasourceSymbol,
+    datasource: DatasourceSymbol | Datasource,
     source: TableSource,
     *,
     workspace_dir: str | Path | None = None,
@@ -1412,20 +1415,28 @@ def inspect(
         Does not execute a user-data query. Tables use metadata hooks and
         Parquet reads footer metadata. The backend may open local CSV and JSON
         files to discover their columns and observed types. Remote HTTP JSON is
-        not fetched. ``datasource`` must be a native datasource lookup symbol.
+        not fetched. ``datasource`` must be a loaded Datasource or native datasource selector.
         Reads local and configured external model roots. One call uses one
         loaded datasource definition; later calls read current declarations.
     """
-    reference = native_symbol_ref(datasource)
-    if reference is None or reference.kind is not SemanticKind.DATASOURCE:
-        received = "bare string" if isinstance(datasource, str) else type(datasource).__name__
-        raise TypeError(
-            "datasource must be a native datasource lookup symbol from spec.ref or "
-            f"ms.ref.datasource('warehouse'); received {received}."
-        )
     project_root = (
         resolve_project_root() if workspace_dir is None else Path(workspace_dir).resolve()
     )
+    reference = _loaded_datasource_ref(datasource, project_root=project_root)
+    if reference is None:
+        symbolic = native_symbol_ref(datasource)
+        reference = (
+            ref_factory.datasource(symbolic.path)
+            if symbolic is not None and symbolic.kind is SemanticKind.DATASOURCE
+            else None
+        )
+    if reference is None:
+        received = "bare string" if isinstance(datasource, str) else type(datasource).__name__
+        raise TypeError(
+            "datasource must be a loaded Datasource or a native datasource lookup symbol "
+            "from spec.ref or ms.ref.datasource('warehouse'); "
+            f"received {received}."
+        )
     return _inspect_in_project(
         ref_factory.datasource(reference.path), source, project_root=project_root
     )

@@ -22,7 +22,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import (
     _validate_timezone,
 )
-from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
+from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, CoordinateInput
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     AiContextIR,
@@ -38,7 +38,7 @@ from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
 
 
-def additive_over(*axes: Deferred) -> AdditiveOverV1:
+def additive_over(*axes: CoordinateInput) -> AdditiveOverV1:
     """Declare the existing field coordinates on which a Measure may be summed.
 
     Args:
@@ -77,7 +77,7 @@ def additive_all() -> AdditiveAllV1:
     return build()
 
 
-def additive_except(*axes: Deferred) -> AdditiveAllV1:
+def additive_except(*axes: CoordinateInput) -> AdditiveAllV1:
     """Grant summing across native coordinates except explicitly fixed axes.
 
     Args:

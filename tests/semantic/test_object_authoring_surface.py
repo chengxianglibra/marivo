@@ -9,6 +9,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import root_declaration
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
 from marivo.semantic.ir import (
     DateParse,
@@ -131,8 +132,10 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert kinds["sales.orders.region"] == "DimensionIR"
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert "sales.revenue" not in kinds
-    assert root_declaration(named_amount).name == "named_amount"
-    assert root_declaration(revenue).name == "revenue"
+    assert isinstance(named_amount, ms.RowExpression)
+    assert root_declaration(_as_deferred(named_amount)).name == "named_amount"
+    assert isinstance(revenue, ms.MetricExpression)
+    assert root_declaration(_as_deferred(revenue)).name == "revenue"
     assert consume_metric(average_amount).roots == (orders_value._exact_ref,)
 
 

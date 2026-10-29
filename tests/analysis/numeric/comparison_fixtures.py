@@ -14,8 +14,8 @@ DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): None, ("b", 2**53 + 1, 1): 4
 
 
 def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]:
-    members = session.members(session.catalog.get("entity:sales.facts").value)
-    metric = session.catalog.get("metric:sales.total").value
+    members = session.members(session.catalog.get("entity:sales.facts"))
+    metric = session.catalog.get("metric:sales.total")
 
     def observe(month: int) -> mv.AnalysisFrame:
         return session.observe(

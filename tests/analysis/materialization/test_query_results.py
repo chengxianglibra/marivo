@@ -16,7 +16,7 @@ import marivo.analysis as mv
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
-from marivo.semantic.expressions import Entity
+from marivo.semantic.expressions import _Entity as Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
 
@@ -70,7 +70,7 @@ def test_constructor_mapping_refusal_precedes_source_io(
 
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    people = session.members(session.catalog.get("entity:sales.orders").value)
+    people = session.members(session.catalog.get("entity:sales.orders"))
     calls: list[str] = []
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -209,8 +209,8 @@ def test_explicit_selected_members_keep_complete_identity(result_session: Sessio
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     fine = session.observe(
         {
-            "people": session.members(session.catalog.get("entity:sales.orders").value)
-            .classify(by=(mv.identity(session.catalog.get("entity:sales.orders").value), region))
+            "people": session.members(session.catalog.get("entity:sales.orders"))
+            .classify(by=(mv.identity(session.catalog.get("entity:sales.orders")), region))
             .count()
         },
         by=(region,),
@@ -218,7 +218,7 @@ def test_explicit_selected_members_keep_complete_identity(result_session: Sessio
     selected = fine.where(fine["people"] == 2)
     chosen = _population(session, selected, region)
     domain = session.members(
-        session.catalog.get("entity:sales.orders").value, where=mv.in_population(chosen)
+        session.catalog.get("entity:sales.orders"), where=mv.in_population(chosen)
     )
     domain = domain.classify(by=(domain.axes[0], region, channel))
     drilled = session.observe({"people": domain.count()}, by=(region, channel))
@@ -261,7 +261,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     at = session.instant("2026-01-01")
     existing = session.members(entity, at=at)
     requested = mv.coordinates(by=(mv.identity(entity, at=at),), keys=(((1,),), ((999,),)))
@@ -448,7 +448,7 @@ def test_frame_population_uses_selected_keys_and_preserves_checks(result_session
 def test_explicit_members_and_member_count(result_session: Session) -> None:
 
     session = result_session
-    orders = session.catalog.get("entity:sales.orders").value
+    orders = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     requested = mv.coordinates(by=(mv.identity(orders),), keys=(((1,),), ((3,),), ((999,),)))
     result = (
@@ -572,11 +572,11 @@ def test_dependent_source_uses_complete_null_safe_key_relations(
     assert "IS NOT DISTINCT FROM" in statements[-1]
 
     selected = session.members(
-        session.catalog.get("entity:sales.orders").value, where=mv.in_population(chosen)
+        session.catalog.get("entity:sales.orders"), where=mv.in_population(chosen)
     )
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2, 3, 4]
     remainder = session.members(
-        session.catalog.get("entity:sales.orders").value, where=~mv.in_population(chosen)
+        session.catalog.get("entity:sales.orders"), where=~mv.in_population(chosen)
     )
     assert session.frame(remainder).compute().to_pandas().iloc[:, 0].tolist() == [1]
 
@@ -643,12 +643,12 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
         attributes.where(attributes["region"] == "selected"),
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
     )
     consumer = session.observe({"total": amount.sum()}, where=mv.in_population(selected))
     statements: list[tuple[str, int]] = []
@@ -728,24 +728,24 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("source-keys", timezone="UTC")
-    members = session.members(session.catalog.get("entity:sales.accounts").value)
+    members = session.members(session.catalog.get("entity:sales.accounts"))
     region = catalog_value(session.catalog, "sales.accounts.region", kind="field")
     amount = catalog_value(session.catalog, "sales.accounts.amount", kind="field")
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
         attributes.where(attributes["region"] == "east"),
-        session.catalog.get("entity:sales.accounts").value,
+        session.catalog.get("entity:sales.accounts"),
     )
     missing = _population(
         session,
         attributes.where(attributes["region"].is_null()),
-        session.catalog.get("entity:sales.accounts").value,
+        session.catalog.get("entity:sales.accounts"),
     )
     empty = _population(
         session,
         attributes.where(attributes["region"] == "absent"),
-        session.catalog.get("entity:sales.accounts").value,
+        session.catalog.get("entity:sales.accounts"),
     )
     statements: list[str] = []
     original = SourceSession.execute
@@ -784,12 +784,12 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
         connection.execute("UPDATE orders SET id=NULL WHERE id=4")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
         attributes.where(attributes["region"] == selected_region),
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
     )
     statements: list[str] = []
     original = SourceSession.execute
@@ -811,12 +811,12 @@ def test_top_selected_frame_bridge_keeps_source_checks(
 
     session = result_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     attributes = session.read(members, {"amount": amount})
     selected = _population(
         session,
         attributes.top(1, by=attributes["amount"]),
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
     )
     statements: list[str] = []
     original = SourceSession.execute
@@ -845,15 +845,15 @@ def test_float_nan_attribute_selection_is_distinct_from_null(
     with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
         connection.execute("ALTER TABLE orders ALTER COLUMN amount TYPE DOUBLE")
         connection.execute("UPDATE orders SET amount='NaN'::DOUBLE WHERE id=4")
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     attributes = session.read(
-        session.members(session.catalog.get("entity:sales.orders").value), {"amount": amount}
+        session.members(session.catalog.get("entity:sales.orders")), {"amount": amount}
     )
     selected = _population(
         session,
         attributes.where(attributes["amount"].is_null()),
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
     )
     statements: list[str] = []
     original = SourceSession.execute
@@ -887,7 +887,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     happened = catalog_value(session.catalog, "sales.orders.happened", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     attributes = session.read(
-        session.members(session.catalog.get("entity:sales.orders").value), {"happened": happened}
+        session.members(session.catalog.get("entity:sales.orders")), {"happened": happened}
     )
     selected = attributes.where(
         attributes["happened"] < pd.Timestamp("2026-10-18T01:02:03.123456999Z")
@@ -905,7 +905,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
         session.observe(
             {"total": amount.sum()},
             where=mv.in_population(
-                _population(session, selected, session.catalog.get("entity:sales.orders").value)
+                _population(session, selected, session.catalog.get("entity:sales.orders"))
             ),
         )
         .compute()
@@ -927,12 +927,12 @@ def test_shared_frame_selection_transports_once_for_checked_source_consumers(
     session = result_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
         attributes.where(attributes["region"] == "A"),
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
     )
     condition = mv.in_population(selected)
     consumer = session.observe(
@@ -966,7 +966,7 @@ def test_shared_frame_selection_transports_once_for_checked_source_consumers(
 
 def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: Session) -> None:
     session = result_session
-    orders = session.catalog.get("entity:sales.orders").value
+    orders = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     people = mv.coordinates(by=(mv.identity(orders),), keys=(((1,),), ((2,),)))
@@ -975,7 +975,7 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     assert result.iloc[:, 0].tolist() == [1, 2]
     assert result["region"].tolist() == ["A", "A"]
     selected = _population(
-        session, q.where(q["amount"] > 10), session.catalog.get("entity:sales.orders").value
+        session, q.where(q["amount"] > 10), session.catalog.get("entity:sales.orders")
     )
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(selected)
@@ -1071,8 +1071,8 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("two-sources", timezone="UTC")
-    left_members = session.members(session.catalog.get("entity:sales.crm").value)
-    right_members = session.members(session.catalog.get("entity:sales.billing").value)
+    left_members = session.members(session.catalog.get("entity:sales.crm"))
+    right_members = session.members(session.catalog.get("entity:sales.billing"))
     left_amount = catalog_value(session.catalog, "sales.crm.amount", kind="field")
     right_amount = catalog_value(session.catalog, "sales.billing.amount", kind="field")
     left = session.observe({"sales": left_amount.sum()}, by=left_members)
@@ -1081,7 +1081,7 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     chosen = _population(
         session,
         profiles.where(profiles["sales"] > 50),
-        session.catalog.get("entity:sales.billing").value,
+        session.catalog.get("entity:sales.billing"),
     )
     filtered = session.observe({"sales": left_amount.sum()}, where=mv.in_population(chosen))
     statements: list[str] = []
@@ -1251,7 +1251,7 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
 
 def test_population_counts_are_independent_of_fact_conditions(result_session: Session) -> None:
     session = result_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     p = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),), ((999,),)))
     q = mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))
@@ -1284,7 +1284,7 @@ def test_population_counts_are_independent_of_fact_conditions(result_session: Se
 )
 def test_count_domains_follow_their_own_internal_samples(result_session: Session) -> None:
     session = result_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     selected = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),)))

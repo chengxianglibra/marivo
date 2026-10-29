@@ -141,7 +141,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
         profile_path = root / "deviation-profile.json"
         profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
         session = mv.session.get_or_create("pandas-" + mode, timezone=profile.get("zone", "UTC"))
-        members = session.members(session.catalog.get("entity:sales.order").value)
+        members = session.members(session.catalog.get("entity:sales.order"))
         field = catalog_value(
             session.catalog,
             f"sales.order.profile_{profile['profiles'][0]}" if profile else "sales.order.amount",
@@ -213,7 +213,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
             assert keys == (("c", 13),)
             selected = mv.coordinates(
-                by=(mv.identity(session.catalog.get("entity:sales.order").value),),
+                by=(mv.identity(session.catalog.get("entity:sales.order")),),
                 keys=tuple((key,) for key in keys),
             )
             following = session.observe(

@@ -8,11 +8,13 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import NoReturn, TypeAlias
 
+import duckdb
 import ibis
 import ibis.expr.types as ibis_ir
 import pytest
 from ibis.common.deferred import Deferred, var
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import (
@@ -36,6 +38,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import children, computation_fingerprint
 from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept, SumAxes, SumNone
+from marivo.analysis.errors import AnalysisError
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import (
     _consume,
@@ -45,11 +48,14 @@ from marivo.semantic._deferred_semantics import (
     consume_predicate,
     consume_row,
 )
+from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
 from marivo.semantic.expressions import (
-    Entity,
-    Relationship,
+    _Entity as Entity,
+)
+from marivo.semantic.expressions import (
+    _Relationship as Relationship,
 )
 from marivo.semantic.expressions import (
     resolve as resolve_private,
@@ -68,13 +74,13 @@ ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 
 def _facts(value):
-    if isinstance(value, Deferred):
+    if isinstance(value, (Deferred, _ExpressionCarrier)):
         return _consume(_inspect(value).recipe)
     return value
 
 
 def _reference(value):
-    if isinstance(value, Deferred):
+    if isinstance(value, (Deferred, _ExpressionCarrier)):
         return consume_field(value).reference
     if isinstance(value, Entity):
         return value._exact_ref
@@ -597,7 +603,7 @@ def test_pure_declaration_captures_symbols_before_complete_binding(
         def named_amount() -> Deferred:
             return amount
 
-        ctx.declarations.append(named_amount)
+        ctx.declarations.append(_as_deferred(named_amount))
         loaded = captured_catalog()
     assert (
         consume_row(catalog_value(loaded, "sales.orders.named_amount", kind="field")).node
@@ -650,12 +656,13 @@ def revenue():
     amount = catalog_value(loaded, "sales.orders.amount", kind="field")
     cost = catalog_value(loaded, "sales.orders.cost", kind="field")
     normalized = catalog_value(loaded, "sales.orders.normalized", kind="field")
-    orders = loaded.get("entity:sales.orders").value
+    orders = loaded.get("entity:sales.orders")
     assert (
         consume_metric((amount + cost).sum()).node.time
         == consume_metric((cost + amount).sum()).node.time
     )
-    assert orders._default_time.ref.path == "sales.orders.paid_at"
+    assert orders.default_time is not None
+    assert orders.default_time.path == "sales.orders.paid_at"
     assert consume_field(normalized).reference.version.startswith("sha256:")
 
 
@@ -707,12 +714,15 @@ def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
 
     margin_alias = order_margin
     ad_hoc = amount - cost
-    assert type(order_margin) is Deferred
-    assert (root_declaration(order_margin).name, root_declaration(trial_margin).name) == (
+    assert type(order_margin) is ms.RowExpression
+    assert (
+        root_declaration(_as_deferred(order_margin)).name,
+        root_declaration(_as_deferred(trial_margin)).name,
+    ) == (
         "order_margin",
         "trial_margin",
     )
-    assert root_declaration(order_margin).ai_context is not None
+    assert root_declaration(_as_deferred(order_margin)).ai_context is not None
     assert (
         _facts(order_margin).root,
         _facts(order_margin).unit,
@@ -726,7 +736,7 @@ def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
         for m in (order_margin, trial_margin, margin_alias)
     }
     assert sums == {computation_fingerprint(_facts(ad_hoc.sum()).node)}
-    assert root_declaration(order_margin).name == "order_margin"
+    assert root_declaration(_as_deferred(order_margin)).name == "order_margin"
 
 
 def test_measure_grant_authorizes_an_otherwise_unsummable_product(catalog: SemanticCatalog) -> None:
@@ -871,9 +881,9 @@ def test_measure_body_resolves_receivers_without_executing_external_calls(
     assert computation_fingerprint(_facts(scaled_amount).node) == computation_fingerprint(
         _facts(amount / -2).node
     )
-    assert root_declaration(scaled_amount).location is not None
-    assert root_declaration(scaled_amount).location.path == __file__
-    assert root_declaration(scaled_amount).location.line > 0
+    assert root_declaration(_as_deferred(scaled_amount)).location is not None
+    assert root_declaration(_as_deferred(scaled_amount)).location.path == __file__
+    assert root_declaration(_as_deferred(scaled_amount)).location.line > 0
 
 
 def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
@@ -971,8 +981,8 @@ def test_measure_inherits_unknown_unit_and_normalizes_redundant_assertions(
     assert computation_fingerprint(_facts(redundant).node) == computation_fingerprint(
         _facts(amount).node
     )
-    assert isinstance(redundant * 2, Deferred)
-    assert root_declaration(redundant * 2) is None
+    assert isinstance(redundant * 2, ms.RowExpression)
+    assert root_declaration(_as_deferred(redundant * 2)) is None
 
 
 def test_metric_declaration_matches_ad_hoc_graph_without_loader(catalog: SemanticCatalog) -> None:
@@ -998,17 +1008,17 @@ def test_metric_declaration_matches_ad_hoc_graph_without_loader(catalog: Semanti
         return margin / order_count
 
     trial = (amount - cost).sum(time=paid_at).where(status == "paid")
-    assert type(margin) is Deferred
-    assert root_declaration(margin).name == "margin"
-    assert root_declaration(margin).domain == ref_factory.domain("sales")
-    assert root_declaration(margin).ai_context is not None
+    assert type(margin) is ms.MetricExpression
+    assert root_declaration(_as_deferred(margin)).name == "margin"
+    assert root_declaration(_as_deferred(margin)).domain == ref_factory.domain("sales")
+    assert root_declaration(_as_deferred(margin)).ai_context is not None
     assert computation_fingerprint(_facts(margin).node) == computation_fingerprint(
         _facts(trial).node
     )
     assert computation_fingerprint(_facts(average_margin).node) == computation_fingerprint(
-        _facts(trial / order_count).node
+        _facts(trial / _as_deferred(order_count)).node
     )
-    assert type(margin * 2) is Deferred
+    assert isinstance(margin * 2, ms.MetricExpression)
     alias = margin
     assert alias is margin
     axes = (status,)
@@ -1106,6 +1116,81 @@ def test_unsupported_and_absent_refs_fail_structurally(catalog: SemanticCatalog)
 
 def _measure(catalog: SemanticCatalog, name: str) -> Deferred:
     return _physical(catalog, ms.ref.measure(f"sales.orders.{name}"))
+
+
+def test_public_boolean_conditionals_preserve_predicate_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.shared_fixtures import write_minimal_catalog_project
+
+    write_minimal_catalog_project(tmp_path)
+    database = tmp_path / "facts.duckdb"
+    connection = duckdb.connect(str(database))
+    try:
+        connection.execute(
+            "CREATE TABLE orders(order_id BIGINT, status VARCHAR, paid_at TIMESTAMP, amount DOUBLE)"
+        )
+        connection.execute(
+            "INSERT INTO orders VALUES (1, 'paid', NULL, 10), (2, 'refund', NULL, 20), "
+            "(3, NULL, NULL, 30), (4, 'paid', NULL, NULL)"
+        )
+    finally:
+        connection.close()
+    (tmp_path / "models/datasources/warehouse.py").write_text(
+        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+    )
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create(name="boolean_conditionals", timezone="UTC")
+    status = session.catalog.get("dimension:sales.orders.status")
+    amount = session.catalog.get("measure:sales.orders.amount")
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert status.kind == "dimension" and amount.kind == "measure" and revenue.kind == "metric"
+    paid = status == "paid"
+    for condition, expected in (
+        (paid.ifelse(True, False), 10.0),
+        (paid.coalesce(False), 10.0),
+        (paid.nullif(False), 10.0),
+        (status.cases(("paid", True), else_=False), 10.0),
+        (paid.ifelse(False, True), 50.0),
+        (paid.coalesce(True), 40.0),
+        (paid.ifelse(paid, False), 10.0),
+        (status.cases(("paid", paid), else_=False), 10.0),
+        (paid.ifelse("yes", "no") == "yes", 10.0),
+    ):
+        result = session.observe({"total": revenue}, where=condition).compute().to_pandas()
+        assert result["total"].tolist() == [expected]
+    result = (
+        session.observe(
+            {
+                "filled": amount.coalesce(4).mean(),
+                "non_ten": amount.nullif(10).mean(),
+                "selected": paid.ifelse(amount, 0).mean(),
+                "classified": status.cases(("paid", 1), else_=0).mean(),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert result["filled"].tolist() == [16.0]
+    assert result["non_ten"].tolist() == [25.0]
+    assert result["selected"].tolist() == pytest.approx([10 / 3])
+    assert result["classified"].tolist() == [0.5]
+    metric_condition = revenue > 0
+    for condition in (
+        metric_condition.ifelse(True, False),
+        metric_condition.coalesce(False),
+        metric_condition.cases((True, True), else_=False),
+    ):
+        result = session.observe({"total": condition.ifelse(revenue, 0)}).compute().to_pandas()
+        assert result["total"].tolist() == [60.0]
+        with pytest.raises(AnalysisError, match="a row Predicate"):
+            session.observe(revenue, where=condition)
+    with pytest.raises(AnalysisError, match="a row Predicate"):
+        session.observe(revenue, where=paid.ifelse(1, 0))
+    with pytest.raises(SemanticExpressionError, match="source boolean condition"):
+        session.observe(revenue, where=paid.ifelse(paid, 1))
+    with pytest.raises(SemanticExpressionError, match="incompatible stages"):
+        session.observe({"total": paid.ifelse(amount, revenue).mean()})
 
 
 def test_row_subtraction_builds_one_fingerprint_on_one_root(catalog: SemanticCatalog) -> None:

@@ -129,7 +129,7 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
         current = session.observe({"v": elapsed.sum()}, where=identifier == 1)
         baseline = session.observe({"v": elapsed.sum()}, where=identifier == 2)
     else:
-        entity = session.catalog.get("entity:sales.observations").value
+        entity = session.catalog.get("entity:sales.observations")
         elapsed = catalog_value(
             session.catalog,
             "sales.observations.elapsed_field"

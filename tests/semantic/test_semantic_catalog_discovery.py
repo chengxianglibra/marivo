@@ -247,7 +247,7 @@ ms.relationship(name="external_users", from_entity=orders, to_entity=ms.ref.enti
     assert report.status == "blocked"
     assert "entity:ops.users" in report.checked_ids
     with pytest.raises(SemanticError) as outside:
-        _ = entry.value
+        _ = entry.to_entity
     assert outside.value.details["reason"] == "outside_scope"
 
 
@@ -255,7 +255,7 @@ def test_entry_display_sections_and_json_schema_are_explicit(tmp_path: Path) -> 
     write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
     entry = catalog.get("metric:sales.revenue")
-    assert ".value" in entry.render()
+    assert "direct typed expression" in entry.render()
     assert entry.to_dict()["schema_version"] == 1
     assert catalog.search().to_dict()["schema_version"] == 1
     with pytest.raises(SemanticError):
@@ -282,7 +282,6 @@ def test_entry_display_sections_and_json_schema_are_explicit(tmp_path: Path) -> 
 def test_readiness_promotes_only_directly_requested_physical_inputs(
     tmp_path: Path, requested: tuple[str, ...], expected_ready: tuple[str, ...]
 ) -> None:
-    from tests.support.refs import as_ref
 
     write_minimal_catalog_project(tmp_path)
     source = tmp_path / "models/semantic/sales/objects.py"
@@ -294,7 +293,7 @@ def test_readiness_promotes_only_directly_requested_physical_inputs(
 
     assert report.status == "ready"
     assert report.requested_ids == requested
-    assert tuple(as_ref(value).key for value in report.analysis_ready_inputs) == expected_ready
+    assert tuple(value.id for value in report.analysis_ready_inputs) == expected_ready
     # Dependencies remain visible even when a derived request promotes no physical ref.
     assert "entity:sales.orders" in report.checked_ids
     assert "datasource:warehouse" in report.checked_ids
@@ -340,7 +339,7 @@ def tail_revenue():
     assert isinstance(node, PerReduce)
     axis = catalog.get("time_dimension:sales.orders.paid_at")
     assert axis.kind == "time_dimension"
-    ordering = consume_field(axis.value).reference
+    ordering = consume_field(axis).reference
     with_nulls = formula(replace(node, include_null=True, order_by=ordering))
     assert (
         "include_null=True" in with_nulls

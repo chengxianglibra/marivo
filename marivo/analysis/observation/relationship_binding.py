@@ -39,7 +39,7 @@ def binding_error(
             + "\n".join(
                 "    ("
                 + ", ".join(
-                    "session.catalog.get(" + repr("relationship:" + item.path) + ").value"
+                    "session.catalog.get(" + repr("relationship:" + item.path) + ")"
                     for item in path
                 )
                 + ",),"

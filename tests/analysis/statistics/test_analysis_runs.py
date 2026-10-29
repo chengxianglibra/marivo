@@ -12,7 +12,7 @@ from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 def _daily(case: DslCase) -> mv.AnalysisFrame:
     grid = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue").value}, by=(grid,)
+        {"value": case.session.catalog.get("metric:sales.revenue")}, by=(grid,)
     )
 
 
@@ -96,12 +96,12 @@ def test_new_grid_after_subject_selection(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     scope = session.time_scope(start="2026-08-01", end="2026-08-04")
-    members = session.members(session.catalog.get("entity:sales.customer").value)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    members = session.members(session.catalog.get("entity:sales.customer"))
+    revenue = session.catalog.get("metric:sales.revenue")
     values = session.observe({"value": revenue}, by=mv.product(scope, members))
     selection = values.where(values["value"] > 0)
     selected = session.population_from(
-        selection, on=((selection.axes[1], session.catalog.get("entity:sales.customer").value),)
+        selection, on=((selection.axes[1], session.catalog.get("entity:sales.customer")),)
     )
     fresh = session.observe(
         {"value": revenue},

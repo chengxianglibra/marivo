@@ -6,9 +6,8 @@ from datetime import datetime
 
 import pytest
 
-from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.catalog import Relationship, SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
-from marivo.semantic.expressions import Relationship
 from marivo.semantic.ir import TargetSnapshotSelection
 from marivo.semantic.validator import (
     normalize_target_entity,
@@ -74,10 +73,11 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert mapping.role == "line_to_order"
     assert mapping.to_version_resolution_required is True
     assert mapping.from_version_resolution_required is False
-    relationship = catalog.get("relationship:sales.line_to_order").value
+    relationship = catalog.get("relationship:sales.line_to_order")
     assert isinstance(relationship, Relationship)
-    assert relationship.cardinality == "many_to_one"
-    assert "many_to_one" in relationship.contract().render()
+    assert relationship.definition.cardinality == "many_to_one"
+    assert relationship.to_entity.id == "entity:sales.orders"
+    assert relationship.from_entity.id == "entity:sales.lines"
     selection = normalize_target_version_selection(
         orders, boundary=datetime(2026, 9, 27), interpretation="before_endpoint"
     )
@@ -166,8 +166,8 @@ def test_alternate_role_is_a_distinct_governed_relationship(
     )
     ambiguous = _project(semantic_project_factory, second)
     catalog = SemanticCatalog(ambiguous)
-    line_to_order_mapping = catalog.get("relationship:sales.line_to_order").value
-    alternate_order_mapping = catalog.get("relationship:sales.alternate_order").value
+    line_to_order_mapping = catalog.get("relationship:sales.line_to_order")
+    alternate_order_mapping = catalog.get("relationship:sales.alternate_order")
     assert line_to_order_mapping is not None
     assert alternate_order_mapping is not None
     assert line_to_order_mapping.cardinality == "many_to_one"

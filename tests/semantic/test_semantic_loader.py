@@ -15,6 +15,8 @@ Tests cover:
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -175,6 +177,142 @@ def test_missing_domain_py(semantic_project_factory) -> None:
     assert len(errors) > 0
     kind_values = [e.kind for e in errors]
     assert ErrorKind.DOMAIN_FILE_MISSING in kind_values
+
+
+def test_reload_ignores_removed_domain_cache(
+    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/labels.py": "from .helpers.constants import LABEL\n",
+            "sales/helpers/constants.py": 'LABEL = "sales"\n',
+            "finance/_domain.py": (
+                'import marivo.semantic as ms\nms.domain(name="finance", owner="Mina Zhang")\n'
+            ),
+        }
+    )
+    assert project.is_ready()
+    assert set(project._registry.domains) == {"sales", "finance"}
+    removed_dir = project.semantic_root / "sales"
+    cache_dirs = tuple(removed_dir.rglob("__pycache__"))
+    assert {path.relative_to(removed_dir).as_posix() for path in cache_dirs} == {
+        "__pycache__",
+        "helpers/__pycache__",
+    }
+    cache_files = tuple(path for cache_dir in cache_dirs for path in cache_dir.iterdir())
+    assert cache_files
+    for source_file in removed_dir.rglob("*.py"):
+        source_file.unlink()
+    (removed_dir / "helpers" / "empty").mkdir()
+    original_iterdir = Path.iterdir
+
+    def guarded_iterdir(path: Path) -> Iterator[Path]:
+        if path in cache_dirs:
+            raise AssertionError("Cache discovery must not inspect cache contents.")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
+
+    result = project.load()
+
+    assert result.status == "ready"
+    assert result.registry is not None
+    assert set(result.registry.domains) == {"finance"}
+    assert all(path.is_file() for path in cache_files)
+
+    filtered = project.load(domains=["sales", "finance"])
+    assert filtered.status == "ready"
+    assert filtered.registry is not None
+    assert set(filtered.registry.domains) == {"finance"}
+    assert [(warning.kind, warning.refs) for warning in filtered.warnings] == [
+        ("filtered_domain_ref", ("sales",))
+    ]
+
+
+@pytest.mark.parametrize(
+    "remaining_file",
+    ["datasets.py", "README.md", ".config", "orphan.pyc", "nested/README.md", "__pycache__"],
+)
+def test_missing_domain_with_non_cache_file_is_rejected(
+    semantic_project_factory, remaining_file: str
+) -> None:
+    project = semantic_project_factory({f"sales/{remaining_file}": "# retained file\n"}, load=False)
+    (project.semantic_root / "sales" / "nested_cache" / "__pycache__").mkdir(parents=True)
+
+    result = project.load()
+
+    assert result.status == "errored"
+    assert any(error.kind == ErrorKind.DOMAIN_FILE_MISSING for error in result.errors)
+
+
+@pytest.mark.parametrize("target_kind", ["file", "directory", "missing"])
+def test_missing_domain_with_symlink_is_rejected(
+    semantic_project_factory, target_kind: str
+) -> None:
+    project = semantic_project_factory({}, load=False)
+    domain_dir = project.semantic_root / "sales"
+    (domain_dir / "nested" / "__pycache__").mkdir(parents=True)
+    target = project.workspace_dir / "link_target"
+    if target_kind == "file":
+        target.write_text("retained file\n")
+    elif target_kind == "directory":
+        target.mkdir()
+    (domain_dir / "__pycache__").symlink_to(target, target_is_directory=target_kind == "directory")
+
+    result = project.load()
+
+    assert result.status == "errored"
+    assert any(error.kind == ErrorKind.DOMAIN_FILE_MISSING for error in result.errors)
+
+
+def test_empty_domain_without_cache_is_rejected(semantic_project_factory) -> None:
+    project = semantic_project_factory({}, load=False)
+    (project.semantic_root / "sales").mkdir()
+
+    result = project.load()
+
+    assert result.status == "errored"
+    assert any(error.kind == ErrorKind.DOMAIN_FILE_MISSING for error in result.errors)
+
+
+def test_domain_with_entry_does_not_scan_nested_directories(
+    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = semantic_project_factory({"sales/_domain.py": _MINIMAL_DOMAIN_PY}, load=False)
+    nested_dir = project.semantic_root / "sales" / "nested"
+    nested_dir.mkdir()
+    original_iterdir = Path.iterdir
+
+    def guarded_iterdir(path: Path) -> Iterator[Path]:
+        if path == nested_dir:
+            raise AssertionError("An existing domain entry must bypass cache discovery.")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
+
+    assert project.load().status == "ready"
+
+
+def test_cache_discovery_does_not_swallow_directory_read_error(
+    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = semantic_project_factory({}, load=False)
+    domain_dir = project.semantic_root / "sales"
+    (domain_dir / "__pycache__").mkdir(parents=True)
+    unreadable_dir = domain_dir / "unreadable"
+    unreadable_dir.mkdir()
+    original_iterdir = Path.iterdir
+
+    def guarded_iterdir(path: Path) -> Iterator[Path]:
+        if path == unreadable_dir:
+            raise PermissionError("cannot inspect domain directory")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
+
+    with pytest.raises(PermissionError, match="cannot inspect domain directory"):
+        project.load()
 
 
 def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> None:

@@ -22,10 +22,12 @@ from ibis.common.deferred import (
 
 from marivo._definition.deferred import (
     DeclarationResolver,
+    NamedResolver,
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
     inspect_capture,
+    relationship_carrier,
     resolver_of,
     root_declaration,
 )
@@ -50,12 +52,16 @@ from marivo.semantic.errors import (
     SemanticLoadError,
 )
 from marivo.semantic.expressions import (
-    Entity,
-    Relationship,
     ResolvedValue,
     _Resolver,
     author_value,
     declare_measure,
+)
+from marivo.semantic.expressions import (
+    _Entity as Entity,
+)
+from marivo.semantic.expressions import (
+    _Relationship as Relationship,
 )
 from marivo.semantic.validator import Registry
 
@@ -85,7 +91,7 @@ class _PublicationResolver(_Resolver):
 
 
 def _children(recipe: Resolver) -> tuple[Resolver, ...]:
-    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
+    if isinstance(recipe, (DeclarationResolver, NamedResolver, RescaleResolver)):
         return (recipe.recipe,)
     if isinstance(recipe, BinaryOperator):
         return (recipe.left, recipe.right)
@@ -148,8 +154,10 @@ def bind_recipe(
         )
         if parameter is not None:
             return parameter
-    if isinstance(recipe, SymbolResolver):
-        value = lookup(recipe.reference)
+    if isinstance(recipe, (SymbolResolver, NamedResolver)):
+        value = lookup(
+            recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
+        )
         if isinstance(value, Deferred):
             return resolver_of(value)
         if isinstance(value, Entity):
@@ -162,9 +170,15 @@ def bind_recipe(
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_EXPRESSION_STAGE,
             message="This identity symbol cannot be used as a computed expression.",
-            refs=(recipe.reference.key,),
+            refs=(
+                (
+                    recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
+                ).key,
+            ),
             expected="an Entity, field, Metric, or relationship parameter",
-            received=recipe.reference.kind.value,
+            received=(
+                recipe.reference if isinstance(recipe, SymbolResolver) else recipe.reference.ref
+            ).kind.value,
             action="Use this identity only in its matching declaration parameter.",
         )
     if isinstance(recipe, RescaleResolver):
@@ -240,8 +254,21 @@ def bind_recipe(
     if isinstance(recipe, RecipeSequence):
         values = tuple(bind(value) for value in recipe.values)
         return RecipeSequence(list(values) if recipe.typ is list else values)
-    if isinstance(recipe, Just) and isinstance(recipe.value, Relationship):
-        return Just(recipe.value._parameter)
+    relationship = relationship_carrier(recipe)
+    if relationship is not None:
+        value = relationship
+        if value._context.project_root is not None:
+            target = lookup(value._parameter.ref.ref)
+            if not isinstance(target, Relationship):
+                raise SemanticExpressionError(
+                    kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+                    message="Relationship path requires a directed Relationship definition.",
+                    expected="a Relationship in the receiving scope",
+                    received=type(target).__name__,
+                    action="Choose a Relationship object from the receiving Catalog.",
+                )
+            return Just(target._parameter)
+        return Just(value._parameter)
     return recipe
 
 
@@ -313,6 +340,24 @@ def publish_declarations(
         assert declaration is not None
         inspection = inspect_capture(value)
         context = context_by_id[id(value)]
+        input_context = context.declaration_contexts.get(id(resolver_of(value)))
+        if input_context is not None:
+            from marivo.semantic._consumption import validate_context
+
+            try:
+                if input_context.owner is not None:
+                    raise SemanticExpressionError(
+                        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                        message="Session-owned inputs cannot be published as independent model definitions.",
+                        expected="source-free reusable model dependencies",
+                        received=declaration.name,
+                        action="Keep this declaration local to its owning Session.",
+                    )
+                if context.project_root is not None:
+                    validate_context(input_context, project_root=context.project_root)
+            except SemanticExpressionError as error:
+                errors.append(error)
+                continue
         if declaration.kind == "measure":
             roots = _row_roots(resolver_of(value), registry)
             if len(roots) != 1:

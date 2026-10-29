@@ -40,7 +40,7 @@ def postgres_query_session(
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.get("entity:sales.facts").value),
+        session.members(session.catalog.get("entity:sales.facts")),
         {
             "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
         },
@@ -126,7 +126,7 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.get("entity:sales.facts").value),
+        session.members(session.catalog.get("entity:sales.facts")),
         {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
     )
     query = (
@@ -146,7 +146,7 @@ def test_postgres_large_nullable_integer_predicate_preserves_actual_reader_value
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(session.catalog.get("entity:sales.facts").value),
+        session.members(session.catalog.get("entity:sales.facts")),
         {"big": catalog_value(session.catalog, "sales.facts.big", kind="field")},
     )
     query = source.where(source["big"] > 2**53)

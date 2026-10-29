@@ -46,9 +46,8 @@ _RETURN_FAMILY_ALIASES = {
     "Ref[EntityKind]": "EntitySymbol",
     "Ref[DimensionKind]": "DimensionSymbol",
     "Ref[DimensionRefKind]": "DimensionSymbol",
-    "ResolvedValue": "Entity | Deferred | Relationship",
-    "CatalogItem": "CatalogEntry | Entity | Deferred | Relationship",
-    "ItemT": "CatalogEntry | Entity | Deferred | Relationship",
+    "NumericMetric": "NumericMetric",
+    "_MetricSamples": "MetricSamples",
     "Ref[DimensionKindTag]": "DimensionSymbol",
     "Ref[TimeDimensionKind]": "TimeDimensionSymbol",
     "Ref[MeasureKind]": "MeasureSymbol",
@@ -84,7 +83,7 @@ def _is_registered_semantic_target(target: LiveHelpTarget) -> bool:
         REGISTRY.by_canonical_id(target.canonical_id)
     except KeyError:
         return any(
-            canonical_target(contract.name) == target.canonical_id
+            (contract.target or canonical_target(contract.name)) == target.canonical_id
             for contract in TYPE_CONTRACTS.values()
         )
     return True
@@ -206,8 +205,10 @@ def _annotation_output_family(
         text = product(ast.parse(text, mode="eval").body)
     if text.startswith("CatalogPage["):
         return "CatalogPage"
-    if text.startswith("CatalogEntry["):
-        return "CatalogEntry"
+    if text.startswith("RowExpression["):
+        return "RowExpression"
+    if text.startswith("MetricExpression["):
+        return "MetricExpression"
     return _RETURN_FAMILY_ALIASES.get(text, text)
 
 

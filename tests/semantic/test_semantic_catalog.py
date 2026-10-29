@@ -30,7 +30,7 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import SourceLocation
-from tests.shared_fixtures import catalog_entry, catalog_value
+from tests.shared_fixtures import catalog_value
 
 if TYPE_CHECKING:
     from ibis.backends.duckdb import Backend
@@ -414,7 +414,7 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
         semantic_project_factory, tmp_path, monkeypatch
     )
     field_preview = catalog.preview(
-        ms.ref.dimension("sales.orders.region"),
+        catalog.get("dimension:sales.orders.region"),
         scope=snapshot.scope,
         context_columns=("order_id",),
         limit=2,
@@ -429,7 +429,7 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
     assert published.sample_policy.method == "pre_aggregate_limit"
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
-            ms.ref.entity("sales.orders"), scope=snapshot.scope, context_columns=("order_id",)
+            catalog.get("entity:sales.orders"), scope=snapshot.scope, context_columns=("order_id",)
         )
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "context_columns" in str(exc_info.value)
@@ -503,23 +503,38 @@ def _dimension_ref(field: Deferred) -> Ref[DimensionKind]:
 # --- catalog.readiness() ---
 
 
-def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload(
+def test_catalog_readiness_normalizes_named_objects_to_same_public_payload(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    sales = catalog_entry(catalog, "sales", kind="domain")
-    region = catalog_value(catalog, "sales.orders.region", kind="field")
-    by_entry = catalog.readiness(refs=[sales])
-    by_ref = catalog.readiness(refs=[sales.ref])
-    by_value = catalog.readiness(refs=[region])
-    by_value_ref = catalog.readiness(refs=[ms.ref.dimension("sales.orders.region")])
-    assert by_entry._analysis_ready_inputs == by_ref._analysis_ready_inputs == (sales._ref,)
-    assert by_entry.input_summary == by_ref.input_summary
-    assert by_value._analysis_ready_inputs == by_value_ref._analysis_ready_inputs
-    assert by_value.input_summary == by_value_ref.input_summary
-    assert all(type(value) is Ref for value in by_entry._analysis_ready_inputs)
+    sales = catalog.get("domain:sales")
+    region = catalog.get("dimension:sales.orders.region")
+    by_domain = catalog.readiness(refs=[sales])
+    by_repeated_domain = catalog.readiness(refs=[catalog.get(sales.id)])
+    by_field = catalog.readiness(refs=[region])
+    by_repeated_field = catalog.readiness(refs=[catalog.get(region.id)])
+    assert by_domain.requested_ids == by_repeated_domain.requested_ids == (sales.id,)
+    assert by_domain.input_summary == by_repeated_domain.input_summary
+    assert by_field.requested_ids == by_repeated_field.requested_ids == (region.id,)
+    assert by_field.input_summary == by_repeated_field.input_summary
+    assert tuple(value.id for value in by_field.analysis_ready_inputs) == (region.id,)
+    assert isinstance(by_field.analysis_ready_inputs[0], ms.Dimension)
     with pytest.raises(SemanticRuntimeError, match="unique exact refs"):
-        catalog.readiness(refs=[sales, sales.ref])
+        catalog.readiness(refs=[sales, catalog.get(sales.id)])
+
+
+@pytest.mark.parametrize(
+    "selector", (ms.ref.domain("sales"), ms.ref.dimension("sales.orders.region"))
+)
+def test_catalog_readiness_rejects_authoring_selectors(
+    semantic_project_factory: _SemanticProjectFactory, selector: Deferred
+) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(SemanticRuntimeError) as caught:
+        catalog.readiness(refs=[selector])  # type: ignore[list-item]
+    assert caught.value.kind == ErrorKind.INVALID_REF
+    assert caught.value.details["query_executed"] is False
+    assert "named semantic object" in (caught.value.expected or "")
 
 
 def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
@@ -537,8 +552,8 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     )
     catalog = SemanticCatalog(project)
 
-    domain_report = catalog.readiness(refs=[ms.ref.domain("sales")])
-    datasource_report = catalog.readiness(refs=[ms.ref.datasource("sales")])
+    domain_report = catalog.readiness(refs=[catalog.get("domain:sales")])
+    datasource_report = catalog.readiness(refs=[catalog.get("datasource:sales")])
     all_report = catalog.readiness()
 
     assert domain_report._analysis_ready_inputs == (ref_factory.domain("sales"),)
@@ -558,25 +573,24 @@ def test_catalog_readiness_rejects_string_refs(
         catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
     error = exc_info.value
     assert error.kind == ErrorKind.INVALID_REF
-    assert error.expected == ("current catalog value or entry, native lookup symbol")
+    assert "named semantic object" in (error.expected or "")
     assert error.received == "str"
     assert error.repair is not None
     assert error.repair.help_target.surface == "semantic"
     assert error.repair.help_target.canonical_id == "readiness"
-    assert error.repair.candidates == ("metric:sales.revenue",)
-    assert error.repair.snippet == (
-        "member = catalog.get('metric:sales.revenue')\nreport = catalog.readiness(refs=[member])"
-    )
+    assert "metric:sales.revenue" in error.repair.candidates
+    assert all(catalog.get(candidate).id == candidate for candidate in error.repair.candidates)
+    assert error.details["query_executed"] is False
     rendered = str(error)
-    assert "bare strings are not accepted" in rendered
-    assert "expected: current catalog value or entry" in rendered
+    assert "named semantic object" in rendered
+    assert "expected: a named semantic object" in rendered
     assert "received: str" in rendered
 
     with pytest.raises(SemanticRuntimeError) as unknown_exc_info:
         catalog.readiness(refs=["sales.missing"])  # type: ignore[list-item]
     unknown_repair = unknown_exc_info.value.repair
     assert unknown_repair is not None
-    assert unknown_repair.candidates == ()
+    assert all(catalog.get(candidate).id == candidate for candidate in unknown_repair.candidates)
     assert unknown_repair.snippet is None
 
 
@@ -590,10 +604,10 @@ def test_catalog_readiness_non_string_error_does_not_claim_string_input(
 
     error = exc_info.value
     assert error.received == "int"
-    assert "received int" in str(error)
+    assert "received: int" in str(error)
     assert "bare strings are not accepted" not in str(error)
     assert error.repair is not None
-    assert error.repair.candidates == ()
+    assert all(catalog.get(candidate).id == candidate for candidate in error.repair.candidates)
     assert error.repair.snippet is None
 
 
@@ -601,7 +615,7 @@ def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    orders = ms.ref.entity("sales.orders")
+    orders = catalog.get("entity:sales.orders")
     with pytest.raises(SemanticRuntimeError, match="non-empty"):
         catalog.readiness(refs=[])
     with pytest.raises(SemanticRuntimeError, match="unique exact refs") as exc_info:
@@ -668,9 +682,9 @@ def test_catalog_metric_values_preserve_declared_and_absent_units(
     catalog = SemanticCatalog(project)
     revenue = catalog_value(catalog, "sales.revenue", kind="metric")
     margin = catalog_value(catalog, "sales.gross_margin", kind="metric")
-    assert isinstance(revenue, Deferred)
-    assert consume_metric(revenue).unit == "CNY"
+    assert isinstance(revenue, ms.Metric)
+    assert revenue.definition.unit == "CNY"
     assert catalog.get("metric:sales.revenue").definition.unit == "CNY"
-    assert isinstance(margin, Deferred)
-    assert consume_metric(margin).unit is None
+    assert isinstance(margin, ms.Metric)
+    assert margin.definition.unit is None
     assert catalog.get("metric:sales.gross_margin").definition.unit is None

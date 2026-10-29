@@ -97,7 +97,7 @@ def test_native_numeric_field_filters_and_top_preserve_nulls(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         queries = (
@@ -171,7 +171,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         # This is now an explicit source row predicate, independently checked
         # before its admitted native pandas handoff, not a Frame fusion claim.
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value, where=big > 2**53),
+            session.members(session.catalog.get("entity:sales.facts"), where=big > 2**53),
             {"big": big},
         )
         table = case.session.bind(case.source, source_identity="integer-predicate-oracle").relation
@@ -262,7 +262,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("decimal-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         trace = capture_source(monkeypatch)
@@ -292,7 +292,7 @@ def test_numeric_attribute_output_key_failure_survives_empty_top(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-attribute-error", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         filtered = source.where(source["amount"] > 100.5)
@@ -324,7 +324,7 @@ def test_nonnullable_float_source_keeps_valid_nan_through_filter_and_top(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("nonnull-float-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         trace = capture_source(monkeypatch)
@@ -369,7 +369,7 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
             assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
             assert trace.native_sql
         fixed = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value), {"big": big}
+            session.members(session.catalog.get("entity:sales.facts")), {"big": big}
         ).compute()
         with pytest.raises(MaterializationError, match="overflow"):
             fixed.select({"value": fixed["big"] + 1}).compute()

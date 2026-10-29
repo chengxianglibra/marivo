@@ -27,7 +27,7 @@ def _observe(
     case: DslCase, expression: Deferred, *, windowed: bool = True, overall: bool = False
 ) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None
     domain = (
         (scope,)
@@ -112,8 +112,8 @@ def test_explicit_field_paths_preserve_hop_order_without_source_read(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
-    line_order = case.session.catalog.get("relationship:sales.line_order").value
-    buyer = case.session.catalog.get("relationship:sales.order_buyer").value
+    line_order = case.session.catalog.get("relationship:sales.line_order")
+    buyer = case.session.catalog.get("relationship:sales.order_buyer")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Path construction read business rows")
@@ -132,8 +132,8 @@ def test_observe_ratio_over_two_contribution_roots(
 ) -> None:
     case = analysis_dsl_case_factory("j3", revenue_unit="1")
     session = case.session
-    line_revenue = session.catalog.get("metric:sales.line_revenue").value
-    order_count = session.catalog.get("metric:sales.order_count").value
+    line_revenue = session.catalog.get("metric:sales.line_revenue")
+    order_count = session.catalog.get("metric:sales.order_count")
     query = _observe(case, line_revenue / order_count)
     binding = _source_binding(query).graph.signature.observation
     assert binding is not None
@@ -174,7 +174,7 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     web = amount.sum(time=time).where(channel == "web")
-    count = session.catalog.get("metric:sales.order_count").value
+    count = session.catalog.get("metric:sales.order_count")
     observed = _observe(case, web / count)
     binding = _source_binding(observed).graph.signature.observation
     assert binding is not None and len(binding.contributions) == 2
@@ -188,14 +188,14 @@ def test_observe_without_a_window_keeps_every_admitted_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    revenue = case.session.catalog.get("metric:sales.revenue").value
+    revenue = case.session.catalog.get("metric:sales.revenue")
     rows = _by_member(_observe(case, revenue, windowed=False).compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [450 + 99 + 77, 150, 400]
 
 
 def test_windowed_metric_requires_an_endpoint(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
-    revenue = case.session.catalog.get("metric:sales.revenue").value.window(mv.all_history())
+    revenue = case.session.catalog.get("metric:sales.revenue").window(mv.all_history())
     with pytest.raises(AnalysisError):
         _observe(case, revenue, windowed=False)
     # The explicit scope supplies the all-history endpoint, with September excluded.
@@ -207,7 +207,7 @@ def test_opaque_python_body_cannot_invent_metric_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    query = _observe(case, case.session.catalog.get("metric:sales.revenue").value)
+    query = _observe(case, case.session.catalog.get("metric:sales.revenue"))
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()
@@ -222,7 +222,7 @@ def test_linear_executes_more_than_two_occurrences(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    count = case.session.catalog.get("metric:sales.order_count").value
+    count = case.session.catalog.get("metric:sales.order_count")
     assert _by_member(_observe(case, count + count + count).compute().to_pandas()).tolist() == [
         3,
         3,
@@ -239,7 +239,7 @@ def test_linear_preserves_each_empty_branch_value(
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    count = session.catalog.get("metric:sales.order_count").value
+    count = session.catalog.get("metric:sales.order_count")
     for expression, counted in ((count, True), (amount.sum(time=time), False)):
         rows = _by_member(
             _observe(case, expression.where(channel == "web") + count).compute().to_pandas()
@@ -286,9 +286,9 @@ def shipment_count():
     )
     session = case.session
     expression = (
-        session.catalog.get("metric:sales.line_revenue").value
-        + session.catalog.get("metric:sales.order_count").value
-        + session.catalog.get("metric:sales.shipment_count").value
+        session.catalog.get("metric:sales.line_revenue")
+        + session.catalog.get("metric:sales.order_count")
+        + session.catalog.get("metric:sales.shipment_count")
     )
     query = _observe(case, expression)
     binding = _source_binding(query).graph.signature.observation
@@ -310,7 +310,7 @@ def test_ratio_accepts_a_negative_sum_denominator(
     session = case.session
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    expression = session.catalog.get("metric:sales.order_count").value / amount.sum(time=time)
+    expression = session.catalog.get("metric:sales.order_count") / amount.sum(time=time)
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == pytest.approx([-1 / 450, -1 / 150, -1 / 400])
@@ -388,9 +388,8 @@ def test_observation_preserves_full_member_identity(
     model.write_text(text)
     ms.load(workspace_dir=case.root)
     session = case.session
-    expression = (
-        session.catalog.get("metric:sales.revenue").value
-        / session.catalog.get("metric:sales.order_count").value
+    expression = session.catalog.get("metric:sales.revenue") / session.catalog.get(
+        "metric:sales.order_count"
     )
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas()).to_dict()
@@ -405,7 +404,7 @@ def test_nested_linear_keeps_each_original_component(
     session = case.session
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     revenue = catalog_value(session.catalog, "sales.order.amount", kind="field").sum(time=time)
-    count = session.catalog.get("metric:sales.order_count").value
+    count = session.catalog.get("metric:sales.order_count")
     expression = revenue - (revenue - count)
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas())
@@ -420,9 +419,9 @@ def test_observation_rejects_wrong_or_extra_root_routes(
     case = analysis_dsl_case_factory("j3")
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    buyer = session.catalog.get("relationship:sales.order_buyer").value
-    line_order = session.catalog.get("relationship:sales.line_order").value
-    metric = session.catalog.get("metric:sales.order_count").value
+    buyer = session.catalog.get("relationship:sales.order_buyer")
+    line_order = session.catalog.get("relationship:sales.line_order")
+    metric = session.catalog.get("metric:sales.order_count")
     for path in ((line_order, buyer), (buyer, line_order), (buyer, buyer)):
         with pytest.raises((AnalysisError, SemanticError)):
             session.observe({"value": metric}, by=(region.via(path),))
@@ -437,9 +436,8 @@ def test_linear_rejects_incommensurable_units(analysis_dsl_case_factory: DslCase
         definitions="usd_value = amount_usd\n@ms.metric()\ndef revenue_usd():\n    return usd_value.sum(time=time_value)\n",
     )
     session = case.session
-    expression = (
-        session.catalog.get("metric:sales.revenue").value
-        + session.catalog.get("metric:sales.revenue_usd").value
+    expression = session.catalog.get("metric:sales.revenue") + session.catalog.get(
+        "metric:sales.revenue_usd"
     )
     with pytest.raises((SemanticError, AnalysisError, ValueError), match="unit"):
         _observe(case, expression)
@@ -453,12 +451,12 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     revenue = catalog_value(session.catalog, "sales.order.amount", kind="field").sum(time=time)
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    composite = revenue / session.catalog.get("metric:sales.order_count").value
+    composite = revenue / session.catalog.get("metric:sales.order_count")
     observed = session.observe(
         {"value": composite},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
         where=channel == "web",
     )
@@ -471,10 +469,10 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     assert session.observe(
         {
             "value": revenue.where(channel == "web")
-            / session.catalog.get("metric:sales.order_count").value.where(channel == "web")
+            / session.catalog.get("metric:sales.order_count").where(channel == "web")
         },
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-        where=mv.in_population(session.members(session.catalog.get("entity:sales.customer").value)),
+        where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
     ).compute().to_pandas()["value"].tolist() == [425]
 
 
@@ -490,7 +488,7 @@ def test_literal_membership_predicate_executes_in_typed_flow(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"amount": revenue}, by=(period,), where=channel.isin(choices))
     saved = query.compute()

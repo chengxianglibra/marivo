@@ -12,7 +12,7 @@ from analysis import mv, session, revenue, region, august, current
 
 orders_entry = session.catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-Orders = orders_entry.value
+Orders = orders_entry
 ```
 
 ## Literal coordinates: `mv.coordinates`

@@ -40,7 +40,7 @@ def test_hour_sampling_on_date_parse_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        _ = SemanticCatalog(project).get("entity:ops.events").value
+        _ = SemanticCatalog(project).get("entity:ops.events")
     assert [error.kind for error in exc_info.value.errors] == ["invalid_sample_interval"]
 
 
@@ -96,7 +96,7 @@ def test_minute_sampling_requires_time_bearing_encoding(semantic_project_factory
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        _ = SemanticCatalog(project).get("entity:ops.events").value
+        _ = SemanticCatalog(project).get("entity:ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "invalid_sample_interval" in kinds

@@ -51,13 +51,21 @@ from marivo.semantic._authoring_validation import (
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
-from marivo.semantic._dsl_authoring import AdditivityPolicy
+from marivo.semantic._dsl_authoring import (
+    AdditiveAllV1,
+    AdditiveOverV1,
+    AdditivityPolicy,
+    NonAdditiveV1,
+)
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
+from marivo.semantic._expression_values import NumericRow, RowExpression, _as_deferred
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.expressions import (
-    Entity,
     TimeField,
+)
+from marivo.semantic.expressions import (
+    _Entity as Entity,
 )
 from marivo.semantic.ir import (
     CsvSourceIR,
@@ -598,7 +606,7 @@ def measure(
     unit: str | None = None,
     additivity: AdditivityPolicy | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[], Deferred]], Deferred]:
+) -> Callable[[Callable[[], Deferred | NumericRow]], NumericRow]:
     """Name a pure numeric row expression and optionally assert a business contract.
 
     Args:
@@ -628,9 +636,8 @@ def measure(
     from marivo.refs import _validate_segment
     from marivo.semantic._expression_binding import construct_measure_expression
     from marivo.semantic.errors import SemanticExpressionError
-    from marivo.semantic.expressions import declare_measure
 
-    def decorator(fn: Callable[[], Deferred]) -> Deferred:
+    def decorator(fn: Callable[[], Deferred | NumericRow]) -> NumericRow:
         location = _caller_location()
         try:
             _validate_segment(fn.__name__, role="Measure declaration name")
@@ -657,14 +664,55 @@ def measure(
         _build_ai_context(ai_context)
         try:
             row = construct_measure_expression(fn)
-            return declare_measure(
-                row,
-                name=fn.__name__,
-                unit=unit,
-                additivity=additivity,
-                ai_context=ai_context,
-                location=location,
+            from marivo._definition.deferred import DeclarationRecord, declare, resolver_of
+            from marivo._definition.types import SourceLocation
+            from marivo.semantic._expression_values import _merge
+
+            policy: tuple[Literal["over", "all", "none"], tuple[str, ...]] | None = None
+            if isinstance(additivity, AdditiveOverV1):
+                policy = ("over", additivity.coordinates)
+            elif isinstance(additivity, AdditiveAllV1):
+                policy = ("all", additivity.exceptions)
+            elif isinstance(additivity, NonAdditiveV1):
+                policy = ("none", ())
+            elif additivity is not None:
+                raise SemanticExpressionError(
+                    kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                    message="Measure additivity requires a closed additivity policy.",
+                    expected="ms.additive_over(...), ms.additive_except(...), ms.additive_all(), or ms.non_additive()",
+                    received=type(additivity).__name__,
+                    action="Construct additivity with the public helper, or omit it.",
+                )
+            declared = declare(
+                _as_deferred(row),
+                DeclarationRecord(
+                    kind="measure",
+                    name=fn.__name__,
+                    unit=unit,
+                    pending_additivity=policy,
+                    pending_assertion=True,
+                    ai_context=ai_context,
+                    location=SourceLocation(location.file, location.line),
+                ),
             )
+            context = _merge(
+                row._context,
+                additivity._context
+                if isinstance(additivity, (AdditiveOverV1, AdditiveAllV1))
+                else None,
+            )
+            if context.project_root is None:
+                from marivo.semantic.expressions import declare_measure
+
+                declared = declare_measure(
+                    _as_deferred(row),
+                    name=fn.__name__,
+                    unit=unit,
+                    additivity=additivity,
+                    ai_context=ai_context,
+                    location=location,
+                )
+            return RowExpression(resolver_of(declared), context, "numeric")
         except SemanticExpressionError as error:
             error.location = location
             if not error.semantic_refs:

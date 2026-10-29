@@ -12,7 +12,6 @@ import marivo.datasource as md
 from marivo.config import load_semantic_layer_paths
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
 
 
 def _write_manifest(root: Path, body: str) -> None:
@@ -282,12 +281,9 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
         "local_warehouse",
         "external_warehouse",
     } <= top_level_refs
+    assert consume_metric(catalog.get("metric:sales.revenue")).node.ref.ref.path == "sales.revenue"
     assert (
-        consume_metric(catalog.get("metric:sales.revenue").value).node.ref.ref.path
-        == "sales.revenue"
-    )
-    assert (
-        consume_metric(catalog.get("metric:finance.refunds_total").value).node.ref.ref.path
+        consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref.path
         == "finance.refunds_total"
     )
 
@@ -303,7 +299,7 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs
     assert (
-        consume_metric(catalog.get("metric:finance.refunds_total").value).node.ref.ref.path
+        consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref.path
         == "finance.refunds_total"
     )
 
@@ -316,7 +312,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
     catalog = ms.load(workspace_dir=project_root)
 
     with pytest.raises(SemanticRuntimeError):
-        _ = catalog.get("metric:finance.net_refunds").value
+        _ = catalog.get("metric:finance.net_refunds")
 
     finance_objects = external_models / "semantic" / "finance" / "objects.py"
     finance_objects.write_text(
@@ -335,7 +331,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
     catalog = ms.load(workspace_dir=project_root)
 
     assert (
-        consume_metric(catalog.get("metric:finance.net_refunds").value).node.ref.ref.path
+        consume_metric(catalog.get("metric:finance.net_refunds")).node.ref.ref.path
         == "finance.net_refunds"
     )
 
@@ -373,18 +369,19 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     )
 
     catalog = ms.load(workspace_dir=project_root)
-    entity_ref = catalog.get("entity:finance.refunds").value._exact_ref.ref
-    metric_ref = consume_metric(catalog.get("metric:finance.refunds_total").value).node.ref.ref
+    entity = catalog.get("entity:finance.refunds")
+    metric_ref = consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref
     monkeypatch.chdir(project_root)
     snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("amount",),
     )
 
-    verify = catalog_value(catalog, entity_ref.path, kind="entity")
-    preview = catalog.preview(ms.ref.metric(metric_ref.path), scope=snapshot.scope, limit=1)
+    verify = catalog.get(entity.id)
+    preview = catalog.preview(catalog.get(metric_ref.key), scope=snapshot.scope, limit=1)
 
-    assert verify._exact_ref.ref == entity_ref
+    assert isinstance(verify, ms.Entity)
+    assert verify.id == "entity:finance.refunds"
     assert preview.rows == ({"value": 150.0},)
 
 

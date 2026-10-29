@@ -73,10 +73,10 @@ def coverage_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _query(session: mv.Session) -> mv.AnalysisFrame:
     period = session.time_scope(start=START, end=START + timedelta(days=3))
     return session.observe(
-        {"value": session.catalog.get("metric:sales.total_0").value},
+        {"value": session.catalog.get("metric:sales.total_0")},
         by=mv.product(
             period.by(mv.grain("day")),
-            session.members(session.catalog.get("entity:sales.order").value),
+            session.members(session.catalog.get("entity:sales.order")),
         ),
     )
 

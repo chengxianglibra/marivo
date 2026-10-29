@@ -136,7 +136,7 @@ def test_native_distributions_independent_fixed_and_cold(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-08-01", end="2026-08-02"),
-                    session.members(session.catalog.get("entity:sales.subjects").value),
+                    session.members(session.catalog.get("entity:sales.subjects")),
                 ),
             )
             if kind == "approx_quantile":

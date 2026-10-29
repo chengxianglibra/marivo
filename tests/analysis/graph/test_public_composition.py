@@ -31,13 +31,13 @@ from tests.support.paths import PROJECT_ROOT
 
 def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     domain = (
         members
         if not coordinates
         else mv.product(
             members,
-            session.members(session.catalog.get("entity:sales.order").value).classify(
+            session.members(session.catalog.get("entity:sales.order")).classify(
                 by=tuple(
                     catalog_value(session.catalog, "sales.order." + name, kind="field")
                     for name in coordinates
@@ -46,17 +46,17 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFr
         )
     )
     return session.observe(
-        {"value": session.catalog.get("metric:sales.aov_from_lines").value},
+        {"value": session.catalog.get("metric:sales.aov_from_lines")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), domain),
     )
 
 
 def _observations(case: DslCase) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     current, baseline = tuple(
         session.observe(
-            {"value": session.catalog.get("metric:sales.revenue").value},
+            {"value": session.catalog.get("metric:sales.revenue")},
             by=mv.product(session.time_scope(start=start, end=end), members),
         )
         for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
@@ -77,7 +77,7 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     channel = catalog_value(case.session.catalog, "sales.order.channel", kind="field")
     rolled = (
         case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.aov_from_lines").value},
+            {"value": case.session.catalog.get("metric:sales.aov_from_lines")},
             by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
         )
         .persist()
@@ -215,12 +215,12 @@ def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {
-            "revenue": session.catalog.get("metric:sales.revenue").value,
-            "count": session.catalog.get("metric:sales.order_count").value,
+            "revenue": session.catalog.get("metric:sales.revenue"),
+            "count": session.catalog.get("metric:sales.order_count"),
         },
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
 
@@ -283,9 +283,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     current, baseline = _observations(case)
     fixed = current.persist()
     other_session = mv.session.get_or_create("foreign", timezone="UTC")
-    foreign = other_session.observe(
-        {"value": other_session.catalog.get("metric:sales.revenue").value}
-    )
+    foreign = other_session.observe({"value": other_session.catalog.get("metric:sales.revenue")})
     before = terminal_runs(case.session)
 
     def forbidden(*args: object, **kwargs: object) -> None:

@@ -9,7 +9,6 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import CoreRuleError
-from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import catalog_value, terminal_runs
 
@@ -49,11 +48,11 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
             "(3, 2, 'created', TIMESTAMP '2026-01-02')"
         )
     session = mv.session.get_or_create("relationship", timezone="UTC")
-    route = session.catalog.get("relationship:sales.event_order").value
+    route = session.catalog.get("relationship:sales.event_order")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field").via((route,))
     metric = (
         session.observe(
-            {"value": session.catalog.get("metric:sales.event_count").value},
+            {"value": session.catalog.get("metric:sales.event_count")},
             by=(session.time_scope(start="2026-01-01", end="2026-02-01"), region),
         )
         .persist()
@@ -71,16 +70,16 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     relationship_ref = ms.ref.relationship("sales.event_order")
     membership = mv.membership(region, via=((relationship_ref,),), unmatched="exclude")
     assert isinstance(membership, Deferred)
-    with pytest.raises(SemanticExpressionError) as invalid_path:
+    with pytest.raises(CoreRuleError) as invalid_path:
         session.observe(
-            {"value": session.catalog.get("metric:sales.event_count").value}, by=(membership,)
+            {"value": session.catalog.get("metric:sales.event_count")}, by=(membership,)
         )
     error = invalid_path.value
-    assert error.expected == "closed values returned by a loaded Catalog .get()"
-    assert error.received == "an authoring recipe with unbound semantic lookups"
+    assert error.expected == "a semantic field, Grouping, TimeScope or Population"
+    assert error.received == "Deferred"
     assert error.repair is not None
-    assert "through the Catalog before analysis" in error.repair.action
-    relationship = session.catalog.get("relationship:sales.event_order").value
+    assert "Catalog" in error.repair.action
+    relationship = session.catalog.get("relationship:sales.event_order")
     assert mv.membership(region, via=((relationship,),), unmatched="exclude").kind == "membership"
 
     with pytest.raises(CoreRuleError) as invalid_entity:
@@ -90,9 +89,7 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     assert invalid_entity.value.repair is not None
     assert (
         invalid_entity.value.repair.action
-        == "Resolve the Entity with session.catalog.get('entity:' + path).value after checking kind."
+        == "Resolve the Entity with session.catalog.get('entity:' + path) after checking kind."
     )
-    assert isinstance(
-        session.members(session.catalog.get("entity:sales.events").value), mv.Population
-    )
+    assert isinstance(session.members(session.catalog.get("entity:sales.events")), mv.Population)
     assert terminal_runs(session) == ()

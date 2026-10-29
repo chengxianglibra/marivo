@@ -98,7 +98,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    members = session.members(session.catalog.get("entity:sales.order").value)
+    members = session.members(session.catalog.get("entity:sales.order"))
     query = session.read(
         members, {"value": catalog_value(session.catalog, "sales.order.profile_0", kind="field")}
     )
@@ -131,11 +131,11 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
         catalog_value(session.catalog, "sales.order.channel", kind="field"),
     )
     current = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
+        {"value": session.catalog.get("metric:sales.order_count")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), *axes),
     )
     baseline = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
+        {"value": session.catalog.get("metric:sales.order_count")},
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"), *axes),
     )
     frame = plain(
@@ -170,7 +170,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "parquet")
-    members = session.members(session.catalog.get("entity:sales.order").value)
+    members = session.members(session.catalog.get("entity:sales.order"))
     field = catalog_value(session.catalog, "sales.order.profile_0", kind="field")
     captured = session.read(members, {"value": field}).persist()
     frame = deviation(plain(captured), method)
@@ -179,7 +179,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     assert selected == [("c", 13)]
     assert run_ids(session) == before
     population = mv.coordinates(
-        by=(mv.identity(session.catalog.get("entity:sales.order").value),),
+        by=(mv.identity(session.catalog.get("entity:sales.order")),),
         keys=tuple((key,) for key in selected),
     )
     followup = session.observe(

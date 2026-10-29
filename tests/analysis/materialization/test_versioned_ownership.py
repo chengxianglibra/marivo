@@ -89,7 +89,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
         logical = []
         for owner in sessions:
             at = owner.instant(point)
-            members = owner.members(owner.catalog.get("entity:sales.subjects").value, at=at)
+            members = owner.members(owner.catalog.get("entity:sales.subjects"), at=at)
             logical.append(
                 owner.read(
                     members,

@@ -62,16 +62,14 @@ def test_native_original_mean_independent_fixed_and_cold(
         time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
         grouped = session.observe(
             {
-                "value": session.catalog.get("metric:sales.average").value,
-                "sum": session.catalog.get("metric:sales.total").value,
+                "value": session.catalog.get("metric:sales.average"),
+                "sum": session.catalog.get("metric:sales.total"),
                 "count": amount.count(time=time),
             },
             by=(bucket,),
         )
         source = grouped.persist()
-        original = session.observe(
-            {"value": session.catalog.get("metric:sales.average").value}
-        ).persist()
+        original = session.observe({"value": session.catalog.get("metric:sales.average")}).persist()
         current = grouped.reduce({"value": grouped["value"].mean()}).persist()
         assert source.to_pandas()["value"].tolist() == [1.0, 100.0]
         assert original.to_pandas()["value"].tolist() == [34.0]

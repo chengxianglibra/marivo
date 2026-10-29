@@ -125,11 +125,11 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
     category = catalog_value(session.catalog, "sales.facts.category", kind="field")
     attributes = session.read(
-        session.members(session.catalog.get("entity:sales.facts").value), {"amount": amount}
+        session.members(session.catalog.get("entity:sales.facts")), {"amount": amount}
     )
     chosen = attributes.where(attributes["amount"] >= 10)
     keys = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts").value),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts")),)
     )
     total = amount.sum().where(mv.in_population(keys))
     query = session.observe(

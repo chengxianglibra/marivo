@@ -132,7 +132,8 @@ def test_attribute_entry_has_one_concrete_typed_signature_and_no_alias() -> None
     assert tuple(signature.parameters) == ("self", "by", "permutations", "seed")
     assert signature.parameters["by"].kind is inspect.Parameter.KEYWORD_ONLY
     assert (
-        str(signature.parameters["by"].annotation) == "tuple[Deferred | Grouping, ...] | Population"
+        str(signature.parameters["by"].annotation)
+        == "tuple[FieldExpression | Grouping, ...] | Population"
     )
     assert str(signature.return_annotation) == "AnalysisFrame"
     for name, default in (("permutations", 1024), ("seed", 0)):
@@ -157,3 +158,22 @@ def test_attribute_entry_has_one_concrete_typed_signature_and_no_alias() -> None
 
 def test_datasource_all_is_pinned() -> None:
     assert set(md.__all__) == DATASOURCE_PUBLIC
+
+
+def test_retired_semantic_entry_types_have_no_public_aliases() -> None:
+    for name in (
+        "CatalogEntry",
+        "SemanticEntry",
+        "DomainEntry",
+        "DatasourceEntry",
+        "EntityEntry",
+        "DimensionEntry",
+        "TimeDimensionEntry",
+        "MeasureEntry",
+        "MetricEntry",
+        "RelationshipEntry",
+        "PeriodCalendarEntry",
+        "TemporalSetEntry",
+    ):
+        assert name not in ms.__all__
+        assert not hasattr(ms, name)

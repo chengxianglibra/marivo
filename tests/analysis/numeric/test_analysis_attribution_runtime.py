@@ -55,13 +55,13 @@ def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     values = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
+        {"value": session.catalog.get("metric:sales.order_count")},
         by=(
             session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             customer,
             channel,
         ),
-        where=mv.in_population(session.members(session.catalog.get("entity:sales.customer").value)),
+        where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
     )
     return values
 
@@ -365,11 +365,9 @@ def test_period_buckets_and_retained_coarsened_partition(
         scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
         calendar = scope.by(mv.grain("month"))
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.order_count").value},
+            {"value": session.catalog.get("metric:sales.order_count")},
             by=(calendar, customer, channel),
-            where=mv.in_population(
-                session.members(session.catalog.get("entity:sales.customer").value)
-            ),
+            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
         )
         return values
 

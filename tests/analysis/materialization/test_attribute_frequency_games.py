@@ -5,18 +5,18 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
-def _field(session: Session, path: str) -> Deferred:
+def _field(session: Session, path: str) -> ms.Dimension | ms.TimeDimension | ms.Measure:
     value = catalog_value(session.catalog, path, kind="field")
-    assert isinstance(value, Deferred)
+    assert isinstance(value, (ms.Dimension, ms.TimeDimension, ms.Measure))
     return value
 
 

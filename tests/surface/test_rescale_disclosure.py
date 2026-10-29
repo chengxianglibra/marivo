@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
@@ -75,12 +74,12 @@ def test_rescale_help_and_bilingual_site_examples_execute_their_actual_code(
     }
     exec(compile(descriptor.minimal_example, "<rescale-help-example>", "exec"), namespace)
     help_result = namespace["daily_bandwidth"]
-    assert isinstance(help_result, Deferred)
+    assert isinstance(help_result, ms.MetricExpression)
     exec(compile(examples[0], "<rescale-site-example>", "exec"), namespace)
     metrics = {"help_bandwidth": help_result}
     for name in ("daily_bandwidth", "p95_bandwidth"):
         value = namespace[name]
-        assert isinstance(value, Deferred)
+        assert isinstance(value, ms.MetricExpression)
         metrics[name] = value
     frame = case.session.observe(metrics).compute()
     rows = frame.to_pandas()

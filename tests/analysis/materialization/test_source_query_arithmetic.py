@@ -41,7 +41,7 @@ def test_valid_nonfinite_source_values_keep_validity_through_projection_and_cold
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("typed-validity", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         fixed = source.compute()
@@ -164,7 +164,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
             expected_rows = 1
         else:
             source = session.read(
-                session.members(session.catalog.get("entity:sales.facts").value),
+                session.members(session.catalog.get("entity:sales.facts")),
                 {"amount": amount, "big": big, "weight": weight},
             )
             if operation == "na_zero":
@@ -218,7 +218,7 @@ def test_local_query_overflow_survives_projection(
         session = mv.session.get_or_create("source-query-checks", timezone="UTC")
         big = catalog_value(session.catalog, "sales.facts.big", kind="field")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value), {"big": big}
+            session.members(session.catalog.get("entity:sales.facts")), {"big": big}
         )
         source = source.select({"value": source["big"] + 1})
         query = source.top(0, by=source["value"]) if projection == "top" else source.select({})
@@ -247,7 +247,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("unary-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         score = -source["amount"]
@@ -309,7 +309,7 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
         _project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("finite-select", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
         query = source.select({"value": -source["amount"] if negated else source["amount"]})

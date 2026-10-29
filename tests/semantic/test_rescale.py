@@ -10,6 +10,7 @@ import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.graph import computation_fingerprint
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
+from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
@@ -174,8 +175,8 @@ def nested():
     amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
     original = ms.rescale(amount.sum(), divisor=1024, unit="GiB/s")
     assert (
-        inspect_deferred(catalog.get("metric:traffic.bandwidth").value).fingerprint
-        == inspect_deferred(original).fingerprint
+        inspect_deferred(_as_deferred(catalog.get("metric:traffic.bandwidth"))).fingerprint
+        == inspect_deferred(_as_deferred(original)).fingerprint
     )
     variants = (
         original,
@@ -183,7 +184,7 @@ def nested():
         ms.rescale(amount.sum(), divisor=1024, unit="GiB"),
         amount.sum() / 1024,
     )
-    assert len({inspect_deferred(value).fingerprint for value in variants}) == 4
+    assert len({inspect_deferred(_as_deferred(value)).fingerprint for value in variants}) == 4
     assert len({computation_fingerprint(consume_metric(value).node) for value in variants}) == 4
     contract = catalog.get("metric:traffic.bandwidth")
     assert ("rescale", "input_unit='By', divisor=1024, unit='GiB/s'") in contract.definition.facts

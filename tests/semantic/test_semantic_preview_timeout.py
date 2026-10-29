@@ -17,7 +17,6 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.datasource import backends
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceSourceCapabilityError
@@ -240,15 +239,15 @@ def _probe(
 
 def _preview(probe: _Probe, path: _PreviewPath, scope: AuthoringScope) -> tuple[PreviewResult, ...]:
     if path == "single":
-        return (probe.catalog.preview(ms.ref.entity("sales.orders"), scope=scope),)
+        return (probe.catalog.preview(probe.catalog.get("entity:sales.orders"), scope=scope),)
     refs = (
         [
-            ms.ref.entity("sales.orders"),
-            ms.ref.dimension("sales.orders.region"),
-            ms.ref.measure("sales.orders.amount"),
+            probe.catalog.get("entity:sales.orders"),
+            probe.catalog.get("dimension:sales.orders.region"),
+            probe.catalog.get("measure:sales.orders.amount"),
         ]
         if path == "rows"
-        else [ms.ref.metric("sales.revenue")]
+        else [probe.catalog.get("metric:sales.revenue")]
     )
     return probe.catalog.preview_many(refs, scope=scope).results
 
@@ -318,16 +317,22 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
 ) -> None:
     with _probe("trino", semantic_project_factory, monkeypatch) as probe:
         refs = [
-            ms.ref.entity("sales.orders"),
-            ms.ref.measure("sales.orders.amount"),
-            ms.ref.entity("sales.refunds"),
-            ms.ref.measure("sales.refunds.amount"),
+            probe.catalog.get("entity:sales.orders"),
+            probe.catalog.get("measure:sales.orders.amount"),
+            probe.catalog.get("entity:sales.refunds"),
+            probe.catalog.get("measure:sales.refunds.amount"),
         ]
         batch = probe.catalog.preview_many(
             refs,
             scope=(
-                (ms.ref.entity("sales.orders"), md.unpruned(max_rows=10, timeout_seconds=30)),
-                (ms.ref.entity("sales.refunds"), md.unpruned(max_rows=10, timeout_seconds=11)),
+                (
+                    probe.catalog.get("entity:sales.orders"),
+                    md.unpruned(max_rows=10, timeout_seconds=30),
+                ),
+                (
+                    probe.catalog.get("entity:sales.refunds"),
+                    md.unpruned(max_rows=10, timeout_seconds=11),
+                ),
             ),
         )
         assert batch.refs == (
@@ -371,7 +376,10 @@ def test_invalid_batch_is_rejected_before_connection(
     with _probe("trino", semantic_project_factory, monkeypatch) as probe:
         with pytest.raises(SemanticError):
             probe.catalog.preview_many(
-                [ms.ref.entity("sales.orders"), ms.ref.entity("sales.missing")],
+                [
+                    probe.catalog.get("entity:sales.orders"),
+                    probe.catalog.get("entity:sales.missing"),
+                ],
                 scope=md.unpruned(max_rows=10, timeout_seconds=30),
             )
         assert not probe.created and not probe.resolved and not probe.collected
@@ -389,12 +397,16 @@ def test_remote_metric_preview_uses_native_timeout_and_reports_inputs(
         scope = md.unpruned(max_rows=10, timeout_seconds=30)
         if path == "entity_first_batch":
             result = probe.catalog.preview_many(
-                [ms.ref.entity("sales.orders"), ms.ref.metric("sales.revenue")], scope=scope
+                [
+                    probe.catalog.get("entity:sales.orders"),
+                    probe.catalog.get("metric:sales.revenue"),
+                ],
+                scope=scope,
             ).results[-1]
         elif path == "batch":
             result = _preview(probe, "metrics", scope)[0]
         else:
-            result = probe.catalog.preview(ms.ref.metric("sales.revenue"), scope=scope)
+            result = probe.catalog.preview(probe.catalog.get("metric:sales.revenue"), scope=scope)
         assert result.kind == "semantic_metric"
         assert result.coverage.entity_row_limits == (("sales.orders", 10),)
         assert result.execution_limits is not None

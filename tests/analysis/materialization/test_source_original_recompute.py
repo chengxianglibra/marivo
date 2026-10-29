@@ -378,7 +378,7 @@ def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
     trace = capture_source(monkeypatch)
-    members = session.members(session.catalog.get("entity:sales.orders").value)
+    members = session.members(session.catalog.get("entity:sales.orders"))
     with pytest.raises(AnalysisError, match="non-null complete identity keys"):
         session.observe({"metric": amount.sum()}, where=mv.in_population(members)).compute()
     assert trace.returned_rows

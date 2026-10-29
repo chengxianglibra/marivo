@@ -29,6 +29,7 @@ from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     DeclarationResolver,
     DeferredInspection,
+    NamedResolver,
     PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
@@ -37,6 +38,7 @@ from marivo._definition.deferred import (
     SemanticResolver,
     attribute_name,
     inspect_deferred,
+    relationship_carrier,
 )
 from marivo._definition.expressions import (
     ContributionFilter,
@@ -82,6 +84,7 @@ from marivo._grouping import Grouping
 from marivo._temporal import Grain, TimeScope
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
+from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 if TYPE_CHECKING:
@@ -156,6 +159,7 @@ def _fail(
     kind: ErrorKind = ErrorKind.INVALID_EXPRESSION_STAGE,
     action: str | None = None,
     help_target: str = "expressions",
+    scope_dependent: bool = False,
 ) -> NoReturn:
     raise SemanticExpressionError(
         kind=kind,
@@ -163,6 +167,7 @@ def _fail(
         expected=expected,
         received=received,
         help_target=help_target,
+        details={"defer_to_scope": True} if scope_dependent else None,
         action=action
         or (
             "Declare a Measure with an explicit additivity grant before summing this expression."
@@ -209,6 +214,26 @@ def _row_recipe(value: RowFacts, inputs: list[RowField | MeasureAssertion]) -> R
     raise AssertionError("native row consumption produced an obsolete numeric node")
 
 
+def _result_branches(
+    recipe: Resolver, children: tuple[_Facts, ...], operation: str
+) -> tuple[_Facts, ...]:
+    if operation == "ifelse":
+        return children[1:]
+    if operation == "cases" and isinstance(recipe, Call):
+        results: list[_Facts] = []
+        for branch in recipe.args:
+            if not isinstance(branch, Sequence) or len(branch.values) != 2:
+                _fail(
+                    "Case branches require match/result pairs.",
+                    expected="two-element case branches",
+                    received=type(branch).__name__,
+                )
+            results.append(_consume(branch.values[1]))
+        results.append(_consume(recipe.kwargs.get("else_", Just(None))))
+        return tuple(results)
+    return children
+
+
 def _compose(
     recipe: Resolver,
     children: tuple[_Facts, ...],
@@ -227,6 +252,7 @@ def _compose(
         )
     if not rows and not metrics:
         return _Scalar(recipe, None)
+    branches = _result_branches(recipe, children, operation)
     boolean = operation in {
         "eq",
         "ne",
@@ -242,6 +268,13 @@ def _compose(
         "is_null",
         "isin",
     }
+    if operation in {"ifelse", "coalesce", "nullif", "cases"}:
+        boolean = bool(branches) and all(
+            item.boolean
+            if isinstance(item, (RowFacts, MetricFacts))
+            else isinstance(item, _Scalar) and isinstance(item.value, bool)
+            for item in branches
+        )
     numerical = operation not in {
         "eq",
         "ne",
@@ -258,6 +291,7 @@ def _compose(
         "isin",
         "ifelse",
         "coalesce",
+        "nullif",
         "cases",
         "name",
     }
@@ -324,6 +358,7 @@ def _compose(
                 "Native inputs have incompatible units.",
                 expected="commensurable comparison, bound, or selection units",
                 received=f"{operation}{units}",
+                scope_dependent=True,
             )
         unit = linear_unit(units)
     if operation in {"add", "sub", "mul", "truediv", "divide"} and len(children) >= 2:
@@ -351,7 +386,6 @@ def _compose(
     if operation in {"ifelse", "coalesce", "nullif", "cases"}:
         from marivo.semantic.unit_algebra import linear_unit, linear_units_conflict
 
-        branches = children[1:] if operation == "ifelse" else children
         branch_units = tuple(
             item.unit
             for item in branches
@@ -362,6 +396,7 @@ def _compose(
                 "Native branches have incompatible units.",
                 expected="commensurable branch units",
                 received=str(branch_units),
+                scope_dependent=True,
             )
         unit = linear_unit(branch_units)
     if operation == "sqrt" and unit not in (None, "1"):
@@ -379,6 +414,7 @@ def _compose(
                 "Square root requires even unit exponents.",
                 expected="a factorable unit with even exponents",
                 received=str(unit),
+                scope_dependent=True,
             )
         assert isinstance(state, FactorizedUnitV2)
         unit = FactorizedUnitV2(
@@ -397,6 +433,7 @@ def _compose(
             "This native function requires a dimensionless argument.",
             expected="unit 1",
             received=f"{operation}({unit})",
+            scope_dependent=True,
         )
     if boolean:
         unit = None
@@ -448,8 +485,8 @@ def _compose(
             numeric=all(
                 row.numeric
                 for row in (
-                    tuple(item for item in children[1:] if isinstance(item, RowFacts))
-                    if operation == "ifelse"
+                    tuple(item for item in branches if isinstance(item, RowFacts))
+                    if operation in {"ifelse", "cases"}
                     else rows
                 )
             ),
@@ -459,8 +496,12 @@ def _compose(
     captured_list: list[Resolver] = []
     for child in children:
         if isinstance(child, MetricFacts):
-            captured_list.append(Variable(f"slot_{len(operands)}"))
-            operands.append(child.node)
+            if isinstance(child.node, MetricExpression) and isinstance(child.node.recipe, Sequence):
+                captured_list.append(_rename_slots(child.node.recipe, len(operands)))
+                operands.extend(child.node.operands)
+            else:
+                captured_list.append(Variable(f"slot_{len(operands)}"))
+                operands.append(child.node)
         elif isinstance(child, _Scalar):
             captured_list.append(child.recipe)
     return MetricFacts(
@@ -473,8 +514,13 @@ def _compose(
 
 
 def _constant(recipe: Resolver, default: object = None) -> object:
+    if isinstance(recipe, NamedResolver):
+        return _constant(recipe.recipe, default)
+    relationship = relationship_carrier(recipe)
+    if relationship is not None:
+        return relationship._parameter
     if isinstance(recipe, Just):
-        from marivo.semantic.expressions import Relationship
+        from marivo.semantic.expressions import _Relationship as Relationship
 
         return recipe.value._parameter if isinstance(recipe.value, Relationship) else recipe.value
     return default
@@ -832,6 +878,8 @@ def _reduce(
 
 
 def _consume(recipe: Resolver) -> _Facts:
+    if isinstance(recipe, NamedResolver):
+        return _consume(recipe.recipe)
     if isinstance(recipe, RescaleResolver):
         value = _consume(recipe.recipe)
         if (
@@ -1256,9 +1304,11 @@ def _consume(recipe: Resolver) -> _Facts:
     raise AssertionError("unreachable")
 
 
-def _inspect(value: Deferred) -> DeferredInspection:
+def _inspect(value: Deferred | _ExpressionCarrier) -> DeferredInspection:
     try:
-        result: DeferredInspection = inspect_deferred(value)
+        result: DeferredInspection = inspect_deferred(
+            _as_deferred(value) if isinstance(value, _ExpressionCarrier) else value
+        )
         if result.symbols:
             raise SemanticExpressionError(
                 kind=ErrorKind.INVALID_EXPRESSION_VALUE,
@@ -1275,7 +1325,7 @@ def _inspect(value: Deferred) -> DeferredInspection:
         ) from error
 
 
-def consume_row(value: Deferred) -> RowFacts:
+def consume_row(value: Deferred | _ExpressionCarrier) -> RowFacts:
     inspection = _inspect(value)
     result = _consume(inspection.recipe)
     if not isinstance(result, RowFacts) or not result.numeric or result.boolean:
@@ -1288,7 +1338,7 @@ def consume_row(value: Deferred) -> RowFacts:
     return result
 
 
-def consume_metric(value: Deferred) -> MetricFacts:
+def consume_metric(value: Deferred | _ExpressionCarrier) -> MetricFacts:
     inspection = _inspect(value)
     result = _consume(inspection.recipe)
     if not isinstance(result, MetricFacts) or result.boolean:
@@ -1318,7 +1368,7 @@ def _rescale_disclosure(value: Deferred) -> tuple[tuple[str, str], ...]:
     return tuple(facts)
 
 
-def consume_field(value: Deferred) -> SemanticInput:
+def consume_field(value: Deferred | _ExpressionCarrier) -> SemanticInput:
     result = _consume(_inspect(value).recipe)
     if not isinstance(result, RowFacts) or result.field is None:
         _fail(
@@ -1333,7 +1383,7 @@ def consume_field(value: Deferred) -> SemanticInput:
 def _contains_population(recipe: Resolver) -> bool:
     if isinstance(recipe, PopulationContainsResolver):
         return True
-    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
+    if isinstance(recipe, (DeclarationResolver, NamedResolver, RescaleResolver)):
         return _contains_population(recipe.recipe)
     if isinstance(recipe, BinaryOperator):
         return _contains_population(recipe.left) or _contains_population(recipe.right)
@@ -1430,7 +1480,7 @@ def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
     return PredicateFacts(PredicateExpression(normalized, tuple(inputs)), tuple(roots.values()))
 
 
-def consume_predicate(value: Deferred) -> PredicateFacts:
+def consume_predicate(value: Deferred | _ExpressionCarrier) -> PredicateFacts:
     """Capture the native boolean structure without reading or evaluating sources."""
     return _consume_predicate_recipe(_inspect(value).recipe)
 
@@ -1447,6 +1497,29 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
     resolver = _Resolver(state)
 
     def bind(recipe: Resolver, active: frozenset[str]) -> Resolver:
+        if isinstance(recipe, NamedResolver):
+            from marivo.semantic.expressions import _Entity, _Relationship, author_value
+
+            named_value = author_value(resolver.value(recipe.reference.ref))
+            if isinstance(named_value, Deferred):
+                return bind(resolver_of(named_value), active)
+            if isinstance(named_value, _Entity):
+                return SemanticResolver(
+                    SemanticInput(
+                        named_value._exact_ref,
+                        named_value._exact_ref,
+                        "1",
+                        SumNone(),
+                        named_value._default_time,
+                    )
+                )
+            if isinstance(named_value, _Relationship):
+                return Just(named_value._parameter)
+            _fail(
+                "Named input has an invalid computation role.",
+                expected="an Entity, field, Metric, or Relationship",
+                received=type(named_value).__name__,
+            )
         if isinstance(recipe, RescaleResolver):
             return RescaleResolver(bind(recipe.recipe, active), recipe.divisor, recipe.unit)
         if isinstance(recipe, DeclarationResolver):

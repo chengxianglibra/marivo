@@ -71,7 +71,7 @@ def test_named_distribution_carriers_recover_independently(
         with pytest.raises(SemanticExpressionError, match="qualified approximate quantile route"):
             session.observe(
                 {"value": amount_field.approx_quantile(0.25, time=time)},
-                by=session.members(session.catalog.get("entity:sales.customer").value),
+                by=session.members(session.catalog.get("entity:sales.customer")),
             ).persist()
         assert len(terminal_runs(session)) == before
     originals: dict[str, Json] = {}
@@ -80,7 +80,7 @@ def test_named_distribution_carriers_recover_independently(
             {"value": metric},
             by=mv.product(
                 session.time_scope(start="2026-08-01", end="2026-09-01"),
-                session.members(session.catalog.get("entity:sales.customer").value),
+                session.members(session.catalog.get("entity:sales.customer")),
             ),
         ).persist()
         exported = value.to_pandas()

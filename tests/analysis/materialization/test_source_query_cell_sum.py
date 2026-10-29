@@ -77,7 +77,7 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-cell-sum", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {
                 "amount": catalog_value(session.catalog, "sales.facts.amount", kind="field"),
                 "decimal": catalog_value(session.catalog, "sales.facts.big", kind="field"),
@@ -140,7 +140,7 @@ def test_local_cell_sum_retains_numeric_errors_before_top_zero(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("checked-cell-sum", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {
                 "value": catalog_value(
                     session.catalog,

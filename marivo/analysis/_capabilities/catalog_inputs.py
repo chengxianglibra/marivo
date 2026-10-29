@@ -14,8 +14,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             help_target="calendar.grain",
             summary="Return the governed Grain for one declared calendar level.",
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.PeriodCalendarEntry.grain",
-            receiver_family="PeriodCalendarEntry",
+            callable_path="marivo.semantic.catalog.PeriodCalendar.grain",
+            receiver_family="PeriodCalendar",
             result_kind="immutable_metadata",
             read_bound="bounded",
             output_type="Grain",
@@ -26,8 +26,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             help_target="calendar.period",
             summary="Return one exact certified TimeScope for a named calendar period.",
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.PeriodCalendarEntry.period",
-            receiver_family="PeriodCalendarEntry",
+            callable_path="marivo.semantic.catalog.PeriodCalendar.period",
+            receiver_family="PeriodCalendar",
             result_kind="immutable_metadata",
             read_bound="bounded",
             produced_input_family="TimeScopeInput",
@@ -39,8 +39,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             help_target="calendar.period_on",
             summary="Return the exact certified TimeScope containing one civil date.",
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.PeriodCalendarEntry.period_on",
-            receiver_family="PeriodCalendarEntry",
+            callable_path="marivo.semantic.catalog.PeriodCalendar.period_on",
+            receiver_family="PeriodCalendar",
             result_kind="immutable_metadata",
             read_bound="bounded",
             produced_input_family="TimeScopeInput",
@@ -52,8 +52,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             help_target="calendar.periods",
             summary="Browse one bounded page of certified periods for a calendar level.",
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.PeriodCalendarEntry.periods",
-            receiver_family="PeriodCalendarEntry",
+            callable_path="marivo.semantic.catalog.PeriodCalendar.periods",
+            receiver_family="PeriodCalendar",
             result_kind="immutable_metadata",
             read_bound="bounded",
             output_type="CalendarPeriodPage",
@@ -64,8 +64,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             help_target="temporal_set.occurrence",
             summary="Return one original half-open certified TimeScope with key, category, boundary timezone and snapshot identity; no source reads.",
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.TemporalSetEntry.occurrence",
-            receiver_family="TemporalSetEntry",
+            callable_path="marivo.semantic.catalog.TemporalSet.occurrence",
+            receiver_family="TemporalSet",
             result_kind="immutable_metadata",
             read_bound="bounded",
             produced_input_family="TimeScopeInput",
@@ -87,8 +87,8 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
                 "page.show() displays keys, original bounds, categories, timezones and has_more."
             ),
             constraint_ids=(),
-            callable_path="marivo.semantic.catalog.TemporalSetEntry.occurrences",
-            receiver_family="TemporalSetEntry",
+            callable_path="marivo.semantic.catalog.TemporalSet.occurrences",
+            receiver_family="TemporalSet",
             result_kind="immutable_metadata",
             read_bound="bounded",
             output_type="TemporalOccurrencePage",
@@ -116,9 +116,9 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     result = []
     for descriptor in descriptors:
         preparation = ""
-        if descriptor.receiver_family == "PeriodCalendarEntry":
+        if descriptor.receiver_family == "PeriodCalendar":
             preparation = 'calendar = catalog.get("period_calendar:sales.fiscal")\nassert calendar.kind == "period_calendar"\n'
-        elif descriptor.receiver_family == "TemporalSetEntry":
+        elif descriptor.receiver_family == "TemporalSet":
             preparation = 'temporal_set = catalog.get("temporal_set:sales.campaigns")\nassert temporal_set.kind == "temporal_set"\n'
         example = examples.get(descriptor.id, "result = " + descriptor.public_entrypoint)
         result.append(

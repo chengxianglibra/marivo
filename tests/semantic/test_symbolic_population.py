@@ -45,7 +45,7 @@ def _catalog(factory: Callable[..., SemanticProject], helper: str) -> SemanticCa
 
 
 def _population(catalog: SemanticCatalog) -> PopulationParameter:
-    metric = consume_metric(catalog.get("metric:sales.selected_count").value)
+    metric = consume_metric(catalog.get("metric:sales.selected_count"))
     body = next(
         body for reference, body in metric._declared if reference.ref.path == "sales.selected_count"
     )
@@ -123,8 +123,8 @@ def selected_count():
     return captured_count
 """,
     )
-    orders = catalog.get("entity:sales.orders").value
-    customer = catalog.get("relationship:sales.customer").value
+    orders = catalog.get("entity:sales.orders")
+    customer = catalog.get("relationship:sales.customer")
     region = catalog_value(catalog, "sales.orders.region", kind="field")
     domain = mv.coordinates(by=(mv.identity(orders),), keys=((("t1", 1),), (("t2", 1),)))
     assert isinstance(domain, mv.Population)
@@ -197,7 +197,7 @@ def selected_count():
     population = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     assert isinstance(population, mv.Population)
     expected = consume_metric(population.count().sqrt().abs()).node
-    actual = consume_metric(catalog.get("metric:sales.selected_count").value)
+    actual = consume_metric(catalog.get("metric:sales.selected_count"))
     body = next(
         body for reference, body in actual._declared if reference.ref.path == "sales.selected_count"
     )
@@ -263,7 +263,7 @@ def test_population_path_capture_keeps_closed_relationship_values(
 
     first = _catalog(semantic_project_factory, "")
     captured = ModuleType("_population_closed_path_test")
-    captured.relationship = first.get("relationship:sales.customer").value
+    captured.relationship = first.get("relationship:sales.customer")
     monkeypatch.setitem(sys.modules, captured.__name__, captured)
     catalog = _catalog(
         semantic_project_factory,

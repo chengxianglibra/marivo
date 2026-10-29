@@ -15,7 +15,7 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = case.catalog.get("metric:sales.revenue").value
+    revenue = case.catalog.get("metric:sales.revenue")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     channel = catalog_value(case.catalog, "sales.order.channel", kind="field")
     july = session.observe(
@@ -86,7 +86,7 @@ def test_wide_report_preview_and_cold_diagnostics_use_exact_target_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    revenue = case.catalog.get("metric:sales.revenue").value
+    revenue = case.catalog.get("metric:sales.revenue")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     source = case.session.observe({f"metric_{i}": revenue for i in range(8)})
     report = source.attribute(by=(region,)).compute()

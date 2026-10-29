@@ -41,6 +41,14 @@ has exited. Session acquisition alone does not recover unsaved results. An exist
 exact saved reference needs no new publication; explicit new source evaluation
 remains the way to obtain fresh values.
 
+A source capture resolves named semantic leaves in the Session's completed Catalog
+scope after project and owner checks. Same-project objects from another Catalog
+may be used by exact kind/path without an original-version lock. Anonymous
+operations remain fixed, and later loads do not rebind pending Frames. Attribute
+binds new classifications separately in each retained target source scope while
+preserving the original Metric graph. Independent reopen retains fixed results,
+without reconstructing semantic objects or producer declarations.
+
 ## Explicit lifecycle and frozen context
 
 Use `mv.session.get_or_create(name, *, question=None, timezone=None, domains=None)` to

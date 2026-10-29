@@ -304,10 +304,10 @@ def test_independent_roots_and_temporal_fold(
             {name.removeprefix("semantic/"): content for name, content in files.items()}
         )
         session = mv.session.get_or_create("r93-multiroot", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        members = session.members(session.catalog.get("entity:sales.subjects"))
         left_total, right_total = (
-            session.catalog.get("metric:sales.left_total").value,
-            session.catalog.get("metric:sales.right_total").value,
+            session.catalog.get("metric:sales.left_total"),
+            session.catalog.get("metric:sales.right_total"),
         )
         expression = left_total / right_total if ratio else left_total + right_total
         if mode == "linear_fanout":
@@ -328,7 +328,7 @@ def test_independent_roots_and_temporal_fold(
             {
                 "value": expression
                 if runtime_mode
-                else session.catalog.get("metric:sales.left_folded").value
+                else session.catalog.get("metric:sales.left_folded")
             },
             by=members
             if runtime_mode

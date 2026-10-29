@@ -70,11 +70,11 @@ def test_grain_field_help_matches_runtime_variant_availability() -> None:
     assert semantic.kind == "semantic"
     assert semantic._calendar == as_ref(calendar)
     with pytest.raises(AttributeError):
-        _ = builtin.calendar
+        _ = builtin.calendar_id
 
-    text, _, _ = render_help_text("analysis.grain.calendar")
-    assert "Target: analysis.grain.calendar\nKind: attribute" in text
-    assert "Python: grain.calendar" in text
+    text, _, _ = render_help_text("analysis.grain.calendar_id")
+    assert "Target: analysis.grain.calendar_id\nKind: attribute" in text
+    assert "Python: grain.calendar_id" in text
     assert "Applies when: grain.kind == 'semantic'" in text
     assert "_SemanticGrain" not in text
     type_text, _, _ = render_help_text("analysis.grain")
@@ -95,12 +95,12 @@ def test_time_scope_field_help_does_not_evaluate_variant_getter(
         raise AssertionError("Help must not read a kind getter to discover applicability")
 
     monkeypatch.setattr(TimeScope, "kind", property(fail_if_read))
-    text, _, _ = render_help_text("analysis.time_scope.calendar")
-    assert "Python: time_scope.calendar" in text
+    text, _, _ = render_help_text("analysis.time_scope.calendar_id")
+    assert "Python: time_scope.calendar_id" in text
     assert "Applies when: time_scope.kind == 'calendar_period'" in text
     assert "_CalendarPeriodTimeScope" not in text
 
-    text, _, _ = render_help_text("analysis.time_scope.temporal_set")
+    text, _, _ = render_help_text("analysis.time_scope.temporal_set_id")
     assert "Applies when: time_scope.kind == 'temporal_occurrence'" in text
     assert "_TemporalOccurrenceTimeScope" not in text
 
@@ -233,3 +233,34 @@ def test_method_facts_property_owns_full_read_and_exact_type_continuation() -> N
     assert 'marivo.help("analysis.frame_method_facts")' in text
     assert "all owned method payloads" in text and "without reading current data" in text
     assert "compute/persist" in text and "not derived values" in text
+
+
+@pytest.mark.parametrize(
+    ("object_type", "target"),
+    (
+        (ms.Domain, "domain_object"),
+        (ms.Datasource, "datasource_object"),
+        (ms.Entity, "entity_object"),
+        (ms.Dimension, "dimension_object"),
+        (ms.TimeDimension, "time_dimension_object"),
+        (ms.Measure, "measure_object"),
+        (ms.Metric, "metric_object"),
+        (ms.Relationship, "relationship_object"),
+        (ms.PeriodCalendar, "period_calendar_object"),
+        (ms.TemporalSet, "temporal_set_object"),
+    ),
+)
+def test_named_object_type_targets_do_not_replace_constructors(
+    object_type: type, target: str
+) -> None:
+    type_page, _, _ = render_help_text(object_type)
+    string_page, _, _ = render_help_text(f"semantic.{target}")
+    assert type_page == string_page
+    assert type_page.startswith(f"Target: semantic.{target}\nKind: object\n")
+    field_page, _, _ = render_help_text(f"semantic.{target}.kind")
+    assert field_page.startswith(f"Target: semantic.{target}.kind\nKind: attribute\n")
+    if object_type is not ms.Datasource:
+        constructor = target.removesuffix("_object")
+        constructor_page, _, _ = render_help_text(f"semantic.{constructor}.define")
+        assert f"Target: semantic.{constructor}.define\nKind: callable\n" in constructor_page
+        assert f"semantic.{constructor}.kind" not in constructor_page

@@ -59,7 +59,10 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     assert len(opportunities) == 6
     assert opportunities.groupby("key_1").size().to_dict() == dict.fromkeys(KEYS, 2)
     by_day = opportunities.groupby("key_0")["value"].sum().to_dict()
-    assert by_day == {0: 6, 1: 0}
+    assert by_day == {
+        pd.Timestamp("2026-08-01T00:00:00Z"): 6,
+        pd.Timestamp("2026-08-02T00:00:00Z"): 0,
+    }
     directory = opportunities.attrs["frozen_coordinates"][0]["rows"]
     assert directory["ordinal"].tolist() == [0, 1]
     assert directory["actual_start"].tolist() == [

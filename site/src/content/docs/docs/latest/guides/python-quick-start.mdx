@@ -37,7 +37,7 @@ session = mv.session.get_or_create(
 )
 entry = session.catalog.get("metric:sales.revenue")
 assert entry.kind == "metric"
-fixed = session.observe({"revenue": entry.value}).compute()
+fixed = session.observe({"revenue": entry}).compute()
 fixed.show()
 ```
 

@@ -99,7 +99,7 @@ def test_complete_versioned_members(
             }
         )
         session = mv.session.get_or_create("c03-versions", timezone="UTC")
-        entity = session.catalog.get("entity:sales.subjects").value
+        entity = session.catalog.get("entity:sales.subjects")
         august = session.instant("2026-08-01")
         before_runs = len(terminal_runs(session))
         calls: list[str] = []
@@ -170,7 +170,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["enabled"] == enabled)
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == {
             (9007199254740993, "a"),
@@ -179,7 +179,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["tenant"] == "b")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
         )
         assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [
             (9007199254740993, "b")
@@ -187,7 +187,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["beginning"] == date(2026, 8, 1))
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == expected
         for point, expected_count in (
@@ -292,9 +292,9 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         )
         root.environment["profile"] = profile
         session = mv.session.get_or_create("c03-scalar-path", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        members = session.members(session.catalog.get("entity:sales.subjects"))
         field = catalog_value(session.catalog, "sales.attributes.amount", kind="field")
-        via = session.catalog.get("relationship:sales.attributes_path").value
+        via = session.catalog.get("relationship:sales.attributes_path")
         inferred = session.read(members, {"value": field})
         explicit = session.read(members, {"value": field.via((via,))})
         inferred_backing, explicit_backing = inferred._backing, explicit._backing
@@ -310,7 +310,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         selected_values = category.where(category["tenant"] == "a")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
         )
         scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
         scoped = scoped_result.to_pandas()

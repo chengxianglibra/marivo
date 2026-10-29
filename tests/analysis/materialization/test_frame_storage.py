@@ -1848,7 +1848,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     source = case.session.observe(
-        {"sales": case.catalog.get("metric:sales.revenue").value},
+        {"sales": case.catalog.get("metric:sales.revenue")},
         where=region == "east",
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -1931,13 +1931,13 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     members = case.session.members(
-        case.catalog.get("entity:sales.customer").value, where=region == "east"
+        case.catalog.get("entity:sales.customer"), where=region == "east"
     )
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
     anchored = case.session.frame(
-        case.session.members(case.catalog.get("entity:sales.customer").value, at=instant)
+        case.session.members(case.catalog.get("entity:sales.customer"), at=instant)
     ).reduce({"rows": mv.row_count()})
 
     capture = scope_summary

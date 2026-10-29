@@ -30,7 +30,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.get("entity:sales.customer").value)
+    return case.session.members(case.session.catalog.get("entity:sales.customer"))
 
 
 def _august(case: DslCase) -> mv.TimeScope:
@@ -49,11 +49,7 @@ def _query(
     if during is not None:
         domain = mv.product(during, by) if isinstance(by, mv.Population) else (during, *by)
     return case.session.observe(
-        {
-            "value": case.session.catalog.get("metric:sales.revenue").value
-            if metric is None
-            else metric
-        },
+        {"value": case.session.catalog.get("metric:sales.revenue") if metric is None else metric},
         by=domain,
         where=mv.in_population(members) if members is not None else None,
     )
@@ -85,7 +81,7 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         case.session.frame(
             case.session.population_from(
                 individual,
-                on=((individual.axes[1], case.session.catalog.get("entity:sales.customer").value),),
+                on=((individual.axes[1], case.session.catalog.get("entity:sales.customer")),),
             )
         )
         .persist()
@@ -113,7 +109,7 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     classifications = session.read(members, {"region": region})
     chosen = classifications.where(classifications["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
     )
     saved = _query(
         case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
@@ -150,7 +146,7 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     classifications = session.read(_members(case), {"region": region})
     chosen = classifications.where(classifications["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
     )
     result = _query(case, by=selected, members=selected).persist().to_pandas()
     assert _keyed(result) == {("A",): 626, ("B",): 150}
@@ -159,7 +155,7 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
 def test_component_domains_union_complete_tuples(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     difference = revenue.where(channel == "web") - revenue.where(channel == "mobile")
@@ -422,8 +418,8 @@ def test_explicit_business_coverage_masks_exported_values(
 def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    metric = session.catalog.get("metric:sales.revenue").value
-    members = session.members(session.catalog.get("entity:sales.order").value)
+    metric = session.catalog.get("metric:sales.revenue")
+    members = session.members(session.catalog.get("entity:sales.order"))
     with pytest.raises(AnalysisError):
         session.observe(
             {"value": metric},
@@ -500,7 +496,7 @@ def test_direct_aggregate_uses_selected_contributions(
         regions = session.read(_members(case), {"region": region})
         chosen = regions.where(regions["region"] == "east")
         selected = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
         )
         completed = _query(
             case, metric=metric, by=selected.classify(by=(region,)), members=selected
@@ -513,7 +509,7 @@ def test_direct_aggregate_uses_selected_contributions(
 
 def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
-    metric = case.session.catalog.get("metric:sales.aov_from_lines").value
+    metric = case.session.catalog.get("metric:sales.aov_from_lines")
     overall = _query(case, metric=metric, members=_members(case))
     individual = _query(case, metric=metric, by=_members(case), members=_members(case))
     assert overall.persist().to_pandas()["value"].tolist() == pytest.approx([200 / 101])
@@ -527,7 +523,7 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
 def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     assert _query(
         case, metric=revenue + revenue, members=_members(case), during=_august(case)
     ).persist().to_pandas()["value"].tolist() == [2000]
@@ -592,10 +588,8 @@ def test_complete_member_entity_keeps_compound_key(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("compound-grain", timezone="UTC")
-    members = session.members(session.catalog.get("entity:sales.customer").value)
-    observed = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue").value}, by=members
-    )
+    members = session.members(session.catalog.get("entity:sales.customer"))
+    observed = session.observe({"value": session.catalog.get("metric:sales.revenue")}, by=members)
     result = observed.persist()
     assert (
         len(
@@ -623,7 +617,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     if logical_axes:
         chosen = identities.where(~identities["identity"].is_null())
         members = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
         )
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     domain = mv.product(members.classify(by=(region, identity)), calendar)

@@ -24,7 +24,6 @@ from marivo.datasource.errors import (
 from marivo.datasource.loader import load_datasources
 from marivo.semantic.loader import load_project
 from tests.shared_fixtures import bootstrap_sales_project_from_template
-from tests.support.refs import as_ref
 
 
 @pytest.fixture
@@ -91,8 +90,8 @@ def test_layered_loading_injects_default_once(project_root: Path) -> None:
     assert result.errors == ()
     assert [item.name for item in result.datasource_irs].count("default") == 1
     catalog = ms.load(workspace_dir=project_root)
-    assert as_ref(catalog.get("datasource:default").ref).name == "default"
-    assert as_ref(catalog.get("datasource:warehouse").ref).name == "warehouse"
+    assert catalog.get("datasource:default").name == "default"
+    assert catalog.get("datasource:warehouse").name == "warehouse"
 
 
 def test_reserved_registration_fails_before_writes(project_root: Path) -> None:
@@ -187,7 +186,7 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
         .replace("md.table('orders')", source_code)
     )
     catalog = ms.load(workspace_dir=project_root)
-    _ = catalog.get("entity:sales.orders").value
+    _ = catalog.get("entity:sales.orders")
     inspection = md.inspect(ms.ref.datasource("default"), source)
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
@@ -197,7 +196,7 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
     assert snapshot.coverage.observed_row_count == 2
     assert sorted(row["amount"] for row in snapshot.retained_values) == [10, 20]
     preview = catalog.preview(
-        ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=2, timeout_seconds=30)
+        catalog.get("metric:sales.revenue"), scope=md.unpruned(max_rows=2, timeout_seconds=30)
     )
     assert preview.rows == ({"value": 30},)
     assert not (project_root / "models" / "datasources").exists()

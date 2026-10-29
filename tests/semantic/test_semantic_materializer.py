@@ -728,7 +728,7 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
     )
     with patch_semantic_connections(project, backend_factory) as connections:
         for operation in (
-            lambda: SemanticCatalog(project).get("metric:sales.nonexistent").value,
+            lambda: SemanticCatalog(project).get("metric:sales.nonexistent"),
             lambda: _materialize_dataset(project, connections, "sales.nonexistent"),
             lambda: _materialize_field(project, connections, "sales.orders.nonexistent"),
         ):

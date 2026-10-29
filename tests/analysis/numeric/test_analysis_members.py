@@ -18,7 +18,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.expressions import Entity
+from marivo.semantic.expressions import _Entity as Entity
 from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
@@ -406,8 +406,8 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 """)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("subject-image", timezone="UTC")
-    domain = session.members(session.catalog.get("entity:test.instances").value)
-    image = domain.image(via=(session.catalog.get("relationship:test.to_subject").value,))
+    domain = session.members(session.catalog.get("entity:test.instances"))
+    image = domain.image(via=(session.catalog.get("relationship:test.to_subject"),))
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
     (tmp_path / "subjects.duckdb").rename(tmp_path / "subjects.offline")

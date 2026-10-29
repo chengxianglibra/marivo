@@ -169,6 +169,7 @@ class SemanticProject:
                 self._semantic_root,
                 models=self._filtered_domains if self._filtered_domains else None,
                 models_roots=models_roots,
+                project_root=self._workspace_dir,
             )
         self._status = result.status
         self._errors = result.errors

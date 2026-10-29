@@ -100,8 +100,8 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         models.write_text(body.replace(anchor, subject_models + anchor))
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("temporal-int64-recovery", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
-        total = session.catalog.get("metric:sales.total").value
+        members = session.members(session.catalog.get("entity:sales.subjects"))
+        total = session.catalog.get("metric:sales.total")
         time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         scope = session.time_scope(start="2026-08-01", end="2026-08-03")

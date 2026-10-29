@@ -56,7 +56,7 @@ def session(
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:
     return session.read(
-        session.members(session.catalog.get("entity:sales.facts").value),
+        session.members(session.catalog.get("entity:sales.facts")),
         {name: catalog_value(session.catalog, "sales.facts." + name, kind="field")},
     )
 
@@ -255,7 +255,7 @@ def test_native_all_null_and_empty_source_carriers(
     big = catalog_value(session.catalog, "sales.facts.big", kind="field")
     for condition, count in ((big.isnull(), 2), (big < 0, 0)):
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value, where=condition),
+            session.members(session.catalog.get("entity:sales.facts"), where=condition),
             {"big": big},
         )
         fixed = source.compute()

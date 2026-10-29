@@ -84,10 +84,11 @@ class NoClients(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, NoClients())
 import marivo.semantic as ms
 catalog = ms.load(workspace_dir=sys.argv[1])
-amount = ms.ref.measure('sales.orders.amount')
+amount = catalog.get('measure:sales.orders.amount')
 report = catalog.readiness(refs=[amount])
 assert report.status == 'ready'
-assert report._analysis_ready_inputs == (__import__('marivo._symbolic', fromlist=['native_symbol_ref']).native_symbol_ref(amount),)
+assert tuple(value.id for value in report.analysis_ready_inputs) == ('measure:sales.orders.amount',)
+assert isinstance(report.analysis_ready_inputs[0], ms.Measure)
 assert not report.blockers
 """
     result = subprocess.run(

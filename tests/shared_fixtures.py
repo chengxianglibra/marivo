@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.terminal_store import TerminalRun
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
-    from marivo.semantic.catalog import SemanticCatalog, SemanticEntry
+    from marivo.semantic.catalog import SemanticCatalog, SemanticObject
     from marivo.semantic.expressions import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
     from marivo.semantic.loader import LoaderContext, LoadResult
@@ -47,13 +47,13 @@ _AUTHORING_EVIDENCE_V = "v2"
 
 
 def catalog_entry(
-    catalog: SemanticCatalog | SemanticEntry, name: str, *, kind: str
-) -> SemanticEntry:
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
+) -> SemanticObject:
     """Select one test input through public browse pages and exact identity facts."""
     from marivo.semantic.catalog import SemanticCatalog
 
     kinds = {"dimension", "time_dimension", "measure"} if kind == "field" else {kind}
-    selected: list[SemanticEntry] = []
+    selected: list[SemanticObject] = []
     cursor: str | None = None
     while True:
         page = (
@@ -74,31 +74,10 @@ def catalog_entry(
 
 
 def catalog_value(
-    catalog: SemanticCatalog | SemanticEntry, name: str, *, kind: str
-) -> ResolvedValue:
-    """Return a native closed test operand selected through the current Catalog API."""
-    from marivo.semantic.catalog import (
-        DimensionEntry,
-        EntityEntry,
-        MeasureEntry,
-        MetricEntry,
-        RelationshipEntry,
-        TimeDimensionEntry,
-    )
-
-    entry = catalog_entry(catalog, name, kind=kind)
-    assert isinstance(
-        entry,
-        (
-            DimensionEntry,
-            EntityEntry,
-            MeasureEntry,
-            MetricEntry,
-            RelationshipEntry,
-            TimeDimensionEntry,
-        ),
-    )
-    return entry.value
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
+) -> SemanticObject:
+    """Return the directly consumable public object selected through Catalog APIs."""
+    return catalog_entry(catalog, name, kind=kind)
 
 
 class _PreviewConnections:

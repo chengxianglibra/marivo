@@ -55,7 +55,7 @@ html_theme_options = {
 }
 
 
-def _analysis_type_signature(
+def _returned_type_signature(
     app: Sphinx,
     what: str,
     name: str,
@@ -64,17 +64,21 @@ def _analysis_type_signature(
     signature: str | None,
     return_annotation: str | None,
 ) -> tuple[str, str | None] | None:
-    """Analysis classes are acquired values; their internal init is not an API."""
+    """Analysis and Semantic classes describe acquired values, not internal init APIs."""
     if name == "marivo.analysis.ArtifactRef" and isinstance(obj, type):
         # Preserve the initializer parameter type when Sphinx renders this class
         # alone: Pydantic's model field annotation describes the stored value.
         app.env.current_document.autodoc_annotations[name]["ref"] = stringify_annotation(
             get_type_hints(getattr_static(obj, "__init__"))["ref"]
         )
-    if what == "class" and name.startswith("marivo.analysis.") and signature is not None:
+    if (
+        what == "class"
+        and name.startswith(("marivo.analysis.", "marivo.semantic."))
+        and signature is not None
+    ):
         return "", None
     return None
 
 
 def setup(app: Sphinx) -> None:
-    app.connect("autodoc-process-signature", _analysis_type_signature)
+    app.connect("autodoc-process-signature", _returned_type_signature)

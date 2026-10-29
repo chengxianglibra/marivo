@@ -13,6 +13,7 @@ you need the unassembled result rather than a catalog.
 from __future__ import annotations
 
 import ast
+import stat
 import sys
 import types
 from collections.abc import Mapping, Sequence
@@ -26,7 +27,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from ibis.common.deferred import Deferred
 
 from marivo._authoring.loading import _execution_diagnostic, _source_loading
-from marivo._definition.deferred import root_declaration
+from marivo._definition.deferred import resolver_of, root_declaration
+from marivo._definition.types import InputContext
 from marivo.config import AUTHORED_DIR
 from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
@@ -44,6 +46,7 @@ from marivo.semantic._compiled_state import (
     build_compiled_state,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
@@ -90,6 +93,8 @@ class LoaderContext:
     datasource_irs: tuple[DatasourceIR, ...] = ()
     # Module-level Measure/Metric declarations, collected once per object.
     declarations: list[Deferred] = field(default_factory=list)
+    declaration_contexts: dict[int, InputContext] = field(default_factory=dict)
+    project_root: Path | None = None
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -206,6 +211,23 @@ def _is_excluded_file(filename: str) -> bool:
     return basename.endswith("_test.py")
 
 
+def _is_cache_only_model_dir(root: Path) -> bool:
+    """Recognize cache residue without following links or reading cache contents."""
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        return False
+    pending = [root]
+    has_cache = False
+    while pending:
+        for child in pending.pop().iterdir():
+            if not stat.S_ISDIR(child.lstat().st_mode):
+                return False
+            if child.name == "__pycache__":
+                has_cache = True
+            else:
+                pending.append(child)
+    return has_cache
+
+
 def _discover_model_dirs(root: Path) -> list[Path]:
     """Find top-level subdirectories that could contain domain definitions.
 
@@ -216,6 +238,8 @@ def _discover_model_dirs(root: Path) -> list[Path]:
     dirs = []
     for child in sorted(root.iterdir()):
         if child.is_dir() and not child.name.startswith(".") and child.name != "__pycache__":
+            if not (child / "_domain.py").exists() and _is_cache_only_model_dir(child):
+                continue
             dirs.append(child)
     return dirs
 
@@ -422,6 +446,7 @@ def _load_model_dir(
     errors: list[SemanticError],
     *,
     module_prefix: str,
+    project_root: Path | None = None,
     datasource_irs: tuple[DatasourceIR, ...] = (),
 ) -> LoaderContext | None:
     """Load a single model directory.
@@ -453,6 +478,7 @@ def _load_model_dir(
         file_path=str(model_file),
         current_model_file=str(model_file),
         datasource_irs=datasource_irs,
+        project_root=project_root,
     )
     model_package = f"{module_prefix}.{model_name}"
     _ensure_package(model_package, model_dir)
@@ -546,7 +572,13 @@ def _collect_module_declarations(ctx: LoaderContext, module_names: Sequence[str]
     own_files = {getattr(module, "__file__", None) for module in modules}
     for module in modules:
         for export_name, value in vars(module).items():
-            if export_name.startswith("_") or not isinstance(value, Deferred):
+            if export_name.startswith("_"):
+                continue
+            captured_context = InputContext()
+            if isinstance(value, _ExpressionCarrier):
+                captured_context = value._context
+                value = _as_deferred(value)
+            if not isinstance(value, Deferred):
                 continue
             declaration = root_declaration(value)
             if declaration is None:
@@ -554,8 +586,9 @@ def _collect_module_declarations(ctx: LoaderContext, module_names: Sequence[str]
             location = declaration.location
             if location is None or location.path not in own_files:
                 continue
-            if not any(value is item for item in ctx.declarations):
+            if not any(resolver_of(value) is resolver_of(item) for item in ctx.declarations):
                 ctx.declarations.append(value)
+                ctx.declaration_contexts[id(resolver_of(value))] = captured_context
 
 
 def _declaration_site(value: Deferred) -> str:
@@ -812,6 +845,7 @@ def load_project(
     *,
     models: Sequence[str] | None = None,
     models_roots: Sequence[Path] | None = None,
+    project_root: Path | None = None,
 ) -> LoadResult:
     """Load domains from the semantic project root.
 
@@ -925,6 +959,7 @@ def load_project(
                 semantic_root,
                 errors,
                 module_prefix=module_prefix,
+                project_root=project_root or root.parent.parent,
                 datasource_irs=tuple(datasource_irs),
             )
             if ctx is not None:

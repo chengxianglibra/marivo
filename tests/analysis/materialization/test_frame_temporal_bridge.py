@@ -40,7 +40,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.query_population import _token, evaluate_population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.expressions import Entity
+from marivo.semantic.expressions import _Entity as Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
 
@@ -125,7 +125,7 @@ def _population(
     session: Session, frame: AnalysisFrame, *, joint: bool = False, identity: bool = False
 ) -> Population:
     target = (
-        session.catalog.get("entity:sales.facts").value
+        session.catalog.get("entity:sales.facts")
         if identity
         else catalog_value(session.catalog, "sales.facts.t", kind="field")
     )

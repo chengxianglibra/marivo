@@ -75,8 +75,8 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
     hourly = catalog_value(catalog, "traffic.flows.total_in_p95_flow_value", kind="field")
     group = catalog_value(catalog, "traffic.flows.category", kind="field")
     metrics = {
-        "daily": catalog.get("metric:traffic.daily_bandwidth").value,
-        "hourly": catalog.get("metric:traffic.hourly_p95_bandwidth").value,
+        "daily": catalog.get("metric:traffic.daily_bandwidth"),
+        "hourly": catalog.get("metric:traffic.hourly_p95_bandwidth"),
         "local_daily": ms.rescale(daily.sum(), divisor=86400 * 1024**3, unit="GiB/s"),
         "local_hourly": ms.rescale(hourly.sum(), divisor=3600 * 1024**3, unit="GiB/s"),
         "row_daily": catalog_value(

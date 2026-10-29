@@ -39,7 +39,7 @@ def _scalar_output(result: mv.AnalysisFrame, total: int | None) -> None:
 
 def _support(work: Workload) -> mv.AnalysisFrame:
     raw = work.session.read(
-        work.session.members(work.session.catalog.get("entity:cost.facts").value),
+        work.session.members(work.session.catalog.get("entity:cost.facts")),
         {"value": catalog_value(work.session.catalog, "cost.facts.amount", kind="field")},
     )
     return raw.where(~raw["value"].is_null()).reduce({"count": mv.row_count()})
@@ -147,8 +147,8 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-hybrid", timezone="UTC")
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value},
-            by=session.members(session.catalog.get("entity:sales.facts").value),
+            {"value": session.catalog.get("metric:sales.total")},
+            by=session.members(session.catalog.get("entity:sales.facts")),
         )
         result = values.select({"ratio": values["value"] / values["value"]}).persist()
         frame = result.to_pandas()

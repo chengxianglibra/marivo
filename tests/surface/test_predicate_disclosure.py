@@ -1,9 +1,9 @@
 """The source predicate grammar has one native Help owner and no public type."""
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_registry import prepare
 from marivo.analysis.errors import HelpTargetError
@@ -14,7 +14,7 @@ def test_source_predicate_topic_and_consumer_boundaries() -> None:
     text, owner, target = render_help_text("semantic.predicate")
     assert (owner, target) == ("semantic", "predicate")
     for fact in (
-        "native Deferred",
+        "row-stage boolean expressions",
         "&, | and ~",
         "three-valued",
         "complete correlated tuples",
@@ -37,7 +37,7 @@ def test_retired_predicate_type_and_pages_are_absent() -> None:
     assert "PopulationPredicate" not in mv.__all__
     assert not hasattr(mv, "PopulationPredicate")
     condition = mv.in_population(mv.coordinates(by=(), keys=((),)))
-    assert type(condition) is Deferred
+    assert type(condition) is ms.RowExpression
     registry = prepare()
     for target in (
         "population_predicate",

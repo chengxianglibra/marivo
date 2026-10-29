@@ -13,6 +13,7 @@ from marivo._help.model import (
     TopicHelpRoute,
 )
 from marivo._help.route import (
+    _native_surface,
     _owned_methods,
     native_route_target,
     render_native_route,
@@ -67,7 +68,10 @@ def _method_routes(owner: HelpSurface, type_obj: type, type_name: str) -> str:
     methods, type_page_methods = _owned_methods(owner, type_obj)
     for name in methods:
         if name in type_page_methods:
-            target = f"{owner}.{canonical_target(type_name)}"
+            type_target = _native_surface(owner).type_targets.get(
+                type_obj, canonical_target(type_name)
+            )
+            target = f"{owner}.{type_target}"
             suffix = " (documented on this type page)"
         else:
             route = route_help_target(getattr(type_obj, name))
@@ -76,7 +80,7 @@ def _method_routes(owner: HelpSurface, type_obj: type, type_name: str) -> str:
             identity = route.resolved.canonical_id or route.resolved.type_name
             if identity is None:
                 raise RuntimeError(f"public method has no canonical target: {type_name}.{name}")
-            target = f"{route.owner}.{canonical_target(identity)}"
+            target = native_route_target(route)
             suffix = ""
         lines.append(f'  {name}: marivo.help("{target}"){suffix}')
     return "\nMethods (exact Help targets):\n" + "\n".join(lines) if lines else ""
@@ -96,20 +100,18 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
         resolved = route.resolved
         kind = "object"
         if resolved.kind == "attribute":
-            from marivo._help.route import _native_surface
-
             type_obj = resolved.attribute_owner
             assert type_obj is not None
             assert resolved.attribute_name is not None
-            resolved_id = f"{canonical_target(resolved.type_name or '')}.{resolved.attribute_name}"
+            resolved_id = native_route_target(route).removeprefix(f"{route.owner}.")
             surface = _native_surface(route.owner)
-            receiver = canonical_target(resolved.type_name or "")
+            receiver = resolved_id.rpartition(".")[0]
             conditions = (
                 tuple(
                     dict.fromkeys(
                         surface.attribute_applicability[value]
                         for value, name in surface.type_index.items()
-                        if canonical_target(name) == receiver
+                        if surface.type_targets.get(value, canonical_target(name)) == receiver
                         and value in surface.attribute_applicability
                         and resolved.attribute_name in public_attributes(value)
                     )
@@ -128,8 +130,6 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
             text = render_native_route(route)
             if resolved.descriptor is not None:
                 descriptor = resolved.descriptor
-                from marivo._help.route import _native_surface
-
                 surface = _native_surface(route.owner)
                 kind = (
                     surface.descriptor_kind(descriptor)
@@ -142,12 +142,12 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
                 )
             elif resolved.kind == "error_contract":
                 kind = "error"
-            from marivo._help.route import _native_surface
-
             type_bindings = tuple(
                 (value, name)
                 for value, name in _native_surface(route.owner).type_index.items()
-                if name == resolved.type_name or canonical_target(name) == resolved_id
+                if name == resolved.type_name
+                or _native_surface(route.owner).type_targets.get(value, canonical_target(name))
+                == resolved_id
             )
             type_binding = next(
                 (
@@ -169,8 +169,7 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
                 }
                 if attributes:
                     text += "\nAttributes (query by string target):\n" + "\n".join(
-                        f"  {route.owner}.{canonical_target(type_name)}.{name}"
-                        for name in sorted(attributes)
+                        f"  {native_route_target(route)}.{name}" for name in sorted(attributes)
                     )
         full_target = native_route_target(route)
         return _header(text, full_target, kind), route.owner, resolved_id

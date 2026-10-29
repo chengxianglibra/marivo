@@ -20,15 +20,14 @@ from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.json_source import JsonResponseCache
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
-    DomainEntry,
-    PeriodCalendarEntry,
+    Domain,
+    PeriodCalendar,
     SemanticCatalog,
-    TemporalSetEntry,
+    TemporalSet,
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
 from tests.shared_fixtures import catalog_entry, catalog_value
-from tests.support.refs import as_ref
 
 
 @pytest.fixture
@@ -66,6 +65,7 @@ def scoped_catalog(
 
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["order_id"])
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"), primary_key=["refund_id"])
+                other = ms.entity(name="other", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
                 refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
@@ -73,7 +73,11 @@ def scoped_catalog(
                 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
                 ms.relationship(name="order_refund", from_entity=orders, to_entity=refunds, keys=[ms.join_on(order_id, refund_id)])
 
+                refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="USD")
                 amount = amount_ref
+                @ms.metric()
+                def net_revenue():
+                    return amount.sum() - refund_amount.sum()
 
                 @ms.metric()
                 def revenue():
@@ -89,7 +93,7 @@ def scoped_catalog(
 def test_preview_requires_explicit_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     with pytest.raises(TypeError):
-        catalog.preview(ms.ref.measure("sales.orders.amount"))  # type: ignore[call-arg]
+        catalog.preview(catalog.get("measure:sales.orders.amount"))  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("operation", ("preview", "preview_many"))
@@ -138,12 +142,12 @@ def test_invalid_preview_limits_are_structured_before_connection(
     assert "scope.max_rows" in help_text
 
 
-def test_preview_value_and_ref_have_equivalent_current_results(scoped_catalog) -> None:
+def test_preview_get_and_search_have_equivalent_current_results(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
 
     by_value = catalog.preview(amount, scope=default_scope())
-    by_ref = catalog.preview(ms.ref.measure("sales.orders.amount"), scope=default_scope())
+    by_ref = catalog.preview(catalog.search(kind="measure").items[0], scope=default_scope())
 
     assert by_value.rows == by_ref.rows
     assert sorted(row["amount"] for row in by_value.rows) == [10.0, 20.0, 30.0]
@@ -152,7 +156,14 @@ def test_preview_value_and_ref_have_equivalent_current_results(scoped_catalog) -
 
 def test_published_metric_preview_uses_bounded_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    for value in (catalog.get("metric:sales.revenue").value, ms.ref.metric("sales.revenue")):
+    for value in (
+        catalog.get("metric:sales.revenue"),
+        next(
+            item
+            for item in catalog.search(kind="metric").items
+            if item.id == "metric:sales.revenue"
+        ),
+    ):
         preview = catalog.preview(value, scope=default_scope())
         assert preview.kind == "semantic_metric"
         assert preview.coverage.scopes == (("sales.orders", default_scope()),)
@@ -166,7 +177,7 @@ def test_ordinary_preview_ignores_history_and_writes_no_check(scoped_catalog) ->
     historical = check_dir / "historical.json"
     historical.write_text('{"old": true}', encoding="utf-8")
 
-    amount = ms.ref.measure("sales.orders.amount")
+    amount = catalog.get("measure:sales.orders.amount")
     before = catalog.readiness(refs=[amount]).to_dict()
     result = catalog.preview(amount, scope=default_scope(max_rows=3))
     after = catalog.readiness(refs=[amount]).to_dict()
@@ -184,11 +195,11 @@ def test_nonpartition_column_rejects_and_half_open_time_range_is_applied(scoped_
 
     with pytest.raises(DatasourceAuthoringError, match="partition"):
         catalog.preview(
-            ms.ref.entity("sales.orders"),
+            catalog.get("entity:sales.orders"),
             scope=md.partition({"region": "east"}, max_rows=10, timeout_seconds=30),
         )
     ranged = catalog.preview(
-        ms.ref.entity("sales.orders"),
+        catalog.get("entity:sales.orders"),
         scope=md.time_range(
             "ts",
             start=datetime(2026, 7, 10),
@@ -204,7 +215,7 @@ def test_nonpartition_column_rejects_and_half_open_time_range_is_applied(scoped_
 def test_scope_row_guard_reports_real_truncation(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     result = catalog.preview(
-        ms.ref.entity("sales.orders"), scope=default_scope(max_rows=2), limit=20
+        catalog.get("entity:sales.orders"), scope=default_scope(max_rows=2), limit=20
     )
 
     assert result.returned_row_count == 2
@@ -219,7 +230,7 @@ def test_scope_row_guard_reports_real_truncation(scoped_catalog) -> None:
 
 def test_time_dimension_reports_native_naive_parse_risk(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    time_ref = ms.ref.time_dimension("sales.orders.occurred_at")
+    time_ref = catalog.get("time_dimension:sales.orders.occurred_at")
     before = catalog.readiness(refs=[time_ref]).to_dict()
     result = catalog.preview(time_ref, scope=default_scope())
     after = catalog.readiness(refs=[time_ref]).to_dict()
@@ -236,13 +247,13 @@ def test_time_dimension_reports_native_naive_parse_risk(scoped_catalog) -> None:
 
 def test_multi_entity_preview_requires_exact_complete_scope_pairs(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    net_revenue = ms.ref.relationship("sales.order_refund")
-    orders = ms.ref.entity("sales.orders")
-    refunds = ms.ref.entity("sales.refunds")
+    net_revenue = catalog.get("metric:sales.net_revenue")
+    orders = catalog.get("entity:sales.orders")
+    refunds = catalog.get("entity:sales.refunds")
 
-    with pytest.raises(SemanticRuntimeError, match="requires an Entity symbol/scope pair sequence"):
+    with pytest.raises(SemanticRuntimeError, match="requires an Entity object/scope pair sequence"):
         catalog.preview(net_revenue, scope=default_scope())
-    with pytest.raises(SemanticRuntimeError, match=r"native Entity lookup symbols"):
+    with pytest.raises(SemanticRuntimeError, match=r"named semantic object"):
         catalog.preview(net_revenue, scope=(("sales.orders", default_scope()),))  # type: ignore[dict-item]
     with pytest.raises(SemanticRuntimeError, match="cover exactly"):
         catalog.preview(net_revenue, scope=((orders, default_scope()),))
@@ -252,7 +263,7 @@ def test_multi_entity_preview_requires_exact_complete_scope_pairs(scoped_catalog
             scope=(
                 (orders, default_scope()),
                 (refunds, default_scope()),
-                (ms.ref.entity("sales.other"), default_scope()),
+                (catalog.get("entity:sales.other"), default_scope()),
             ),
         )
 
@@ -273,20 +284,20 @@ def test_multi_entity_preview_requires_exact_complete_scope_pairs(scoped_catalog
 
 def test_batch_uses_complete_union_mapping_and_shared_entity_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    orders = ms.ref.entity("sales.orders")
-    refunds = ms.ref.entity("sales.refunds")
+    orders = catalog.get("entity:sales.orders")
+    refunds = catalog.get("entity:sales.refunds")
 
     shared = catalog.preview_many(
-        [ms.ref.dimension("sales.orders.region"), ms.ref.measure("sales.orders.amount")],
+        [catalog.get("dimension:sales.orders.region"), catalog.get("measure:sales.orders.amount")],
         scope=default_scope(),
     )
     mixed = catalog.preview_many(
-        [ms.ref.measure("sales.orders.amount"), ms.ref.relationship("sales.order_refund")],
+        [catalog.get("measure:sales.orders.amount"), catalog.get("metric:sales.net_revenue")],
         scope=((orders, default_scope()), (refunds, default_scope())),
     )
 
     assert shared.refs == ("sales.orders.region", "sales.orders.amount")
-    assert mixed.refs == ("sales.orders.amount", "sales.order_refund")
+    assert mixed.refs == ("sales.orders.amount", "sales.net_revenue")
 
 
 def test_complete_batch_is_validated_before_connection(
@@ -296,10 +307,10 @@ def test_complete_batch_is_validated_before_connection(
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     sales = catalog.get("domain:sales")
 
-    class UnregisteredDomainEntry(DomainEntry):
+    class UnregisteredDomain(Domain):
         pass
 
-    forged = UnregisteredDomainEntry(
+    forged = UnregisteredDomain(
         _ref=sales._ref,
         _details=sales._details,
         _catalog=catalog,
@@ -309,10 +320,12 @@ def test_complete_batch_is_validated_before_connection(
         lambda *args, **kwargs: pytest.fail("connection opened"),
     )
 
-    with pytest.raises(SemanticRuntimeError, match="not a registered concrete"):
+    with pytest.raises(SemanticRuntimeError, match="concrete named semantic object"):
         catalog.preview_many([amount, forged], scope=default_scope())
     with pytest.raises(SemanticRuntimeError, match="duplicate"):
-        catalog.preview_many([amount, ms.ref.measure("sales.orders.amount")], scope=default_scope())
+        catalog.preview_many(
+            [amount, catalog.get("measure:sales.orders.amount")], scope=default_scope()
+        )
 
 
 def test_cross_datasource_preview_fails_before_connection(
@@ -343,6 +356,9 @@ def test_cross_datasource_preview_fails_before_connection(
                 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
                 refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
                 ms.relationship(name="order_refund", from_entity=orders, to_entity=refunds, keys=[ms.join_on(order_id, refund_id)])
+                @ms.metric()
+                def both_counts():
+                    return orders.count() + refunds.count()
                 """
             ),
         }
@@ -355,10 +371,10 @@ def test_cross_datasource_preview_fails_before_connection(
 
     with pytest.raises(SemanticRuntimeError, match="share one datasource"):
         catalog.preview(
-            ms.ref.relationship("sales.order_refund"),
+            catalog.get("metric:sales.both_counts"),
             scope=(
-                (ms.ref.entity("sales.orders"), default_scope()),
-                (ms.ref.entity("sales.refunds"), default_scope()),
+                (catalog.get("entity:sales.orders"), default_scope()),
+                (catalog.get("entity:sales.refunds"), default_scope()),
             ),
         )
 
@@ -391,6 +407,7 @@ def test_json_source_bindings_use_native_entity_pairs(
                         query_params={"start": md.source_param("start")},
                     ),
                 )
+                extra = ms.entity(name="extra", datasource=ms.ref.datasource("warehouse"), source=md.table("extra"))
                 """
             ),
         }
@@ -401,11 +418,11 @@ def test_json_source_bindings_use_native_entity_pairs(
         "marivo.datasource.runtime.open_backend",
         lambda *args, **kwargs: pytest.fail("connection opened"),
     )
-    entity = ms.ref.entity("sales.events")
+    entity = catalog.get("entity:sales.events")
 
     with pytest.raises(SemanticRuntimeError, match="invalid"):
         catalog.preview(entity, scope=default_scope())
-    with pytest.raises(SemanticRuntimeError, match=r"native Entity lookup symbols"):
+    with pytest.raises(SemanticRuntimeError, match=r"named semantic object"):
         catalog.preview(
             entity,
             scope=default_scope(),
@@ -413,9 +430,12 @@ def test_json_source_bindings_use_native_entity_pairs(
         )
 
     invalid_bindings = (
-        (((entity, {"start": 1}), (ms.ref.entity("sales.events"), {"start": 2})), "repeat entity"),
-        (((entity, {"start": 1}), (ms.ref.entity("sales.extra"), {"start": 2})), "outside"),
-        (((ms.ref.datasource("warehouse"), {"start": 1}),), "native Entity"),
+        (
+            ((entity, {"start": 1}), (catalog.get("entity:sales.events"), {"start": 2})),
+            "repeat entity",
+        ),
+        (((entity, {"start": 1}), (catalog.get("entity:sales.extra"), {"start": 2})), "outside"),
+        (((catalog.get("datasource:warehouse"), {"start": 1}),), "semantic kind datasource"),
         ({ref_factory.entity("sales.events"): {"start": 1}}, "pair sequence"),
         (((entity, {}),), "invalid"),
     )
@@ -462,20 +482,18 @@ def test_temporal_artifact_certification_and_failed_previews(
     catalog = certified_project(
         tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
     )
-    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    calendar_ref = catalog.get("period_calendar:sales.fiscal")
     with pytest.raises(SemanticRuntimeError, match="exhaustive explicit scope"):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=3), limit=1)
     assert (
-        catalog_entry(
-            catalog, as_ref(calendar_ref).path, kind="period_calendar"
-        ).definition.snapshot_status
+        catalog_entry(catalog, calendar_ref.path, kind="period_calendar").definition.snapshot_status
         == "missing"
     )
 
     for artifact_ref, missing_kind, max_rows in (
         (calendar_ref, "period_calendar_artifact_missing", 4),
         (
-            ms.ref.temporal_set("sales.named_campaigns"),
+            catalog.get("temporal_set:sales.named_campaigns"),
             "temporal_set_artifact_missing",
             2,
         ),
@@ -492,7 +510,7 @@ def test_temporal_artifact_certification_and_failed_previews(
         assert "preview_rows_truncated: true" in card
         assert "scope_coverage: exhaustive/scope_exact" in card
         assert "query_truncated" not in card
-        assert catalog.get(as_ref(artifact_ref).key).definition.snapshot_status == "current"
+        assert catalog.get(artifact_ref.id).definition.snapshot_status == "current"
         assert missing_kind not in {
             issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
         }
@@ -509,9 +527,7 @@ def test_temporal_artifact_certification_and_failed_previews(
     assert invalid_limit.value.expected == "an integer preview limit from 1 to 100 inclusive"
     assert invalid_limit.value.details["query_executed"] is False
     assert (
-        catalog_entry(
-            catalog, as_ref(calendar_ref).path, kind="period_calendar"
-        ).definition.snapshot_status
+        catalog_entry(catalog, calendar_ref.path, kind="period_calendar").definition.snapshot_status
         == "current"
     )
 
@@ -526,7 +542,7 @@ def test_calendar_lookup_repairs_resolve_collection_paths_and_help(
     )
     calendar = catalog.get("period_calendar:sales.fiscal")
 
-    def repaired_calendar(error: SemanticRuntimeError, operation: str) -> PeriodCalendarEntry:
+    def repaired_calendar(error: SemanticRuntimeError, operation: str) -> PeriodCalendar:
         assert error.kind == "not_found"
         assert error.details["operation"] == operation
         assert error.repair is not None
@@ -568,7 +584,7 @@ def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
     def reject_snapshot(_entry: object) -> None:
         pytest.fail("static navigation inspected a certified snapshot")
 
-    for entry_type in (PeriodCalendarEntry, TemporalSetEntry):
+    for entry_type in (PeriodCalendar, TemporalSet):
         monkeypatch.setattr(entry_type, "_snapshot_with_status", reject_snapshot)
     for kind, identity in (
         ("period_calendar", "period_calendar:sales.fiscal"),
@@ -594,11 +610,11 @@ def test_temporal_details_observe_state_changes_after_navigation(
         tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
     )
     entry = catalog.get(f"{kind.value}:{path}")
-    if isinstance(entry, PeriodCalendarEntry):
+    if isinstance(entry, PeriodCalendar):
         assert entry.definition.source_date == "time_dimension:sales.calendar.calendar_date"
         assert not hasattr(entry.definition, "date")
     assert entry.definition.snapshot_status == "missing"
-    catalog.preview(entry.ref, scope=default_scope(max_rows=max_rows), limit=1)
+    catalog.preview(entry, scope=default_scope(max_rows=max_rows), limit=1)
     assert catalog.get(entry.id) is entry
     assert entry.definition.snapshot_status == "current"
 
@@ -637,7 +653,7 @@ def test_native_calendar_certification_requires_date_schema_and_nonempty_coverag
         backend.disconnect()
     calendar = catalog.get("period_calendar:sales.fiscal")
     with pytest.raises(SemanticRuntimeError) as caught:
-        catalog.preview(calendar.ref, scope=default_scope(max_rows=4))
+        catalog.preview(calendar, scope=default_scope(max_rows=4))
     assert caught.value.kind == "materialize_failed"
     assert calendar.definition.snapshot_status == "missing"
     if invalid_source == "timestamp":
@@ -651,7 +667,7 @@ def test_native_calendar_certification_requires_date_schema_and_nonempty_coverag
 
 def test_metric_input_cap_is_exact_and_disclosed(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    result = catalog.preview(ms.ref.metric("sales.revenue"), scope=default_scope(max_rows=1))
+    result = catalog.preview(catalog.get("metric:sales.revenue"), scope=default_scope(max_rows=1))
     assert result.coverage.entity_rows == (("sales.orders", 1),)
     assert result.coverage.entity_row_limits == (("sales.orders", 1),)
     assert result.coverage.scope_exhaustion == "unknown"
@@ -681,7 +697,9 @@ def test_metric_input_hard_cap_does_not_count_full_source(scoped_catalog) -> Non
         )
     finally:
         backend.disconnect()
-    result = catalog.preview(ms.ref.metric("sales.revenue"), scope=default_scope(max_rows=20000))
+    result = catalog.preview(
+        catalog.get("metric:sales.revenue"), scope=default_scope(max_rows=20000)
+    )
     assert result.rows == ({"value": 10000},)
     assert result.coverage.entity_rows == (("sales.orders", 10000),)
     assert result.coverage.entity_row_limits == (("sales.orders", 10000),)
@@ -713,7 +731,7 @@ def test_metric_preview_reuses_physical_partition_preflight(
         )
 
     monkeypatch.setattr("marivo.datasource.inspection._inspect_resolved_source", inspect_source)
-    metric = ms.ref.metric("sales.revenue")
+    metric = catalog.get("metric:sales.revenue")
     scope = (
         md.partition({"region": "east"}, max_rows=10, timeout_seconds=30)
         if pruned
@@ -776,9 +794,9 @@ def test_batch_preflights_later_inputs_before_any_business_read(
     )
     with pytest.raises(DatasourceAuthoringError):
         catalog.preview_many(
-            [ms.ref.metric("sales.revenue"), ms.ref.entity("sales.refunds")],
+            [catalog.get("metric:sales.revenue"), catalog.get("entity:sales.refunds")],
             scope=(
-                (ms.ref.entity("sales.orders"), default_scope()),
-                (ms.ref.entity("sales.refunds"), default_scope()),
+                (catalog.get("entity:sales.orders"), default_scope()),
+                (catalog.get("entity:sales.refunds"), default_scope()),
             ),
         )

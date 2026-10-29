@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
-from marivo._symbolic import LookupSymbol, symbol_from_ref
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
 
 if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticObject
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -95,11 +95,12 @@ class ReadinessReport(RenderableResult):
     catalog_definition_fingerprint: str | None = None
     requested_ids: tuple[str, ...] = ()
     checked_ids: tuple[str, ...] = ()
+    _resolved_inputs: tuple[SemanticObject, ...] = ()
 
     @property
-    def analysis_ready_inputs(self) -> tuple[LookupSymbol, ...]:
-        """Native lookup selectors for definitions ready for analysis."""
-        return tuple(symbol_from_ref(ref) for ref in self._analysis_ready_inputs)
+    def analysis_ready_inputs(self) -> tuple[SemanticObject, ...]:
+        """Directly selected ready physical objects from the report's captured scope."""
+        return self._resolved_inputs
 
     def _repr_identity(self) -> str:
         return (

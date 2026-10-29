@@ -163,16 +163,16 @@ def test_real_pairing_check_failure_has_no_publication_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j2").session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     region = session.read(
         members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
     )
     chosen = region.where(region["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer").value),)
+        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
     )
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    metric = session.catalog.get("metric:sales.revenue").value
+    metric = session.catalog.get("metric:sales.revenue")
     current = session.observe({"value": metric}, by=mv.product(scope, selected))
     baseline = session.observe({"value": metric}, by=mv.product(scope, members))
     with pytest.raises(AnalysisError) as caught:

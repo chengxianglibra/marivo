@@ -450,20 +450,12 @@ def _render_type(type_name: str, original: object | None) -> str:
     if type_name == "ref":
         lines.append(
             "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
-            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; catalog.get(kind:path).value returns closed executable values after kind narrowing."
+            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; catalog.get(kind:path) returns typed objects for direct consumption after kind narrowing."
         )
     if type_name == "SourceCheckNamespace":
         lines.append(
             "  Data boundary: pass these values only to catalog.validate(..., "
             "checks=[...], scope=<explicit bounded scope>); no expectation is inferred."
-        )
-    if type_name.endswith("Entry"):
-        lines.extend(
-            (
-                "  Inspection: entry.definition is complete; entry.show() is bounded and entry.to_dict() is machine readable.",
-                "  Execution: check entry.kind and use entry.value for executable variants; Domain/Datasource have no value.",
-                "  Navigation: entry.related(relation) uses this Catalog's full loaded scope, independently from the discovery query filters.",
-            )
         )
     if "details" in contract.public_methods:
         lines.append(

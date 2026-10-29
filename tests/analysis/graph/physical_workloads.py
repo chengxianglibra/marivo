@@ -451,16 +451,16 @@ class Workload:
 
     def values(self) -> mv.AnalysisFrame:
         return self.session.observe(
-            {"value": self.session.catalog.get("metric:cost.facts_total").value},
+            {"value": self.session.catalog.get("metric:cost.facts_total")},
             by=mv.product(
                 self.session.time_scope(start="2026-08-01", end="2026-08-02"),
-                self.session.members(self.session.catalog.get("entity:cost.facts").value),
+                self.session.members(self.session.catalog.get("entity:cost.facts")),
             ),
         )
 
     def total(self) -> mv.AnalysisFrame:
         return self.session.observe(
-            {"value": self.session.catalog.get("metric:cost.facts_total").value},
+            {"value": self.session.catalog.get("metric:cost.facts_total")},
             by=(self.session.time_scope(start="2026-08-01", end="2026-08-02"),),
         )
 

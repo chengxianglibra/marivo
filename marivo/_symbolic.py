@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, NewType, NoReturn, TypeAlias
 
 from ibis.common.bases import FrozenSlotted
 from ibis.common.deferred import Deferred, Resolver
 
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.refs import DatasourceKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 
 DomainSymbol = NewType("DomainSymbol", Deferred)
@@ -46,6 +48,28 @@ _SYMBOL_MARKERS: dict[SemanticKind, Callable[[Deferred], LookupSymbol]] = {
     SemanticKind.PERIOD_CALENDAR: PeriodCalendarSymbol,
     SemanticKind.TEMPORAL_SET: TemporalSetSymbol,
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _DatasourceIdentity:
+    reference: Ref[DatasourceKind]
+    project_root: Path
+
+
+class _DatasourceInput:
+    """Nominal neutral bridge implemented by the loaded datasource object."""
+
+    __slots__ = ()
+
+    @property
+    def _datasource_identity(self) -> _DatasourceIdentity:
+        raise NotImplementedError
+
+
+def datasource_identity(value: object) -> _DatasourceIdentity | None:
+    """Read only the controlled loaded-datasource bridge, never arbitrary attributes."""
+    return value._datasource_identity if isinstance(value, _DatasourceInput) else None
+
 
 if TYPE_CHECKING:
 
@@ -134,7 +158,7 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            Obtain named analysis inputs with catalog.get('kind:path') after
             checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
@@ -152,7 +176,7 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            Obtain named analysis inputs with catalog.get('kind:path') after
             checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
@@ -170,7 +194,7 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            Obtain named analysis inputs with catalog.get('kind:path') after
             checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
@@ -188,7 +212,7 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            Obtain named analysis inputs with catalog.get('kind:path') after
             checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """
@@ -206,7 +230,7 @@ class _SymbolFactory:
         Constraints:
             Path shape is checked immediately; existence and semantic facts bind
             in the loader. This does not register a definition or read a source.
-            Obtain closed analysis inputs with catalog.get('kind:path').value after
+            Obtain named analysis inputs with catalog.get('kind:path') after
             checking entry.kind. Equality builds a recipe; bool, hashing and identity
             attributes are unsupported.
         """

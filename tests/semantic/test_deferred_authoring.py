@@ -3,20 +3,33 @@
 from collections.abc import Callable
 from pathlib import Path
 
-import ibis
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo._definition.deferred import inspect_deferred, root_declaration
+import marivo.semantic as ms
+from marivo._definition.deferred import (
+    NamedResolver,
+    inspect_deferred,
+    resolver_of,
+    root_declaration,
+)
 from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
+from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 
 ProjectFactory = Callable[..., SemanticProject]
+
+
+def _recipe(value: Deferred | _ExpressionCarrier) -> Deferred:
+    deferred = _as_deferred(value) if isinstance(value, _ExpressionCarrier) else value
+    recipe = resolver_of(deferred)
+    return Deferred(recipe.recipe) if isinstance(recipe, NamedResolver) else deferred
+
 
 _MODEL = '''import ibis
 import marivo.datasource as md
@@ -31,7 +44,7 @@ status = status_ref
 @ms.measure(additivity=ms.additive_all())
 def margin():
     """Positive margin with explicit business authorization."""
-    positive = ibis.ifelse(amount > cost, amount - cost, 0)
+    positive = (amount > cost).ifelse(amount - cost, 0)
     return positive
 @ms.metric()
 def revenue():
@@ -60,18 +73,21 @@ def test_deferred_capture_declaration_collection_and_native_composition(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
     margin = catalog_value(catalog, "sales.orders.margin", kind="field")
-    assert isinstance(amount, Deferred)
-    assert isinstance(revenue, Deferred)
-    assert isinstance(margin, Deferred)
+    assert isinstance(amount, ms.RowExpression)
+    assert isinstance(revenue, ms.MetricExpression)
+    assert isinstance(margin, ms.RowExpression)
     assert tuple(entry.path for entry in catalog.search(kind="metric").items) == (
         "sales.margin_total",
         "sales.revenue",
     )
-    assert root_declaration(revenue) is not None
-    assert root_declaration(revenue + 1) is None
-    assert inspect_deferred(revenue).fingerprint == inspect_deferred(amount.sum()).fingerprint
+    assert root_declaration(_recipe(revenue)) is not None
+    assert root_declaration(_recipe(revenue + 1)) is None
+    assert (
+        inspect_deferred(_recipe(revenue)).fingerprint
+        == inspect_deferred(_recipe(amount.sum())).fingerprint
+    )
     assert consume_row(margin).unit == "CNY"
     index = (revenue / amount.sum()).sqrt()
     assert isinstance(consume_metric(index).node, MetricExpression)
@@ -94,6 +110,7 @@ def test_declared_metric_accepts_public_grouping_samples(
         _MODEL
         + f"""
 import marivo.analysis as mv
+import marivo.semantic as ms
 samples = {grouping}
 @ms.metric()
 def average_sample():
@@ -110,19 +127,22 @@ def average_sample():
     )
     sample = samples
     argument_value = (sample,) if as_tuple else sample
-    expected = catalog.get("metric:sales.revenue").value.per(argument_value).mean()
-    declared = catalog.get("metric:sales.average_sample").value
+    expected = catalog.get("metric:sales.revenue").per(argument_value).mean()
+    declared = catalog.get("metric:sales.average_sample")
     body = next(
         body
         for reference, body in consume_metric(declared)._declared
         if reference.ref.path == "sales.average_sample"
     )
     assert body == consume_metric(expected).node
-    assert inspect_deferred(declared).fingerprint == inspect_deferred(expected).fingerprint
-    declaration = root_declaration(declared)
+    assert (
+        inspect_deferred(_recipe(declared)).fingerprint
+        == inspect_deferred(_recipe(expected)).fingerprint
+    )
+    declaration = root_declaration(_recipe(declared))
     assert declaration is not None and declaration.reference is not None
-    assert set(inspect_deferred(declared).dependencies) == {
-        *inspect_deferred(expected).dependencies,
+    assert set(inspect_deferred(_recipe(declared)).dependencies) == {
+        *inspect_deferred(_recipe(expected)).dependencies,
         declaration.reference,
     }
 
@@ -133,12 +153,12 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     catalog = _catalog(semantic_project_factory)
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     cost = catalog_value(catalog, "sales.orders.cost", kind="field")
-    positive = ibis.ifelse(amount > cost, amount - cost, 0)
+    positive = (amount > cost).ifelse(amount - cost, 0)
     assert consume_row(positive).unit == "CNY"
     with pytest.raises(SemanticExpressionError):
         consume_metric(positive.sum())
     assert isinstance(consume_metric(positive.mean()).node, SourceAggregate)
-    assert {use.input.reference.ref.path for use in inspect_deferred(positive).uses} == {
+    assert {use.input.reference.ref.path for use in inspect_deferred(_recipe(positive)).uses} == {
         "sales.orders.amount",
         "sales.orders.cost",
     }
@@ -182,6 +202,7 @@ def test_published_window_requires_calendar_in_completed_scope(
         _MODEL
         + f"""
 import marivo.analysis as mv
+import marivo.semantic as ms
 quarter = ms.calendar_grain(calendar=ms.ref.period_calendar({calendar!r}), level="quarter")
 qtd_rule = mv.to_date(grain=quarter)
 @ms.metric()
@@ -210,7 +231,7 @@ def test_native_selection_units_and_reciprocal_authorization(
     catalog = _catalog(semantic_project_factory, source)
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     cost = catalog_value(catalog, "sales.orders.cost", kind="field")
-    for expression in (amount > cost, ibis.least(amount, cost), amount.clip(lower=cost)):
+    for expression in (amount > cost, amount.least(cost), amount.clip(lower=cost)):
         with pytest.raises(SemanticExpressionError, match="incompatible units"):
             consume_row(expression)
     with pytest.raises(SemanticExpressionError, match="sum authorization"):
@@ -235,13 +256,12 @@ def test_catalog_description_owns_definition_facts(
 def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    from marivo.semantic._deferred_semantics import consume_metric_in_state
+    from marivo.semantic._consumption import bind_metric
 
     original = _catalog(semantic_project_factory)
-    revenue = original.get("metric:sales.revenue").value
-    old_reference = root_declaration(revenue).reference
-    changed_root = tmp_path / "changed"
-    changed_root.mkdir()
+    revenue = original.get("metric:sales.revenue")
+    old_reference = root_declaration(_recipe(revenue)).reference
+    changed_root = original.workspace_dir
     project = semantic_project_factory(
         {
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics")\n',
@@ -250,12 +270,12 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
         workspace_dir=changed_root,
     )
     changed = SemanticCatalog(project)
-    current = changed.get("metric:sales.revenue").value
-    rebound = consume_metric_in_state(revenue, changed._state)
+    current = changed.get("metric:sales.revenue")
+    rebound = consume_metric(bind_metric(revenue, changed))
     assert rebound.node == consume_metric(current).node
     assert rebound._declared == consume_metric(current)._declared
-    assert root_declaration(revenue).reference == old_reference
-    assert root_declaration(current).reference != old_reference
+    assert root_declaration(_recipe(revenue)).reference == old_reference
+    assert root_declaration(_recipe(current)).reference != old_reference
 
 
 def test_sum_has_one_fixed_rule_and_rejects_removed_empty_parameter(
@@ -268,8 +288,11 @@ def test_sum_has_one_fixed_rule_and_rejects_removed_empty_parameter(
         node = consume_metric(expression).node
         assert isinstance(node, (SourceAggregate, PerReduce))
         assert not hasattr(node, "empty")
-    for expression in (amount.sum(empty="zero"), amount.sum().per(status).sum(empty="null")):
-        with pytest.raises(SemanticExpressionError, match="unsupported arguments"):
-            consume_metric(expression)
+    for operation in (
+        lambda: amount.sum(empty="zero"),
+        lambda: amount.sum().per(status).sum(empty="null"),
+    ):
+        with pytest.raises(TypeError, match="empty"):
+            operation()
     count = consume_metric(amount.count()).node
     assert isinstance(count, SourceAggregate)

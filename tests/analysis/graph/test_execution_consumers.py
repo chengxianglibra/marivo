@@ -21,8 +21,8 @@ from tests.support.source_trace import SourceTrace
 
 def _values(session: mv.Session) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.get("metric:sales.total").value},
-        by=session.members(session.catalog.get("entity:sales.facts").value),
+        {"value": session.catalog.get("metric:sales.total")},
+        by=session.members(session.catalog.get("entity:sales.facts")),
     )
 
 

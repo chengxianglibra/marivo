@@ -24,7 +24,7 @@ head:
 ```python
 orders_entry = session.catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-Orders = orders_entry.value
+Orders = orders_entry
 east_cohort = session.members(Orders, where=region == "east")
 cohort_in_august = mv.product(august, east_cohort)
 august_revenue = session.observe(

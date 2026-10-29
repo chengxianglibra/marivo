@@ -13,7 +13,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.refs import Ref, RefPayloadV1, SemanticKindTag
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 
-_EXCLUDED_FIELDS = frozenset({"location", "python_symbol", "file", "line"})
+_EXCLUDED_FIELDS = frozenset({"location", "python_symbol", "file", "line", "_context"})
 
 
 def _canonical(value: object) -> object:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
@@ -27,6 +27,7 @@ from marivo._definition.types import (
     CoordinateValue,
     ExactRef,
     FieldRead,
+    InputContext,
     IntervalCoordinate,
     LiteralValue,
     Owner,
@@ -349,6 +350,10 @@ class PopulationParameter:
     """Private immutable population capture shared with semantic deferred consumers."""
 
     _definition: PopulationDependency
+    _context: InputContext = field(default=InputContext(), kw_only=True, compare=False)
+    _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(
+        default=(), kw_only=True, compare=False
+    )
 
 
 def sample_population(

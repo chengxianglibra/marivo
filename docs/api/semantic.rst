@@ -37,7 +37,9 @@ Typed expression authoring
 Physical Entity/Field/Relationship constructors and ``ms.ref.*`` capture native
 Ibis Deferred symbols with typed identity roles. Compose them directly; the
 loader binds the complete dependency scope before publishing closed Catalog
-values. Default time, coordinates and supported Ibis forward references use
+objects. Measure and Metric decorators always return numeric RowExpression and
+MetricExpression carriers respectively, independent of closure. Default time,
+coordinates and supported Ibis forward references use
 that complete scope without replaying imports or calling authored functions.
 Measure and Metric functions remain pure zero-argument declarations.
 ``ms.load()`` publishes declarations bound at module level in their owning
@@ -68,6 +70,25 @@ zero paired-weight sums return NA before arithmetic. Independent ``nulls``
 policies remain operator-local strings; declaration-wide
 empty/null/zero-denominator policies, old factories and default folds are
 rejected with a concrete reauthoring action.
+
+Named objects and stage roles
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``get`` and ``search`` return the same ten named object kinds. ``SemanticObject``
+is their closed type union. Objects expose canonical ``id`` and captured
+``definition``/``provenance`` metadata; use them directly after narrowing ``kind``.
+``get(id)`` accepts a canonical string, while reusing an existing object needs
+no lookup. Named leaf references resolve in the receiving Catalog or Session's
+completed scope after project and owner checks. Display remains bound to the
+original captured definition.
+
+``RowExpression`` has the closed roles ``dimension``, ``time``, ``numeric`` and
+``boolean``; ``MetricExpression`` has ``numeric`` and ``boolean`` roles. Numeric
+comparisons return the same stage's boolean role. Anonymous expressions have no
+Catalog identity and require explicit output names. Measure and Metric decorators
+keep their numeric stage return type even when they capture forward declarations;
+Session consumption still requires closed inputs. These public types describe
+returned values, rather than user construction or extension points.
 
 All native TimeField sample reducers use represented samples without
 scheduled-clock coverage checks or implicit zero/NULL completion, regardless of
@@ -144,14 +165,18 @@ the selected physical dependency closure: current connectivity, Entity output
 schemas, field bindings, numeric/duration types, and temporal parser/timezone contracts.
 Preview and analysis reuse the same field checks. It also runs explicitly
 declared data expectations. Construct expectations with ``source_check`` using
-native lookup symbols from ``ms.ref`` or entries' ``.ref``; closed ``.value``
-expressions are rejected by these builders. Relationship match ``side`` is
+native loaded fields/relationships or explicit ``ms.ref`` declaration selectors.
+Anonymous, routed and anchored expressions are rejected by these builders.
+Relationship match ``side`` is
 ``"from"`` or ``"both"``; expected cardinality is ``"one_to_one"``,
 ``"many_to_one"``, ``"one_to_many"`` or ``"many_to_many"`` in the declared direction.
 Metadata-only validation forbids ``scope`` and never queries user data; declared
 data checks require an explicit bounded scope and never change readiness.
 
 .. autodata:: source_check
+   :annotation:
+
+.. autodata:: SemanticObject
    :annotation:
 
 Symbols, binding & loading
@@ -177,9 +202,9 @@ without executing the Python function body. Backend support is checked during
 execution; arbitrary Python helpers and Python/Pandas/Arrow UDFs are not admitted
 as Entity body symbols.
 
-Metadata identity fields return unbound lookup selectors. Use them for supported
-Catalog lookup/check operations; select closed analysis inputs through the
-canonical ``catalog.get("kind:path").value`` after checking kind. Ordinary Analysis does not bind a symbol.
+Diagnostic identity fields retain their documented selectors. Use them only at
+explicit declaration/check/physical boundaries; select analysis objects through the
+canonical ``catalog.get("kind:path")`` after checking kind. Ordinary Analysis does not bind a symbol.
 Equality builds a recipe rather than testing identity. Symbols are not supported
 as boolean identities, hash keys, dictionary keys or container membership keys.
 Invalid attributes and methods fail when a declaration or parameter captures the
@@ -253,9 +278,9 @@ optional reranking. Search configuration is frozen at load. The optional
 model or input-length failures are explicit. Derived vector/index/ranking caches
 live in ``<project_root>/.marivo/semantic/search/``. No business datasource is read.
 
-``catalog.get("metric:sales.revenue")`` returns one immutable entry by canonical
-identity. Check ``entry.kind`` before accessing ``entry.value``. Executable
-variants retain native closed expression values; Domain/Datasource have no value.
+``catalog.get("metric:sales.revenue")`` returns one immutable object by canonical
+identity. Narrow ``object.kind`` and consume the object directly in operations
+allowed by its kind. Domain/Datasource do not acquire arithmetic.
 ``entry.related("dependencies")`` uses the complete loaded scope independently
 from search filters; unloaded identities are separate ``outside_scope`` metadata.
 Complete definitions and ``to_dict()/to_json()`` are independent of display
@@ -265,13 +290,15 @@ Changed scope, definitions, configuration or missing cached results rejects a
 cursor and requires restarting the search.
 
 ``catalog.preview(...)``, ``catalog.preview_many(...)``,
-``catalog.validate(...)``, and ``catalog.readiness(refs=[...])`` accept an
-exact ref, an entry owned by the current compiled catalog, or a catalog value.
+``catalog.validate(...)``, and ``catalog.readiness(refs=[...])`` accept a
+named semantic object selected from the same project. Anonymous expressions,
+strings and bare declaration symbols are not accepted.
 Readiness also accepts declared Measures and Metrics and expands their physical
 dependencies. Requested and checked identities remain separate;
-``analysis_ready_inputs`` contains only directly requested ready physical refs.
-Inputs normalize immediately to refs; readiness results, preview evidence,
-persistence, and recovery remain ref-based. Preview ``limit`` must be an integer
+``analysis_ready_inputs`` contains only directly requested ready physical objects.
+Consumers resolve named leaves by exact kind/path in their completed scope;
+captured definition display and fixed Frame recovery retain their own snapshots.
+Preview ``limit`` must be an integer
 from 1 to 100 inclusive and bounds retained preview rows per result, independently
 from the ``scope.max_rows`` acquisition guard. Invalid limits raise a structured
 ``SemanticRuntimeError`` before connection acquisition, with expected/received
@@ -279,14 +306,15 @@ input and a repair. Published Metrics support ordinary source reductions and ari
 previews on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse through the shared nullable
 Row/Metric kernel. Each Entity contributes at most ``min(scope.max_rows, 10_000)``
 output rows. Population/sample/window and path/attribute-anchor preview preparation
-is unavailable and fails before opening a source. Published
-Measures still have no physical preview; published expression certification
-and source checks remain unavailable. One ``ms.load()`` is the project-level static validation event for a
+is unavailable and fails before opening a source.
+Derived Measures retain their existing preview restrictions; physical Measures
+can be previewed as fields. Preview does not certify published expressions. One ``ms.load()`` is the
+project-level static validation event for a
 dependency-coherent authored slice; there is no separate per-object verify step.
 
 For analysis-agent discovery, use ``marivo.help("analysis.inputs.catalog")``.
 ``catalog.search`` owns discovery, ``catalog.get`` owns canonical lookup,
-``CatalogEntry`` owns captured meaning/navigation, and ``ms.ref.*`` owns authored
+named objects own captured meaning/navigation, and ``ms.ref.*`` owns authored
 lookup symbols. Explicit ``ms.ai_context(aliases=[...])`` helps search without
 creating alternate identities.
 
@@ -296,19 +324,20 @@ creating alternate identities.
 
    SemanticCatalog
    CatalogPage
-   DomainEntry
-   DatasourceEntry
-   EntityEntry
-   DimensionEntry
-   TimeDimensionEntry
-   MeasureEntry
-   MetricEntry
-   RelationshipEntry
-   CatalogEntry
+   Domain
+   Datasource
+   Entity
+   Dimension
+   TimeDimension
+   Measure
+   Metric
+   Relationship
+   RowExpression
+   MetricExpression
    SemanticKind
-   PeriodCalendarEntry
+   PeriodCalendar
    CalendarPeriodPage
-   TemporalSetEntry
+   TemporalSet
    TemporalOccurrencePage
 
 Readiness & assessment

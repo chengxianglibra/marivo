@@ -20,7 +20,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 catalog.readiness(refs=[amount]).show()
 catalog.validate([amount_entry]).show()
 ```
@@ -56,8 +56,8 @@ statistics remain unknown.
 `catalog.validate(...)` checks physical contracts by default;
 it reads business rows only when you provide explicit checks
 and their bounded scope. Omit `scope` when `checks` is empty. Build checks with
-native lookup symbols from `ms.ref` or an entry's `.ref`; closed `.value`
-expressions are not accepted by these builders. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
+native named fields/relationships or explicit `ms.ref` declaration selectors;
+anonymous and routed expressions are rejected. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
 has the complete preview and online validation examples.
 
 ## Unavailable physical types and string counts

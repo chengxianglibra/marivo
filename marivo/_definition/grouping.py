@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from marivo._definition.correspondence import ComparisonAxis, coordinate_matches
 from marivo._definition.relations import MembershipBinding, validate_memberships
-from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate, invalid
+from marivo._definition.types import (
+    AxisBinding,
+    CalendarCoordinate,
+    InputContext,
+    IntervalCoordinate,
+    invalid,
+)
 from marivo._grouping import Grouping
 
 
@@ -51,6 +57,8 @@ def normalize_groupings(
 @dataclass(frozen=True, slots=True, repr=False)
 class _CoordinateGrouping(Grouping):
     _value: AxisBinding | CalendarCoordinate | IntervalCoordinate
+    _context: InputContext = field(default_factory=InputContext, compare=False)
+    _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
 
     @property
     def kind(self) -> Literal["field", "identity", "calendar", "interval"]:
@@ -70,6 +78,8 @@ class _CoordinateGrouping(Grouping):
 @dataclass(frozen=True, slots=True, repr=False)
 class _MembershipGrouping(Grouping):
     _value: MembershipBinding
+    _context: InputContext = field(default_factory=InputContext, compare=False)
+    _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = field(default=(), compare=False)
 
     @property
     def kind(self) -> Literal["membership"]:

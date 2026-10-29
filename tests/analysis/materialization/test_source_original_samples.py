@@ -113,7 +113,7 @@ def test_multi_root_read_evidence_keeps_each_contribution_scope(
     session = case.session
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     amount = catalog_value(session.catalog, "sales.order_line.line_amount", kind="field")
-    count = session.catalog.get("metric:sales.order_count").value
+    count = session.catalog.get("metric:sales.order_count")
     metric = amount.sum().where(amount > 0) / count
     trace = capture_source(monkeypatch)
     artifact = session.observe({"ratio": metric}).persist()

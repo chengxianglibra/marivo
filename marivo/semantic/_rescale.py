@@ -4,15 +4,36 @@ from __future__ import annotations
 
 import math
 from decimal import Decimal
+from typing import overload
 
 from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import RescaleResolver, resolver_of
+from marivo.semantic._expression_values import (
+    MetricExpression,
+    NumericMetric,
+    NumericRow,
+    RowExpression,
+)
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.unit_algebra import render_unit, unit_state
 
 
-def rescale(expr: Deferred, *, divisor: int | float | Decimal, unit: str) -> Deferred:
+@overload
+def rescale(expr: NumericRow, *, divisor: int | float | Decimal, unit: str) -> NumericRow: ...
+
+
+@overload
+def rescale(expr: NumericMetric, *, divisor: int | float | Decimal, unit: str) -> NumericMetric: ...
+
+
+@overload
+def rescale(expr: Deferred, *, divisor: int | float | Decimal, unit: str) -> Deferred: ...
+
+
+def rescale(
+    expr: Deferred | NumericRow | NumericMetric, *, divisor: int | float | Decimal, unit: str
+) -> Deferred | NumericRow | NumericMetric:
     """Divide a numeric expression and explicitly assert its resulting unit.
 
     Args:
@@ -34,7 +55,9 @@ def rescale(expr: Deferred, *, divisor: int | float | Decimal, unit: str) -> Def
         No unit conversion is inferred; divisor=1 is a valid explicit assertion.
         Stage and input-unit checks occur when the recipe is bound or consumed.
     """
-    if not isinstance(expr, Deferred):
+    if not isinstance(expr, (Deferred, RowExpression, MetricExpression)) or (
+        isinstance(expr, (RowExpression, MetricExpression)) and expr._role != "numeric"
+    ):
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_EXPRESSION_STAGE,
             message="rescale requires a numeric Row or completed Metric expression.",
@@ -71,4 +94,12 @@ def rescale(expr: Deferred, *, divisor: int | float | Decimal, unit: str) -> Def
             action="Use a unit token such as 'GiB/s', '1', or '{request}'.",
         ) from error
     assert canonical_unit is not None
+    if isinstance(expr, RowExpression):
+        return RowExpression(
+            RescaleResolver(expr._recipe, divisor, canonical_unit), expr._context, "numeric"
+        )
+    if isinstance(expr, MetricExpression):
+        return MetricExpression(
+            RescaleResolver(expr._recipe, divisor, canonical_unit), expr._context, "numeric"
+        )
     return Deferred(RescaleResolver(resolver_of(expr), divisor, canonical_unit))

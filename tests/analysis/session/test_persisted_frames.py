@@ -181,7 +181,7 @@ def test_lost_id_is_discovered_in_fresh_process_without_models_or_source(
             """
 import marivo.analysis as mv
 session = mv.session.get_or_create('lost-id', timezone='UTC')
-metric = session.catalog.get('metric:sales.order_count').value
+metric = session.catalog.get('metric:sales.order_count')
 month = session.time_scope(start='2026-08-01', end='2026-09-01').by(mv.grain('month'))
 session.observe({'orders': metric}, by=(month,)).persist(description='Four orders for recovery')
 raise RuntimeError('after commit')

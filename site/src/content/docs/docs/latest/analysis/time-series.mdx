@@ -124,7 +124,7 @@ zero to each daily mean leaves those results unchanged.
 ```python
 order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_date_entry.kind == "time_dimension"
-order_date = order_date_entry.value
+order_date = order_date_entry
 samples = amount.mean(time=order_date).per(order_date)
 sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
 # Arithmetic does not add a clock-coverage requirement.

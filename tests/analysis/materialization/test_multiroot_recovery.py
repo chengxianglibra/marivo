@@ -144,12 +144,12 @@ def test_native_independent_multiroot_fixed_and_cold(
             }
         )
         session = mv.session.get_or_create("r94-multiroot", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        members = session.members(session.catalog.get("entity:sales.subjects"))
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
             construction.setattr(SourceSession, "execute", forbidden)
-            left = session.catalog.get("metric:sales.left_total").value
-            right = session.catalog.get("metric:sales.right_total").value
+            left = session.catalog.get("metric:sales.left_total")
+            right = session.catalog.get("metric:sales.right_total")
             relations = {
                 "linear": session.observe({"value": left + right}, by=members),
                 "ratio": session.observe({"value": left / right}, by=members),
@@ -158,13 +158,13 @@ def test_native_independent_multiroot_fixed_and_cold(
             relations["linear_total"] = session.observe({"value": left + right})
             relations["ratio_total"] = session.observe({"value": left / right})
             owner_field = catalog_value(session.catalog, "sales.subjects.owner", kind="field")
-            left_members = session.members(session.catalog.get("entity:sales.left").value)
+            left_members = session.members(session.catalog.get("entity:sales.left"))
             auto_read = session.read(left_members, {"value": owner_field})
             explicit_read = session.read(
                 left_members,
                 {
                     "value": owner_field.via(
-                        (session.catalog.get("relationship:sales.left_subject").value,)
+                        (session.catalog.get("relationship:sales.left_subject"),)
                     )
                 },
             )

@@ -28,9 +28,10 @@ from typing import (
     overload,
 )
 
-from ibis.common.deferred import Deferred
+from ibis.common.deferred import Deferred, Resolver
 
-from marivo._definition.deferred import root_declaration
+from marivo._definition.deferred import RelationshipParameter, _RelationshipValue, root_declaration
+from marivo._definition.types import InputContext
 from marivo._symbolic import (
     DatasourceSymbol,
     DimensionSymbol,
@@ -39,6 +40,8 @@ from marivo._symbolic import (
     PeriodCalendarSymbol,
     TemporalSetSymbol,
     TimeDimensionSymbol,
+    _DatasourceIdentity,
+    _DatasourceInput,
     native_symbol_ref,
     symbol_factory,
     symbol_from_ref,
@@ -104,6 +107,12 @@ from marivo.render import (
     RenderableResult,
     Section,
 )
+from marivo.semantic._expression_values import (
+    MetricExpression,
+    NumericMetric,
+    RowExpression,
+    TimeExpression,
+)
 from marivo.semantic.catalog_entries import (
     CatalogFilters,
     CatalogPage,
@@ -142,14 +151,18 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.expressions import (
     CatalogValues,
-    Dimension,
-    Entity,
     ExpressionContract,
-    Measure,
-    Relationship,
     ResolvedValue,
     TimeField,
+    _Entity,
+    _Relationship,
     author_value,
+)
+from marivo.semantic.expressions import (
+    Dimension as _Dimension,
+)
+from marivo.semantic.expressions import (
+    Measure as _Measure,
 )
 from marivo.semantic.ir import (
     DimensionIR,
@@ -187,36 +200,36 @@ if TYPE_CHECKING:
 __all__ = [
     "AiContextView",
     "CalendarPeriodPage",
-    "CatalogEntry",
     "CatalogFilters",
     "CatalogPage",
     "CatalogScope",
+    "Datasource",
     "DatasourceDefinition",
-    "DatasourceEntry",
-    "DimensionEntry",
+    "Dimension",
+    "Domain",
     "DomainDefinition",
-    "DomainEntry",
+    "Entity",
     "EntityDefinition",
-    "EntityEntry",
     "EntityVersioning",
     "EntryProvenance",
     "FieldDefinition",
-    "MeasureEntry",
+    "Measure",
+    "Metric",
     "MetricDefinition",
-    "MetricEntry",
     "MetricTimeBinding",
+    "PeriodCalendar",
     "PeriodCalendarDefinition",
-    "PeriodCalendarEntry",
+    "Relationship",
     "RelationshipDefinition",
-    "RelationshipEntry",
     "SemanticCatalog",
     "SemanticKind",
     "SnapshotVersioning",
     "TemporalOccurrencePage",
+    "TemporalSet",
     "TemporalSetDefinition",
-    "TemporalSetEntry",
-    "TimeDimensionEntry",
+    "TimeDimension",
     "ValidityVersioning",
+    "_SemanticObject",
     "load",
 ]
 
@@ -351,7 +364,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     return factory(path)
 
 
-CatalogObjectT = TypeVar("CatalogObjectT", bound="CatalogEntry[SemanticKindTag]")
+CatalogObjectT = TypeVar("CatalogObjectT", bound="_SemanticObject[SemanticKindTag]")
 CatalogEntryKindT = TypeVar("CatalogEntryKindT", bound=SemanticKindTag, covariant=True)
 KindT = TypeVar("KindT", bound=SemanticKindTag)
 
@@ -756,7 +769,7 @@ _CatalogObjectDetails = (
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
+class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
     """One immutable browsable object in one compiled semantic catalog."""
 
     _ref: Ref[CatalogEntryKindT]
@@ -765,20 +778,11 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
 
     _navigation_names: ClassVar[tuple[str, ...]] = ()
 
+    __hash__ = None  # type: ignore[assignment]  # Semantic objects have no implicit business equality.
+
     @property
-    def ref(self) -> LookupSymbol:
-        return symbol_from_ref(self._ref)
-
-    def __eq__(self, other: object) -> bool:
-        return (
-            type(self) is type(other)
-            and isinstance(other, CatalogEntry)
-            and self._ref == other._ref
-            and self._catalog is other._catalog
-        )
-
-    def __hash__(self) -> int:
-        return hash((type(self), id(self._catalog), self._ref))
+    def _context(self) -> InputContext:
+        return InputContext(Path(self._catalog.workspace_dir).resolve())
 
     @property
     def id(self) -> str:
@@ -837,7 +841,7 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
 
     def related(
         self, relation: RelatedRelation, /, *, limit: int = 10, cursor: str | None = None
-    ) -> CatalogPage[SemanticEntry]:
+    ) -> CatalogPage[SemanticObject]:
         """Browse loaded related entries with explicit missing dependency identities.
 
         Args:
@@ -918,7 +922,7 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         if section not in {None, "definition", "context"}:
             _raise(
                 ErrorKind.INVALID_REF,
-                f"Unknown Entry display section {section!r}.",
+                f"Unknown Object display section {section!r}.",
                 cls=SemanticRuntimeError,
                 expected="definition, context or None",
                 received=str(section),
@@ -947,10 +951,10 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
             '.show(section="definition", max_output_bytes=None)',
         ]
         if isinstance(definition, (MetricDefinition, FieldDefinition, EntityDefinition)):
-            available.append(".value -> native closed Analysis input")
+            available.append("direct typed expression and Analysis input")
         elif isinstance(definition, RelationshipDefinition):
             available.append(
-                ".value -> native closed Relationship"
+                "direct relationship path input"
                 if definition.cardinality != "outside_scope"
                 else "ms.load(domains=...) -> include outside_scope endpoints"
             )
@@ -967,6 +971,8 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         card = Card(identity=self._repr_identity(), available=tuple(available)).field(
             "business_definition", self.summary
         )
+        card.field("capture_workspace", str(self._catalog.workspace_dir))
+        card.field("capture_fingerprint", self._catalog.definition_fingerprint)
         if definition.context.guardrails:
             card.listing("guardrails", definition.context.guardrails)
         if isinstance(definition, MetricDefinition):
@@ -1004,12 +1010,12 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         return card
 
 
-CatalogItem: TypeAlias = CatalogEntry[SemanticKindTag] | ResolvedValue
-_SemanticInput: TypeAlias = Deferred | CatalogEntry[SemanticKindTag] | ResolvedValue
+CatalogItem: TypeAlias = _SemanticObject[SemanticKindTag] | ResolvedValue
+_SemanticInput: TypeAlias = "SemanticObject"
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class DomainEntry(CatalogEntry[DomainKind]):
+class Domain(_SemanticObject[DomainKind]):
     """Immutable domain catalog entry."""
 
     @property
@@ -1022,7 +1028,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class DatasourceEntry(CatalogEntry[DatasourceKind]):
+class Datasource(_SemanticObject[DatasourceKind], _DatasourceInput):
     """Immutable datasource catalog entry."""
 
     @property
@@ -1030,12 +1036,16 @@ class DatasourceEntry(CatalogEntry[DatasourceKind]):
         return "datasource"
 
     @property
+    def _datasource_identity(self) -> _DatasourceIdentity:
+        return _DatasourceIdentity(self._ref, self._catalog.workspace_dir.resolve())
+
+    @property
     def definition(self) -> DatasourceDefinition:
         return cast("DatasourceDefinition", super().definition)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
+class PeriodCalendar(_SemanticObject[PeriodCalendarKind]):
     """Loaded period-calendar declaration with direct semantic-grain lookup."""
 
     _ref: Ref[PeriodCalendarKind]
@@ -1049,7 +1059,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
         return cast("PeriodCalendarDefinition", super().definition)
 
     @property
-    def ref(self) -> PeriodCalendarSymbol:
+    def _selector(self) -> PeriodCalendarSymbol:
         return symbol_factory.period_calendar(self._ref.path)
 
     def _temporal_details(self) -> PeriodCalendarDetails:
@@ -1283,7 +1293,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
+class TemporalSet(_SemanticObject[TemporalSetKind]):
     """Loaded temporal-set declaration with exact occurrence navigation."""
 
     _ref: Ref[TemporalSetKind]
@@ -1297,7 +1307,7 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         return cast("TemporalSetDefinition", super().definition)
 
     @property
-    def ref(self) -> TemporalSetSymbol:
+    def _selector(self) -> TemporalSetSymbol:
         return symbol_factory.temporal_set(self._ref.path)
 
     def _temporal_details(self) -> TemporalSetDetails:
@@ -1484,8 +1494,8 @@ RelatedRelation: TypeAlias = Literal[
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class EntityEntry(CatalogEntry[EntityKind]):
-    """Immutable entity metadata and its native closed execution value."""
+class Entity(_SemanticObject[EntityKind]):
+    """A named Entity with captured metadata and direct identity operations."""
 
     @property
     def kind(self) -> Literal["entity"]:
@@ -1496,14 +1506,69 @@ class EntityEntry(CatalogEntry[EntityKind]):
         return cast("EntityDefinition", super().definition)
 
     @property
-    def value(self) -> Entity:
-        """Return this snapshot's native immutable closed execution value."""
-        return cast("Entity", author_value(self._catalog._index.values.get(self._ref)))
+    def primary_key(self) -> tuple[str, ...]:
+        """Ordered complete Entity output identity.
+
+        Naive timestamp keys preserve wall-clock values and exact precision without a
+        timezone. TimeDimension parsers and Session timezones do not rewrite identity.
+        Naive and aware keys require explicitly compatible representations before matching.
+        """
+        return self.definition.primary_key
+
+    @property
+    def default_time(self) -> TimeDimension | None:
+        """Default observation-time field from this object's captured Catalog, if declared."""
+        identity = self.definition.default_time
+        if identity is None:
+            return None
+        value = self._catalog.get(identity)
+        assert isinstance(value, TimeDimension)
+        return value
+
+    def count(self, *, time: TimeExpression | None = None) -> NumericMetric:
+        """Capture an anonymous Metric counting this Entity's contributing rows.
+
+        Args:
+            time: Optional typed time field with the existing source-time eligibility.
+
+        Returns:
+            A numeric MetricExpression retaining the Entity identity and input context.
+
+        Example:
+            ``session.observe({"orders": orders.count()}, by=(period,))``.
+
+        Constraints:
+            Construction reads no source. The receiver binds the named Entity in its
+            completed scope; use a Mapping to give this anonymous output a name.
+        """
+        from marivo._definition.deferred import NamedResolver
+        from marivo.semantic._expression_values import _merge, _parameter
+
+        value = self._catalog._index.values.get(self._ref)
+        assert isinstance(value, _Entity)
+        # Keep the Entity boundary inside count, so receiver scope owns identity facts.
+        from ibis.common.deferred import Attr, Call
+
+        from marivo._definition.deferred import SemanticInput, SemanticResolver
+        from marivo._definition.types import SumNone
+
+        leaf = NamedResolver(
+            value._exact_ref,
+            SemanticResolver(
+                SemanticInput(
+                    value._exact_ref, value._exact_ref, "1", SumNone(), value._default_time
+                )
+            ),
+        )
+        recipe = Call(
+            Attr(leaf, "count"), **({"time": _parameter(time)} if time is not None else {})
+        )
+        return MetricExpression(recipe, _merge(self._context, time), "numeric")
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class DimensionEntry(CatalogEntry[DimensionKind]):
-    """Immutable dimension metadata and its native closed execution value."""
+class Dimension(_SemanticObject[DimensionKind], RowExpression[Literal["dimension"]]):
+    """A named Dimension with captured metadata and row comparison operations."""
 
     @property
     def kind(self) -> Literal["dimension"]:
@@ -1514,14 +1579,23 @@ class DimensionEntry(CatalogEntry[DimensionKind]):
         return cast("FieldDefinition", super().definition)
 
     @property
-    def value(self) -> Deferred:
-        """Return this snapshot's native immutable closed execution value."""
-        return cast("Deferred", author_value(self._catalog._index.values.get(self._ref)))
+    def _role(self) -> Literal["dimension"]:
+        return "dimension"
+
+    @property
+    def _recipe(self) -> Resolver:
+        from marivo._definition.deferred import NamedResolver, resolver_of
+
+        value = author_value(self._catalog._index.values.get(self._ref))
+        assert isinstance(value, Deferred)
+        return NamedResolver(
+            self._catalog._index.values._resolver.exact(self._ref), resolver_of(value)
+        )
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class TimeDimensionEntry(CatalogEntry[TimeDimensionKind]):
-    """Immutable time_dimension metadata and its native closed execution value."""
+class TimeDimension(_SemanticObject[TimeDimensionKind], RowExpression[Literal["time"]]):
+    """A named TimeDimension with captured metadata and time operations."""
 
     @property
     def kind(self) -> Literal["time_dimension"]:
@@ -1532,14 +1606,23 @@ class TimeDimensionEntry(CatalogEntry[TimeDimensionKind]):
         return cast("FieldDefinition", super().definition)
 
     @property
-    def value(self) -> Deferred:
-        """Return this snapshot's native immutable closed execution value."""
-        return cast("Deferred", author_value(self._catalog._index.values.get(self._ref)))
+    def _role(self) -> Literal["time"]:
+        return "time"
+
+    @property
+    def _recipe(self) -> Resolver:
+        from marivo._definition.deferred import NamedResolver, resolver_of
+
+        value = author_value(self._catalog._index.values.get(self._ref))
+        assert isinstance(value, Deferred)
+        return NamedResolver(
+            self._catalog._index.values._resolver.exact(self._ref), resolver_of(value)
+        )
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class MeasureEntry(CatalogEntry[MeasureKind]):
-    """Immutable measure metadata and its native closed execution value."""
+class Measure(_SemanticObject[MeasureKind], RowExpression[Literal["numeric"]]):
+    """A named Measure with captured metadata and numeric row operations."""
 
     @property
     def kind(self) -> Literal["measure"]:
@@ -1550,14 +1633,23 @@ class MeasureEntry(CatalogEntry[MeasureKind]):
         return cast("FieldDefinition", super().definition)
 
     @property
-    def value(self) -> Deferred:
-        """Return this snapshot's native immutable closed execution value."""
-        return cast("Deferred", author_value(self._catalog._index.values.get(self._ref)))
+    def _role(self) -> Literal["numeric"]:
+        return "numeric"
+
+    @property
+    def _recipe(self) -> Resolver:
+        from marivo._definition.deferred import NamedResolver, resolver_of
+
+        value = author_value(self._catalog._index.values.get(self._ref))
+        assert isinstance(value, Deferred)
+        return NamedResolver(
+            self._catalog._index.values._resolver.exact(self._ref), resolver_of(value)
+        )
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class MetricEntry(CatalogEntry[MetricKind]):
-    """Immutable metric metadata and its native closed execution value."""
+class Metric(_SemanticObject[MetricKind], MetricExpression[Literal["numeric"]]):
+    """A named Metric with captured metadata and completed metric operations."""
 
     @property
     def kind(self) -> Literal["metric"]:
@@ -1568,14 +1660,23 @@ class MetricEntry(CatalogEntry[MetricKind]):
         return cast("MetricDefinition", super().definition)
 
     @property
-    def value(self) -> Deferred:
-        """Return this snapshot's native immutable closed execution value."""
-        return cast("Deferred", author_value(self._catalog._index.values.get(self._ref)))
+    def _role(self) -> Literal["numeric"]:
+        return "numeric"
+
+    @property
+    def _recipe(self) -> Resolver:
+        from marivo._definition.deferred import NamedResolver, resolver_of
+
+        value = author_value(self._catalog._index.values.get(self._ref))
+        assert isinstance(value, Deferred)
+        return NamedResolver(
+            self._catalog._index.values._resolver.exact(self._ref), resolver_of(value)
+        )
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class RelationshipEntry(CatalogEntry[RelationshipKind]):
-    """Immutable relationship metadata and its native closed execution value."""
+class Relationship(_SemanticObject[RelationshipKind], _RelationshipValue):
+    """A named directed Relationship with captured metadata and endpoint navigation."""
 
     @property
     def kind(self) -> Literal["relationship"]:
@@ -1586,38 +1687,39 @@ class RelationshipEntry(CatalogEntry[RelationshipKind]):
         return cast("RelationshipDefinition", super().definition)
 
     @property
-    def value(self) -> Relationship:
-        """Return this snapshot's native immutable closed execution value."""
-        outside = tuple(
-            item.key
-            for item in self._catalog._entry_dependencies(self._ref)
-            if item not in self._catalog._index._refs
-        )
-        if outside:
-            _raise(
-                ErrorKind.NOT_FOUND,
-                "Relationship execution requires endpoints outside this loaded Catalog.",
-                cls=SemanticRuntimeError,
-                refs=(self.id, *outside),
-                expected="all Relationship endpoints in the loaded scope",
-                received=", ".join(outside),
-                hint="Call ms.load(domains=...) with every required domain to create a new Catalog.",
-                details={"reason": "outside_scope", "outside_scope": outside},
-            )
-        return cast("Relationship", author_value(self._catalog._index.values.get(self._ref)))
+    def _parameter(self) -> RelationshipParameter:
+        value = self._catalog._index.values.get(self._ref)
+        assert isinstance(value, _Relationship)
+        return value._parameter
+
+    @property
+    def from_entity(self) -> Entity:
+        value = self._catalog.get(self.definition.from_entity)
+        assert isinstance(value, Entity)
+        return value
+
+    @property
+    def to_entity(self) -> Entity:
+        value = self._catalog.get(self.definition.to_entity)
+        assert isinstance(value, Entity)
+        return value
+
+    @property
+    def cardinality(self) -> str:
+        return self.definition.cardinality
 
 
-SemanticEntry: TypeAlias = (
-    DomainEntry
-    | DatasourceEntry
-    | EntityEntry
-    | DimensionEntry
-    | TimeDimensionEntry
-    | MeasureEntry
-    | MetricEntry
-    | RelationshipEntry
-    | PeriodCalendarEntry
-    | TemporalSetEntry
+SemanticObject: TypeAlias = (
+    Domain
+    | Datasource
+    | Entity
+    | Dimension
+    | TimeDimension
+    | Measure
+    | Metric
+    | Relationship
+    | PeriodCalendar
+    | TemporalSet
 )
 
 
@@ -1980,17 +2082,17 @@ def _object_from_details(
 # ---------------------------------------------------------------------------
 
 
-_ENTRY_TYPE_BY_KIND: dict[SemanticKind, type[CatalogEntry[SemanticKindTag]]] = {
-    SemanticKind.ENTITY: EntityEntry,
-    SemanticKind.DIMENSION: DimensionEntry,
-    SemanticKind.TIME_DIMENSION: TimeDimensionEntry,
-    SemanticKind.MEASURE: MeasureEntry,
-    SemanticKind.METRIC: MetricEntry,
-    SemanticKind.RELATIONSHIP: RelationshipEntry,
-    SemanticKind.DOMAIN: DomainEntry,
-    SemanticKind.DATASOURCE: DatasourceEntry,
-    SemanticKind.PERIOD_CALENDAR: PeriodCalendarEntry,
-    SemanticKind.TEMPORAL_SET: TemporalSetEntry,
+_ENTRY_TYPE_BY_KIND: dict[SemanticKind, type[_SemanticObject[SemanticKindTag]]] = {
+    SemanticKind.ENTITY: Entity,
+    SemanticKind.DIMENSION: Dimension,
+    SemanticKind.TIME_DIMENSION: TimeDimension,
+    SemanticKind.MEASURE: Measure,
+    SemanticKind.METRIC: Metric,
+    SemanticKind.RELATIONSHIP: Relationship,
+    SemanticKind.DOMAIN: Domain,
+    SemanticKind.DATASOURCE: Datasource,
+    SemanticKind.PERIOD_CALENDAR: PeriodCalendar,
+    SemanticKind.TEMPORAL_SET: TemporalSet,
 }
 
 
@@ -2009,7 +2111,7 @@ def _same_kind_candidates(
 
 def _semantic_input_expected(allowed_kinds: frozenset[SemanticKind]) -> str:
     kinds = ", ".join(sorted(kind.value for kind in allowed_kinds))
-    return f"native lookup symbol, current catalog entry, or catalog value with kind in {{{kinds}}}"
+    return f"a named semantic object with kind in {{{kinds}}}"
 
 
 def _physical_dependencies(
@@ -2054,11 +2156,11 @@ def _value_lookup_ref(value: object) -> Ref[SemanticKindTag] | None:
         return field.reference.ref
     if isinstance(value, TimeField) and value.path:
         return None
-    if isinstance(value, Entity):
+    if isinstance(value, _Entity):
         return value._exact_ref.ref
-    if isinstance(value, Relationship):
+    if isinstance(value, _Relationship):
         return value._parameter.ref.ref
-    if isinstance(value, (Dimension, TimeField, Measure)):
+    if isinstance(value, (_Dimension, TimeField, _Measure)):
         return value.ref.ref
     return None
 
@@ -2067,7 +2169,7 @@ def _semantic_input_ref(value: object) -> Ref[SemanticKindTag] | None:
     symbolic = native_symbol_ref(value)
     if symbolic is not None:
         return symbolic
-    if isinstance(value, CatalogEntry):
+    if isinstance(value, _SemanticObject):
         return value._ref
     return _value_lookup_ref(value)
 
@@ -2078,22 +2180,9 @@ def _semantic_input_received(value: object) -> str:
         if type(value) is Ref:
             return f"Ref[{exact_ref.kind.value}]({exact_ref.key})"
         return f"{type(value).__name__}({exact_ref.key})"
-    if isinstance(value, CatalogEntry):
-        return f"{type(value).__name__}(invalid ref type {type(value.ref).__name__})"
+    if isinstance(value, _SemanticObject):
+        return f"{type(value).__name__}(invalid identity)"
     return type(value).__name__
-
-
-def _semantic_input_inspection_repair(
-    *,
-    action: str,
-    candidates: tuple[Ref[SemanticKindTag], ...],
-) -> AuthoringRepair:
-    return repair(
-        kind="inspect",
-        canonical_id="load",
-        action=action,
-        candidates=tuple(candidate.key for candidate in candidates),
-    )
 
 
 def _raise_invalid_semantic_input(
@@ -2112,6 +2201,7 @@ def _raise_invalid_semantic_input(
         candidate_kinds if candidate_kinds is not None else allowed_kinds,
     )
     received_ref = _semantic_input_ref(value)
+    operation = location.split(".", 1)[1].split("(", 1)[0]
     _raise(
         kind,
         f"{location}: {message}",
@@ -2120,13 +2210,23 @@ def _raise_invalid_semantic_input(
         expected=_semantic_input_expected(allowed_kinds),
         received=_semantic_input_received(value),
         constraint_id=ConstraintId.REF_SHAPE,
+        hint=f'Use a named object from catalog.get(id) or search(); run marivo.help("semantic.{operation}") for the accepted kinds.',
         repair_value=repair_value
-        or _semantic_input_inspection_repair(
-            action="Inspect the current catalog and choose an exact allowed semantic object.",
-            candidates=candidates,
+        or repair(
+            kind="inspect",
+            canonical_id=operation,
+            action="Choose an allowed named object directly from the receiving project's Catalog.",
+            snippet=f"subject = catalog.get({received_ref.key!r})"
+            if received_ref is not None
+            and received_ref in catalog._require_index()._refs
+            and received_ref.kind in allowed_kinds
+            else None,
+            candidates=tuple(candidate.key for candidate in candidates),
         ),
         details={
             "operation": location,
+            "parameter": location,
+            "query_executed": False,
             "allowed_kinds": tuple(sorted(kind.value for kind in allowed_kinds)),
             "received_type": type(value).__name__,
             "catalog_definition_fingerprint": catalog.definition_fingerprint,
@@ -2144,117 +2244,44 @@ def _normalize_semantic_input(
     metric_preview: bool = False,
     declaration_closure: bool = False,
 ) -> Ref[SemanticKindTag]:
-    """Normalize one ref, current-catalog entry, or catalog value to its canonical ref.
-
-    Entries must belong to this catalog instance. Expression values are lookup
-    keys resolved by kind and path in this catalog. Metric previews opt into
-    ordinary numeric lowering; readiness and validation expand declarations
-    to their physical dependency closures.
-    """
-    if not allowed_kinds:
-        raise ValueError("allowed_kinds must not be empty")
-
+    """Resolve a named object's identity in the explicit receiving project scope."""
     index = catalog._require_index()
-    entry: CatalogEntry[SemanticKindTag] | None = None
-    symbolic = native_symbol_ref(value)
-    if symbolic is not None:
-        exact_ref = symbolic
-    elif isinstance(value, CatalogEntry):
-        entry = value
-        if type(entry._ref) is not Ref:
-            _raise_invalid_semantic_input(
-                catalog=catalog,
-                value=value,
-                allowed_kinds=allowed_kinds,
-                location=location,
-                message="the entry does not carry an exact sealed Ref value.",
-            )
-        exact_ref = entry._ref
-        expected_entry_type = _ENTRY_TYPE_BY_KIND.get(exact_ref.kind)
-        if type(entry) is not expected_entry_type:
-            _raise_invalid_semantic_input(
-                catalog=catalog,
-                value=value,
-                allowed_kinds=allowed_kinds,
-                location=location,
-                message=(
-                    f"{type(value).__name__} is not a registered concrete catalog entry class."
-                ),
-            )
-        if entry._catalog is not catalog:
-            entry_kind = frozenset({exact_ref.kind})
-            candidates = _same_kind_candidates(catalog, entry_kind)
-            same_semantic_root = entry._catalog.semantic_root == catalog.semantic_root
-            current = index.entry(exact_ref)
-            if (
-                same_semantic_root
-                and current is not None
-                and current._ref.kind in allowed_kinds
-                and type(current) is expected_entry_type
-            ):
-                snippet = f"entry = catalog.get({exact_ref.key!r})"
-                _raise_invalid_semantic_input(
-                    catalog=catalog,
-                    value=value,
-                    allowed_kinds=allowed_kinds,
-                    location=location,
-                    message=(
-                        "the entry belongs to an earlier catalog instance for the same "
-                        "semantic root; reacquire it from the current catalog."
-                    ),
-                    repair_value=repair(
-                        kind="reacquire",
-                        canonical_id="load",
-                        action="Reacquire the exact same-kind path from the current catalog.",
-                        snippet=snippet,
-                        candidates=(exact_ref.key,),
-                    ),
-                    candidate_kinds=entry_kind,
-                )
-            ownership = "stale catalog instance" if same_semantic_root else "another catalog"
-            _raise_invalid_semantic_input(
-                catalog=catalog,
-                value=value,
-                allowed_kinds=allowed_kinds,
-                location=location,
-                message=(
-                    f"the entry belongs to {ownership}; inspect the current catalog "
-                    "without rebasing the old object."
-                ),
-                repair_value=_semantic_input_inspection_repair(
-                    action="Inspect current same-kind catalog entries and choose explicitly.",
-                    candidates=candidates,
-                ),
-                candidate_kinds=entry_kind,
-            )
-    else:
-        lookup = _value_lookup_ref(value)
-        if lookup is None:
-            _raise_invalid_semantic_input(
-                catalog=catalog,
-                value=value,
-                allowed_kinds=allowed_kinds,
-                location=location,
-                message=(
-                    "expected a native lookup symbol, a current catalog entry, or a catalog value; "
-                    "bare strings, anonymous expressions, via-bound time fields, and "
-                    "duck-typed objects are not accepted."
-                ),
-            )
-        exact_ref = lookup
-
-    if exact_ref.kind not in allowed_kinds:
+    if not isinstance(value, _SemanticObject):
+        _raise_invalid_semantic_input(
+            catalog=catalog,
+            value=value,
+            allowed_kinds=allowed_kinds,
+            location=location,
+            message="expected a named semantic object obtained from this project's Catalog.get(id) or search().",
+        )
+    exact_ref = value._ref
+    if type(value) is not _ENTRY_TYPE_BY_KIND.get(exact_ref.kind):
+        _raise_invalid_semantic_input(
+            catalog=catalog,
+            value=value,
+            allowed_kinds=allowed_kinds,
+            location=location,
+            message="expected a concrete named semantic object produced by a Catalog.",
+        )
+    if value._catalog.workspace_dir.resolve() != catalog.workspace_dir.resolve():
         _raise_invalid_semantic_input(
             catalog=catalog,
             value=value,
             allowed_kinds=allowed_kinds,
             location=location,
             message=(
-                f"received semantic kind {exact_ref.kind.value}; expected one of "
-                f"{tuple(sorted(kind.value for kind in allowed_kinds))}."
+                f"input belongs to project {value._catalog.workspace_dir}; "
+                f"the receiving Catalog belongs to {catalog.workspace_dir}."
             ),
         )
-
+    if exact_ref.kind not in allowed_kinds:
+        _raise_invalid_semantic_input(
+            catalog=catalog,
+            value=value,
+            allowed_kinds=allowed_kinds,
+            location=location,
+            message=f"received semantic kind {exact_ref.kind.value}; select an allowed named object.",
+        )
     if exact_ref not in index._refs:
         _raise_invalid_semantic_input(
             catalog=catalog,
@@ -2262,16 +2289,7 @@ def _normalize_semantic_input(
             allowed_kinds=allowed_kinds,
             location=location,
             kind=ErrorKind.NOT_FOUND,
-            message="the semantic ref is not a member of the current compiled catalog.",
-            candidate_kinds=frozenset({exact_ref.kind}),
-        )
-    if entry is not None and index.entry(exact_ref) is not entry:
-        _raise_invalid_semantic_input(
-            catalog=catalog,
-            value=value,
-            allowed_kinds=allowed_kinds,
-            location=location,
-            message="the entry was not produced by the current compiled catalog.",
+            message="the named identity is outside the receiving Catalog scope.",
             candidate_kinds=frozenset({exact_ref.kind}),
         )
     registry = catalog._state.registry
@@ -2285,7 +2303,7 @@ def _normalize_semantic_input(
         if location == "catalog.readiness(refs=...)":
             physical_snippet = (
                 "catalog.readiness(refs=["
-                + ", ".join(f"ms.ref.{ref.kind.value}({ref.path!r})" for ref in shown)
+                + ", ".join(f"catalog.get({ref.key!r})" for ref in shown)
                 + "])"
                 if shown and len(shown) == len(physical)
                 else f"catalog.get({exact_ref.key!r}).show()"
@@ -2313,94 +2331,43 @@ def _normalize_semantic_input(
     return exact_ref
 
 
-def _require_semantic_ref(value: object, *, parameter: str) -> Ref[SemanticKindTag]:
-    symbolic = native_symbol_ref(value)
-    if symbolic is not None:
-        return symbolic
-    _raise(
-        ErrorKind.INVALID_REF,
-        f"catalog.{parameter} requires a native lookup symbol; received {type(value).__name__}. "
-        "Pass entry.ref when starting from catalog navigation, or construct one "
-        "with the exact ms.ref.<kind>(path) factory.",
-        cls=SemanticRuntimeError,
-        constraint_id=ConstraintId.REF_SHAPE,
-        details={
-            "operation": f"catalog.{parameter}",
-            "expected": "native lookup symbol",
-            "received_type": type(value).__name__,
-        },
-    )
-
-
 def _require_readiness_input(
     catalog: SemanticCatalog,
-    value: object,
+    value: _SemanticInput,
 ) -> Ref[SemanticKindTag]:
-    if (
-        native_symbol_ref(value) is not None
-        or isinstance(value, CatalogEntry)
-        or _value_lookup_ref(value)
-    ):
-        return _normalize_semantic_input(
-            catalog,
-            cast("_SemanticInput", value),
-            allowed_kinds=_ALL_SEMANTIC_KINDS,
-            location="catalog.readiness(refs=...)",
-            declaration_closure=True,
-        )
-    candidates: tuple[Ref[SemanticKindTag], ...] = ()
-    repair_snippet: str | None = None
-    repair_action = (
-        "Inspect the relevant catalog collection, then pass its current value or entry, or "
-        "a native lookup symbol."
+    return _normalize_semantic_input(
+        catalog,
+        value,
+        allowed_kinds=_ALL_SEMANTIC_KINDS,
+        location="catalog.readiness(refs)",
+        declaration_closure=True,
     )
-    if isinstance(value, str):
-        candidates = tuple(
-            ref for ref in catalog._require_index()._refs if value in {ref.path, ref.key}
-        )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
-        if len(candidates) == 1:
-            candidate = candidates[0]
 
-            repair_action = "Replace the string with this exact current catalog member."
-            repair_snippet = (
-                f"member = catalog.get({candidate.key!r})\n"
-                "report = catalog.readiness(refs=[member])"
-            )
-        elif candidates:
-            repair_action = (
-                "Choose the intended exact current catalog member; this path exists in "
-                "multiple semantic kinds."
-            )
-    message = (
-        "catalog.readiness(refs=...) requires a current catalog value or entry, "
-        f"native lookup symbol; received {type(value).__name__}"
-    )
-    if isinstance(value, str):
-        message += "; bare strings are not accepted."
-    else:
-        message += "."
-    _raise(
-        ErrorKind.INVALID_REF,
-        message,
-        cls=SemanticRuntimeError,
-        constraint_id=ConstraintId.REF_SHAPE,
-        hint=("Pass a current physical catalog value or entry, or exact ms.ref.<kind>(path)."),
-        expected="current catalog value or entry, native lookup symbol",
-        received=type(value).__name__,
-        repair_value=repair(
-            kind="inspect",
-            canonical_id="readiness",
-            action=repair_action,
-            snippet=repair_snippet,
-            candidates=tuple(candidate.key for candidate in candidates),
-        ),
-        details={
-            "operation": "catalog.readiness(refs=...)",
-            "expected": "current catalog value or entry, native lookup symbol",
-            "received_type": type(value).__name__,
-            "candidates": tuple(candidate.key for candidate in candidates),
-        },
-    )
+
+def _freeze_semantic_inputs(
+    values: Sequence[_SemanticInput],
+    *,
+    operation: str,
+) -> tuple[_SemanticInput, ...]:
+    if not isinstance(values, Sequence) or isinstance(values, str | bytes) or not values:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"catalog.{operation}(refs) requires a non-empty sequence of named semantic objects.",
+            cls=SemanticRuntimeError,
+            expected="a non-empty sequence of named semantic objects",
+            received=(
+                f"an empty {type(values).__name__}"
+                if isinstance(values, Sequence) and not values
+                else type(values).__name__
+            ),
+            repair_value=repair(
+                kind="inspect",
+                canonical_id=operation,
+                action=f"Select at least one object and call catalog.{operation}([object]).",
+            ),
+            details={"parameter": "refs", "query_executed": False},
+        )
+    return tuple(values)
 
 
 def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> SourceLocation:
@@ -2437,7 +2404,7 @@ class _CatalogBuildIndex:
 
 def _build_datasource_object(
     ds_ir: DatasourceIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
-) -> DatasourceEntry:
+) -> Datasource:
     ref = ref_factory.datasource(ds_ir.semantic_id)
     details = DatasourceDetails(
         _ref=ref,
@@ -2454,12 +2421,12 @@ def _build_datasource_object(
         fields=dict(ds_ir.fields),
         env_refs=dict(ds_ir.env_refs),
     )
-    return _object_from_details(DatasourceEntry, details, catalog)
+    return _object_from_details(Datasource, details, catalog)
 
 
 def _build_domain_object(
     model_ir: DomainIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
-) -> DomainEntry:
+) -> Domain:
     ref = _make_ref(model_ir.name, SemanticKind.DOMAIN)
     details = DomainDetails(
         _ref=ref,
@@ -2475,7 +2442,7 @@ def _build_domain_object(
         owner=model_ir.owner,
         default=model_ir.default,
     )
-    return _object_from_details(DomainEntry, details, catalog)
+    return _object_from_details(Domain, details, catalog)
 
 
 def _preview_timezones_for_field(
@@ -2507,7 +2474,7 @@ def _preview_timezones_for_field(
 def _build_period_calendar_object(
     calendar_ir: PeriodCalendarIR,
     catalog: SemanticCatalog,
-) -> PeriodCalendarEntry:
+) -> PeriodCalendar:
     ref = ref_factory.period_calendar(calendar_ir.semantic_id)
     date_ref = ref_factory.time_dimension(calendar_ir.date)
     levels = tuple((name, ref_factory.dimension(path)) for name, path in calendar_ir.levels)
@@ -2548,13 +2515,13 @@ def _build_period_calendar_object(
         _level_bindings=declared_levels,
         snapshot_status="missing",
     )
-    return _object_from_details(PeriodCalendarEntry, details, catalog)
+    return _object_from_details(PeriodCalendar, details, catalog)
 
 
 def _build_temporal_set_object(
     temporal_set_ir: TemporalSetIR,
     catalog: SemanticCatalog,
-) -> TemporalSetEntry:
+) -> TemporalSet:
     ref = ref_factory.temporal_set(temporal_set_ir.semantic_id)
     occurrence_ref = ref_factory.dimension(temporal_set_ir.occurrence_id)
     start_ref = ref_factory.time_dimension(temporal_set_ir.start)
@@ -2590,7 +2557,7 @@ def _build_temporal_set_object(
         occurrence_count=None,
         snapshot_status="missing",
     )
-    return _object_from_details(TemporalSetEntry, details, catalog)
+    return _object_from_details(TemporalSet, details, catalog)
 
 
 _PreviewCell: TypeAlias = str | int | float | bool | None
@@ -3019,7 +2986,7 @@ class _CatalogIndex:
         self.values = CatalogValues(catalog._state)
         build_index = _CatalogBuildIndex(registry)
         datasource_irs = project._datasource_irs or tuple(registry.datasources.values())
-        entries: tuple[CatalogEntry[SemanticKindTag], ...] = (
+        entries: tuple[_SemanticObject[SemanticKindTag], ...] = (
             *(
                 _build_domain_object(item, build_index, catalog)
                 for item in registry.domains.values()
@@ -3048,12 +3015,12 @@ class _CatalogIndex:
                 owners.append(ref_factory.datasource(registry.entities[ref.path].datasource))
             scopes[ref] = frozenset(owner for owner in owners if owner in known)
         self._scopes = MappingProxyType(scopes)
-        self._public_entries: Mapping[Ref[SemanticKindTag], SemanticEntry] = MappingProxyType(
+        self._public_entries: Mapping[Ref[SemanticKindTag], SemanticObject] = MappingProxyType(
             {
-                ref: cast("SemanticEntry", self._entries[ref])
+                ref: cast("SemanticObject", self._entries[ref])
                 if ref in self._entries
                 else cast(
-                    "SemanticEntry",
+                    "SemanticObject",
                     _ENTRY_TYPE_BY_KIND[ref.kind](_ref=ref, _details=None, _catalog=catalog),
                 )
                 for ref in self._refs
@@ -3074,7 +3041,7 @@ class _CatalogIndex:
             raise KeyError(ref.key)
         return found
 
-    def entry(self, ref: Ref[SemanticKindTag]) -> CatalogEntry[SemanticKindTag] | None:
+    def entry(self, ref: Ref[SemanticKindTag]) -> _SemanticObject[SemanticKindTag] | None:
         return self._public_entries.get(ref)
 
     def members(
@@ -3110,9 +3077,9 @@ class SemanticCatalog(RenderableResult):
         >>> catalog.search("revenue", kind="metric").show()
         >>> revenue = catalog.get("metric:sales.revenue")
         >>> if revenue.kind == "metric":
-        ...     value = revenue.value
+        ...     ratio = revenue / 2
     Constraints: Use ms.load() to construct a fresh snapshot. Search/get/show never
-        read business datasources; native closed values are available through .value.
+        read business datasources. Named objects compose and enter consumers directly.
     """
 
     __slots__ = ("_documents", "_index", "_project", "_reg", "_scope", "_search_config", "_state")
@@ -3220,8 +3187,25 @@ class SemanticCatalog(RenderableResult):
         return symbol_from_ref(ref)
 
     @staticmethod
-    def _ref_from_id(id: str) -> Ref[SemanticKindTag]:
-        if type(id) is not str or id.count(":") != 1:
+    def _ref_from_id(id: object) -> Ref[SemanticKindTag]:
+        if isinstance(id, _SemanticObject):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.get(id) requires an identity string; the supplied object is already directly usable.",
+                cls=SemanticRuntimeError,
+                refs=(id.id,),
+                expected="canonical kind:path string",
+                received=f"{type(id).__name__}({id.id})",
+                hint="Use the object directly; pass object.id only to acquire the receiving Catalog's definition.",
+                repair_value=repair(
+                    kind="inspect",
+                    canonical_id="semantic_catalog.get",
+                    action="Use the semantic object directly, or pass object.id to get the receiving Catalog's definition.",
+                    snippet="subject = catalog.get(object.id)",
+                    candidates=(id.id,),
+                ),
+            )
+        if not isinstance(id, str) or id.count(":") != 1:
             _raise(
                 ErrorKind.INVALID_REF,
                 "catalog.get(id) requires a canonical kind:path identity.",
@@ -3243,18 +3227,18 @@ class SemanticCatalog(RenderableResult):
                 hint="Choose an id from catalog.search().items.",
             )
 
-    def get(self, id: str, /) -> SemanticEntry:
-        """Get one complete entry by its exact canonical identity.
+    def get(self, id: str, /) -> SemanticObject:
+        """Get one directly usable named object by its exact canonical identity.
 
-        Args: id: Canonical kind:path string returned by search or Entry.id.
-        Returns: A closed kind-discriminated immutable entry. Check kind before value.
+        Args: id: Canonical kind:path string returned by search or an object's id.
+        Returns: A closed kind-discriminated immutable semantic object; narrow kind before composing.
         Example: ``entry = catalog.get("metric:sales.revenue")``.
         Constraints: Exact lookup never uses fuzzy replacement or calls a model/source.
         """
         ref = self._ref_from_id(id)
         entry = self._index.entry(ref)
         if entry is not None:
-            return cast("SemanticEntry", entry)
+            return cast("SemanticObject", entry)
         known_outside = any(ref in self._entry_dependencies(item) for item in self._index._refs)
         if known_outside:
             _raise(
@@ -3394,7 +3378,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[DomainEntry]: ...
+    ) -> CatalogPage[Domain]: ...
 
     @overload
     def search(
@@ -3406,7 +3390,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[DatasourceEntry]: ...
+    ) -> CatalogPage[Datasource]: ...
 
     @overload
     def search(
@@ -3418,7 +3402,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[EntityEntry]: ...
+    ) -> CatalogPage[Entity]: ...
 
     @overload
     def search(
@@ -3430,7 +3414,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[DimensionEntry]: ...
+    ) -> CatalogPage[Dimension]: ...
 
     @overload
     def search(
@@ -3442,7 +3426,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[TimeDimensionEntry]: ...
+    ) -> CatalogPage[TimeDimension]: ...
 
     @overload
     def search(
@@ -3454,7 +3438,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[MeasureEntry]: ...
+    ) -> CatalogPage[Measure]: ...
 
     @overload
     def search(
@@ -3466,7 +3450,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[MetricEntry]: ...
+    ) -> CatalogPage[Metric]: ...
 
     @overload
     def search(
@@ -3478,7 +3462,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[RelationshipEntry]: ...
+    ) -> CatalogPage[Relationship]: ...
 
     @overload
     def search(
@@ -3490,7 +3474,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[PeriodCalendarEntry]: ...
+    ) -> CatalogPage[PeriodCalendar]: ...
 
     @overload
     def search(
@@ -3502,7 +3486,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[TemporalSetEntry]: ...
+    ) -> CatalogPage[TemporalSet]: ...
 
     @overload
     def search(
@@ -3514,7 +3498,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[SemanticEntry]: ...
+    ) -> CatalogPage[SemanticObject]: ...
 
     def search(
         self,
@@ -3525,7 +3509,7 @@ class SemanticCatalog(RenderableResult):
         entity: str | None = None,
         limit: int = 10,
         cursor: str | None = None,
-    ) -> CatalogPage[SemanticEntry]:
+    ) -> CatalogPage[SemanticObject]:
         """Search captured business definitions, or browse with an empty query.
 
         Args:
@@ -3579,12 +3563,12 @@ class SemanticCatalog(RenderableResult):
 
     def _related(
         self,
-        entry: CatalogEntry[SemanticKindTag],
+        entry: _SemanticObject[SemanticKindTag],
         relation: RelatedRelation,
         *,
         limit: int,
         cursor: str | None,
-    ) -> CatalogPage[SemanticEntry]:
+    ) -> CatalogPage[SemanticObject]:
         relations = {"dependencies", "dependents", "fields", "metrics", "relationships", "members"}
         if relation not in relations:
             _raise(
@@ -3747,19 +3731,8 @@ class SemanticCatalog(RenderableResult):
             },
         )
 
-    def _describe(self, ref: LookupSymbol, /) -> ExpressionContract:
-        """Describe one Entity, field, Metric or Relationship without source access.
-
-        Args:
-            ref: A native semantic lookup symbol present in this Catalog.
-        Returns:
-            Bounded definition facts, dependencies and available expression operations.
-        Example:
-            >>> catalog.describe(ms.ref.metric("sales.revenue")).show()
-        Constraints:
-            Physical dtypes and execution qualification belong to Query consumption.
-            The returned facts do not mutate or add attributes to native Deferred values.
-        """
+    def _describe(self, ref: Ref[SemanticKindTag], /) -> ExpressionContract:
+        """Capture immutable metadata for an exact internal scope identity."""
         from marivo._definition.graph import computation_fingerprint
         from marivo.semantic._deferred_semantics import (
             _rescale_disclosure,
@@ -3768,9 +3741,10 @@ class SemanticCatalog(RenderableResult):
         )
         from marivo.semantic.expressions import _Resolver
 
-        target = _require_semantic_ref(ref, parameter="describe(ref)")
+        target = ref
+        self._require_ref(target)
         value = self._require_index().require(target)
-        if isinstance(value, (Entity, Dimension, TimeField, Measure, Relationship)):
+        if isinstance(value, (_Entity, _Dimension, TimeField, _Measure, _Relationship)):
             return value.contract()
         if isinstance(value, Deferred):
             declaration = root_declaration(value)
@@ -3830,7 +3804,7 @@ class SemanticCatalog(RenderableResult):
         """Check selected definitions' physical dependencies and temporal artifacts offline.
 
         Args:
-            refs: Current catalog values or entries, or exact lookup symbols,
+            refs: Named objects from the same project,
                 including declared Measures and Metrics.
                 None checks all loaded physical objects. Explicit selections must
                 be nonempty and unique; their full dependency closures are checked.
@@ -3850,8 +3824,13 @@ class SemanticCatalog(RenderableResult):
         """
         self._require_ready()
         if refs is None:
-            return self._project._readiness(refs=None)
-        inputs = tuple(_require_readiness_input(self, value) for value in refs)
+            report = self._project._readiness(refs=None)
+            return replace(
+                report,
+                _resolved_inputs=tuple(self.get(ref.key) for ref in report._analysis_ready_inputs),
+            )
+        values = _freeze_semantic_inputs(refs, operation="readiness")
+        inputs = tuple(_require_readiness_input(self, value) for value in values)
         if not inputs:
             _raise(
                 ErrorKind.INVALID_REF,
@@ -3908,6 +3887,9 @@ class SemanticCatalog(RenderableResult):
             _analysis_ready_inputs=tuple(
                 ref for ref in report._analysis_ready_inputs if ref in inputs
             ),
+            _resolved_inputs=tuple(
+                self.get(ref.key) for ref in report._analysis_ready_inputs if ref in inputs
+            ),
             requested_ids=tuple(item.key for item in inputs),
             checked_ids=tuple(sorted(item.key for item in checked)),
         )
@@ -3930,7 +3912,7 @@ class SemanticCatalog(RenderableResult):
         semantic readiness and is not persisted.
 
         Args:
-            refs: Non-empty unique current semantic entries or exact refs whose
+            refs: Non-empty unique named semantic objects whose
                 physical Entity sources should be checked.
             checks: Optional explicit expectations built by ``ms.source_check``.
                 No null, enum, uniqueness, freshness, relationship, or
@@ -3955,23 +3937,16 @@ class SemanticCatalog(RenderableResult):
             independent fields; expression Entities require complete input types.
         """
         self._require_ready()
-        values = tuple(refs)
-        if not values:
-            _raise(
-                ErrorKind.INVALID_REF,
-                "catalog.validate(refs=...) requires a non-empty sequence.",
-                cls=SemanticRuntimeError,
-                details={"query_executed": False},
-            )
+        values = _freeze_semantic_inputs(refs, operation="validate")
         exact_refs = tuple(
             _normalize_semantic_input(
                 self,
                 value,
-                allowed_kinds=_ALL_SEMANTIC_KINDS,
-                location="catalog.validate(refs=...)",
+                allowed_kinds=_ALL_SEMANTIC_KINDS - {SemanticKind.DOMAIN, SemanticKind.DATASOURCE},
+                location=f"catalog.validate(refs[{index}])",
                 declaration_closure=True,
             )
-            for value in values
+            for index, value in enumerate(values)
         )
         duplicates = tuple(
             dict.fromkeys(
@@ -4032,10 +4007,10 @@ class SemanticCatalog(RenderableResult):
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
     ) -> PreviewResult:
-        """Return one bounded runtime preview for a current entry or exact ref.
+        """Return one bounded runtime preview for a named semantic object.
 
         Args:
-            ref: A current catalog entry or exact member ref.
+            ref: A named object from the same project.
             scope: One explicit authoring scope, or exact entity-to-scope
                 bindings covering all dependency Entities when the ref spans
                 multiple entities. Use ``md.unpruned`` for no pruning,
@@ -4074,7 +4049,8 @@ class SemanticCatalog(RenderableResult):
         target = _normalize_semantic_input(
             self,
             ref,
-            allowed_kinds=_ALL_SEMANTIC_KINDS,
+            allowed_kinds=_ALL_SEMANTIC_KINDS
+            - {SemanticKind.DOMAIN, SemanticKind.DATASOURCE, SemanticKind.RELATIONSHIP},
             location="catalog.preview(ref)",
             metric_preview=True,
         )
@@ -4084,6 +4060,7 @@ class SemanticCatalog(RenderableResult):
             scope=scope,
             source_bindings=source_bindings,
             registry=self._require_ready(),
+            catalog=self,
         )
         with self._project._connection_operation() as connections:
             return self._preview_one(
@@ -4105,10 +4082,10 @@ class SemanticCatalog(RenderableResult):
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
     ) -> PreviewBatchResult:
-        """Return a bounded batch preview for ordered current entries or refs.
+        """Return a bounded batch preview for ordered named semantic objects.
 
         Args:
-            refs: A non-empty ordered sequence of current entries or exact refs.
+            refs: A non-empty ordered sequence of named semantic objects.
             scope: One explicit authoring scope when all refs share one entity,
                 or exact entity-to-scope bindings otherwise.
             source_bindings: Optional exact entity-to-parameter bindings for
@@ -4138,20 +4115,90 @@ class SemanticCatalog(RenderableResult):
             limits; output limits do not bound physical scanning.
         """
         limit = normalize_preview_limit(limit, operation="preview_many")
+        values = _freeze_semantic_inputs(refs, operation="preview_many")
         normalized_refs = tuple(
             _normalize_semantic_input(
                 self,
                 value,
-                allowed_kinds=_ALL_SEMANTIC_KINDS,
+                allowed_kinds=_ALL_SEMANTIC_KINDS
+                - {SemanticKind.DOMAIN, SemanticKind.DATASOURCE, SemanticKind.RELATIONSHIP},
                 location=f"catalog.preview_many(refs)[{index}]",
                 metric_preview=True,
             )
-            for index, value in enumerate(refs)
+            for index, value in enumerate(values)
+        )
+        reg = self._require_ready()
+        if not normalized_refs:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.preview_many(refs, scope=...) requires a non-empty sequence.",
+                cls=SemanticRuntimeError,
+                details={"query_executed": False},
+            )
+        ref_objects = tuple(normalized_refs)
+        for ref_obj in ref_objects:
+            self._require_ref(ref_obj)
+        seen_refs: set[Ref[SemanticKindTag]] = set()
+        duplicate_seen: set[Ref[SemanticKindTag]] = set()
+        duplicate_list: list[Ref[SemanticKindTag]] = []
+        for ref_obj in ref_objects:
+            if ref_obj in seen_refs and ref_obj not in duplicate_seen:
+                duplicate_list.append(ref_obj)
+                duplicate_seen.add(ref_obj)
+            seen_refs.add(ref_obj)
+        duplicate_refs = tuple(duplicate_list)
+        if duplicate_refs:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.preview_many(refs, scope=...) received duplicate refs: "
+                f"{[ref.key for ref in duplicate_refs]}.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in duplicate_refs),
+                details={"query_executed": False},
+            )
+
+        supported_kinds = {
+            SemanticKind.METRIC,
+            SemanticKind.ENTITY,
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+            SemanticKind.MEASURE,
+            SemanticKind.PERIOD_CALENDAR,
+            SemanticKind.TEMPORAL_SET,
+        }
+        resolved: list[tuple[str, SemanticKind]] = []
+        for ref_obj in ref_objects:
+            kind = ref_obj.kind
+            if kind not in supported_kinds:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"catalog.preview_many(refs, scope=...) does not support {kind} refs.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_obj.path,),
+                    details={"query_executed": False, "kind": str(kind)},
+                )
+            resolved.append((ref_obj.path, kind))
+
+        sidecar = self._project._expression_sidecar
+        if sidecar is None:
+            _raise(
+                ErrorKind.PROJECT_NOT_LOADED,
+                "Semantic catalog sidecar is unavailable. Reload the catalog before previewing.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.path for ref in ref_objects),
+                details={"query_executed": False},
+            )
+        normalized = normalize_preview_batch_scopes(
+            refs=resolved,
+            scope=scope,
+            source_bindings=source_bindings,
+            registry=reg,
+            catalog=self,
         )
         with self._project._connection_operation() as connections:
             return self._preview_batch(
                 normalized_refs,
-                scope=scope,
+                normalized=normalized,
                 connections=connections,
                 source_bindings=source_bindings,
                 limit=limit,
@@ -4502,79 +4549,18 @@ class SemanticCatalog(RenderableResult):
         self,
         refs: Sequence[Ref[SemanticKindTag]],
         *,
-        scope: PreviewScope,
+        normalized: tuple[NormalizedPreviewScope, ...],
         connections: DatasourceConnectionService,
         source_bindings: PreviewSourceBindings | None,
         limit: int,
         include_types: bool,
     ) -> PreviewBatchResult:
         reg = self._require_ready()
-        if not refs:
-            _raise(
-                ErrorKind.INVALID_REF,
-                "catalog.preview_many(refs, scope=...) requires a non-empty sequence.",
-                cls=SemanticRuntimeError,
-                details={"query_executed": False},
-            )
         ref_objects = tuple(refs)
-        for ref_obj in ref_objects:
-            self._require_ref(ref_obj)
-        seen_refs: set[Ref[SemanticKindTag]] = set()
-        duplicate_seen: set[Ref[SemanticKindTag]] = set()
-        duplicate_list: list[Ref[SemanticKindTag]] = []
-        for ref_obj in ref_objects:
-            if ref_obj in seen_refs and ref_obj not in duplicate_seen:
-                duplicate_list.append(ref_obj)
-                duplicate_seen.add(ref_obj)
-            seen_refs.add(ref_obj)
-        duplicate_refs = tuple(duplicate_list)
-        if duplicate_refs:
-            _raise(
-                ErrorKind.INVALID_REF,
-                "catalog.preview_many(refs, scope=...) received duplicate refs: "
-                f"{[ref.key for ref in duplicate_refs]}.",
-                cls=SemanticRuntimeError,
-                refs=tuple(ref.key for ref in duplicate_refs),
-                details={"query_executed": False},
-            )
-
-        supported_kinds = {
-            SemanticKind.METRIC,
-            SemanticKind.ENTITY,
-            SemanticKind.DIMENSION,
-            SemanticKind.TIME_DIMENSION,
-            SemanticKind.MEASURE,
-            SemanticKind.RELATIONSHIP,
-        }
-        resolved: list[tuple[str, SemanticKind]] = []
-        for ref_obj in ref_objects:
-            kind = ref_obj.kind
-            if kind not in supported_kinds:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    f"catalog.preview_many(refs, scope=...) does not support {kind} refs.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_obj.path,),
-                    details={"query_executed": False, "kind": str(kind)},
-                )
-            resolved.append((ref_obj.path, kind))
-
+        resolved = tuple((ref.path, ref.kind) for ref in ref_objects)
         preview_limit = validate_preview_limit(limit)
         sidecar = self._project._expression_sidecar
-        if sidecar is None:
-            _raise(
-                ErrorKind.PROJECT_NOT_LOADED,
-                "Semantic catalog sidecar is unavailable. Reload the catalog before previewing.",
-                cls=SemanticRuntimeError,
-                refs=tuple(ref.path for ref in ref_objects),
-                details={"query_executed": False},
-            )
-        normalized = normalize_preview_batch_scopes(
-            refs=resolved,
-            scope=scope,
-            source_bindings=source_bindings,
-            registry=reg,
-        )
+        assert sidecar is not None
         checked_scopes: set[tuple[tuple[str, AuthoringScope], ...]] = set()
         for bindings in normalized:
             if bindings.scopes in checked_scopes:

@@ -231,8 +231,8 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     path = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
@@ -263,8 +263,8 @@ def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
     fact_id = catalog_value(session.catalog, "sales.facts.id", kind="field")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     with pytest.raises(AnalysisError, match="undefined_input" if missing else "overlapping_groups"):
@@ -287,8 +287,8 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
     fact_id = catalog_value(session.catalog, "sales.facts.id", kind="field")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
     prepared = evaluate_attribute_inputs(
@@ -627,7 +627,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
 def test_complete_compound_identity_parent_mapping(session: Session) -> None:
     value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     prepared = evaluate_attribute_inputs(
         _comparison_inputs(
@@ -676,7 +676,7 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
     monkeypatch.setattr(SourceSession, "execute", read)
     value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
     with pytest.raises(MaterializationError) as caught:
         evaluate_attribute_inputs(
@@ -845,8 +845,8 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     kind = catalog_value(session.catalog, "sales.tags.kind", kind="field")
     route = (
-        session.catalog.get("relationship:sales.fact_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.fact_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="null")
     output = evaluate_attribute_inputs(
@@ -1170,8 +1170,8 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
 
 
 def test_joint_compound_identity_counts_preserve_prepared_axis_groups(session: Session) -> None:
-    facts = session.catalog.get("entity:sales.facts").value
-    tags = session.catalog.get("entity:sales.tags").value
+    facts = session.catalog.get("entity:sales.facts")
+    tags = session.catalog.get("entity:sales.tags")
     first = mv.coordinates(by=(mv.identity(facts),), keys=((("t", 1),), (("t", 2),)))
     second = mv.coordinates(by=(mv.identity(tags),), keys=(((1,),), ((2,),)))
     domain = mv.product(first, second)
@@ -1426,8 +1426,8 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
                 label,
                 via=(
                     (
-                        session.catalog.get("relationship:sales.fact_links").value,
-                        session.catalog.get("relationship:sales.link_tags").value,
+                        session.catalog.get("relationship:sales.fact_links"),
+                        session.catalog.get("relationship:sales.link_tags"),
                     ),
                 ),
                 unmatched="exclude",
@@ -1467,8 +1467,8 @@ def test_paired_rate_mix_membership_requires_one_joint_group_per_fact(
         label,
         via=(
             (
-                session.catalog.get("relationship:sales.fact_links").value,
-                session.catalog.get("relationship:sales.link_tags").value,
+                session.catalog.get("relationship:sales.fact_links"),
+                session.catalog.get("relationship:sales.link_tags"),
             ),
         ),
         unmatched="exclude",

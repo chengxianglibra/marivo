@@ -260,7 +260,7 @@ ClickHouse `uniqHLL12`。PostgreSQL/MySQL 拒绝这两类近似操作。算法�
 
 | 参数 | 必填 | 默认值 | 含义 |
 | --- | --- | --- | --- |
-| `expr` | 是 | — | 来源单位已知的数值 Row 或已完成 Metric Deferred 表达式。 |
+| `expr` | 是 | — | 来源单位已知的数值 RowExpression 或已完成 MetricExpression。 |
 | `divisor` | 是 | — | 仅限关键字的有限正 `int`、`float` 或 `Decimal` 常量；拒绝布尔值和动态表达式。 |
 | `unit` | 是 | — | 仅限关键字的目标单位字符串；现有可分解单位会规范化，不透明单位保持原样。 |
 
@@ -427,7 +427,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 catalog.readiness(refs=[amount]).show()
 ```
 
@@ -456,7 +456,7 @@ import marivo.datasource as md
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
 preview = catalog.preview(
-    revenue_entry.value,
+    revenue_entry,
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
     limit=20,
 )
@@ -467,16 +467,16 @@ preview = catalog.preview(
 ```python
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 validation = catalog.validate(
     [amount],
-    checks=[ms.source_check.not_null(amount_entry.ref)],
+    checks=[ms.source_check.not_null(amount_entry)],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 )
 validation.show()
 ```
 
-`ms.load()` 离线检查模型声明与项目一致性。Readiness 接受所选定义（包括声明式 Measure 和 Metric），离线检查其物理依赖和必需时间产物；`analysis_ready_inputs` 仅包含直接请求且就绪的物理引用。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`；`checks` 为空时必须省略 `scope`。Source check 构造器接受 `amount_entry.ref` 等原生查找符号，不接受闭合的 `.value` 表达式。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
+`ms.load()` 离线检查模型声明与项目一致性。Readiness 接受所选定义（包括声明式 Measure 和 Metric），离线检查其物理依赖和必需时间产物；`analysis_ready_inputs` 仅包含直接请求且就绪的物理对象。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`；`checks` 为空时必须省略 `scope`。Source check 构造器直接接受 `amount_entry` 等原生命名字段，或显式 `ms.ref` 声明选择器；匿名和路径表达式会被拒绝。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
 
 `preview` 与 `preview_many` 的 `limit` 必须是 1 至 100（含两端）的整数，限制每份结果保留的预览行数。`scope.max_rows` 独立约束采集；无效的 limit 会在打开连接前抛出结构化语义错误。`preview.is_truncated` 表示预览行被省略，`preview.coverage` 表示采集是否完整。`preview.show(n=...)` 只改变已保留行的显示数量。
 

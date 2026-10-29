@@ -48,6 +48,7 @@ from marivo.semantic._deferred_semantics import (
     consume_predicate,
     consume_row,
 )
+from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
@@ -188,7 +189,7 @@ def test_metric_does_not_require_context() -> None:
     def revenue() -> Deferred:
         return amount.sum()
 
-    assert isinstance(revenue, Deferred)
+    assert isinstance(revenue, ms.MetricExpression)
     assert _LOADER_CTX.get() is None
 
 
@@ -511,8 +512,8 @@ def test_component_decorators_accept_leading_docstrings() -> None:
 
         assert _is_ref(region, ms.SemanticKind.DIMENSION)
         assert _is_ref(order_date, ms.SemanticKind.TIME_DIMENSION)
-        assert root_declaration(named_amount).name == "named_amount"
-        assert root_declaration(revenue).name == "revenue"
+        assert root_declaration(_as_deferred(named_amount)).name == "named_amount"
+        assert root_declaration(_as_deferred(revenue)).name == "revenue"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1217,9 +1218,9 @@ def test_metric_returns_local_declaration() -> None:
         def revenue() -> Deferred:
             return amount.sum()
 
-        assert isinstance(revenue, Deferred)
-        assert root_declaration(revenue).name == "revenue"
-        assert root_declaration(revenue).domain is None
+        assert isinstance(revenue, ms.MetricExpression)
+        assert root_declaration(_as_deferred(revenue)).name == "revenue"
+        assert root_declaration(_as_deferred(revenue)).domain is None
     finally:
         _exit_ctx()
 
@@ -1254,9 +1255,9 @@ def test_metric_historical_sql_in_ai_context() -> None:
         def revenue() -> Deferred:
             return amount.sum()
 
-        assert root_declaration(revenue).ai_context is not None
+        assert root_declaration(_as_deferred(revenue)).ai_context is not None
         assert (
-            root_declaration(revenue).ai_context.business_definition
+            root_declaration(_as_deferred(revenue)).ai_context.business_definition
             == "Historical ANSI SQL: SELECT SUM(amount) FROM orders"
         )
     finally:
@@ -1290,8 +1291,8 @@ def test_metric_does_not_register_callable() -> None:
             return amount.sum()
 
         value = ms.metric()(revenue_fn)
-        assert isinstance(value, Deferred)
-        assert root_declaration(value).name == "revenue_fn"
+        assert isinstance(value, ms.MetricExpression)
+        assert root_declaration(_as_deferred(value)).name == "revenue_fn"
         assert len(ctx.pending_definitions) == before
         assert all(
             pending.expression_body is None or pending.expression_body.callable is not revenue_fn
@@ -1609,7 +1610,7 @@ def test_metric_division_keeps_source_nodes_and_local_name() -> None:
         assert isinstance(consume_metric(margin).node, MetricExpression)
         assert consume_metric(margin).node.operands[0] == consume_metric(amount.sum()).node
         assert consume_metric(margin).node.operands[1] == consume_metric(amount.count()).node
-        assert root_declaration(margin).name == "margin"
+        assert root_declaration(_as_deferred(margin)).name == "margin"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1958,7 +1959,11 @@ def test_local_names_do_not_publish_registry_collisions() -> None:
         first = ms.metric()(revenue)
         second = ms.metric()(revenue)
         assert first is not second
-        assert root_declaration(first).name == root_declaration(second).name == "revenue"
+        assert (
+            root_declaration(_as_deferred(first)).name
+            == root_declaration(_as_deferred(second)).name
+            == "revenue"
+        )
         assert computation_fingerprint(consume_metric(first).node) == computation_fingerprint(
             consume_metric(second).node
         )
@@ -1982,7 +1987,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
             return amount.sum()
 
         assert as_ref(orders).path == "sales.dau_7d_portrait"
-        assert root_declaration(dau_7d_portrait).name == "dau_7d_portrait"
+        assert root_declaration(_as_deferred(dau_7d_portrait)).name == "dau_7d_portrait"
     finally:
         _exit_ctx()
 

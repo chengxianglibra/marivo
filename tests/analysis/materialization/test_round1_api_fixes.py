@@ -51,7 +51,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
             mv.product(february, mv.coordinates(by=(), keys=((),)))
         ).persist(),
         "source_calendar": session.observe(
-            {"value": session.catalog.get("metric:sales.revenue").value}, by=(march,)
+            {"value": session.catalog.get("metric:sales.revenue")}, by=(march,)
         ).persist(),
     }
     march_starts = [
@@ -220,7 +220,7 @@ def test_select_literals_reject_naive_before_run_and_preserve_dates_and_instants
     aware: datetime,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    query = session.observe({"v": session.catalog.get("metric:sales.revenue").value})
+    query = session.observe({"v": session.catalog.get("metric:sales.revenue")})
     before = run_ids(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -323,7 +323,7 @@ def test_literal_population_failures_use_structured_public_errors_without_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    entity = session.catalog.get("entity:sales.customer").value
+    entity = session.catalog.get("entity:sales.customer")
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     before = run_ids(session)
 

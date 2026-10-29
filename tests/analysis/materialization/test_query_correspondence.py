@@ -294,8 +294,8 @@ account_match = ms.relationship(name='account_match', from_entity=crm, to_entity
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("kernel-comparison", timezone="UTC")
     domains = (
-        session.members(session.catalog.get("entity:sales.crm").value),
-        session.members(session.catalog.get("entity:sales.billing").value),
+        session.members(session.catalog.get("entity:sales.crm")),
+        session.members(session.catalog.get("entity:sales.billing")),
     )
     frames = tuple(
         session.observe(

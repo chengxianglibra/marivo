@@ -97,6 +97,7 @@ class LiveSurface(Generic[DescriptorT]):
     suggestion_index: LiveSuggestionIndex | None = None
     descriptor_kind: Callable[[DescriptorT], str] | None = None
     attribute_applicability: Mapping[type, str] = field(default_factory=dict)
+    type_targets: Mapping[type, str] = field(default_factory=dict)
 
 
 def resolve_live_target(
@@ -160,8 +161,8 @@ def try_resolve_live_string_target(
                     surface.registry.by_canonical_id(canonical_id),
                     surface,
                 )
-        for type_name in surface.type_index.values():
-            if canonical_target(type_name) == candidate:
+        for type_obj, type_name in surface.type_index.items():
+            if surface.type_targets.get(type_obj, canonical_target(type_name)) == candidate:
                 return ResolvedLiveTarget(
                     kind="type_contract",
                     surface=surface.registry.surface,
@@ -183,7 +184,10 @@ def try_resolve_live_string_target(
             )
         for type_obj, type_name in surface.type_index.items():
             parent, separator, member = candidate.rpartition(".")
-            if separator and canonical_target(type_name) == parent:
+            if (
+                separator
+                and surface.type_targets.get(type_obj, canonical_target(type_name)) == parent
+            ):
                 from marivo.introspection.live.attributes import public_attributes
 
                 if member in public_attributes(type_obj):
@@ -258,6 +262,12 @@ def _resolve_type(
         pass
     type_name = surface.type_index.get(target)
     if type_name is not None:
+        if target in surface.type_targets:
+            return ResolvedLiveTarget(
+                kind="type_contract",
+                surface=surface.registry.surface,
+                type_name=type_name,
+            )
         try:
             return _resolved_descriptor(
                 surface.registry.by_canonical_id(canonical_target(type_name)), surface

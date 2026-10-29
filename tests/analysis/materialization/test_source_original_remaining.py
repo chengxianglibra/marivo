@@ -22,7 +22,7 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     customer = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     samples = session.members(
-        session.catalog.get("entity:sales.customer").value, where=customer != "D"
+        session.catalog.get("entity:sales.customer"), where=customer != "D"
     ).classify(by=(customer,))
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
@@ -207,9 +207,7 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    samples = session.members(session.catalog.get("entity:sales.order").value).classify(
-        by=(customer,)
-    )
+    samples = session.members(session.catalog.get("entity:sales.order")).classify(by=(customer,))
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()

@@ -80,7 +80,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         big = catalog_value(session.catalog, "sales.facts.big", kind="field")
         tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        entity = session.catalog.get("entity:sales.facts").value
+        entity = session.catalog.get("entity:sales.facts")
         parent = session.observe(
             {"decimal": amount.sum(), "integer": big.sum(), "count": entity.count()}
         ).compute()

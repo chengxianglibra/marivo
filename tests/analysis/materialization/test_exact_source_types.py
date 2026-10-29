@@ -56,7 +56,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("naive-identity", timezone="America/New_York")
-    entity = session.catalog.get("entity:sales.events").value
+    entity = session.catalog.get("entity:sales.events")
     amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
     members = session.members(entity)
     fixed = session.read(members, {"amount": amount}).compute()
@@ -80,7 +80,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(selected)
     ).compute().to_pandas()["total"].tolist() == [18]
-    aware = session.catalog.get("entity:sales.aware").value
+    aware = session.catalog.get("entity:sales.aware")
     incompatible = session.population_from(restored, on=((restored.axes[0], aware),))
     with pytest.raises(CoreRuleError, match="naive and aware"):
         session.observe({"count": aware.count()}, where=mv.in_population(incompatible)).compute()
@@ -118,7 +118,7 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
             }
         )
         session = mv.session.get_or_create("unsigned", timezone="UTC")
-        entity = session.catalog.get("entity:sales.events").value
+        entity = session.catalog.get("entity:sales.events")
         amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
         members = session.members(entity)
         fixed = session.read(members, {"amount": amount}).compute()
@@ -201,7 +201,7 @@ def test_source_type_repairs_and_help_explain_exact_conversions() -> None:
     for target, required in (
         ("semantic.entity.define", ("submodules", "primary_key", "semantic.row")),
         ("semantic.row", ("UInt64", "ibis.dtype", "decimal(20,0)", "signed range")),
-        ("semantic.entity.primary_key", ("Naive", "precision", "aware")),
+        ("semantic.entity_object.primary_key", ("Naive", "precision", "aware")),
         ("semantic.timestamp", ("does not rewrite Entity primary_key",)),
         ("analysis.analysis_frame.compute", ("UInt64", "naive", "semantic.entity.define")),
     ):

@@ -107,13 +107,13 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
 revenue_entry = session.catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 amount_entry = session.catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 region_entry = session.catalog.get("dimension:sales.orders.region")
 assert region_entry.kind == "dimension"
-region = region_entry.value
+region = region_entry
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline = session.observe(revenue, by=(july, region)).compute()
@@ -148,13 +148,13 @@ saved_artifact_id = saved.artifact_id
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `metrics` | Yes | — | One closed declared Metric, a nonempty tuple, or a nonempty output-name → closed Metric expression Mapping. |
+| `metrics` | Yes | — | One named Metric object, a nonempty list or tuple, or a nonempty output-name → closed Metric expression Mapping. |
 | `by` | No | `()` | Ordered semantic fields, TimeScopes, groupings, or one complete Population. `()` requests one cell. `by=P` retains exactly P’s complete output keys. |
 | `where` | No | `None` | Predicate on source contributions; `None` adds no contribution filter. Output selection in by is independent. |
 
 `session.observe(revenue)` uses the declared Metric’s local name, `revenue`;
-`session.observe((revenue, other_metric))` preserves tuple order. Only a consumed
-root `DeclaredMetricRef` supplies a default name. A declared formula has its own
+`session.observe([revenue, other_metric])` preserves list order; tuples work the same way. Only a consumed
+published root Metric object supplies a default name. A declared formula has its own
 name, but arithmetic, filter, window, per or rescale added around a reference
 requires a Mapping, such as `session.observe({"scaled_revenue": revenue / 1000})`.
 Direct source reducers, Entity/Population counts and unnamed expressions also
@@ -355,7 +355,7 @@ Start with the total decline, then ask which regions account for it.
 ```python
 order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_time_entry.kind == "time_dimension"
-average = amount.mean(time=order_time_entry.value)
+average = amount.mean(time=order_time_entry)
 average_current = session.observe({"average": average}, by=(august,))
 average_baseline = session.observe({"average": average}, by=(july,))
 average_change = average_current.compare(
@@ -421,7 +421,7 @@ Native approximate quantiles retain their original backend reducer through indep
 {/* example: attribute-native-shapley */}
 
 ```python
-approximate = amount.approx_quantile(0.5, time=order_time_entry.value)
+approximate = amount.approx_quantile(0.5, time=order_time_entry)
 quantile_current = session.observe({"approximate": approximate}, by=(august,))
 quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
 quantile_change = quantile_current.compare(
@@ -442,7 +442,7 @@ Approximate distinct also preserves its original native reducer.
 {/* example: attribute-native-approx-distinct */}
 
 ```python
-approximate_reach = region.approx_nunique(time=order_time_entry.value) * revenue
+approximate_reach = region.approx_nunique(time=order_time_entry) * revenue
 reach_current = session.observe({"reach": approximate_reach}, by=(august,))
 reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
 reach_change = reach_current.compare(
@@ -677,7 +677,7 @@ Choose whether to filter source contributions, the output domain, or already com
 ```python
 orders_entry = session.catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-Orders = orders_entry.value
+Orders = orders_entry
 fixed_orders = mv.coordinates(
     by=(mv.identity(Orders),),
     keys=(((4,),), ((5,),), ((6,),)),

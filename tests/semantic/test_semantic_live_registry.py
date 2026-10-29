@@ -306,14 +306,14 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
         for mode in contract.construction_modes:
             descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
             expected_values = {
-                SemanticKind.MEASURE: ("MeasureSymbol", "Deferred"),
-                SemanticKind.METRIC: ("Deferred",),
+                SemanticKind.MEASURE: ("MeasureSymbol", "NumericRow"),
+                SemanticKind.METRIC: ("NumericMetric",),
             }.get(contract.semantic_kind, (expected,))
             assert contract.construction_families == expected_values
             expected_output = (
-                "Deferred"
+                "NumericRow"
                 if descriptor.canonical_id == "measure.define"
-                else "Deferred"
+                else "NumericMetric"
                 if descriptor.canonical_id == "metric.define"
                 else expected
             )
@@ -726,8 +726,9 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
         if contract.name == "ref":
             continue
         by_type = resolve_live_target(type_obj, SEMANTIC_LIVE_SURFACE)
-        by_name = resolve_live_target(canonical_target(contract.name), SEMANTIC_LIVE_SURFACE)
-        if canonical_target(contract.name) in REGISTRY.canonical_ids():
+        target = contract.target or canonical_target(contract.name)
+        by_name = resolve_live_target(target, SEMANTIC_LIVE_SURFACE)
+        if target in REGISTRY.canonical_ids():
             assert by_type == by_name
             assert by_name.kind == "descriptor"
             continue
@@ -875,7 +876,7 @@ def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: st
     assert signature.parameters["axes"].kind is inspect.Parameter.VAR_POSITIONAL
 
 
-def test_preview_capability_is_one_entry_or_exact_ref() -> None:
+def test_preview_capability_accepts_one_named_object() -> None:
     import marivo.semantic as ms
 
     preview = REGISTRY.by_canonical_id("preview")
@@ -886,7 +887,7 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert preview.output_family == "PreviewResult"
     assert subject.min_count == 1
     assert subject.max_count == 1
-    assert subject.family == "CatalogEntry | LookupSymbol"
+    assert subject.family == "SemanticObject"
     assert preview.effects is not None
     assert preview.effects.mutations == ("project_state",)
     assert "may_publish_certified_artifact" in preview.effects.flags

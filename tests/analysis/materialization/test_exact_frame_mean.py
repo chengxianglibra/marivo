@@ -178,7 +178,7 @@ def test_source_read_mean_retains_receipts_and_native_integer_sum(
             [2**62, 2**62],
         )
     source = case.session.read(
-        case.session.members(case.session.catalog.get("entity:sales.order").value),
+        case.session.members(case.session.catalog.get("entity:sales.order")),
         {"x": catalog_value(case.catalog, "sales.order.amount", kind="field")},
     )
     trace = capture_source(monkeypatch)

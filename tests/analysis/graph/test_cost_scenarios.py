@@ -56,7 +56,7 @@ def test_duckdb_local_original_sum_consumes_group_input(
         session = work.session
         axis = catalog_value(session.catalog, "cost.facts.kind", kind="field")
         grouped = session.observe(
-            {"value": session.catalog.get("metric:cost.facts_total").value},
+            {"value": session.catalog.get("metric:cost.facts_total")},
             by=(session.time_scope(start="2026-08-01", end="2026-08-02"), axis),
         )
         frame = grouped.persist().to_pandas()

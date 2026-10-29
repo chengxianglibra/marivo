@@ -69,13 +69,13 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("r94-attribution", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
         happened = catalog_value(session.catalog, "sales.facts.happened", kind="field")
 
         def endpoint(month: int) -> mv.AnalysisFrame:
             return session.observe(
-                {"value": session.catalog.get("metric:sales.total").value},
+                {"value": session.catalog.get("metric:sales.total")},
                 by=mv.product(
                     session.time_scope(
                         start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"

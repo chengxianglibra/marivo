@@ -222,13 +222,13 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     {"value": metric},
                     by=mv.product(session.time_scope(start=start, end=end), chosen),
                 )
-        stable = session.members(session.catalog.get("entity:sales.subjects").value)
+        stable = session.members(session.catalog.get("entity:sales.subjects"))
         profile = catalog_value(
             session.catalog, "sales.subjects_snapshot.amount", kind="field"
-        ).via((session.catalog.get("relationship:sales.subject_profiles").value,))
+        ).via((session.catalog.get("relationship:sales.subject_profiles"),))
         queries["attributes_aug"] = session.read(stable, {"value": profile.at(august)})
         first = mv.coordinates(
-            by=(mv.identity(session.catalog.get("entity:sales.subjects").value),),
+            by=(mv.identity(session.catalog.get("entity:sales.subjects")),),
             keys=(((9007199254740992, "a"),),),
         )
         queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})

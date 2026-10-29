@@ -11,9 +11,9 @@ def test_reduced_count_compares_as_an_independent_quantity(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     values = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
+        {"value": session.catalog.get("metric:sales.order_count")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     selected = values.where(values.coord(values.axes[1]) != "D")

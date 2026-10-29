@@ -16,7 +16,8 @@ from marivo.refs import DimensionKind, EntityKind, Ref, SemanticKindTag, TimeDim
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import Dimension, Entity, Measure, TimeField
+from marivo.semantic.expressions import Dimension, Measure, TimeField
+from marivo.semantic.expressions import _Entity as Entity
 from marivo.semantic.loader import LoaderContext, loader_context
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -297,14 +298,13 @@ def test_constructed_inputs_validate_at_the_complete_consumer(
 
 
 def test_capture_helpers_are_frozen_computational_records() -> None:
-    from dataclasses import asdict
-
     with loader_context(_context()):
         _dependencies()
         state = captured_catalog()
     region = resolve(state, ms.ref.dimension("sales.orders.region"))
     policy = ms.additive_over(region)
-    assert asdict(policy) == {"coordinates": ("sales.orders.region",), "version": 1}
+    assert policy.coordinates == ("sales.orders.region",)
+    assert policy.version == 1
     with pytest.raises((AttributeError, TypeError)):
         policy.coordinates = ("replacement",)  # type: ignore[misc]  # intentional frozen-value mutation
 

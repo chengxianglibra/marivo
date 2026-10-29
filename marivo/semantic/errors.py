@@ -379,7 +379,7 @@ class SemanticExpressionError(SemanticError):
                 message=f"{operation} references a Metric that is not published.",
                 expected="a Metric published by a loaded model",
                 received=str(error),
-                action="Publish the Metric at module level in a loaded model, or take catalog.get('metric:<path>').value after checking kind.",
+                action="Publish the Metric at module level in a loaded model, or obtain its named Metric from the receiving Catalog using the reported canonical identity.",
                 details=details,
                 location_label=path,
             )

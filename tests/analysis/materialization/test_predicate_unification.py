@@ -9,6 +9,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from marivo.semantic._expression_values import RowExpression
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -72,7 +73,7 @@ def predicate_session(
 
 
 def _preferred(session: mv.Session) -> mv.Population:
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     return mv.coordinates(by=(mv.identity(entity),), keys=((("O1",),), (("O2",),), (("O3",),)))
 
 
@@ -106,9 +107,9 @@ def test_mixed_condition_public_consumers(
     """U01/U02: six rows include every nullable field/member truth-table case."""
     session = predicate_session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     condition = _condition(session, form)
-    assert isinstance(condition, Deferred)
+    assert isinstance(condition, RowExpression)
     observed = session.observe({"amount": amount.sum()}, where=condition).compute().to_pandas()
     intrinsic = session.observe({"amount": amount.sum().where(condition)}).compute().to_pandas()
     assert observed["amount"].tolist() == [total]
@@ -155,7 +156,7 @@ def test_correlated_null_coordinates_and_composite_identity(predicate_session: m
     assert keys.iloc[:, 0].tolist() == ["east", "west"]
     assert keys.iloc[:, 1].isna().tolist() == [True, False]
     assert keys.iloc[1, 1] == "web"
-    tenant = session.catalog.get("entity:sales.tenant_order").value
+    tenant = session.catalog.get("entity:sales.tenant_order")
     population = mv.coordinates(by=(mv.identity(tenant),), keys=((("A", "1"),),))
     tenant_amount = catalog_value(session.catalog, "sales.tenant_order.amount", kind="field")
     result = session.observe({"amount": tenant_amount.sum()}, where=mv.in_population(population))
@@ -206,7 +207,7 @@ def test_boolean_membership_does_not_shield_strict_checks(
     session = predicate_session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     divisor = catalog_value(session.catalog, "sales.order.divisor", kind="field")
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     risky = divisor.log() > 0
     population = (
         mv.coordinates(by=(mv.identity(entity),), keys=((("O1",),),))
@@ -224,7 +225,7 @@ def test_boolean_membership_does_not_shield_strict_checks(
 def test_population_count_is_not_reselected(predicate_session: mv.Session) -> None:
     """U05: one missing literal identity belongs to the independent denominator."""
     session = predicate_session
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     population = mv.coordinates(
         by=(mv.identity(entity),), keys=tuple(((value,),) for value in ("O1", "O2", "O3", "O999"))
@@ -289,7 +290,7 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
         .to_pandas()
     )
     assert result["amount"].tolist() == [100]
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     source = session.read(session.members(entity), {"amount": amount})
     invalid = source.select({"invalid": source["amount"] * 1e308})
     empty = invalid.top(0, by=invalid["invalid"])
@@ -309,10 +310,15 @@ def test_native_grammar_and_consumer_repairs(predicate_session: mv.Session) -> N
     paid = catalog_value(session.catalog, "sales.order.status", kind="field") == "paid"
     population = _preferred(session)
     member = mv.in_population(population)
-    invalid_conditions = (member == True, member.isnull(), member.cast("boolean"), member + 1)  # noqa: E712
+    invalid_conditions = (
+        lambda: member == True,  # noqa: E712 - deliberately invalid membership comparison
+        lambda: member.isnull(),
+        lambda: member.cast("boolean"),
+        lambda: member + 1,
+    )
     for condition in invalid_conditions:
         with pytest.raises((AnalysisError, SemanticError)):
-            session.observe({"amount": amount.sum()}, where=condition)
+            session.observe({"amount": amount.sum()}, where=condition())
     with pytest.raises((AnalysisError, SemanticError)) as captured:
         population.where(member | paid)
     assert "members" in str(captured.value)
@@ -329,7 +335,7 @@ def test_native_grammar_and_consumer_repairs(predicate_session: mv.Session) -> N
 def test_fixed_and_pending_frame_keys_in_nested_conditions(predicate_session: mv.Session) -> None:
     """U06: public population_from retains exact fixed input and pending selection."""
     session = predicate_session
-    entity = session.catalog.get("entity:sales.order").value
+    entity = session.catalog.get("entity:sales.order")
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
     status = catalog_value(session.catalog, "sales.order.status", kind="field")
     source = session.read(session.members(entity), {"amount": amount})

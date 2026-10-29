@@ -112,7 +112,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         source_graph(session.read(customers, {"region": region})).signature.owner
         == source_graph(automatic).signature.owner
     )
-    ratio = session.catalog.get("metric:sales.aov_from_lines").value
+    ratio = session.catalog.get("metric:sales.aov_from_lines")
     observed = session.observe({"value": ratio}, by=mv.product(_window(session), customers))
     binding = source_graph(observed).signature.observation
     assert binding is not None
@@ -391,7 +391,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         category,
         via=(
             (catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship"),),
-            (session.catalog.get("relationship:sales.order_product").value,),
+            (session.catalog.get("relationship:sales.order_product"),),
         ),
         unmatched="exclude",
     )

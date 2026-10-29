@@ -18,7 +18,7 @@ literal rows, and ``frame`` binds general Population keys, including zero axes.
 outputs over new business classifications through a qualified source route.
 Construction and inspection perform no business read or publication.
 
-``session.observe`` accepts one closed declared Metric, a nonempty tuple, or a
+``session.observe`` accepts one named Metric object, a nonempty list or tuple, or a
 nonempty explicit name-to-expression Mapping. Shorthand takes the local name only
 from the consumed root ``DeclaredMetricRef`` in the frozen scope. A directly
 referenced declared formula retains its declaration name; arithmetic, filter,

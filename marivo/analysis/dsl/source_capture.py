@@ -58,42 +58,78 @@ from marivo.semantic._deferred_semantics import (
     consume_metric_in_state,
     consume_predicate,
 )
+from marivo.semantic._expression_values import MetricExpression, NumericMetric
+from marivo.semantic.catalog import Metric
 
 ValueRow: TypeAlias = tuple[tuple[CoordinateValue, ...], Mapping[str, LiteralValue]]
 _MetricInputs: TypeAlias = tuple[tuple[str | None, Deferred], ...]
 
 
 def _metric_inputs(
-    metrics: Deferred | tuple[Deferred, ...] | Mapping[str, Deferred],
-) -> _MetricInputs:
-    """Freeze the closed observe input shapes before resolving a semantic scope."""
-    items: _MetricInputs
-    if isinstance(metrics, Deferred):
+    metrics: NumericMetric
+    | list[NumericMetric]
+    | tuple[NumericMetric, ...]
+    | Mapping[str, NumericMetric],
+) -> tuple[tuple[str, NumericMetric], ...]:
+    """Freeze public Metric inputs and assign names only to named root objects."""
+    items: tuple[tuple[str | None, NumericMetric], ...]
+    if isinstance(metrics, MetricExpression):
         items = ((None, metrics),)
     elif isinstance(metrics, Mapping) and metrics:
-        for name in metrics:
-            value_name(name, location="Session.observe", canonical_id="session.observe")
+        for output_name in metrics:
+            value_name(
+                output_name,
+                location=f"Session.observe.metrics[{output_name!r}]",
+                canonical_id="session.observe",
+            )
         items = tuple(metrics.items())
-    elif isinstance(metrics, tuple) and metrics:
+    elif isinstance(metrics, (tuple, list)) and metrics:
         items = tuple((None, metric) for metric in metrics)
     else:
         reject(
-            "one Metric expression, a nonempty tuple, or a nonempty named Metric mapping",
+            "one named Metric, a nonempty list/tuple, or a nonempty named Metric mapping",
             type(metrics).__name__,
-            "Pass a named Metric, (revenue, order_count), or {'output': expression} with a user-chosen output name.",
-            "Session.observe",
+            "Pass a named Metric, [revenue, order_count], or {'output': expression}.",
+            "Session.observe.metrics",
             canonical_id="session.observe",
         )
-    for position, (_, metric) in enumerate(items, start=1):
-        if not isinstance(metric, Deferred):
+    result: list[tuple[str, NumericMetric]] = []
+    for index, (name, metric) in enumerate(items):
+        location = (
+            f"Session.observe.metrics[{name!r}]"
+            if name is not None
+            else f"Session.observe.metrics[{index}]"
+        )
+        if not isinstance(metric, MetricExpression) or metric._role != "numeric":
             reject(
-                "a Metric expression for each output",
-                f"input {position}: {type(metric).__name__}",
-                "Resolve a Metric expression; use persisted_frame(id) to read saved data.",
-                "Session.observe",
+                "a numeric Metric expression",
+                type(metric).__name__,
+                "Obtain a Metric from session.catalog; use {'output': expression} for anonymous expressions.",
+                location,
                 canonical_id="session.observe",
             )
-    return items
+        if name is None:
+            if not isinstance(metric, Metric):
+                reject(
+                    "a directly named Metric for automatic output naming",
+                    "an anonymous Metric expression",
+                    "Pass session.observe({'output': expression}) with a user-chosen output name.",
+                    location,
+                    canonical_id="session.observe",
+                )
+            name = metric.name
+        try:
+            value_name(name, location=location, canonical_id="session.observe")
+        except CoreRuleError as error:
+            reject(
+                error.expected or "a valid output name",
+                f"{location}: {metric.id if isinstance(metric, Metric) else name} has local name {name!r}",
+                "Pass session.observe({'output': metric}) with a user-chosen valid output name.",
+                location,
+                canonical_id="session.observe",
+            )
+        result.append((name, metric))
+    return tuple(result)
 
 
 def capture_read(

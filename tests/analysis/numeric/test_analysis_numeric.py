@@ -48,7 +48,7 @@ def _distribution(case: DslCase, agg: AggKind, *, overall: bool = False) -> mv.A
         if overall
         else mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
 
@@ -187,7 +187,7 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
     decimal_amount = catalog_value(session.catalog, "sales.order.decimal_amount", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     float_metrics = {
         "mean": amount.mean(time=time),
         "weighted_mean": amount.weighted_mean(weight=weight, time=time),
@@ -287,7 +287,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
     floating_value = catalog_value(session.catalog, "sales.order.float_amount", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     numbers = [Fraction(amount) for _, amount, _ in facts if amount is not None]
@@ -470,7 +470,7 @@ def test_duration_matrix(
     weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     base = value.sum(time=time)
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     expressions: dict[str, Deferred] = {}
@@ -589,7 +589,7 @@ def test_typed_temporal_matrix(
     session = case.session
     value = catalog_value(session.catalog, "sales.order.amount", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     for kind in kinds:
         base = value.sum(time=time)
         samples = base.per(time)
@@ -692,7 +692,7 @@ def test_numeric_states_produce_offline_and_cold(
                 source,
             )
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
-    producer = "\nfrom tests.shared_fixtures import catalog_value\n\nimport json, sys\nfrom pathlib import Path\nimport marivo.analysis as mv\nfrom tests.analysis.numeric.pandas_coordinates import ordinary_columns\nimport marivo.semantic as ms\nfrom tests.analysis.materialization.domain_recovery_worker import snapshot\nms.load(workspace_dir='.')\nsession = mv.session.resume(sys.argv[1])\namount = catalog_value(session.catalog, 'sales.order.amount', kind='field')\ntime = catalog_value(session.catalog, 'sales.order.ordered_at', kind='field')\nbase = amount.sum(time=time)\nmetric = base if sys.argv[2] == 'decimal' else base.per(time).mean()\nmembers = session.members(session.catalog.get('entity:sales.customer').value)\nscope = session.time_scope(start='2026-08-01',end='2026-08-03')\nquery = session.observe({'value':metric}, by=mv.product(scope, members))\nfine = query.persist()\ntotal = session.observe({'value':metric}, by=(scope,), where=mv.in_population(members)).persist()\nartifacts = {'fine':fine.artifact_id,'total':total.artifact_id}\nPath('recovery-manifests.json').write_text(json.dumps({name:snapshot(value) for name,value in (('fine',fine),('total',total))}))\nprint(json.dumps(artifacts))\n"
+    producer = "\nfrom tests.shared_fixtures import catalog_value\n\nimport json, sys\nfrom pathlib import Path\nimport marivo.analysis as mv\nfrom tests.analysis.numeric.pandas_coordinates import ordinary_columns\nimport marivo.semantic as ms\nfrom tests.analysis.materialization.domain_recovery_worker import snapshot\nms.load(workspace_dir='.')\nsession = mv.session.resume(sys.argv[1])\namount = catalog_value(session.catalog, 'sales.order.amount', kind='field')\ntime = catalog_value(session.catalog, 'sales.order.ordered_at', kind='field')\nbase = amount.sum(time=time)\nmetric = base if sys.argv[2] == 'decimal' else base.per(time).mean()\nmembers = session.members(session.catalog.get('entity:sales.customer'))\nscope = session.time_scope(start='2026-08-01',end='2026-08-03')\nquery = session.observe({'value':metric}, by=mv.product(scope, members))\nfine = query.persist()\ntotal = session.observe({'value':metric}, by=(scope,), where=mv.in_population(members)).persist()\nartifacts = {'fine':fine.artifact_id,'total':total.artifact_id}\nPath('recovery-manifests.json').write_text(json.dumps({name:snapshot(value) for name,value in (('fine',fine),('total',total))}))\nprint(json.dumps(artifacts))\n"
 
     def run(script: str, *args: str) -> object:
         completed = subprocess.run(
@@ -813,9 +813,9 @@ def test_definition_quantile_checks_q_and_accepts_endpoints(
     value = catalog_value(session.catalog, "sales.order.amount", kind="field")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     for q in (True, -0.01, 1.01, float("nan"), float("inf")):
-        for expression in (value.quantile(q, time=time), value.approx_quantile(q, time=time)):
+        for expression in (value.quantile, value.approx_quantile):
             with pytest.raises(ms.errors.SemanticExpressionError):
-                session.observe({"value": expression})
+                session.observe({"value": expression(q, time=time)})
     assert terminal_runs(session) == ()
     for q, expected in ((0, 150), (1, 450)):
         result = session.observe(
@@ -882,7 +882,7 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
         catalog_value(session.catalog, "sales.order." + name, kind="field").sum(time=time)
         for name in ("amount", "small", "cancel")
     )
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     original = session.observe({"value": first + small - cancel}, by=members)
     if not floating:
         # Pandas Arrow integer addition raises at its native intermediate boundary.
@@ -919,7 +919,7 @@ def test_current_row_counts_keep_numeric_null_policy(
         {"value": value.sum(time=time)},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
     frame = logical.compute().to_pandas()

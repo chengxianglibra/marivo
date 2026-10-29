@@ -168,7 +168,7 @@ def test_same_owner_roots_reduce_separately_before_formula_alignment(
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        metric = session.catalog.get("metric:sales.combined").value
+        metric = session.catalog.get("metric:sales.combined")
         if operation == "rollup":
             query = session.observe({"combined": metric, "amount": amount.sum()})
         else:

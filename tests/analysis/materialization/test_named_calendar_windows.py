@@ -8,7 +8,6 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -18,7 +17,7 @@ from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameB
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
-from marivo.semantic.catalog import PeriodCalendarEntry, SemanticCatalog
+from marivo.semantic.catalog import Metric, PeriodCalendar, SemanticCatalog
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     catalog_entry,
@@ -30,15 +29,15 @@ from tests.shared_fixtures import (
 from tests.support.refs import as_ref
 
 
-def _metric(catalog: SemanticCatalog, path: str) -> Deferred:
+def _metric(catalog: SemanticCatalog, path: str) -> Metric:
     metric = catalog_value(catalog, path, kind="metric")
-    assert isinstance(metric, Deferred)
+    assert isinstance(metric, Metric)
     return metric
 
 
-def _calendar(catalog: SemanticCatalog) -> PeriodCalendarEntry:
+def _calendar(catalog: SemanticCatalog) -> PeriodCalendar:
     calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-    assert isinstance(calendar, PeriodCalendarEntry)
+    assert isinstance(calendar, PeriodCalendar)
     return calendar
 
 
@@ -96,9 +95,9 @@ def test_calendar_dependency_closure_keeps_explicit_certification(
     calendar_window_project: SemanticCatalog,
 ) -> None:
     catalog = calendar_window_project
-    calendar = ms.ref.period_calendar("sales.fiscal")
-    total = ms.ref.metric("sales.fiscal_total")
-    alias = ms.ref.metric("sales.fiscal_alias")
+    calendar = catalog.get("period_calendar:sales.fiscal")
+    total = catalog.get("metric:sales.fiscal_total")
+    alias = catalog.get("metric:sales.fiscal_alias")
     calendar_ref, total_ref, alias_ref = as_ref(calendar), as_ref(total), as_ref(alias)
     assert calendar_ref is not None and total_ref is not None and alias_ref is not None
     assert calendar_ref in catalog._state.dependencies[total_ref]
@@ -115,8 +114,8 @@ def test_calendar_sample_dependency_requires_certification(
     calendar_window_project: SemanticCatalog, name: str
 ) -> None:
     catalog = calendar_window_project
-    calendar = ms.ref.period_calendar("sales.fiscal")
-    metric = ms.ref.metric(f"sales.{name}")
+    calendar = catalog.get("period_calendar:sales.fiscal")
+    metric = catalog.get(f"metric:sales.{name}")
     calendar_ref, metric_ref = as_ref(calendar), as_ref(metric)
     assert calendar_ref is not None and metric_ref is not None
     assert calendar_ref in catalog._state.dependencies[metric_ref]
@@ -295,7 +294,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             "CREATE TABLE calendar (calendar_date DATE, fiscal_week VARCHAR, fiscal_month VARCHAR)"
         )
         connection.executemany("INSERT INTO calendar VALUES (?, ?, ?)", rows)
-    calendar_ref = ms.ref.period_calendar("sales.fiscal")
+    calendar_ref = catalog.get("period_calendar:sales.fiscal")
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
     session_a = mv.session.get_or_create("calendar-a", timezone="UTC")

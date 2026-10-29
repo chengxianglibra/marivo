@@ -44,7 +44,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    revenue = case.session.catalog.get("metric:sales.revenue").value
+    revenue = case.session.catalog.get("metric:sales.revenue")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     grid = scope.by(mv.grain("day"))
     observed = case.session.observe({"revenue": revenue}, by=(grid,))
@@ -55,7 +55,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     assert values.sum() == 1000
     assert values.eq(0).sum() == 28
     with pytest.raises(SemanticRuntimeError, match=r"missing\.metric") as missing:
-        _ = case.session.catalog.get("metric:missing.metric").value
+        _ = case.session.catalog.get("metric:missing.metric")
     assert missing.value.repair
     assert "metric:sales.revenue" in missing.value.repair.candidates
 

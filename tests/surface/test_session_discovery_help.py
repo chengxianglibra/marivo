@@ -3,15 +3,15 @@
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help import help as show_help
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic import Entity
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
-from marivo.semantic.expressions import Entity
 from tests.shared_fixtures import DslCaseFactory, rendered_help, terminal_runs
 
 
@@ -147,9 +147,9 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     show_help("analysis.inputs.catalog")
     guidance = capsys.readouterr().out
     assert "canonical kind:path" in guidance
-    assert "entry.kind" in guidance and "entry.value" in guidance
+    assert "object.kind" in guidance and "typed object directly" in guidance
     show_help("semantic.semantic_catalog.get")
-    assert "SemanticEntry" in capsys.readouterr().out
+    assert "SemanticObject" in capsys.readouterr().out
 
     for kind, path in (
         ("metric", "sales.revenue"),
@@ -163,11 +163,11 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
         catalog.get(f"{kind}:{path}").show()
         assert path in capsys.readouterr().out
 
-    metric = catalog.get("metric:sales.revenue").value
-    field = catalog.get("dimension:sales.customer.region").value
-    entity = catalog.get("entity:sales.customer").value
-    assert isinstance(metric, Deferred)
-    assert isinstance(field, Deferred)
+    metric = catalog.get("metric:sales.revenue")
+    field = catalog.get("dimension:sales.customer.region")
+    entity = catalog.get("entity:sales.customer")
+    assert isinstance(metric, ms.Metric)
+    assert isinstance(field, ms.Dimension)
     assert isinstance(entity, Entity)
     query = case.session.observe({"revenue": metric}, by=(field,))
     population = case.session.members(entity)

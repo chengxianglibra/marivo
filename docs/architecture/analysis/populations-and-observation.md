@@ -19,11 +19,16 @@ without restoring those source definitions.
 | frame.attribute(by=...) | Fresh contributions for retained source targets and fixed parent keys | AnalysisFrame |
 | session.population_from(frame, on=...) | Explicit selected ordinary-key projection into a new semantic binding | Population |
 
-Use closed Entities/fields/Metrics selected from the Catalog.
+Use typed Entity/field/Metric objects selected from the Catalog directly.
 Native lookup symbols require loader binding before analysis. Frame objects, artifact IDs, pandas tables and
 RawSqlResult are not source Metric operands. Session is the context for Catalog,
 execution owner, Store and frozen default timezone. Source-free descriptions and
-compositions at mv inherit their input owner when needed; cross-Session inputs fail.
+compositions at mv inherit their input owner when needed; cross-Session inputs fail. Same-project
+named leaves bind by exact kind/path in the receiving Session's completed scope;
+anonymous arithmetic remains fixed. Objects and derived Grouping/Population/checks
+retain their project constraints, including literal coordinates and pure axes.
+Cross-project inputs fail before source access. Captured Frames retain their
+bound graphs after a later load.
 
 `session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
 not supply an observation time range. A time-related Metric does not universally
@@ -86,17 +91,19 @@ Paths must be explicit, contiguous and legal for the consumer.
 
 ## Observation domain, contributions and counts
 
-observe accepts one closed declared Metric, a nonempty tuple of them, or a
+observe accepts one named Metric object, a nonempty list or tuple of them, or a
 nonempty ordered Mapping of explicit names to closed Metric expressions. Only
-the consumed root DeclaredMetricRef supplies a shorthand local name; added
+a published root Metric object supplies a shorthand local name; added
 expressions and direct source reducers/counts require Mapping. Duplicate or
-invalid names reject at capture; tuple/Mapping order fixes output order. Names
+invalid names reject at capture; list/tuple/Mapping order fixes output order. Names
 do not establish Metric identity or business comparability. The
 [Frame naming contract](analysis-frame.md#名称与-presence) owns these rules.
 by=() requests a zero-axis cell. An ordered tuple may contain fields, ordinary
 Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
 selects exactly its complete output keys, including those without facts.
-Population.axes carries coordinate rules, without the selected keys or allocation.
+Population.axes carries coordinate rules and their project interpretation, without
+the selected keys, allocation or a new Session owner. Lists and Mapping entries
+are frozen at observation capture; later container mutation cannot change a Frame.
 
 An implicit output grid cannot combine CalendarAxis buckets with the raw field
 of the same bound contribution time role (including its relationship path and
@@ -280,6 +287,10 @@ from the selected subset.
 by is a nonempty tuple of new business classifications, including explicit membership
 Grouping rules, or one complete Population. The latter preserves correlated full
 fine keys, allocation and valid no-fact candidates; tuple axes request actual groups.
+Each target binds new named classifications in its own retained source scope,
+including both ends of a comparison; missing dependencies identify the affected
+side. The original Metric graph is preserved. Cross-project classifications and
+foreign Session owners fail before source reads.
 Neither variant introduces arbitrary new time refinement. All targets must have
 admitted rules and coverage; one unsupported target rejects the whole request.
 

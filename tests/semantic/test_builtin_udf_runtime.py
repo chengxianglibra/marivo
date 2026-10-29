@@ -4,9 +4,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -70,8 +70,9 @@ def selected_total():
         quantity = catalog_value(session.catalog, "sales.facts.quantity", kind="field")
         label = catalog_value(session.catalog, "sales.facts.quantity_label", kind="field")
         total = catalog_value(session.catalog, "sales.selected_total", kind="metric")
-        assert isinstance(quantity, Deferred) and isinstance(label, Deferred)
-        assert isinstance(total, Deferred)
+        assert isinstance(quantity, ms.Measure)
+        assert isinstance(label, ms.Dimension)
+        assert isinstance(total, ms.Metric)
         trace = capture_source(monkeypatch)
         result = session.observe({"total": total, "mean": quantity.mean()}).compute()
         rows = result.to_pandas()

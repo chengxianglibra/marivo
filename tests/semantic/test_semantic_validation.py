@@ -185,7 +185,7 @@ def test_validate_without_declared_checks_is_metadata_only(
         if path.is_file()
     }
 
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
     state_files_after = {
         path.relative_to(catalog._project.state_root)
@@ -198,10 +198,16 @@ def test_validate_without_declared_checks_is_metadata_only(
     assert all(check.user_data_queried is False for check in report.checks)
     assert all(check.scopes == () for check in report.checks)
     assert as_ref(schema.datasource) == ref_factory.datasource("warehouse")
-    assert catalog.readiness(refs=schema.target_refs)._analysis_ready_inputs == schema._target_refs
+    assert (
+        catalog.readiness(
+            refs=[catalog.get(as_ref(ref).key) for ref in schema.target_refs]
+        )._analysis_ready_inputs
+        == schema._target_refs
+    )
     assert schema.source == md.table("orders")
     assert schema.observed_schema_fingerprint is not None
     assert schema.observed_schema_fingerprint.startswith("sha256:")
+
     assert schema.observed_capability_fingerprint is not None
     assert schema.observed_capability_fingerprint.startswith("sha256:")
     new_state_files = state_files_after - state_files_before
@@ -216,29 +222,80 @@ def test_validate_without_declared_checks_is_metadata_only(
     }.isdisjoint(check.kind for check in report.checks)
 
 
+@pytest.mark.parametrize("selection", [[], (), None, "entity:sales.orders", iter(())])
+def test_invalid_validation_selection_fails_before_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+    selection,
+) -> None:
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+
+    def forbidden_connection(_self):
+        pytest.fail("invalid refs acquired a connection")
+
+    monkeypatch.setattr(type(catalog._project), "_connection_operation", forbidden_connection)
+    with pytest.raises(SemanticRuntimeError) as error:
+        catalog.validate(selection)
+    assert error.value.expected == "a non-empty sequence of named semantic objects"
+    assert error.value.received
+    assert error.value.details["parameter"] == "refs"
+    assert error.value.details["query_executed"] is False
+    assert error.value.repair is not None
+    assert error.value.repair.help_target.canonical_id == "validate"
+
+
+def test_loaded_source_check_retains_project_before_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+) -> None:
+    import shutil
+
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    other_root = tmp_path / "other-project"
+    shutil.copytree(catalog.workspace_dir / "models", other_root / "models")
+    other = ms.load(workspace_dir=other_root)
+    check = ms.source_check.not_null(catalog.get("measure:sales.orders.amount"))
+    # The diagnostic selector deliberately remains authoring-only and reusable.
+    assert as_ref(check.field) == ref_factory.measure("sales.orders.amount")
+
+    def forbidden_connection(_self):
+        pytest.fail("cross-project check acquired a connection")
+
+    monkeypatch.setattr(type(catalog._project), "_connection_operation", forbidden_connection)
+    with pytest.raises(SemanticRuntimeError, match="another project") as error:
+        other.validate(
+            [other.get("entity:sales.orders")],
+            checks=[check],
+            scope=md.unpruned(max_rows=20, timeout_seconds=5),
+        )
+    assert error.value.details["query_executed"] is False
+
+
 def test_validate_runs_only_explicit_bounded_data_checks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory,
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    relationship = ms.ref.relationship("sales.orders_to_customers")
+    relationship = catalog.get("relationship:sales.orders_to_customers")
     scopes = (
-        (ms.ref.entity("sales.orders"), md.unpruned(max_rows=20, timeout_seconds=5)),
-        (ms.ref.entity("sales.customers"), md.unpruned(max_rows=20, timeout_seconds=5)),
+        (catalog.get("entity:sales.orders"), md.unpruned(max_rows=20, timeout_seconds=5)),
+        (catalog.get("entity:sales.customers"), md.unpruned(max_rows=20, timeout_seconds=5)),
     )
 
     report = catalog.validate(
-        [ms.ref.measure("sales.orders.amount"), relationship],
+        [catalog.get("measure:sales.orders.amount"), relationship],
         checks=[
-            ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
+            ms.source_check.not_null(catalog.get("measure:sales.orders.amount")),
             ms.source_check.allowed_values(
-                ms.ref.dimension("sales.orders.status"),
+                catalog.get("dimension:sales.orders.status"),
                 values=("paid", "refunded"),
             ),
-            ms.source_check.unique(fields=[ms.ref.measure("sales.orders.amount")]),
+            ms.source_check.unique(fields=[catalog.get("measure:sales.orders.amount")]),
             ms.source_check.freshness(
-                ms.ref.time_dimension("sales.orders.created_at"),
+                catalog.get("time_dimension:sales.orders.created_at"),
                 max_age=timedelta(days=30),
             ),
             ms.source_check.relationship_matches(relationship, side="from"),
@@ -267,9 +324,9 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     semantic_project_factory,
 ) -> None:
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    relationship = ms.ref.relationship("sales.orders_to_customers")
+    relationship = catalog.get("relationship:sales.orders_to_customers")
     before = catalog.readiness(refs=[relationship])
-    details = catalog.get("relationship:sales.orders_to_customers").value
+    details = catalog.get("relationship:sales.orders_to_customers")
     assert details.cardinality == "many_to_one"
 
     connection = duckdb.connect(str(database_path))
@@ -285,14 +342,17 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     report = catalog.validate(
         [relationship],
         checks=[ms.source_check.relationship_matches(relationship, side="from")],
-        scope=((ms.ref.entity("sales.orders"), scope), (ms.ref.entity("sales.customers"), scope)),
+        scope=(
+            (catalog.get("entity:sales.orders"), scope),
+            (catalog.get("entity:sales.customers"), scope),
+        ),
     )
     check = next(item for item in report.checks if item.kind == "relationship_matches")
     assert check.status == "failed"
     assert check.user_data_queried is True
     assert check.observed["from_unmatched_count"] == 2
     assert len(check.scopes) == 2
-    assert catalog.get("relationship:sales.orders_to_customers").value.cardinality == "many_to_one"
+    assert catalog.get("relationship:sales.orders_to_customers").cardinality == "many_to_one"
     assert catalog.readiness(refs=[relationship]).to_dict() | {"checked_at": None} == (
         before.to_dict() | {"checked_at": None}
     )
@@ -311,7 +371,7 @@ def test_schema_drift_reports_current_affected_refs_and_repair(
     finally:
         connection.close()
 
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "failed"
@@ -329,7 +389,7 @@ def test_validate_inspection_stays_bound_to_loaded_workspace(
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     monkeypatch.chdir(tmp_path.parent)
 
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "current"
@@ -350,7 +410,7 @@ def test_decorator_field_schema_drift_fails_closed_with_affected_refs(
     finally:
         connection.close()
 
-    report = catalog.validate([ms.ref.measure("sales.decorator_orders.decorator_amount")])
+    report = catalog.validate([catalog.get("measure:sales.decorator_orders.decorator_amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "failed"
@@ -367,7 +427,7 @@ def test_projected_validate_checks_the_actual_type_without_a_declared_type(
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
 
-    report = catalog.validate([ms.ref.measure("sales.projected_orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.projected_orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "failed"
@@ -388,7 +448,7 @@ def test_permission_failure_is_distinct_from_failed_and_unknown(
         raise PermissionError("permission denied for source metadata")
 
     monkeypatch.setattr(validation_module, "_inspect_in_project", deny_inspection)
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "unavailable"
@@ -410,7 +470,7 @@ def test_source_unavailability_has_its_own_code(
     finally:
         connection.close()
 
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "unavailable"
@@ -426,10 +486,10 @@ def test_unprovable_freshness_is_unknown_instead_of_guessed(
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
 
     report = catalog.validate(
-        [ms.ref.measure("sales.orders.amount")],
+        [catalog.get("measure:sales.orders.amount")],
         checks=[
             ms.source_check.freshness(
-                ms.ref.time_dimension("sales.orders.created_at_naive"),
+                catalog.get("time_dimension:sales.orders.created_at_naive"),
                 max_age=timedelta(days=30),
             )
         ],
@@ -452,11 +512,11 @@ def test_data_checks_require_scope_and_metadata_checks_forbid_it(
 
     with pytest.raises(SemanticRuntimeError, match="requires one explicit AuthoringScope"):
         catalog.validate(
-            [ms.ref.measure("sales.orders.amount")],
-            checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
+            [catalog.get("measure:sales.orders.amount")],
+            checks=[ms.source_check.not_null(catalog.get("measure:sales.orders.amount"))],
         )
     with pytest.raises(SemanticRuntimeError, match="requires at least one explicit data check"):
-        catalog.validate([ms.ref.measure("sales.orders.amount")], scope=scope)
+        catalog.validate([catalog.get("measure:sales.orders.amount")], scope=scope)
 
 
 def test_online_validation_rejects_timezone_conflict_before_data_reads(
@@ -476,7 +536,7 @@ def test_online_validation_rejects_timezone_conflict_before_data_reads(
         offline.setattr(DatasourceConnectionService, "session_backend", deny_connection)
         catalog = ms.load(workspace_dir=catalog.workspace_dir)
         assert (
-            catalog.readiness(refs=[ms.ref.time_dimension("sales.orders.created_at")]).status
+            catalog.readiness(refs=[catalog.get("time_dimension:sales.orders.created_at")]).status
             == "ready"
         )
 
@@ -484,7 +544,7 @@ def test_online_validation_rejects_timezone_conflict_before_data_reads(
         pytest.fail("invalid physical contracts reached a business-data read")
 
     monkeypatch.setattr(DatasourceConnectionService, "collect_source", deny_collection)
-    report = catalog.validate([ms.ref.metric("sales.revenue")])
+    report = catalog.validate([catalog.get("metric:sales.revenue")])
     schema = next(check for check in report.checks if check.kind == "schema")
     assert report.status == "failed"
     assert all(not check.user_data_queried for check in report.checks)
@@ -499,12 +559,12 @@ def test_online_validation_rejects_timezone_conflict_before_data_reads(
 
     with pytest.raises(SemanticRuntimeError) as preview:
         catalog.preview(
-            ms.ref.time_dimension("sales.orders.created_at"),
+            catalog.get("time_dimension:sales.orders.created_at"),
             scope=md.unpruned(max_rows=5, timeout_seconds=5),
         )
     session = mv.session.get_or_create("physical-type-validation", timezone="UTC")
-    amount = session.catalog.get("measure:sales.orders.amount").value
-    event = session.catalog.get("time_dimension:sales.orders.created_at").value
+    amount = session.catalog.get("measure:sales.orders.amount")
+    event = session.catalog.get("time_dimension:sales.orders.created_at")
     period = session.time_scope(start="2020-01-01", end="2020-02-01")
     with pytest.raises(SemanticRuntimeError) as analysis:
         session.observe({"amount": amount.sum(time=event)}, by=(period,)).compute()
@@ -517,7 +577,7 @@ def test_validation_and_preview_recheck_measure_type_after_schema_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, semantic_project_factory
 ) -> None:
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    amount = ms.ref.measure("sales.orders.amount")
+    amount = catalog.get("measure:sales.orders.amount")
     assert catalog.validate([amount]).status == "current"
     connection = duckdb.connect(str(database_path))
     try:
@@ -533,7 +593,7 @@ def test_validation_and_preview_recheck_measure_type_after_schema_drift(
         catalog.preview(amount, scope=md.unpruned(max_rows=5, timeout_seconds=5))
     assert error.value.repair == schema.repair
     session = mv.session.get_or_create("dimension-distinct-repair", timezone="UTC")
-    status = session.catalog.get("dimension:sales.orders.status").value
+    status = session.catalog.get("dimension:sales.orders.status")
     rows = session.observe({"distinct": status.count_distinct()}).compute().to_pandas()
     assert rows["distinct"].tolist() == [2]
 
@@ -560,7 +620,7 @@ def test_validation_accepts_native_duration_measure_carriers(
         )
     finally:
         connection.close()
-    report = catalog.validate([ms.ref.measure("sales.orders.amount")])
+    report = catalog.validate([catalog.get("measure:sales.orders.amount")])
     assert report.status == "current", report.to_dict()
     schema = next(check for check in report.checks if check.kind == "schema")
     assert schema.observed["field_types"]["measure:sales.orders.amount"] == "interval('us')"
@@ -597,7 +657,7 @@ def test_validation_uses_entity_and_field_output_types(
         }
     )
     catalog = SemanticCatalog(project)
-    report = catalog.validate([ms.ref.entity("sales.events")])
+    report = catalog.validate([catalog.get("entity:sales.events")])
     assert report.status == "current", report.to_dict()
     schema = next(check for check in report.checks if check.kind == "schema")
     assert schema.observed["field_types"] == {
@@ -605,7 +665,7 @@ def test_validation_uses_entity_and_field_output_types(
         "time_dimension:sales.events.point": "timestamp",
     }
     assert catalog.preview(
-        ms.ref.measure("sales.events.amount"),
+        catalog.get("measure:sales.events.amount"),
         scope=md.unpruned(max_rows=5, timeout_seconds=5),
     ).rows == ({"amount": 12.5},)
 
@@ -624,7 +684,7 @@ def test_validation_uses_entity_and_field_output_types(
     monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
     schema = next(
         check
-        for check in catalog.validate([ms.ref.entity("sales.events")]).checks
+        for check in catalog.validate([catalog.get("entity:sales.events")]).checks
         if check.kind == "schema"
     )
     assert schema.status == "failed"
@@ -672,7 +732,7 @@ def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
             name, backend_type=engine if name == "char(1)" else backend_type
         ),
     )
-    report = catalog.validate([ms.ref.entity("sales.orders")])
+    report = catalog.validate([catalog.get("entity:sales.orders")])
     schema = next(check for check in report.checks if check.kind == "schema")
     assert schema.status == "failed"
     assert schema.observed["unavailable_columns"] == {column: "char(1)"}
@@ -715,7 +775,7 @@ def test_unavailable_column_repair_identifies_physical_type(
     )
     schema = next(
         check
-        for check in catalog.validate([ms.ref.entity("sales.orders")]).checks
+        for check in catalog.validate([catalog.get("entity:sales.orders")]).checks
         if check.kind == "schema"
     )
     assert schema.status == "failed"
@@ -759,7 +819,7 @@ def test_unavailable_type_propagates_through_bound_dimension_dependencies(
     monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
     schema = next(
         check
-        for check in catalog.validate([ms.ref.entity("sales.orders")]).checks
+        for check in catalog.validate([catalog.get("entity:sales.orders")]).checks
         if check.kind == "schema"
     )
     assert schema.status == "failed"

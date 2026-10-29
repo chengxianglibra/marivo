@@ -36,7 +36,7 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
 
 def orders(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.order").value)
+    members = session.members(session.catalog.get("entity:sales.order"))
     return session.read(
         members,
         {
@@ -50,12 +50,12 @@ def monthly(case: DslCase, start: str, end: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {
-            "value": session.catalog.get("metric:sales.revenue").value,
-            "count": session.catalog.get("metric:sales.order_count").value,
+            "value": session.catalog.get("metric:sales.revenue"),
+            "count": session.catalog.get("metric:sales.order_count"),
         },
         by=mv.product(
             session.time_scope(start=start, end=end),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
 
@@ -64,7 +64,7 @@ def daily(case: DslCase, *, end: str = "2026-08-04") -> mv.AnalysisFrame:
     session = case.session
     period = session.time_scope(start="2026-08-01", end=end)
     return session.observe(
-        {"value": session.catalog.get("metric:sales.order_count").value},
+        {"value": session.catalog.get("metric:sales.order_count")},
         by=(period.by(mv.grain("day")),),
     )
 

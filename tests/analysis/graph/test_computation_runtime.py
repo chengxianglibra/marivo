@@ -24,7 +24,6 @@ from trino.dbapi import Connection, Cursor
 
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 from tests.datasource.source_cases import source_params
 from tests.shared_fixtures import catalog_value, terminal_runs
 
@@ -134,7 +133,8 @@ def _aggregate(session: mv.Session, metric: str) -> mv.AnalysisFrame:
 
 def _semantic_value(session: mv.Session, metric: str) -> object:
     preview = session.catalog.preview(
-        ms.ref.metric(f"sales.{metric}"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+        session.catalog.get(f"metric:sales.{metric}"),
+        scope=md.unpruned(max_rows=10, timeout_seconds=30),
     )
     assert preview.returned_row_count == 1
     return preview.rows[0]["value"]
@@ -170,8 +170,8 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
 def test_runtime_linear_over_integer_sums_retains_native_int64(
     computation_session: mv.Session,
 ) -> None:
-    quantity = computation_session.catalog.get("metric:sales.quantity_total").value
-    count = computation_session.catalog.get("metric:sales.gmv_quantity").value
+    quantity = computation_session.catalog.get("metric:sales.quantity_total")
+    count = computation_session.catalog.get("metric:sales.gmv_quantity")
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
     assert pa.array(rows["value"]).type == pa.int64()
@@ -503,7 +503,7 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
     from marivo.analysis.errors import AnalysisError
 
     logical = trino_session.observe(
-        {"value": trino_session.catalog.get("metric:sales.amount_mean").value}
+        {"value": trino_session.catalog.get("metric:sales.amount_mean")}
     )
     with pytest.raises(AnalysisError):
         logical.persist()

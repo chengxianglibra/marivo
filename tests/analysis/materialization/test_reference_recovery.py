@@ -37,28 +37,22 @@ def test_native_reference_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, reference_data(backend)) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-reference", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
 
         bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
-        values = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value}, by=members
-        )
-        groups = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value}, by=(bucket,)
-        )
+        values = session.observe({"value": session.catalog.get("metric:sales.total")}, by=members)
+        groups = session.observe({"value": session.catalog.get("metric:sales.total")}, by=(bucket,))
         calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         opportunities = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value},
+            {"value": session.catalog.get("metric:sales.total")},
             by=mv.product(calendar, members),
         )
         category = session.read(members, {"bucket": bucket})
         chosen = values.where(values["value"] > 0)
         selected = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts").value),)
+            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts")),)
         )
-        total = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value}
-        ).compute()
+        total = session.observe({"value": session.catalog.get("metric:sales.total")}).compute()
         denominator = total.to_pandas()["value"].iloc[0]
         assert denominator == 6
         queries = {

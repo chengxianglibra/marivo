@@ -271,7 +271,7 @@ Use `ms.rescale` to divide a numeric Row or completed Metric by a constant and e
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `expr` | Yes | — | Numeric Row or completed Metric Deferred expression with a known source unit. |
+| `expr` | Yes | — | Numeric RowExpression or completed MetricExpression with a known source unit. |
 | `divisor` | Yes | — | Keyword-only finite positive `int`, `float` or `Decimal` constant; booleans and dynamic expressions are rejected. |
 | `unit` | Yes | — | Keyword-only target unit string; existing factorable units are canonicalized and opaque units are retained. |
 
@@ -437,7 +437,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 catalog.readiness(refs=[amount]).show()
 ```
 
@@ -469,7 +469,7 @@ import marivo.datasource as md
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
 preview = catalog.preview(
-    revenue_entry.value,
+    revenue_entry,
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
     limit=20,
 )
@@ -480,16 +480,16 @@ preview = catalog.preview(
 ```python
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 validation = catalog.validate(
     [amount],
-    checks=[ms.source_check.not_null(amount_entry.ref)],
+    checks=[ms.source_check.not_null(amount_entry)],
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 )
 validation.show()
 ```
 
-`ms.load()` checks model declarations and project coherence without connecting to sources. Readiness accepts selected definitions, including declared Measures and Metrics, and checks their physical dependencies and required temporal artifacts offline. Its `analysis_ready_inputs` contains only directly requested ready physical refs. Use `catalog.validate([amount_entry]).show()` to connect and check actual Entity output schemas, field bindings, numeric types and temporal parser/timezone contracts. It expands selected definitions to their physical dependency closure and reports declaration locations and repairs. Preview and analysis reuse the same field checks. To test source values, pass explicit checks and a bounded `scope` to `catalog.validate(...)`; omit `scope` when `checks` is empty. Source-check builders accept native lookup symbols such as `amount_entry.ref`, not closed `.value` expressions. Ordinary preview and validation do not change readiness or qualify every analysis method.
+`ms.load()` checks model declarations and project coherence without connecting to sources. Readiness accepts selected definitions, including declared Measures and Metrics, and checks their physical dependencies and required temporal artifacts offline. Its `analysis_ready_inputs` contains only directly requested ready physical objects. Use `catalog.validate([amount_entry]).show()` to connect and check actual Entity output schemas, field bindings, numeric types and temporal parser/timezone contracts. It expands selected definitions to their physical dependency closure and reports declaration locations and repairs. Preview and analysis reuse the same field checks. To test source values, pass explicit checks and a bounded `scope` to `catalog.validate(...)`; omit `scope` when `checks` is empty. Source-check builders accept native named fields such as `amount_entry` or explicit `ms.ref` declaration selectors; anonymous and routed expressions are rejected. Ordinary preview and validation do not change readiness or qualify every analysis method.
 
 For `preview` and `preview_many`, `limit` must be an integer from 1 to 100 inclusive and bounds retained preview rows per result. `scope.max_rows` independently guards acquisition; invalid limits raise a structured semantic error before a connection opens. `preview.is_truncated` reports omitted preview rows, while `preview.coverage` reports acquisition completeness. `preview.show(n=...)` only changes how many retained rows are displayed.
 

@@ -20,9 +20,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
     ArtifactManifest,
@@ -519,7 +519,9 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
     session = source_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    assert isinstance(amount, Deferred) and isinstance(region, Deferred)
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
+        region, (ms.RowExpression, ms.MetricExpression)
+    )
     query = session.observe(
         {"total": amount.sum(), "mean": amount.mean(), "ratio": amount.sum() / (amount.sum() * 0)},
         by=(region,),
@@ -551,7 +553,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
 
 def test_calendar_bounds_are_explicit_output_attachment(source_session: Session) -> None:
     session = source_session
-    metric = session.catalog.get("metric:sales.revenue").value
+    metric = session.catalog.get("metric:sales.revenue")
     axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
     artifact = session.observe({"revenue": metric}, by=(axis,)).persist()
     (attachment,) = committed(artifact).data.attachments
@@ -574,7 +576,7 @@ def test_calendar_timezone_survives_private_cold_read(
         mv.grain("day")
     )
     if from_source:
-        metric = session.catalog.get("metric:sales.revenue").value
+        metric = session.catalog.get("metric:sales.revenue")
         artifact = session.observe({"value": metric}, by=(axis,)).persist()
     else:
         artifact = calendar_constant(session, axis).persist()
@@ -624,7 +626,9 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
     session = source_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    assert isinstance(region, Deferred) and isinstance(amount, Deferred)
+    assert isinstance(region, (ms.RowExpression, ms.MetricExpression)) and isinstance(
+        amount, (ms.RowExpression, ms.MetricExpression)
+    )
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     predicates = (
@@ -852,7 +856,7 @@ def test_large_output_uses_bounded_row_groups(tmp_path: Path) -> None:
 
 
 def test_pure_source_publication_has_no_synthetic_local_check(source_session: Session) -> None:
-    metric = source_session.catalog.get("metric:sales.revenue").value
+    metric = source_session.catalog.get("metric:sales.revenue")
     artifact = source_session.observe({"revenue": metric}).persist()
     assert stored_frame(source_session, artifact)["value.0"].tolist() == [9007199254740998]
     facts = records(source_session, artifact)
@@ -865,7 +869,7 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
     source_session: Session,
 ) -> None:
     amount = catalog_value(source_session.catalog, "sales.orders.amount", kind="field")
-    assert isinstance(amount, Deferred)
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
     total = amount.sum(nulls="error")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"strict": total}).persist()
@@ -885,7 +889,7 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
 
 def test_preparation_failure_creates_no_run(source_session: Session) -> None:
     region = catalog_value(source_session.catalog, "sales.orders.region", kind="field")
-    metric = source_session.catalog.get("metric:sales.revenue").value
+    metric = source_session.catalog.get("metric:sales.revenue")
     with duckdb.connect(str(source_session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("ALTER TABLE orders ALTER region TYPE BLOB USING 'unsupported'::BLOB")
     with pytest.raises(MaterializationError) as caught:
@@ -907,7 +911,7 @@ def test_source_disconnect_failure_prevents_publication(
         return False
 
     monkeypatch.setattr(BackendLease, "close", unconfirmed)
-    metric = source_session.catalog.get("metric:sales.revenue").value
+    metric = source_session.catalog.get("metric:sales.revenue")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"revenue": metric}).persist()
     assert not hasattr(caught.value, "run_ref")

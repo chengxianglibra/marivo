@@ -308,7 +308,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         session,
         _,
     ):
-        metric = session.catalog.get("metric:sales.average").value
+        metric = session.catalog.get("metric:sales.average")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")
@@ -373,9 +373,7 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         cadence=cadence,
     ) as (session, _):
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
-        query = session.observe(
-            {"v": session.catalog.get("metric:sales.average").value}, by=(scope,)
-        )
+        query = session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
         trace = capture_source(monkeypatch)
         value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
@@ -443,9 +441,7 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
         values=(1e308, 1e308, None, None, 1e308),
     ) as (session, case):
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
-        query = session.observe(
-            {"v": session.catalog.get("metric:sales.average").value}, by=(scope,)
-        )
+        query = session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
         trace = capture_source(monkeypatch)
         actual: pd.DataFrame | None = None
         failure: MaterializationError | None = None
@@ -539,7 +535,7 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
             Decimal("60.00") if amount_type == "DECIMAL(18,2)" else 60.0
         ]
         rows = (
-            session.observe({"v": session.catalog.get("metric:sales.average").value}, by=(scope,))
+            session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
             .compute()
             .to_pandas()
         )
@@ -871,7 +867,7 @@ def test_trino_four_day_mean_transport_and_cost(
             finally:
                 cursor.close()
         trace = capture_source(monkeypatch, measure_cost=True)
-        metric = session.catalog.get("metric:sales.average").value
+        metric = session.catalog.get("metric:sales.average")
         scope = session.time_scope(start="2026-10-01", end="2026-10-05")
         measurements: list[dict[str, object]] = []
         # Toggle native folding without changing the captured sample policy.
@@ -1109,7 +1105,7 @@ def test_local_sample_mean_uses_observed_samples_for_excluded_native_shapes(
         )
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         by = (
-            mv.product(scope, session.members(session.catalog.get("entity:sales.facts").value))
+            mv.product(scope, session.members(session.catalog.get("entity:sales.facts")))
             if excluded == "population"
             else (scope,)
             if bounded

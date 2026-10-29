@@ -14,6 +14,7 @@ import marivo.semantic as ms
 from marivo.datasource import loader, store
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
+    DatasourceFieldInvalidError,
     DatasourceLoadError,
     DatasourceMissingError,
 )
@@ -46,6 +47,56 @@ def _project(root: Path, factory: _ProjectFactory, name: str = "warehouse") -> P
         workspace_dir=root,
     )
     return root
+
+
+def test_loaded_datasource_continues_physical_work_after_semantic_model_breaks(
+    tmp_path: Path,
+    semantic_project_factory: _ProjectFactory,
+) -> None:
+    root = _project(tmp_path / "physical", semantic_project_factory)
+    catalog = ms.load(workspace_dir=root)
+    datasource = catalog.get("datasource:warehouse")
+    assert datasource.kind == "datasource"
+    inspection = md.inspect(datasource, md.table("orders"), workspace_dir=root)
+    assert md.load(workspace_dir=root).test(datasource).ok
+    result = md.raw_sql(
+        datasource,
+        "SELECT sum(amount) AS total FROM orders",
+        reason="Check the two seeded order amounts",
+        project_root=root,
+    )
+    assert result.to_pandas()["total"].tolist() == [30]
+
+    broken = root / "models" / "semantic" / "broken" / "_domain.py"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("raise RuntimeError('broken semantic model')\n")
+    with pytest.raises(SemanticLoadFailed):
+        ms.load(workspace_dir=root)
+    projected = md.inspect(
+        inspection.datasource,
+        md.table("orders", columns={"value": "amount"}),
+        workspace_dir=root,
+    )
+    assert tuple(column.name for column in projected.schema) == ("value",)
+    assert md.load(workspace_dir=root).test(inspection.datasource).ok
+
+
+def test_loaded_datasource_rejects_another_project_before_connection(
+    tmp_path: Path,
+    semantic_project_factory: _ProjectFactory,
+) -> None:
+    first = _project(tmp_path / "first", semantic_project_factory)
+    second = _project(tmp_path / "second", semantic_project_factory)
+    datasource = ms.load(workspace_dir=first).get("datasource:warehouse")
+    assert datasource.kind == "datasource"
+    with pytest.raises(DatasourceFieldInvalidError, match="another project") as error:
+        md.load(workspace_dir=second).test(datasource)
+    assert error.value.effect_observed is not None
+    assert error.value.effect_observed.query_executed is False
+    with pytest.raises(DatasourceFieldInvalidError, match="another project"):
+        md.inspect(datasource, md.table("orders"), workspace_dir=second)
+    with pytest.raises(DatasourceFieldInvalidError, match="another project"):
+        md.raw_sql(datasource, "SELECT 1", reason="project boundary", project_root=second)
 
 
 def test_removed_sqlite_declaration_preserves_original_load_error(

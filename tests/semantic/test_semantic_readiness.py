@@ -25,7 +25,6 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
-from tests.support.refs import as_ref
 
 _DOMAIN = "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
 
@@ -115,6 +114,7 @@ def test_report_has_one_ready_input_projection() -> None:
         "catalog_definition_fingerprint",
         "requested_ids",
         "checked_ids",
+        "_resolved_inputs",
     )
 
 
@@ -341,14 +341,17 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
     assert {"measure:sales.orders.amount", "measure:sales.refunds.amount"} <= set(
         selected.checked_ids
     )
-    assert all(
-        as_ref(value).kind is not ms.SemanticKind.METRIC for value in selected.analysis_ready_inputs
-    )
+    assert all(value.kind != "metric" for value in selected.analysis_ready_inputs)
     assert set(selected.input_summary.datasources) == {"warehouse", "finance"}
-    inputs = (ms.ref.measure("sales.orders.amount"), ms.ref.measure("sales.refunds.amount"))
+    inputs = (
+        catalog.get("measure:sales.orders.amount"),
+        catalog.get("measure:sales.refunds.amount"),
+    )
     report = catalog.readiness(refs=inputs)
     assert report.status == "ready"
-    assert report._analysis_ready_inputs == tuple(as_ref(value) for value in inputs)
+    assert report._analysis_ready_inputs == tuple(
+        ref_factory.measure(value.path) for value in inputs
+    )
     assert set(report.input_summary.datasources) == {"warehouse", "finance"}
 
 

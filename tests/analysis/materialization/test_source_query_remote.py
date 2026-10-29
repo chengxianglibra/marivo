@@ -63,7 +63,7 @@ def test_remote_terminal_string_relations(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {
                 "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
             },
@@ -139,7 +139,7 @@ def test_remote_fixed_strings_keep_reader_bytes(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-char", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts").value),
+            session.members(session.catalog.get("entity:sales.facts")),
             {
                 "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
             },

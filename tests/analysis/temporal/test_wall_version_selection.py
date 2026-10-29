@@ -46,7 +46,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         }
     )
     session = mv.session.get_or_create("wall-version", timezone="Asia/Shanghai")
-    entity = session.catalog.get("entity:sales.versions").value
+    entity = session.catalog.get("entity:sales.versions")
     boundary = datetime.fromisoformat("2026-03-08T07:00:00+00:00")
     expected = ["after", "gap", "null", "sentinel"]
     if interval == "closed_closed":

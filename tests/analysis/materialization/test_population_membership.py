@@ -77,8 +77,8 @@ def test_named_metric_population_dependency_owns_its_window_scope(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    revenue = session.catalog.get("metric:sales.revenue").value
-    count = session.catalog.get("metric:sales.order_count").value
+    revenue = session.catalog.get("metric:sales.revenue")
+    count = session.catalog.get("metric:sales.order_count")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     producer = session.observe(
         {"total": revenue.window(mv.all_history())},
@@ -104,13 +104,13 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    buyer = session.catalog.get("relationship:sales.order_buyer").value
+    buyer = session.catalog.get("relationship:sales.order_buyer")
     orders = session.members(
-        session.catalog.get("entity:sales.order").value, where=region.via((buyer,)) == "east"
+        session.catalog.get("entity:sales.order"), where=region.via((buyer,)) == "east"
     )
     keys = session.frame(orders).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     result = (
         session.observe(
             {"revenue": revenue},
@@ -130,16 +130,16 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
     session = case.session
     customer_id = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
     path = (
-        session.catalog.get("relationship:sales.line_order").value,
-        session.catalog.get("relationship:sales.order_buyer").value,
+        session.catalog.get("relationship:sales.line_order"),
+        session.catalog.get("relationship:sales.order_buyer"),
     )
     lines = session.members(
-        session.catalog.get("entity:sales.order_line").value,
+        session.catalog.get("entity:sales.order_line"),
         where=customer_id.via(path) == "A",
     )
     keys = session.frame(lines).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j3_l1", "j3_l2"]
-    revenue = session.catalog.get("metric:sales.line_revenue").value
+    revenue = session.catalog.get("metric:sales.line_revenue")
     result = (
         session.observe({"revenue": revenue}, where=mv.in_population(lines)).compute().to_pandas()
     )
@@ -154,13 +154,13 @@ def test_identity_membership_uses_equality_while_null_field_categories_still_mat
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
         connection.execute("UPDATE orders SET customer=NULL WHERE id=3")
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     selected = mv.coordinates(by=(mv.identity(entity), customer), keys=(((1,), 1), ((3,), None)))
     trace = capture_source(monkeypatch)
     result = (
         session.observe(
-            {"value": session.catalog.get("metric:sales.revenue").value},
+            {"value": session.catalog.get("metric:sales.revenue")},
             where=mv.in_population(selected),
         )
         .compute()
@@ -178,7 +178,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     full = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,)))
     result = (
         session.observe(
@@ -215,11 +215,11 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
         connection.execute("UPDATE orders SET amount=10 WHERE id=2")
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
@@ -230,9 +230,7 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     assert sorted(with_null["revenue"].tolist()) == [10, 20, 100]
     samples = session.observe({"mean": revenue.per((full, buckets)).mean()}).compute().to_pandas()
     assert samples["mean"].tolist() == [10]
-    classified = session.members(session.catalog.get("entity:sales.tags").value).classify(
-        by=(label,)
-    )
+    classified = session.members(session.catalog.get("entity:sales.tags")).classify(by=(label,))
     result = session.observe({"revenue": revenue}, by=(classified, buckets)).compute().to_pandas()
     assert result["revenue"].tolist() == [20, 10, 0]
 
@@ -243,12 +241,12 @@ def test_membership_correlated_tuple_differs_from_independent_product(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     channel = catalog_value(session.catalog, "sales.tags.channel", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     joint = mv.membership((label, channel), via=(path,), unmatched="exclude")
     tags = mv.membership(label, via=(path,), unmatched="exclude")
@@ -273,16 +271,16 @@ def test_nested_per_keeps_each_layers_membership_rule(
         "to_entity=tags, keys=[ms.join_on(customer, tid)])\n# Named expressions",
     )
     session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     association_path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     association = mv.membership(label, via=(association_path,), unmatched="null")
     direct = mv.membership(
         label,
-        via=((session.catalog.get("relationship:sales.order_direct").value,),),
+        via=((session.catalog.get("relationship:sales.order_direct"),),),
         unmatched="null",
     )
     inner, outer = (association, direct) if outer_route == "direct" else (direct, association)
@@ -327,9 +325,9 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.get("entity:sales.orders").value)
-    tags = session.members(session.catalog.get("entity:sales.tags").value)
-    tag_entity = session.catalog.get("entity:sales.tags").value
+    orders = session.members(session.catalog.get("entity:sales.orders"))
+    tags = session.members(session.catalog.get("entity:sales.tags"))
+    tag_entity = session.catalog.get("entity:sales.tags")
     allowed = mv.coordinates(by=(mv.identity(tag_entity),), keys=(((1,),), ((3,),)))
     selected = tags.where(
         mv.in_population(allowed)
@@ -339,8 +337,8 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     assert selected_rows.shape[0] == 1
     assert selected_rows.iloc[0, 0] == 1
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     reached = orders.image(via=path)
     assert session.frame(reached).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
@@ -358,7 +356,7 @@ def test_metric_population_condition_selects_facts_without_multiplicity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     selected = mv.coordinates(by=(customer,), keys=((1,), (1,)))
     result = (
@@ -389,17 +387,17 @@ def test_zero_axis_population_preserves_the_unit_tuple(
         with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
             connection.execute("DELETE FROM orders")
     if source == "query":
-        revenue = session.catalog.get("metric:sales.revenue").value
+        revenue = session.catalog.get("metric:sales.revenue")
         customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
         observed = session.observe({"revenue": revenue}, by=(customer,))
         domain = session.population_from(observed, on=((observed.axes[0], customer),))
     else:
-        domain = session.members(session.catalog.get("entity:sales.orders").value)
+        domain = session.members(session.catalog.get("entity:sales.orders"))
     unit = domain.project(by=())
     if source == "product":
-        unit = mv.product(
-            unit, session.members(session.catalog.get("entity:sales.tags").value)
-        ).project(by=())
+        unit = mv.product(unit, session.members(session.catalog.get("entity:sales.tags"))).project(
+            by=()
+        )
     result = session.frame(unit).compute().to_pandas()
     assert result.shape == (0 if empty else 1, 0)
 
@@ -410,7 +408,7 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    entity = session.catalog.get("entity:sales.tags").value
+    entity = session.catalog.get("entity:sales.tags")
     literal = mv.coordinates(
         by=(mv.identity(entity),),
         keys=tuple(((key,),) for key in range(1, 2001)),
@@ -420,13 +418,13 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     assert sorted(frame.iloc[:, 0].tolist()) == list(range(1, 2001))
     targets = session.population_from(fixed, on=((fixed.axes[0], entity),))
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
-    selected = session.members(session.catalog.get("entity:sales.orders").value).preimage(
+    selected = session.members(session.catalog.get("entity:sales.orders")).preimage(
         targets, via=path
     )
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     result = (
         session.observe({"value": revenue}, where=mv.in_population(selected)).compute().to_pandas()
     )
@@ -439,12 +437,12 @@ def test_output_coverage_and_internal_subset_have_distinct_policies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     channel = catalog_value(session.catalog, "sales.tags.channel", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     allocation = mv.membership((label, channel), via=(path,), unmatched="exclude")
     selected = mv.coordinates(by=(label, channel), keys=(("A", "web"),))
@@ -495,7 +493,7 @@ def test_sample_selection_preserves_required_external_coordinates(
     sampling: str,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     order = catalog_value(session.catalog, "sales.orders.id", kind="field")
     missing = mv.coordinates(by=(order,), keys=((999,),))
@@ -530,7 +528,7 @@ def test_empty_output_population_checks_fact_keys_including_zero_axis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     for domain in (mv.coordinates(by=(customer,), keys=()), mv.coordinates(by=(), keys=())):
         with pytest.raises(MaterializationError, match="missing output coordinates"):
@@ -564,12 +562,12 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
         connection.execute("CREATE TABLE refunds(id BIGINT, customer BIGINT, amount BIGINT)")
         connection.execute("INSERT INTO refunds VALUES (1,3,7)")
-    revenue = session.catalog.get("metric:sales.revenue").value
-    refunded = session.catalog.get("metric:sales.refunded").value
+    revenue = session.catalog.get("metric:sales.revenue")
+    refunded = session.catalog.get("metric:sales.refunded")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     allocation = mv.membership(label, via=(path,), unmatched="null")
     nonnull = mv.coordinates(by=(label,), keys=(("A",), ("B",)))
@@ -584,7 +582,7 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
     }
     independent = mv.membership(
         label,
-        via=(path, (session.catalog.get("relationship:sales.refund_tags").value,)),
+        via=(path, (session.catalog.get("relationship:sales.refund_tags"),)),
         unmatched="exclude",
     )
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:
@@ -605,12 +603,12 @@ def test_internal_membership_exclusion_preserves_parent_coordinates(
     sampling: str,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     allocation = mv.membership(label, via=(path,), unmatched="exclude")
     samples = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))

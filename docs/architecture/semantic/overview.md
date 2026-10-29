@@ -64,7 +64,8 @@ the consuming expression determines contribution selection or allocation.
 
 Physical constructors and `ms.ref.*` return native typed Deferred symbols.
 Compose symbols directly; the loader binds the complete dependency graph and
-publishes immutable closed Catalog values. Measure/Metric declarations capture
+publishes immutable named semantic objects. Measure/Metric declarations return
+fixed numeric RowExpression/MetricExpression carriers and capture
 restricted recipes without executing authored functions.
 Entity and categorical/time-field bodies retain their restricted Ibis contract.
 SQL is available only through the terminal datasource escape hatch.
@@ -78,10 +79,10 @@ consumed definitions; this policy permits neither live refresh nor import replay
 ## Handoff and proof boundaries
 
 `ms.load()` establishes project coherence without source reads. Catalog search
-and canonical get return immutable typed directory entries; complete definitions
-explain captured meaning and executable variants expose native closed `.value`. Readiness checks
+and canonical get return immutable typed semantic objects for direct composition
+and consumption; their definitions explain captured meaning. Readiness checks
 physical dependency closures and dedicated temporal artifacts without a query.
-Its `analysis_ready_inputs` contains only directly requested ready physical refs.
+Its `analysis_ready_inputs` contains only directly requested ready physical objects.
 
 Online validation connects to the physical dependency closure and checks Entity
 outputs, field types and parser/timezone compatibility using actual schemas.

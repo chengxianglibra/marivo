@@ -32,6 +32,10 @@ def make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
 def as_ref(value: object) -> Ref[SemanticKindTag] | None:
     if type(value) is Ref:
         return value
+    from marivo.semantic.catalog import _SemanticObject
+
+    if isinstance(value, _SemanticObject):
+        return value._ref
     symbol = native_symbol_ref(value)
     if symbol is not None:
         return symbol
@@ -45,4 +49,4 @@ def as_ref_id(value: object) -> str:
         return ref.path
     if isinstance(value, str):
         return value
-    raise TypeError(f"expected Ref, CatalogEntry, or str, got {type(value).__name__}")
+    raise TypeError(f"expected Ref, a named semantic object, or str, got {type(value).__name__}")

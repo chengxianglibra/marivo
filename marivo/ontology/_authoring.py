@@ -72,7 +72,9 @@ def _invalid_ref(*, parameter: str, value: object, expected: str) -> NoReturn:
         expected=expected,
         received=f"{type(value).__name__}: {value!r}",
         location=_location(),
-        repair=_repair("Pass the exact .ref from a current semantic catalog entry."),
+        repair=_repair(
+            "Pass the exact explicit ms.ref selector for the intended semantic identity."
+        ),
     )
 
 

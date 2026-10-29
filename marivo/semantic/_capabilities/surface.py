@@ -118,6 +118,13 @@ def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
     )
     return LiveSurface(
         registry=REGISTRY,
+        type_targets=MappingProxyType(
+            {
+                cls: contract.target
+                for cls, contract in TYPE_CONTRACTS.items()
+                if contract.target is not None
+            }
+        ),
         descriptor_kind=_descriptor_kind,
         type_index=type_index,
         error_types=ERROR_TYPES,

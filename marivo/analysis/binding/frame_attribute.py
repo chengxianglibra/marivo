@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.graph import direct_refs
 from marivo._definition.relations import (
     AttributeKeys,
     FrameKeyAxis,
@@ -21,6 +22,7 @@ from marivo._definition.types import (
     CalendarCoordinate,
     FieldRead,
     IdentityRead,
+    InputContext,
     IntervalCoordinate,
 )
 from marivo._grouping import Grouping
@@ -57,6 +59,9 @@ from marivo.analysis.core.model import BoundQuantity, BoundSignature, reject
 from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.dsl.frame_sources import _capture
 from marivo.analysis.dsl.population import Population, _axes, product
+from marivo.semantic._consumption import bind_field_in_state, validate_context
+from marivo.semantic._expression_values import FieldExpression, RowExpression
+from marivo.semantic.errors import SemanticError
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -79,7 +84,7 @@ def _axis_identity(axis: ComparisonAxis) -> tuple[object, ...]:
 def source_inputs(
     parent: AnalysisFrame,
     target: DerivedOutput,
-    by: tuple[Deferred | Grouping, ...] | Population,
+    by: tuple[FieldExpression | Grouping, ...] | Population,
     cache: dict[SourceGroupKey, AnalysisFrame] | None = None,
     groups: dict[SourceGroupKey, SourceMetricGroup] | None = None,
     *,
@@ -97,39 +102,6 @@ def source_inputs(
             "unique fact-to-player classifications for replacement attribution",
             repr(by),
             "Use single-valued classification fields or a complete Population with unique grouping.",
-            "frame.attribute",
-            canonical_id="analysis_frame.attribute",
-        )
-    fine_memberships = (
-        tuple(
-            item._binding
-            for item in by
-            if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
-        )
-        if isinstance(by, tuple)
-        else ()
-    )
-    fine_axes = (
-        by._definition.axes
-        if isinstance(by, Population)
-        else tuple(
-            axis
-            for item in by
-            for axis in (
-                tuple(
-                    AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                    for read in item._binding.fields
-                )
-                if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
-                else _axes((item,))
-            )
-        )
-    )
-    if not fine_axes or any(not isinstance(axis, AxisBinding) for axis in fine_axes):
-        reject(
-            "nonempty business classifications",
-            repr(fine_axes),
-            "Pass new semantic fields or one complete Population.",
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
@@ -151,6 +123,124 @@ def source_inputs(
     for side, metric in zip(sides[: len(endpoint_metrics)], endpoint_metrics, strict=True):
         assert metric is not None
         source = metric.binding
+        try:
+            if isinstance(by, Population):
+                validate_context(
+                    by._context,
+                    project_root=source.connection.project_root,
+                    owner=parent._local.owner,
+                )
+                for identity, captured_keys in by._identity_keys:
+                    entity = source.state.registry.entities.get(identity.removeprefix("entity:"))
+                    if entity is None or tuple(entity.primary_key) != captured_keys:
+                        reject(
+                            "the captured complete identity in this endpoint scope",
+                            f"{side}: {identity}",
+                            "Rebuild the Population with compatible complete keys.",
+                            "frame.attribute",
+                        )
+                bound_by: tuple[Deferred | Grouping, ...] | Population = by
+            else:
+                bound_items: list[Deferred | Grouping] = []
+                for index, item in enumerate(by):
+                    if isinstance(item, RowExpression) and item._role in (
+                        "dimension",
+                        "time",
+                        "numeric",
+                    ):
+                        bound_items.append(
+                            bind_field_in_state(
+                                item,
+                                source.state,
+                                project_root=source.connection.project_root,
+                                owner=parent._local.owner,
+                            )
+                        )
+                    elif isinstance(item, Grouping):
+                        validate_context(
+                            item._context,
+                            project_root=source.connection.project_root,
+                            owner=parent._local.owner,
+                        )
+                        bound_items.append(item)
+                    else:
+                        reject(
+                            "a semantic classification field or Grouping",
+                            type(item).__name__,
+                            "Pass loaded classification fields or a complete Population.",
+                            f"frame.attribute.by[{index}]",
+                        )
+                bound_by = tuple(bound_items)
+        except SemanticError as error:
+            reject(
+                "classification dependencies in each retained source scope",
+                f"{side} endpoint for {'.'.join(target.path)}: {error}",
+                "Choose classifications available in this endpoint's captured scope.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
+        fine_memberships = (
+            tuple(
+                item._binding
+                for item in bound_by
+                if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
+            )
+            if isinstance(bound_by, tuple)
+            else ()
+        )
+        fine_axes = (
+            bound_by._definition.axes
+            if isinstance(bound_by, Population)
+            else tuple(
+                axis
+                for item in bound_by
+                for axis in (
+                    tuple(
+                        AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                        for read in item._binding.fields
+                    )
+                    if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
+                    else _axes((item,))
+                )
+            )
+        )
+        if not fine_axes or any(not isinstance(axis, AxisBinding) for axis in fine_axes):
+            reject(
+                "nonempty business classifications",
+                repr(fine_axes),
+                "Pass new semantic fields or one complete Population.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
+        required = (
+            set(direct_refs(bound_by._definition)) if isinstance(bound_by, Population) else set()
+        )
+        for axis in fine_axes:
+            if isinstance(axis, AxisBinding):
+                required.update((axis.entity, *axis.path))
+                if axis.field is not None:
+                    required.add(axis.field)
+        for membership in fine_memberships:
+            for path in membership.paths:
+                for relationship in path:
+                    required.update(
+                        (relationship.ref, relationship.from_entity, relationship.to_entity)
+                    )
+        missing = tuple(
+            sorted(
+                reference.ref.key
+                for reference in required
+                if reference.ref not in source.state.definitions
+            )
+        )
+        if missing:
+            reject(
+                "classification dependencies in each retained source scope",
+                f"{side} endpoint for {'.'.join(target.path)}: {', '.join(missing)}",
+                "Choose classifications available in this endpoint's captured scope.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
         original = source.graph
         observation = original.signature.observation
         assert observation is not None and isinstance(original.root, ObserveQuery)
@@ -247,6 +337,7 @@ def source_inputs(
                 ),
             ),
             (FrameKeyInput(parent._input_id, parent),),
+            _context=InputContext(source.connection.project_root, parent._local.owner),
         )
         if game and observation.coordinates.memberships:
             reject(
@@ -256,7 +347,7 @@ def source_inputs(
                 "frame.attribute",
                 canonical_id="analysis_frame.attribute",
             )
-        fine_by = product(projection, by) if isinstance(by, Population) else None
+        fine_by = product(projection, bound_by) if isinstance(bound_by, Population) else None
         assert fine_by is None or isinstance(fine_by, Population)
         axes = (*source_axes, *fine_axes)
         reads = tuple(
@@ -483,7 +574,7 @@ def source_inputs(
 def _single(
     parent: AnalysisFrame,
     target: DerivedOutput,
-    by: tuple[Deferred | Grouping, ...] | Population,
+    by: tuple[FieldExpression | Grouping, ...] | Population,
     cache: dict[SourceGroupKey, AnalysisFrame],
     groups: dict[SourceGroupKey, SourceMetricGroup],
     permutations: int,
@@ -578,7 +669,7 @@ def _single(
 def attribute(
     parent: AnalysisFrame,
     *,
-    by: tuple[Deferred | Grouping, ...] | Population,
+    by: tuple[FieldExpression | Grouping, ...] | Population,
     permutations: int = 1024,
     seed: int = 0,
 ) -> AnalysisFrame:
@@ -654,7 +745,18 @@ def attribute(
                 by._definition.axes
                 if isinstance(by, Population)
                 else tuple(
-                    axis for item in by if isinstance(item, Deferred) for axis in _axes((item,))
+                    axis
+                    for item in by
+                    if isinstance(item, (Deferred, RowExpression, Grouping))
+                    for axis in (
+                        tuple(
+                            AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                            for read in item._binding.fields
+                        )
+                        if isinstance(item, Grouping)
+                        and isinstance(item._binding, MembershipBinding)
+                        else _axes((item,))
+                    )
                 )
             )
 

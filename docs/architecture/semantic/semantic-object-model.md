@@ -21,11 +21,21 @@ owns certified calendars and occurrences.
 | Relationship | Directed endpoint/key mapping | catalog.search(kind='relationship') |
 
 Physical constructors return native typed Deferred symbols. The loader binds
-the complete dependency scope; Catalog get supplies immutable typed entries; executable variants expose closed `.value`.
-Named Measure/Metric decorators return native Deferred recipes. A named expression is described by its canonical Catalog entry,
-not by calling show on Deferred. Collection lookup takes a plain local name or
-full path string; local names must be unique within the current scoped collection.
-Canonical `kind:path` strings identify Catalog entries; lookup symbols remain declaration inputs.
+its complete dependency scope and publishes ten immutable named objects:
+Domain, Datasource, Entity, Dimension, TimeDimension, Measure, Metric,
+Relationship, PeriodCalendar and TemporalSet. `SemanticObject` is their closed
+union. `catalog.get("kind:path")` requires a canonical identity string;
+`search(kind=...)` retains a kind-specific page type. Check `.kind` or use
+`isinstance` to narrow a retrieved object, then consume it directly.
+
+`.id` identifies kind/path within a project. `.definition`, `.provenance`,
+`.show()` and `.related(...)` retain the captured Catalog's facts and scope.
+Computing kinds implement explicit stage-checked operations; no `.value` or
+`.ref` conversion is required. Anonymous RowExpression and MetricExpression
+values carry a closed role parameter and have no Catalog identity. Measure and
+Metric decorators always return the corresponding numeric stage carrier,
+including declarations with forward references. Loader binding closes those
+references; Session inputs must already be closed.
 
 ## Project and domain
 
@@ -450,8 +460,9 @@ it cannot execute or establish verification status. Raw dicts are not context va
 Completed scopes resolve references by exact kind/path. Replacing a definition
 at the same path does not require an original-version match against every
 constructed input. Consumers enforce kind, root, grain, unit, time and null
-correctness. Already closed expressions keep their captured immutable facts;
-there is no refresh from ambient state or import replay. Fingerprints and cache
+correctness. Objects keep their captured display facts; anonymous operations remain fixed while
+the receiver resolves named leaves in its completed scope. Cross-project inputs
+fail before resolution. There is no refresh from ambient state or import replay. Fingerprints and cache
 keys must describe the actual consumed definitions and dependencies.
 
 Entity identity and historical version selection remain separate from that

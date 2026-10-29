@@ -109,7 +109,7 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
 
 def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
     case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue").value})
+    result = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue")})
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200

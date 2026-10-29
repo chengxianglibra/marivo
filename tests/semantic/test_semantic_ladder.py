@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -15,7 +14,6 @@ from marivo.semantic.errors import (
     SemanticLoadFailed,
     SemanticRuntimeError,
 )
-from marivo.semantic.expressions import Entity
 from tests.shared_fixtures import catalog_value
 
 
@@ -72,11 +70,11 @@ def test_require_entity_is_static_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = ms.SemanticCatalog(project).get("entity:sales.orders").value
+    result = ms.SemanticCatalog(project).get("entity:sales.orders")
 
-    assert isinstance(result, Entity)
-    assert result._exact_ref.ref == ref_factory.entity("sales.orders")
-    assert result.contract().stage == "entity"
+    assert isinstance(result, ms.Entity)
+    assert result.id == "entity:sales.orders"
+    assert result.kind == "entity"
     assert not (Path(project.state_root) / "evidence").exists()
 
 
@@ -85,8 +83,8 @@ def test_require_entity_uses_current_loaded_project(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = ms.SemanticCatalog(project).get("entity:sales.orders").value
-    assert first._exact_ref.ref == ref_factory.entity("sales.orders")
+    first = ms.SemanticCatalog(project).get("entity:sales.orders")
+    assert first.id == "entity:sales.orders"
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -108,9 +106,10 @@ def test_require_entity_uses_current_loaded_project(
         workspace_dir=tmp_path,
     )
 
-    second = ms.SemanticCatalog(project2).get("entity:sales.orders").value
-    assert second._exact_ref.ref == first._exact_ref.ref
-    assert second._exact_ref.version != first._exact_ref.version
+    second = ms.SemanticCatalog(project2).get("entity:sales.orders")
+    assert second.id == first.id
+    assert second.definition.source != first.definition.source
+    assert second.provenance.definition_fingerprint != first.provenance.definition_fingerprint
     assert not (Path(project2.state_root) / "evidence").exists()
 
 
@@ -234,7 +233,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
 
     result = catalog_value(ms.SemanticCatalog(project), "sales.orders.amount", kind="field")
 
-    assert isinstance(result, Deferred)
+    assert isinstance(result, ms.Measure)
     assert consume_field(result).reference.ref == ref_factory.measure("sales.orders.amount")
 
 
@@ -253,5 +252,5 @@ def test_require_unknown_ref_is_not_found_when_loaded(
     assert project.is_ready()
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        _ = ms.SemanticCatalog(project).get("metric:sales.nonexistent_metric").value
+        _ = ms.SemanticCatalog(project).get("metric:sales.nonexistent_metric")
     assert exc_info.value.kind == "not_found"

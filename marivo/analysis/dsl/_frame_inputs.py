@@ -18,12 +18,14 @@ from ibis.common.deferred import (
 
 from marivo._definition.deferred import (
     DeclarationResolver,
+    NamedResolver,
     PopulationContainsResolver,
     resolver_of,
 )
 from marivo._definition.relations import PopulationParameter
 from marivo._definition.types import Owner
 from marivo.analysis.core.model import reject
+from marivo.semantic._expression_values import _ExpressionCarrier
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -100,7 +102,7 @@ def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
     if isinstance(recipe, (PopulationCountResolver, PopulationContainsResolver)):
         value = recipe.population
         return value._frame_inputs if isinstance(value, Population) else ()
-    if isinstance(recipe, (DeclarationResolver, RescaleResolver)):
+    if isinstance(recipe, (DeclarationResolver, NamedResolver, RescaleResolver)):
         return _recipe_inputs(recipe.recipe)
     if isinstance(recipe, Just):
         value = recipe.value
@@ -123,7 +125,7 @@ def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
 
 
 def collect_frame_key_inputs(
-    *values: Deferred | PopulationParameter | None,
+    *values: Deferred | _ExpressionCarrier | PopulationParameter | None,
     owner: Owner | None = None,
 ) -> tuple[FrameKeyInput, ...]:
     """Extract original special literals before semantic consumption drops wrappers."""
@@ -133,6 +135,8 @@ def collect_frame_key_inputs(
     for value in values:
         if isinstance(value, Population):
             groups.append(value._frame_inputs)
+        elif isinstance(value, _ExpressionCarrier):
+            groups.append(_recipe_inputs(value._recipe))
         elif isinstance(value, Deferred):
             groups.append(_recipe_inputs(resolver_of(value)))
     return merge_frame_key_inputs(*groups, owner=owner)

@@ -148,8 +148,8 @@ def _offline(project: Path) -> Iterator[None]:
 def _observations(
     session: mv.Session,
 ) -> tuple[mv.Population, mv.AnalysisFrame, mv.AnalysisFrame, mv.AnalysisFrame]:
-    members = session.members(session.catalog.get("entity:operations.device").value)
-    metric = session.catalog.get("metric:operations.energy_total").value
+    members = session.members(session.catalog.get("entity:operations.device"))
+    metric = session.catalog.get("metric:operations.energy_total")
     current = session.observe(
         {"value": metric},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
@@ -159,7 +159,7 @@ def _observations(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     count = session.observe(
-        {"value": session.catalog.get("metric:operations.reading_count").value},
+        {"value": session.catalog.get("metric:operations.reading_count")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     return members, current, baseline, count
@@ -221,7 +221,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
                 on=(
                     (
                         next(axis for axis in selected.axes if axis.role == "identity"),
-                        session.catalog.get("entity:operations.device").value,
+                        session.catalog.get("entity:operations.device"),
                     ),
                 ),
             )
@@ -237,7 +237,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
         elif scenario == "j3":
             sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="field")
             device = catalog_value(session.catalog, "operations.reading.device_id", kind="field")
-            metric = session.catalog.get("metric:operations.energy_per_reading").value
+            metric = session.catalog.get("metric:operations.energy_per_reading")
             scope = session.time_scope(start="2026-08-01", end="2026-09-01")
             ratio = session.observe(
                 {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)

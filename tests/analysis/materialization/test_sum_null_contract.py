@@ -30,8 +30,8 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
         )
     session = case.session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    orders = session.catalog.get("entity:sales.order").value
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    orders = session.catalog.get("entity:sales.order")
+    members = session.members(session.catalog.get("entity:sales.customer"))
     query = session.observe(
         {"total": amount.sum(), "valid": amount.count(), "orders": orders.count()},
         by=members,
@@ -122,7 +122,7 @@ def test_native_nonfinite_source_values_remain_distinct_from_null_during_selecti
         ).fetchone()
     session = case.session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.order").value)
+    members = session.members(session.catalog.get("entity:sales.order"))
     read = session.read(members, {"amount": amount})
     observed = session.observe({"amount": amount.sum()})
     raw = read.compute().to_pandas()

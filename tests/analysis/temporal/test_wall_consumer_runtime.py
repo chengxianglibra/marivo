@@ -127,7 +127,7 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
             return original_execute(owner, read)
 
         monkeypatch.setattr(SourceSession, "execute", traced)
-        members = session.members(session.catalog.get("entity:sales.events").value)
+        members = session.members(session.catalog.get("entity:sales.events"))
         parsed = catalog_value(session.catalog, "sales.events.parsed", kind="field")
         outcomes: dict[str, object] = {}
         # This legal non-ordered parser keeps native fallback. Both filter and

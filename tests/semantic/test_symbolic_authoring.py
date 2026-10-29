@@ -16,6 +16,7 @@ from marivo._symbolic import native_symbol_ref
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
+from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.loader import LoaderContext, loader_context
@@ -30,6 +31,10 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), sou
 amount = ms.measure_column(name="amount", entity=orders, column="amount", unit="CNY", additivity=ms.additive_all())
 cost = ms.measure_column(name="cost", entity=orders, column="cost", unit="CNY", additivity=ms.additive_all())
 """
+
+
+def _recipe(value: Deferred | _ExpressionCarrier) -> Deferred:
+    return _as_deferred(value) if isinstance(value, _ExpressionCarrier) else value
 
 
 def _project(factory: ProjectFactory, source: str) -> SemanticProject:
@@ -150,7 +155,7 @@ paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_a
     assert consume_row(margin).default_time is not None
     assert consume_row(margin).default_time.ref.path == "sales.orders.paid_at"
     assert set(catalog._state.registry.declared_metrics) == {"sales.margin_per_order"}
-    assert not inspect_deferred(catalog.get("metric:sales.margin_per_order").value).symbols
+    assert not inspect_deferred(_recipe(catalog.get("metric:sales.margin_per_order"))).symbols
 
 
 def test_complete_lookup_graph_rejects_missing_wrong_kind_and_self_cycles(
@@ -188,7 +193,7 @@ def _physical_scope(unit: str, declarations: tuple[Deferred, ...]) -> SemanticCa
         ms.measure_column(
             name="amount", entity=orders, column="amount", unit=unit, additivity=ms.additive_all()
         )
-    context.declarations.extend(declarations)
+    context.declarations.extend(_recipe(value) for value in declarations)
     return captured_catalog((context,))
 
 
@@ -199,7 +204,7 @@ def test_same_template_binds_independently_without_calling_or_rereading_author()
         return dependency.sum()
 
     template = ms.metric(domain=ms.ref.domain("sales"))(authored)
-    captured = inspect_capture(template).fingerprint
+    captured = inspect_capture(_recipe(template)).fingerprint
 
     def forbidden():
         raise AssertionError(f"author callback executed: {dependency}")
@@ -207,17 +212,19 @@ def test_same_template_binds_independently_without_calling_or_rereading_author()
     authored.__code__ = forbidden.__code__
     dependency = ms.ref.measure("sales.orders.missing")
     first = _physical_scope("CNY", (template,))
-    first_facts = consume_metric(first.get("metric:sales.authored").value)
+    first_facts = consume_metric(first.get("metric:sales.authored"))
     second = _physical_scope("USD", (template,))
     assert first_facts.unit == "CNY"
-    assert consume_metric(second.get("metric:sales.authored").value).unit == "USD"
-    assert consume_metric(first.get("metric:sales.authored").value) == first_facts
-    assert inspect_capture(template).fingerprint == captured
-    assert inspect_capture(template).symbols == (ref_factory.measure("sales.orders.amount"),)
-    assert root_declaration(template).reference is None
+    assert consume_metric(second.get("metric:sales.authored")).unit == "USD"
+    assert consume_metric(first.get("metric:sales.authored")) == first_facts
+    assert inspect_capture(_recipe(template)).fingerprint == captured
+    assert inspect_capture(_recipe(template)).symbols == (
+        ref_factory.measure("sales.orders.amount"),
+    )
+    assert root_declaration(_recipe(template)).reference is None
 
 
-def test_old_closed_leaf_keeps_captured_facts_when_published_in_new_scope() -> None:
+def test_named_loaded_leaf_rebinds_when_published_in_receiving_scope() -> None:
     first = _physical_scope("CNY", ())
     old_amount = catalog_value(first, "sales.orders.amount", kind="field")
 
@@ -226,8 +233,8 @@ def test_old_closed_leaf_keeps_captured_facts_when_published_in_new_scope() -> N
         return old_amount.sum()
 
     second = _physical_scope("USD", (old_revenue,))
-    reopened = consume_metric(second.get("metric:sales.old_revenue").value)
-    assert reopened.unit == "CNY"
+    reopened = consume_metric(second.get("metric:sales.old_revenue"))
+    assert reopened.unit == "USD"
     assert isinstance(reopened._declared[-1][1], SourceAggregate)
     assert consume_row(catalog_value(second, "sales.orders.amount", kind="field")).unit == "USD"
     assert consume_row(old_amount).unit == "CNY"
@@ -320,8 +327,8 @@ def direct():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    direct = consume_metric(catalog.get("metric:sales.direct").value)
-    lookup = consume_metric(catalog.get("metric:sales.lookup").value)
+    direct = consume_metric(catalog.get("metric:sales.direct"))
+    lookup = consume_metric(catalog.get("metric:sales.lookup"))
     assert direct._declared[0][0] == lookup._declared[0][0]
     assert direct._declared[0][0].ref.path == "sales.revenue"
     assert computation_fingerprint(direct._declared[-1][1]) == computation_fingerprint(
@@ -402,8 +409,8 @@ ms.dimension_column(name="region", entity=orders, column="region")
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    assert consume_metric(catalog.get("metric:sales.selected_median").value).unit == "CNY"
-    assert not inspect_deferred(catalog.get("metric:sales.selected_median").value).symbols
+    assert consume_metric(catalog.get("metric:sales.selected_median")).unit == "CNY"
+    assert not inspect_deferred(_recipe(catalog.get("metric:sales.selected_median"))).symbols
 
 
 _MALFORMED_CASE_CALLS = (
@@ -510,7 +517,7 @@ def all_valid_top_calls():
         consume_row(catalog_value(catalog, "sales.orders.native_top_calls", kind="field")).unit
         == "CNY"
     )
-    assert consume_metric(catalog.get("metric:sales.all_valid_top_calls").value).unit == "CNY"
+    assert consume_metric(catalog.get("metric:sales.all_valid_top_calls")).unit == "CNY"
 
 
 def test_publication_graph_matches_full_reconstruction_and_survives_failed_reload(

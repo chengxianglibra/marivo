@@ -43,10 +43,13 @@ publishing closed Catalog values. It validates default time, permissions, units,
 paths and cycles without reading a source or replaying a module. Physical fields
 and dependencies may be declared later in the same complete load scope.
 
-`ms.ref.*` also produces exact native lookup selectors for Catalog description,
-readiness, preview and source checks. Metadata `.ref` and `.refs` return these
-selectors. Retrieve an entry with `catalog.get("kind:path")`, check its kind,
-and use `.value` for closed analysis inputs. Analysis never binds a lookup symbol implicitly.
+`ms.ref.*` produces exact declaration selectors for authoring and explicitly
+supported physical/source-check constructors. Catalog checks consume named
+objects obtained with `catalog.get("kind:path")`, after kind narrowing.
+Analysis does not bind a bare declaration symbol implicitly. Objects and
+anonymous expressions share typed RowExpression or MetricExpression operations;
+row roles are dimension, time, numeric and boolean, while metric roles are
+numeric and boolean. Internal role aliases add no public runtime types.
 Equality constructs a recipe. Do not use symbols for boolean identity, hash keys,
 sets, dictionary keys or container membership. Inspect identities through Catalog
 metadata rather than `.key`, `.path`, `.kind` or `.version` on a Deferred.
@@ -86,8 +89,10 @@ Session. Session-bound Population dependencies cannot be published as reusable
 model closures; independently resolvable literal domains can be collected.
 
 Published expressions are selected with canonical `catalog.get("kind:path")`;
-`entry.show()` and `entry.definition` explain captured meaning, and `entry.value`
-delivers native closed expressions after kind narrowing. Deferred itself has no Marivo show, contract or
+`object.show()` and `object.definition` explain captured meaning. Consume the
+object directly after kind narrowing. Decorators always return the corresponding
+numeric stage carrier, whether dependencies are closed or forward declarations.
+Deferred itself has no Marivo show, contract or
 public manual schema-resolution step. Do not call the decorated value as a
 function after capture.
 
@@ -155,7 +160,9 @@ numeric types and backend support are checked during preparation.
 
 `additive_except` and `additive_over` require one or more unique Dimension or
 TimeDimension fields as positional arguments. Unpack a collection with `*axes`.
-The axes must belong to the native contribution root. Fixed axes preserve their
+The axes may be native loaded Dimension/TimeDimension objects or explicit
+authoring symbols, and must belong to the native contribution root. Loaded axes
+retain their project constraint through the local declaration. Fixed axes preserve their
 coordinate; they do not remove rows, select a temporal reducer, or declare a
 status-time role. A physical Measure's `status_time_dimension` must also be
 included in `ms.additive_except(...)`. Explicit internal sample reduction owns
@@ -206,7 +213,8 @@ declare source units. Help: `semantic.rescale`.
 
 ## Predicates and scalar paths
 
-Field comparisons and missing/membership tests produce Deferred boolean recipes.
+Loaded field comparisons and missing/membership tests produce row-stage boolean
+expressions; Metric comparisons produce metric-stage boolean expressions.
 Use parenthesized &, | and ~, never Python and/or/not or bool. Field NA follows
 three-valued logic; only final True selects. Membership leaves test complete
 correlated tuples with null-safe field matching. Both sides retain dependencies,

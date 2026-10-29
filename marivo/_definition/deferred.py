@@ -12,7 +12,7 @@ import hashlib
 import inspect
 import json
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal, NoReturn
@@ -28,15 +28,18 @@ from ibis.common.deferred import (
     Deferred,
     Item,
     Just,
+    JustUnhashable,
     Resolver,
     Sequence,
     UnaryOperator,
     Variable,
 )
+from ibis.util import PseudoHashable
 
 from marivo._definition.types import (
     ExactRef,
     FieldRead,
+    InputContext,
     SourceLocation,
     SumAll,
     SumAllExcept,
@@ -46,6 +49,7 @@ from marivo._definition.types import (
     check_literal,
     invalid,
     literal_token,
+    merge_input_contexts,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._symbolic import SymbolResolver
@@ -165,11 +169,33 @@ class RelationshipParameter:
     cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
 
 
-@dataclass(frozen=True, slots=True)
 class _RelationshipValue:
-    """Neutral private backing shared by the public relationship facade."""
+    """Controlled nominal bridge for captured directed relationship parameters."""
 
-    _parameter: RelationshipParameter
+    __slots__ = ()
+
+    @property
+    def _parameter(self) -> RelationshipParameter:
+        raise NotImplementedError("Use a captured Relationship value.")
+
+    @property
+    def _context(self) -> InputContext:
+        return InputContext()
+
+
+def relationship_carrier(recipe: Resolver) -> _RelationshipValue | None:
+    """Read only Ibis's exact literal wrappers around the nominal relationship bridge."""
+    candidate: object
+    if isinstance(recipe, Just):
+        candidate = recipe.value
+    elif isinstance(recipe, JustUnhashable):
+        wrapped: object = recipe.value
+        if not isinstance(wrapped, PseudoHashable):
+            return None
+        candidate = wrapped.obj
+    else:
+        return None
+    return candidate if isinstance(candidate, _RelationshipValue) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +251,20 @@ class DeclarationResolver(_FrozenResolver):
 
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
+
+
+class NamedResolver(_FrozenResolver):
+    """One named boundary in the existing recipe graph, with captured display facts."""
+
+    __slots__ = ("recipe", "reference")
+    reference: ExactRef
+    recipe: Resolver
+
+    def __init__(self, reference: ExactRef, recipe: Resolver) -> None:
+        super().__init__(reference=reference, recipe=recipe)
+
+    def resolve(self, context: dict[str, object]) -> NoReturn:
+        invalid("Named semantic inputs require the receiving Marivo scope.")
 
 
 class RescaleResolver(_FrozenResolver):
@@ -297,6 +337,8 @@ class DeferredInspection:
     declarations: tuple[DeclarationRecord, ...]
     fingerprint: str
     symbols: tuple[Ref[SemanticKindTag], ...] = ()
+    context: InputContext = field(default_factory=InputContext)
+    identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def semantic_calls(self) -> tuple[RecipeUse, ...]:
@@ -361,6 +403,8 @@ def _permission(value: SumPermission | None) -> tuple[str, ...]:
 
 def _captured_field_kind(recipe: Resolver) -> SemanticKind | None:
     """Read a field role only from native leaves and admitted field modifiers."""
+    if isinstance(recipe, NamedResolver):
+        return _captured_field_kind(recipe.recipe)
     if isinstance(recipe, SymbolResolver):
         return (
             recipe.reference.kind
@@ -385,6 +429,8 @@ def _captured_field_kind(recipe: Resolver) -> SemanticKind | None:
 
 
 def _captured_scalar_path(recipe: Resolver) -> bool:
+    if isinstance(recipe, NamedResolver):
+        return _captured_scalar_path(recipe.recipe)
     if isinstance(recipe, SemanticResolver):
         return recipe.input.field_read is not None and bool(recipe.input.field_read.path)
     if isinstance(recipe, Call) and isinstance(recipe.func, Attr):
@@ -394,11 +440,12 @@ def _captured_scalar_path(recipe: Resolver) -> bool:
 
 
 def _captured_relationship(recipe: Resolver) -> bool:
+    if isinstance(recipe, NamedResolver):
+        return recipe.reference.ref.kind is SemanticKind.RELATIONSHIP
     return (
-        isinstance(recipe, SymbolResolver) and recipe.reference.kind is SemanticKind.RELATIONSHIP
-    ) or (
-        isinstance(recipe, Just)
-        and isinstance(recipe.value, (RelationshipParameter, _RelationshipValue))
+        (isinstance(recipe, SymbolResolver) and recipe.reference.kind is SemanticKind.RELATIONSHIP)
+        or (isinstance(recipe, Just) and isinstance(recipe.value, RelationshipParameter))
+        or relationship_carrier(recipe) is not None
     )
 
 
@@ -515,8 +562,17 @@ class _Inspector:
         self.operations: list[RecipeUse] = []
         self.declarations: list[DeclarationRecord] = []
         self.symbols: dict[str, Ref[SemanticKindTag]] = {}
+        self.contexts: list[InputContext] = []
+        self.identity_keys: dict[str, tuple[str, ...]] = {}
         self.has_population_count = False
         self.has_population_contains = False
+
+    def capture_identity_keys(self, values: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
+        for identity, keys in values:
+            previous = self.identity_keys.get(identity)
+            if previous is not None and previous != keys:
+                invalid("Captured inputs have incompatible complete primary-key interpretation.")
+            self.identity_keys[identity] = keys
 
     def token(self, *values: str) -> None:
         self.tokens.extend(values)
@@ -535,6 +591,11 @@ class _Inspector:
             validate_parameter_call(recipe, path)
 
         if isinstance(recipe, ParameterResolver):
+            self.contexts.append(recipe.parameter._context)
+            from marivo._definition.population_parameters import CoordinatesParameter
+
+            if isinstance(recipe.parameter, CoordinatesParameter):
+                self.capture_identity_keys(recipe.parameter._identity_keys)
             self.token("parameter", type(recipe.parameter).__name__)
             for index, parameter_value in enumerate(validate_parameter(recipe, path)):
                 self.visit(resolver_of(parameter_value), (*path, f"input:{index}"), identity=True)
@@ -557,6 +618,8 @@ class _Inspector:
             self.symbols[recipe.reference.key] = recipe.reference
             self.token("symbol", recipe.reference.key)
         elif type(recipe) is PopulationContainsResolver:
+            self.contexts.append(recipe.population._context)
+            self.capture_identity_keys(recipe.population._identity_keys)
             self.has_population_contains = True
             from marivo._definition.graph import computation_fingerprint, direct_refs
 
@@ -565,6 +628,8 @@ class _Inspector:
             for reference in direct_refs(definition):
                 self.dependency(reference)
         elif type(recipe) is PopulationCountResolver:
+            self.contexts.append(recipe.population._context)
+            self.capture_identity_keys(recipe.population._identity_keys)
             self.has_population_count = True
             from marivo._definition.graph import computation_fingerprint
 
@@ -597,6 +662,9 @@ class _Inspector:
             self.literal(recipe.divisor, (*path, "divisor"))
             self.visit(recipe.recipe, (*path, "rescale"))
             self.token("end_rescale")
+        elif type(recipe) is NamedResolver:
+            self.dependency(recipe.reference)
+            self.visit(recipe.recipe, path)
         elif type(recipe) is DeclarationResolver:
             declaration = recipe.declaration
             self.declarations.append(declaration)
@@ -615,6 +683,11 @@ class _Inspector:
             self.token("slot", recipe.name)
         elif type(recipe) is Just:
             self.literal(recipe.value, path)
+        elif isinstance(recipe, JustUnhashable):
+            relationship = relationship_carrier(recipe)
+            if relationship is None:
+                self.reject(recipe, path)
+            self.literal(relationship, path)
         elif type(recipe) is BinaryOperator:
             symbol = next(
                 (name for function, name in _BINARY_SYMBOLS if recipe.func is function), None
@@ -678,9 +751,12 @@ class _Inspector:
         from marivo._grouping import Grouping
 
         if isinstance(value, _RelationshipValue):
+            self.contexts.append(value._context)
             value = value._parameter
 
         if isinstance(value, Grouping):
+            self.contexts.append(value._context)
+            self.capture_identity_keys(value._identity_keys)
             from marivo._definition.types import AxisBinding, CalendarCoordinate
 
             value = value._binding
@@ -695,6 +771,8 @@ class _Inspector:
         if isinstance(value, (MembershipBinding, PopulationParameter)):
             refs: set[ExactRef] = set()
             if isinstance(value, PopulationParameter):
+                self.contexts.append(value._context)
+                self.capture_identity_keys(value._identity_keys)
                 self.token("population", computation_fingerprint(value._definition))
                 refs.update(direct_refs(value._definition))
             else:
@@ -1208,6 +1286,8 @@ def inspect_deferred(value: Deferred, *, capture: bool = False) -> DeferredInspe
         tuple(inspector.declarations),
         digest,
         tuple(value for _, value in sorted(inspector.symbols.items())),
+        merge_input_contexts(*inspector.contexts),
+        tuple(sorted(inspector.identity_keys.items())),
     )
 
 

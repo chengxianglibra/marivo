@@ -16,13 +16,14 @@ Qualified strings, public callables and public types are accepted. Type pages
 own acquisition and member discovery; exporting a type permits annotation,
 inspection and Help, without authorizing direct construction or extension.
 Object pages explain meaning and link exact operations: semantic.metric is the
-object, semantic.metric.define describes ms.metric. Deferred expression routes
-are explicitly owned by semantic role, rather than inferred from Ibis reflection.
+object, semantic.metric.define describes ms.metric. Returned semantic types use explicit `semantic.metric_object`,
+`semantic.entity_object` and corresponding `*_object` targets, avoiding constructor
+collisions. Shared expression routes are explicitly owned by semantic role, rather than inferred from Ibis reflection.
 
 Public fields/properties have independent attribute targets, queried by string
 without evaluating a getter, such as analysis.analysis_frame.output_names.
 Read actual values in their original object context. Variant-only members state
-the availability condition, for example a semantic Grain's calendar field.
+the availability condition, for example a semantic Grain's calendar_id field.
 Private error subclasses reuse their nearest registered public error contract.
 
 Reflection supplies installed signatures/members. Owning docstrings and domain
@@ -125,7 +126,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create("revenue-review", timezone="UTC")
 revenue_entry = session.catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 period = session.time_scope(start="2026-06-01", end="2026-06-08")
 saved = session.observe({"revenue": revenue}, by=(period,)).persist()
 saved.show(n=10)

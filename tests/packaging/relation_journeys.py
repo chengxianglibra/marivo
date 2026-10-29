@@ -194,9 +194,9 @@ def _records(frame: pd.DataFrame) -> Json:
 def _produce(
     session: mv.Session, scenario: Scenario, patch: pytest.MonkeyPatch
 ) -> tuple[dict[str, mv.AnalysisFrame], dict[str, Json]]:
-    targets = session.members(session.catalog.get("entity:operations.device").value)
-    metric = session.catalog.get("metric:operations.energy_total").value
-    count = session.catalog.get("metric:operations.reading_count").value
+    targets = session.members(session.catalog.get("entity:operations.device"))
+    metric = session.catalog.get("metric:operations.energy_total")
+    count = session.catalog.get("metric:operations.reading_count")
 
     def monthly(month: int) -> mv.AnalysisFrame:
         return session.observe(
@@ -228,12 +228,12 @@ def _produce(
             on=(
                 (
                     next(axis for axis in chosen.axes if axis.role == "identity"),
-                    session.catalog.get("entity:operations.device").value,
+                    session.catalog.get("entity:operations.device"),
                 ),
             ),
         )
         selected = session.members(
-            session.catalog.get("entity:operations.device").value,
+            session.catalog.get("entity:operations.device"),
             where=mv.in_population(keys),
         )
         frames = {
@@ -372,11 +372,11 @@ def _produce(
         )
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
-            {"value": session.catalog.get("metric:operations.running_energy").value},
+            {"value": session.catalog.get("metric:operations.running_energy")},
             by=mv.product(temporal, targets),
         )
         folded = session.observe(
-            {"value": session.catalog.get("metric:operations.folded_energy").value},
+            {"value": session.catalog.get("metric:operations.folded_energy")},
             by=mv.product(temporal, targets),
         )
         frames = {
@@ -397,12 +397,12 @@ def _produce(
             "period": period,
             "running": running,
             "running_total": session.observe(
-                {"value": session.catalog.get("metric:operations.running_energy").value},
+                {"value": session.catalog.get("metric:operations.running_energy")},
                 by=(temporal,),
             ),
             "folded": folded,
             "folded_total": session.observe(
-                {"value": session.catalog.get("metric:operations.folded_energy").value},
+                {"value": session.catalog.get("metric:operations.folded_energy")},
                 by=mv.product(session.time_scope(start="2026-07-01", end="2026-10-01"), targets),
             ),
         }
@@ -436,7 +436,7 @@ def _produce(
             "groups": groups,
             "difference": difference,
         }
-        readings = session.members(session.catalog.get("entity:operations.reading").value)
+        readings = session.members(session.catalog.get("entity:operations.reading"))
         basis = session.read(
             readings,
             {

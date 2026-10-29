@@ -130,14 +130,14 @@ def _population(
     on = (
         ()
         if scalar
-        else ((frame.axes[0], session.catalog.get("entity:sales.facts").value),)
+        else ((frame.axes[0], session.catalog.get("entity:sales.facts")),)
         if identity
         else (
             (frame.axes[0], catalog_value(session.catalog, "sales.facts.region", kind="field")),
             (frame.axes[1], catalog_value(session.catalog, "sales.facts.channel", kind="field")),
         )
     )
-    return population_from(session._runtime.local, session.catalog._state, frame, on=on)
+    return session.population_from(frame, on=on)
 
 
 def _observe(
@@ -145,10 +145,7 @@ def _observe(
 ) -> AnalysisFrame:
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
     condition = ~in_population(population) if negate else in_population(population)
-    return frame_sources.observe(
-        session._runtime.local,
-        session.catalog._state,
-        session._runtime.connection_config,
+    return session.observe(
         {"amount": amount.where(condition) if metric_where else amount},
         by=(
             catalog_value(session.catalog, "sales.facts.region", kind="field"),
@@ -645,12 +642,12 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         session._runtime.local,
         session.catalog._state,
         fixed,
-        on=((fixed.axes[0], session.catalog.get("entity:sales.tags").value),),
+        on=((fixed.axes[0], session.catalog.get("entity:sales.tags")),),
     )
-    orders = session.members(session.catalog.get("entity:sales.orders").value)
+    orders = session.members(session.catalog.get("entity:sales.orders"))
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     selected = orders.preimage(targets, via=path)
     result = (

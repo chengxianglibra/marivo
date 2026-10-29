@@ -79,7 +79,7 @@ def test_pure_measure_composition_and_physical_fields_execute(
         ]
         assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
         catalog = SemanticCatalog(project)
-        metric = catalog.get("metric:sales.revenue").value
+        metric = catalog.get("metric:sales.revenue")
         assert "callable" not in catalog.get("metric:sales.revenue").render()
         dependencies = catalog._state.dependencies[ref_factory.metric("sales.revenue")]
         assert ref_factory.measure("sales.orders.amount") in dependencies

@@ -21,7 +21,7 @@ _FAMILIES: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         _links("ref.datasource", "datasource.connections"),
     ),
     "EntitySymbol": (
-        "Reuse a constructed Entity symbol, a closed Catalog Entity, or an exact declaration lookup.",
+        "Reuse a constructed Entity symbol or an exact declaration lookup; loaded objects belong to consumption APIs.",
         _links("objects.entity", "ref.entity", "SemanticCatalog.get"),
     ),
     "EntitySourceIR": (
@@ -65,9 +65,9 @@ _FAMILIES: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         "Acquire the current project snapshot before lookup or validation.",
         _links("load"),
     ),
-    "CatalogEntry | LookupSymbol": (
-        "Select exact identities in the loaded scope; the consuming check owns its accepted kinds.",
-        _links("SemanticCatalog.get", "ref"),
+    "SemanticObject": (
+        "Get or search named objects in the same project; the receiving Catalog owns resolution and accepted kinds.",
+        _links("SemanticCatalog.get", "SemanticCatalog.search"),
     ),
     "SourceCheck": (
         "Omit for connectivity/schema checks; declared data checks require an explicit bounded scope.",
@@ -76,6 +76,26 @@ _FAMILIES: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
     "AuthoringScope": (
         "Choose explicit row and timeout guards and the applicable pruning boundary.",
         _links("datasource.inspection"),
+    ),
+    "RowExpression": (
+        "Use a loaded field or a typed row expression in its declared role; numeric dtype does not grant Measure permission.",
+        _links("field", "expressions.row"),
+    ),
+    "NumericRow": (
+        "Compose compatible Measure quantities from one contribution root.",
+        _links("expressions.row"),
+    ),
+    "NumericMetric": (
+        "Use a completed numeric Metric or typed formula; internal samples must finish with a reducer.",
+        _links("expressions.Metric"),
+    ),
+    "RowPredicate": (
+        "Compare fields and combine same-stage conditions with &, | and ~; metric-stage booleans are not source filters.",
+        _links("predicate"),
+    ),
+    "TimeExpression": (
+        "Use a loaded TimeDimension or a legal typed time field binding with the required native role.",
+        _links("objects.time_dimension", "field"),
     ),
     "Deferred": (
         "Compose native governed inputs in their semantic role; declaration lookups need loader binding.",
@@ -220,18 +240,18 @@ def authoring_inputs(
             )
         if canonical_id == "readiness" and requirement.role == "subject":
             fact = (
-                "Select current entries, values or exact lookup symbols, including declared Measures and Metrics. Their physical dependencies are checked automatically. None checks all loaded physical objects; analysis_ready_inputs contains only directly requested ready physical refs.",
-                _links("SemanticCatalog.get", "ref"),
+                "Select same-project named objects, including Measures and Metrics. Their physical dependencies are checked automatically. None checks all loaded physical objects; analysis_ready_inputs contains only directly requested ready physical objects.",
+                _links("SemanticCatalog.get", "SemanticCatalog.search"),
             )
         if canonical_id == "validate" and requirement.role == "scope":
             fact = (
-                "Required with data checks; omit when checks is empty. Pass one scope for one checked Entity, or exact (Entity symbol, scope) pairs for multiple checked Entities.",
+                "Required with data checks; omit when checks is empty. Pass one scope for one checked Entity, or exact (Entity object, scope) pairs for multiple checked Entities.",
                 _links("datasource.unpruned", "datasource.time_range", "datasource.partition"),
             )
         if canonical_id.startswith("source_check."):
             if requirement.role == "subject":
                 fact = (
-                    "Pass native lookup symbols from ms.ref or a Catalog entry's .ref; closed .value expressions are not accepted.",
+                    "Pass native loaded fields/relationships or explicit ms.ref declaration selectors; anonymous and routed expressions are not accepted.",
                     _links("ref", "SemanticCatalog.get"),
                 )
             elif requirement.parameter_names == ("side",):

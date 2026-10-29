@@ -112,7 +112,7 @@ baseline = ms.measure_column(name='baseline', entity=orders, column='baseline', 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(session.catalog.get("entity:sales.orders").value),
+        session.members(session.catalog.get("entity:sales.orders")),
         {
             "amount": catalog_value(session.catalog, "sales.orders.amount", kind="field"),
             "region": catalog_value(session.catalog, "sales.orders.region", kind="field"),
@@ -122,7 +122,7 @@ def _attributes(session: Session) -> mv.AnalysisFrame:
 
 def _identities(session: Session, frame: mv.AnalysisFrame) -> mv.Population:
     return session.population_from(
-        frame, on=((frame.axes[0], session.catalog.get("entity:sales.orders").value),)
+        frame, on=((frame.axes[0], session.catalog.get("entity:sales.orders")),)
     )
 
 
@@ -334,7 +334,7 @@ def test_source_population_set_terminal_preserves_native_layout(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
     session = source_query_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     left = session.members(entity, where=amount >= 20)
     right = session.members(entity, where=amount <= 20)
@@ -377,7 +377,7 @@ def test_private_native_union_finish_executes_source_order_layout_and_checks(
 ) -> None:
     """Exercise the existing private finish builder without enabling a public route."""
     session = source_query_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     left = session.members(entity, where=amount >= 20)
     right = session.members(entity, where=amount <= 20)
@@ -498,7 +498,7 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
     fixed = source.top(1, by=source["amount"]).compute()
     keys = _identities(session, fixed)
     members = session.members(
-        session.catalog.get("entity:sales.orders").value, where=mv.in_population(keys)
+        session.catalog.get("entity:sales.orders"), where=mv.in_population(keys)
     )
     trace = capture_source(monkeypatch)
     rows = (
@@ -722,7 +722,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=9007199254740993, baseline=9007199254740992")
     source = session.read(
-        session.members(session.catalog.get("entity:sales.orders").value),
+        session.members(session.catalog.get("entity:sales.orders")),
         {
             "amount": catalog_value(session.catalog, "sales.orders.amount", kind="field"),
             "baseline": catalog_value(session.catalog, "sales.orders.baseline", kind="field"),
@@ -769,7 +769,7 @@ def test_population_set_algebra_keeps_complete_frame_keys(
 ) -> None:
     session = source_query_session
     members = session.members(
-        session.catalog.get("entity:sales.orders").value,
+        session.catalog.get("entity:sales.orders"),
         where=mv.in_population(_sets(session, operation)),
     )
     rows = (
@@ -841,7 +841,7 @@ def test_frame_key_product_projection_and_filter_preserve_domain(
     source = _attributes(session)
     selected = _identities(session, source.where(source["amount"] >= 20).compute())
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    classifications = session.members(session.catalog.get("entity:sales.orders").value).classify(
+    classifications = session.members(session.catalog.get("entity:sales.orders")).classify(
         by=(region,)
     )
     product = mv.product(selected, classifications)

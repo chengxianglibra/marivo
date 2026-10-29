@@ -9,10 +9,10 @@ from tests.shared_fixtures import DslCase
 
 def _values(case: DslCase) -> mv.AnalysisFrame:
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue").value},
+        {"value": case.session.catalog.get("metric:sales.revenue")},
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            case.session.members(case.session.catalog.get("entity:sales.customer").value),
+            case.session.members(case.session.catalog.get("entity:sales.customer")),
         ),
     )
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ibis.common.deferred import Deferred
-
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo.refs import ref as ref_factory
@@ -120,11 +118,11 @@ def test_single_entity_metric_roots_follow_its_source_reductions(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
     order_count = resolve(catalog, ms.ref.metric("sales.order_count"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
-    assert type(revenue) is Deferred
+    assert isinstance(revenue, ms.Metric)
     revenue = consume_metric(revenue)
     order_count = consume_metric(order_count)
     assert isinstance(revenue.node, DeclaredMetricRef)
@@ -144,8 +142,8 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     users = resolve(catalog, ms.ref.entity("sales.users"))
 
-    per_user = consume_metric(catalog.get("metric:sales.revenue_per_user").value)
-    share = consume_metric(catalog.get("metric:sales.user_revenue_share").value)
+    per_user = consume_metric(catalog.get("metric:sales.revenue_per_user"))
+    share = consume_metric(catalog.get("metric:sales.user_revenue_share"))
 
     assert per_user.roots == (entity_exact(orders), entity_exact(users))
     assert share.roots == (entity_exact(users), entity_exact(orders))
@@ -157,19 +155,19 @@ def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
     semantic_project_factory, capsys
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
     contract = catalog.get("metric:sales.revenue")
     rendered = repr(contract)
 
-    assert rendered.startswith("<MetricEntry ")
-    assert "call .show()" in rendered
+    assert rendered.startswith("Metric metric:sales.revenue")
+    assert ".show()" in rendered
     assert "\n" not in rendered and len(rendered) < 120
     assert capsys.readouterr().out == ""
 
     contract.show()
 
     shown = capsys.readouterr().out
-    assert "MetricEntry metric:sales.revenue" in shown
+    assert "Metric metric:sales.revenue" in shown
     assert "formula:" in shown
     assert "unit: CNY" in shown
     assert capsys.readouterr().out == ""
@@ -202,7 +200,7 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     )
     catalog = SemanticCatalog(project)
 
-    entity = catalog.get("entity:sales.user_profile_daily").value
+    entity = catalog.get("entity:sales.user_profile_daily")
     stored = catalog._state.registry.entities["sales.user_profile_daily"]
     versioning = stored.versioning
 
@@ -213,4 +211,4 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     assert not hasattr(versioning, "grain")
     assert versioning.timezone == "Asia/Shanghai"
     assert not hasattr(versioning, "format")
-    assert ("versioning", repr(versioning)) in entity.contract().facts
+    assert entity.definition.versioning == versioning

@@ -26,7 +26,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.get("entity:sales.customer").value)
+    return case.session.members(case.session.catalog.get("entity:sales.customer"))
 
 
 def _observe(
@@ -50,7 +50,7 @@ def _observe(
         else mv.product(scope, population)
     )
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue").value},
+        {"value": case.session.catalog.get("metric:sales.revenue")},
         by=domain,
         where=mv.in_population(population),
     )
@@ -76,7 +76,7 @@ def _selected_members(case: DslCase, frame: mv.AnalysisFrame) -> mv.Population:
         on=(
             (
                 next(axis for axis in frame.axes if axis.role == "identity"),
-                case.session.catalog.get("entity:sales.customer").value,
+                case.session.catalog.get("entity:sales.customer"),
             ),
         ),
     )
@@ -122,11 +122,11 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     status = catalog_value(session.catalog, "sales.order.status", kind="field")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue").value},
+        {"value": session.catalog.get("metric:sales.revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
     result = _source(
-        case, session.catalog.get("metric:sales.revenue").value, by=(channel, status)
+        case, session.catalog.get("metric:sales.revenue"), by=(channel, status)
     ).persist()
     frame = result.to_pandas()
     assert frame["value"].tolist() == [150, 850]
@@ -203,13 +203,13 @@ def test_original_mean_merges_support_not_finished_values(
     ms.load(workspace_dir=case.root)
     session = case.session
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.mean_amount").value},
+        {"value": session.catalog.get("metric:sales.mean_amount")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
     fixed = observed.compute()
     assert fixed.to_pandas()["value"].tolist() == [1, 100]
     assert _source(
-        case, session.catalog.get("metric:sales.mean_amount").value, members=_members(case)
+        case, session.catalog.get("metric:sales.mean_amount"), members=_members(case)
     ).compute().to_pandas()["value"].tolist() == pytest.approx([200 / 101])
     assert fixed.to_pandas()["value"].mean() == 50.5
 
@@ -223,14 +223,12 @@ def test_partial_reduction_matches_components_and_preserves_keys(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     status = catalog_value(session.catalog, "sales.order.status", kind="field")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue").value},
+        {"value": session.catalog.get("metric:sales.revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
-    partial = _source(
-        case, session.catalog.get("metric:sales.revenue").value, by=(customer, channel)
-    )
+    partial = _source(case, session.catalog.get("metric:sales.revenue"), by=(customer, channel))
     assert partial.compute().to_pandas()["value"].tolist() == [450, 150, 400]
-    direct = _source(case, session.catalog.get("metric:sales.revenue").value).compute()
+    direct = _source(case, session.catalog.get("metric:sales.revenue")).compute()
     assert direct.to_pandas()["value"].tolist() == [1000]
     assert len(direct.to_pandas().attrs["frozen_coordinates"]) == 1
     assert direct.axes[0].role == "interval"
@@ -325,7 +323,7 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     status = catalog_value(session.catalog, "sales.order.status", kind="field")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    count = session.catalog.get("metric:sales.order_count").value
+    count = session.catalog.get("metric:sales.order_count")
     web = count.where(channel == "web")
     for kind, expression in (("ratio", web / count), ("linear", count - count)):
         observed = session.observe(
@@ -391,12 +389,12 @@ def test_weighted_coordinates_merge_paired_components(
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.weighted").value},
+        {"value": session.catalog.get("metric:sales.weighted")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
-    partial = _source(case, session.catalog.get("metric:sales.weighted").value, by=(channel,))
+    partial = _source(case, session.catalog.get("metric:sales.weighted"), by=(channel,))
     assert partial.compute().to_pandas()["value"].tolist() == [150, 425]
-    assert _source(case, session.catalog.get("metric:sales.weighted").value).compute().to_pandas()[
+    assert _source(case, session.catalog.get("metric:sales.weighted")).compute().to_pandas()[
         "value"
     ].tolist() == pytest.approx([1000 / 3])
 
@@ -418,7 +416,7 @@ def test_combined_member_classifications_do_not_expand_facts(
     cohort = catalog_value(session.catalog, "sales.customer.cohort", kind="field")
     population = _members(case).classify(by=(region, cohort))
     grouped = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue").value},
+        {"value": session.catalog.get("metric:sales.revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
     frame = grouped.compute().to_pandas()
@@ -434,7 +432,7 @@ def test_numeric_read_grouping_creates_only_row_statistics(
     session = case.session
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     raw = session.read(
-        session.members(session.catalog.get("entity:sales.order").value),
+        session.members(session.catalog.get("entity:sales.order")),
         {
             "amount": catalog_value(session.catalog, "sales.order.amount", kind="field"),
             "channel": channel,
@@ -462,7 +460,7 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
     domain = _members(case).classify(by=(field,))
     grouped = (
         case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.revenue").value},
+            {"value": case.session.catalog.get("metric:sales.revenue")},
             by=mv.product(case.session.time_scope(start="2026-08-01", end="2026-09-01"), domain),
         )
         .compute()
@@ -484,7 +482,7 @@ def test_duplicate_classification_rejects_source_and_fixed(
     values = _observe(case, classified=True)
     before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
-        _source(case, case.session.catalog.get("metric:sales.revenue").value, by=(region, region))
+        _source(case, case.session.catalog.get("metric:sales.revenue"), by=(region, region))
     with pytest.raises(AnalysisError):
         values.reduce({"count": mv.row_count()}, by=(values.axes[1], values.axes[1]))
     assert terminal_runs(case.session) == before
@@ -534,7 +532,7 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
     session = case.session
     band = catalog_value(session.catalog, "sales.customer.band", kind="field")
     grouped = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue").value},
+        {"value": session.catalog.get("metric:sales.revenue")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
             _members(case).classify(by=(band,)),
@@ -585,8 +583,8 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     session = case.session
     quantities = session.observe(
         {
-            "value": session.catalog.get("metric:sales.revenue").value,
-            "lines": session.catalog.get("metric:sales.line_revenue").value,
+            "value": session.catalog.get("metric:sales.revenue"),
+            "lines": session.catalog.get("metric:sales.line_revenue"),
         },
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )

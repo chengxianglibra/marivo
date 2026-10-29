@@ -38,14 +38,16 @@ from marivo.semantic.ir import (
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
 if TYPE_CHECKING:
-    from marivo.semantic.expressions import Entity
+    from marivo.semantic.expressions import _Entity as Entity
 
 
 def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
     from ibis.common.deferred import Deferred
 
     from marivo.semantic._deferred_semantics import consume_field
-    from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
+    from marivo.semantic.expressions import Dimension, Measure, TimeField
+    from marivo.semantic.expressions import _Entity as Entity
+    from marivo.semantic.expressions import _Relationship as Relationship
 
     if isinstance(value, Deferred):
         native = native_symbol_ref(value)

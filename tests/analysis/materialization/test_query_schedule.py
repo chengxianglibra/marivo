@@ -14,7 +14,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo._symbolic import symbol_factory
+import marivo.semantic as ms
 from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -163,15 +163,15 @@ def _query(
     where: Deferred | None = None,
 ) -> BoundGraph:
     metric = catalog_value(session.catalog, f"sales.{name}", kind="metric")
-    assert isinstance(metric, Deferred)
+    assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     return _source_graph(
         session.observe({name: metric}, by=by if during is None else (during, *by), where=where)
     )
 
 
-def _dimension(session: Session, path: str) -> Deferred:
+def _dimension(session: Session, path: str) -> ms.Dimension | ms.TimeDimension | ms.Measure:
     field = catalog_value(session.catalog, path, kind="field")
-    assert isinstance(field, Deferred)
+    assert isinstance(field, (ms.Dimension, ms.TimeDimension, ms.Measure))
     return field
 
 
@@ -284,8 +284,8 @@ def test_uint64_prepares_exact_decimal_before_any_business_read(
 def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:
     session = warehouse_session
     segment = _dimension(session, "sales.customers.segment")
-    revenue = session.catalog.get("metric:sales.revenue").value
-    assert isinstance(revenue, Deferred)
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert isinstance(revenue, (ms.RowExpression, ms.MetricExpression))
     first = session.observe({"revenue": revenue}).persist()
     second = session.observe({"revenue": revenue}, by=(segment,)).persist()
     assert first.artifact_id != second.artifact_id
@@ -517,7 +517,9 @@ def _numeric_inputs(session: Session) -> tuple[Deferred, Deferred]:
         connection.close()
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    assert isinstance(amount, Deferred) and isinstance(weight, Deferred)
+    assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
+        weight, (ms.RowExpression, ms.MetricExpression)
+    )
     return amount, weight
 
 
@@ -653,8 +655,8 @@ def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> Non
 def test_multiple_roots_reduce_before_combining(warehouse_session: Session) -> None:
     session = warehouse_session
     _numeric_inputs(session)
-    net = session.catalog.get("metric:sales.net").value
-    assert isinstance(net, Deferred)
+    net = session.catalog.get("metric:sales.net")
+    assert isinstance(net, (ms.RowExpression, ms.MetricExpression))
     output = _compute(session, {"net": net})
     assert output.table["value.0"].tolist() == [57]
 
@@ -664,10 +666,13 @@ def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> N
 
     session = warehouse_session
     _numeric_inputs(session)
-    metric = session.catalog.get("metric:sales.net").value
-    assert isinstance(metric, Deferred)
+    metric = session.catalog.get("metric:sales.net")
+    assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     scope = tuple(
-        (symbol_factory.entity(root.ref.path), md.unpruned(max_rows=100, timeout_seconds=10))
+        (
+            session.catalog.get("entity:" + root.ref.path),
+            md.unpruned(max_rows=100, timeout_seconds=10),
+        )
         for root in consume_metric(metric).roots
     )
     preview = session.catalog.preview(metric, scope=scope)
@@ -721,7 +726,7 @@ def test_decimal_source_and_mixed_local_arithmetic(warehouse_session: Session) -
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     price = catalog_value(session.catalog, "sales.orders.price", kind="field")
-    assert isinstance(price, Deferred)
+    assert isinstance(price, (ms.RowExpression, ms.MetricExpression))
     output = _compute(
         session,
         {
@@ -743,8 +748,8 @@ def test_preview_rejects_sample_preparation_before_opening_source(
     import marivo.datasource.backends as backends
 
     session = warehouse_session
-    metric = session.catalog.get("metric:sales.sampled").value
-    assert isinstance(metric, Deferred)
+    metric = session.catalog.get("metric:sales.sampled")
+    assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("sample preview opened a datasource")
@@ -779,10 +784,10 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
 
 
 def test_entity_count_and_distinct_classification(warehouse_session: Session) -> None:
-    from marivo.semantic.expressions import Entity
+    from marivo.semantic.catalog import Entity
 
     session = warehouse_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     region = _dimension(session, "sales.orders.region")
     assert isinstance(entity, Entity)
     output = _compute(session, {"rows": entity.count(), "categories": region.count_distinct()})
@@ -818,11 +823,16 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
 
     session = warehouse_session
     _numeric_inputs(session)
-    revenue = session.catalog.get("metric:sales.revenue").value
-    refund = session.catalog.get("metric:sales.refund_total").value
-    assert isinstance(revenue, Deferred) and isinstance(refund, Deferred)
+    revenue = session.catalog.get("metric:sales.revenue")
+    refund = session.catalog.get("metric:sales.refund_total")
+    assert isinstance(revenue, (ms.RowExpression, ms.MetricExpression)) and isinstance(
+        refund, (ms.RowExpression, ms.MetricExpression)
+    )
     scope = tuple(
-        (symbol_factory.entity(root.ref.path), md.unpruned(max_rows=100, timeout_seconds=10))
+        (
+            session.catalog.get("entity:" + root.ref.path),
+            md.unpruned(max_rows=100, timeout_seconds=10),
+        )
         for metric in (revenue, refund)
         for root in consume_metric(metric).roots
     )
@@ -844,8 +854,8 @@ def test_weighted_mean_uses_native_overflowing_denominator(warehouse_session: Se
     ].tolist() == [0.0]
     import marivo.datasource as md
 
-    tiny = session.catalog.get("metric:sales.tiny_mean").value
-    assert isinstance(tiny, Deferred)
+    tiny = session.catalog.get("metric:sales.tiny_mean")
+    assert isinstance(tiny, (ms.RowExpression, ms.MetricExpression))
     preview = session.catalog.preview(tiny, scope=md.unpruned(max_rows=100, timeout_seconds=10))
     assert preview.rows == ({"value": 0.0},)
     assert terminal_runs(session) == ()
@@ -902,7 +912,7 @@ def test_native_zero_product_can_elide_integer_overflow(warehouse_session: Sessi
     with pytest.raises(SemanticExpressionError, match="overflow"):
         _compute(session, {"v": (amount.sum() * (2**62)) * 0})
     assert _compute(session, {"v": ((amount * (2**62)) * 0).sum()}).table["value.0"].tolist() == [0]
-    metric = session.catalog.get("metric:sales.masked_overflow").value
-    assert isinstance(metric, Deferred)
+    metric = session.catalog.get("metric:sales.masked_overflow")
+    assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     preview = session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
     assert preview.rows[0]["value"] == 0

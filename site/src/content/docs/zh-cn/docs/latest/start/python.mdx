@@ -108,7 +108,7 @@ session = mv.session.get_or_create(
 catalog = session.catalog
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 pending = session.observe({"revenue": revenue})
 fixed = pending.compute()
 fixed.show()

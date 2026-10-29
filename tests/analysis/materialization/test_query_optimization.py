@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
-import ibis
 import pandas as pd
 import pytest
 from ibis.common.deferred import Deferred
@@ -271,7 +270,7 @@ def test_source_attributes_keep_complete_keys_and_inherited_checks(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     source = session.read(
@@ -371,7 +370,7 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     total = amount.sum()
-    guarded = ibis.ifelse(total >= 0, total, total / 0)
+    guarded = (total >= 0).ifelse(total, total / 0)
     query = session.observe({"safe": guarded}, by=(region,))
     _same(session, query)
 
@@ -684,7 +683,7 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     query = session.observe({"sum": amount.sum()})
     plan, _, _ = _same(session, query)
     assert not any(group.law == "L8" for group in plan.fusion_groups)
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     one = session.observe(
         {"sum": amount.sum()},
         where=mv.in_population(mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),))),
@@ -1147,8 +1146,8 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     from marivo.analysis.materialization import terminal_store
 
     session = optimization_session
-    composite = session.catalog.get("entity:sales.composite_orders").value
-    members = session.members(session.catalog.get("entity:sales.composite_orders").value)
+    composite = session.catalog.get("entity:sales.composite_orders")
+    members = session.members(session.catalog.get("entity:sales.composite_orders"))
     query = session.frame(members)
     runs_before = terminal_runs(session)
     calls: list[str] = []
@@ -1175,7 +1174,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     requested = mv.coordinates(by=(mv.identity(composite),), keys=(((1, "x"),), ((2, "x"),)))
     selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
-    scalar_members = session.members(session.catalog.get("entity:sales.orders").value)
+    scalar_members = session.members(session.catalog.get("entity:sales.orders"))
     scalar = session.frame(scalar_members)
     assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
         "identity"
@@ -1189,7 +1188,7 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
     import marivo.semantic as ms
 
     session = optimization_session
-    entity = session.catalog.get("entity:sales.composite_orders").value
+    entity = session.catalog.get("entity:sales.composite_orders")
     before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -1201,7 +1200,7 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
             by=(mv.identity(entity),), keys=(((1, "x"),), ((999, "unconfirmed"),))
         )
         axis = domain._definition.axes[0]
-        assert isinstance(axis, AxisBinding) and axis.entity == entity._exact_ref
+        assert isinstance(axis, AxisBinding) and axis.entity.ref.key == entity.id
         symbolic = mv.coordinates(
             by=(mv.identity(ms.ref.entity("sales.composite_orders")),), keys=()
         )

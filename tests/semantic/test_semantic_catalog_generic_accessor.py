@@ -1,4 +1,4 @@
-"""The canonical catalog identity and closed Entry execution boundary."""
+"""The canonical catalog identity and direct typed semantic-object boundary."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
@@ -45,19 +44,19 @@ def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> 
     assert "CatalogCollection" not in ms.__all__
 
 
-def test_entry_kind_narrowing_exposes_only_native_closed_values(tmp_path: Path) -> None:
+def test_object_kind_narrowing_exposes_direct_typed_operations(tmp_path: Path) -> None:
     write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
     metric = catalog.get("metric:sales.revenue")
     assert metric.kind == "metric"
-    assert isinstance(metric.value, Deferred)
-    assert consume_metric(metric.value).roots[0].ref.key == "entity:sales.orders"
+    assert isinstance(metric, ms.MetricExpression)
+    assert consume_metric(metric).roots[0].ref.key == "entity:sales.orders"
     field = catalog.get("dimension:sales.orders.status")
     assert field.kind == "dimension"
-    assert consume_field(field.value).reference.ref.key == field.id
+    assert consume_field(field).reference.ref.key == field.id
     entity = catalog.get("entity:sales.orders")
     assert entity.kind == "entity"
-    assert entity.value.primary_key == ("order_id",)
+    assert entity.primary_key == ("order_id",)
     assert not hasattr(catalog.get("domain:sales"), "value")
     assert not hasattr(catalog.get("datasource:warehouse"), "value")
 

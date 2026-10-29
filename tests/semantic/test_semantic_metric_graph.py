@@ -38,8 +38,8 @@ def second():
     assert computation_fingerprint(consume_metric(first).node) == computation_fingerprint(
         consume_metric(second).node
     )
-    published_first = catalog.get("metric:sales.first").value
-    published_second = catalog.get("metric:sales.second").value
+    published_first = catalog.get("metric:sales.first")
+    published_second = catalog.get("metric:sales.second")
     assert isinstance(consume_metric(published_first).node, DeclaredMetricRef)
     assert isinstance(consume_metric(published_second).node, DeclaredMetricRef)
     assert consume_metric(published_first).node.ref.ref == ref_factory.metric("sales.first")

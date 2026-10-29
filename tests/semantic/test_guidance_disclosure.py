@@ -8,13 +8,11 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability, AuthoringRepair
-from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
 from marivo._help.render import render_help_text
@@ -33,6 +31,7 @@ from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
 from marivo.semantic.validation import ValidationCheckResult, ValidationReport
 from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
 
 
@@ -71,7 +70,7 @@ def test_definition_read_does_not_prescribe_readiness(
     )
     catalog = ms.load(workspace_dir=tmp_path)
     assert marivo.help is show_help
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
     monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
@@ -252,12 +251,12 @@ def test_decorator_help_example_loads_the_declared_object(
     if target in {"measure", "metric"}:
         symbol = path.rsplit(".", 1)[-1]
         local_assertions = (
-            "from ibis.common.deferred import Deferred\n"
-            "from marivo._definition.deferred import root_declaration, inspect_deferred\n"
+            "from marivo._definition.deferred import root_declaration\n"
+            "from marivo.semantic._expression_values import _as_deferred\n"
             "from marivo.semantic._deferred_semantics import consume_metric, consume_row\n"
             "from marivo._definition.graph import computation_fingerprint\n"
-            f"assert isinstance({symbol}, Deferred)\n"
-            f"assert root_declaration({symbol}).name == {symbol!r}\n"
+            f"assert isinstance({symbol}, ms.{'RowExpression' if target == 'measure' else 'MetricExpression'})\n"
+            f"assert root_declaration(_as_deferred({symbol})).name == {symbol!r}\n"
         )
     semantic_project_factory(
         {
@@ -284,24 +283,23 @@ def test_decorator_help_example_loads_the_declared_object(
     if target in {"measure", "metric"}:
         # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
-            assert isinstance(value, Deferred)
-            declaration = root_declaration(value)
-            assert declaration is not None and declaration.name == "order_amount"
+            assert isinstance(value, ms.Measure)
+            assert value.name == "order_amount"
             assert consume_row(value).unit == "CNY"
         else:
-            assert isinstance(value, Deferred)
+            assert isinstance(value, ms.Metric)
             metric = consume_metric(value)
             assert isinstance(metric.node, DeclaredMetricRef)
             assert metric.node.ref.ref == ref_factory.metric(path)
             assert metric.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
             dependency_value = catalog_value(catalog, f"sales.orders.{dependency}", kind="field")
-            assert isinstance(dependency_value, Deferred)
+            assert isinstance(dependency_value, ms.Measure)
             assert consume_field(dependency_value).reference.ref == ref_factory.measure(
                 f"sales.orders.{dependency}"
             )
         return
-    assert isinstance(value, Deferred)
+    assert isinstance(value, ms.TimeDimension if target == "time_dimension" else ms.Dimension)
     assert consume_field(value).reference.ref.path == path
     assert consume_field(value).reference.ref.kind.value == target
 
@@ -353,7 +351,7 @@ def test_missing_path_ranks_real_collection_paths_before_bounding(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
     with pytest.raises(SemanticRuntimeError) as captured:
-        _ = expression_catalog.get("metric:sales.zeta_revenu").value
+        _ = expression_catalog.get("metric:sales.zeta_revenu")
     repair = captured.value.repair
     assert repair is not None
     assert repair.candidates[0] == "metric:sales.zeta_revenue"
@@ -365,7 +363,8 @@ def test_missing_path_ranks_real_collection_paths_before_bounding(
 def test_row_filter_failure_points_to_its_exact_expression_role(
     expression_catalog: ms.SemanticCatalog,
 ) -> None:
-    amount = catalog_value(expression_catalog, "sales.orders.amount", kind="field")
+    # The restricted declaration grammar still diagnoses invalid row-level filters.
+    amount = resolve(expression_catalog, ms.ref.measure("sales.orders.amount"))
     with pytest.raises(SemanticExpressionError) as captured:
         consume_metric(amount.where(amount > 0).sum())
     repair = captured.value.repair

@@ -44,19 +44,19 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     catalog = ms.load(workspace_dir=authoring_evidence_project)
 
     physical = (
-        ms.ref.entity("sales.orders"),
-        ms.ref.dimension("sales.orders.region"),
-        ms.ref.time_dimension("sales.orders.log_date"),
-        ms.ref.measure("sales.orders.amount"),
+        catalog.get("entity:sales.orders"),
+        catalog.get("dimension:sales.orders.region"),
+        catalog.get("time_dimension:sales.orders.log_date"),
+        catalog.get("measure:sales.orders.amount"),
     )
     published = (
-        ms.ref.metric("sales.average_order_value"),
-        ms.ref.metric("sales.order_count"),
-        ms.ref.metric("sales.revenue"),
+        catalog.get("metric:sales.average_order_value"),
+        catalog.get("metric:sales.order_count"),
+        catalog.get("metric:sales.revenue"),
     )
     assert calls == 1
     for ref in (*physical, *published):
-        identity = catalog.get(as_ref(ref).key).ref
+        identity = catalog.get(ref.id)
         assert identity is not None and as_ref(identity) == as_ref(ref)
     assert tuple(entry.id for entry in catalog.search(kind="metric").items) == tuple(
         as_ref(ref).key for ref in published

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from marivo._symbolic import DatasourceSymbol
 from marivo.datasource import store as _store
@@ -20,6 +21,9 @@ from marivo.datasource.manage import (
 )
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import Datasource
 
 
 def _format_mapping(mapping: dict[str, object]) -> str:
@@ -114,14 +118,14 @@ class DatasourceCatalog(RenderableResult):
 
     def test(
         self,
-        name: str | DatasourceSymbol,
+        name: str | DatasourceSymbol | Datasource,
         *,
         timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     ) -> DatasourceTestResult:
         """Test connectivity to a datasource.
 
         Args:
-            name: The datasource name or native datasource lookup symbol to test.
+            name: The datasource name, loaded Datasource object, or native datasource lookup symbol to test.
             timeout_seconds: Positive native connection and query timeout request.
                 Unsupported settings are skipped; this is not a total-call
                 deadline. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.

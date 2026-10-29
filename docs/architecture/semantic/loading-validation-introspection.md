@@ -12,10 +12,10 @@ import marivo.semantic as ms
 catalog = ms.load(workspace_dir=project_root)
 orders_entry = catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-orders = orders_entry.value
+orders = orders_entry
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 catalog.get("metric:sales.revenue").show()
 ```
 
@@ -60,7 +60,7 @@ to these native owners; it does not register parallel Catalog methods.
 
 Use `catalog.search(query, kind=..., domain=..., entity=..., limit=10)` to discover
 business objects. Empty query browses deterministically without model calls.
-Every page contains immutable typed directory entries, captured scope, explicit
+Every page contains immutable typed semantic objects, captured scope, explicit
 filters, query matching records, retrieval metadata and a continuation cursor.
 `candidate_count` counts the fixed candidate pool; it is not a global semantic
 match count. Display budgets do not change `items` or `next_cursor`; `.to_dict()`
@@ -69,8 +69,8 @@ fail explicitly instead of silently reranking.
 
 `catalog.get("metric:sales.revenue")` retrieves one canonical `kind:path`
 identity. It returns a closed union: check `entry.kind` before using specialized
-members. Executable variants expose native closed `.value`; Domain/Datasource
-entries have no executable value. Calendar and temporal-set entries retain
+members and consume the object directly. Domain/Datasource have no arithmetic
+operations. Calendar and temporal-set objects retain
 certified period/occurrence operations.
 
 ```python
@@ -79,13 +79,13 @@ page.show()
 entry = catalog.get("metric:sales.revenue")
 if entry.kind == "metric":
     entry.show()
-    revenue = entry.value
+    revenue = entry
 ```
 
 `entry.definition` retains complete captured metadata, readable formulas, time
 bindings and context. `.show()` is a bounded projection; `.to_dict()` excludes
-execution values and internal registries. Entries do not proxy expression
-attributes. Query scores and snippets belong to pages, not definitions.
+internal computation and registries. Computing kinds implement explicit typed
+operations; no dynamic attribute proxy is involved. Query scores and snippets belong to pages, not definitions.
 `entry.related("dependencies")` and reverse navigation use the full loaded
 Catalog scope, independently from discovery filters. Known unloaded identities
 are disclosed separately as `outside_scope`; navigation does not auto-load them.
@@ -132,11 +132,11 @@ business datasource is read by load, search, get, show or related navigation.
 | Temporal preview | Complete declared finite authority source | Certified immutable calendar/set/schedule snapshot | Business fact capture or arbitrary Analysis support |
 | Frame.compute / persist | Explicit prepared analysis dependencies | Actual admitted computation; persist also commits it | Unrun providers, installed packages or release qualification |
 
-Readiness accepts selected entries, closed values or exact lookup symbols,
+Readiness accepts selected named objects,
 including declared Measures and Metrics, and expands their physical dependency closures.
 Requested and checked identities remain distinct in the report. Structured repairs
 list actual dependency candidates; derived expression selection is not execution proof.
-analysis_ready_inputs includes only directly requested physical refs whose
+analysis_ready_inputs includes only directly requested physical objects whose
 closures have no blocker. Dependency refs remain diagnostic inputs. Warnings
 and blockers stay on the same ReadinessReport.
 
@@ -149,8 +149,8 @@ catalog.preview_many, limit must be an integer from 1 to 100 inclusive and
 bounds retained preview rows per result. The scope.max_rows acquisition guard
 is independent. Invalid limits raise a structured SemanticRuntimeError before
 connection acquisition, with the accepted bounds and a repair. Multiple dependency
-Entities use an ordered sequence of `(EntitySymbol, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
-source_bindings as `(EntitySymbol, parameter_mapping)` pairs. A single Entity scope
+Entities use an ordered sequence of `(Entity, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
+source_bindings as `(Entity, parameter_mapping)` pairs. A single Entity scope
 still accepts one AuthoringScope; source_bindings always explicitly names its Entity.
 Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
 persist a general validation checkpoint.
@@ -188,6 +188,11 @@ additional limits. Native timeouts are not end-to-end deadlines; failures never
 publish partial aggregates as successful preview results. The display limit is
 independent from input acquisition and aggregate scope.
 
+`catalog.validate(refs)` requires a nonempty unique sequence of named objects.
+Empty, invalid and cross-project selections fail before acquiring a connection;
+`None` does not request whole-project validation. Readiness alone retains
+`refs=None` for its full offline loaded scope.
+
 `catalog.validate(refs)` connects to the selected definitions' complete physical
 dependency closure. For each selected Entity source it establishes the Entity
 output from actual metadata, checks primary-key columns and field bindings, and
@@ -217,8 +222,8 @@ types; a previous validation is not a permanent certificate. The check does not
 qualify arbitrary analysis methods, inspect source values for parser compliance,
 or promote readiness. Explicit `ms.source_check` rules for missingness, enum, uniqueness, freshness, relationship
 matches or cardinality require a bounded scope when reading rows. Their builders
-accept native lookup symbols from `ms.ref` or entries' `.ref`, not closed `.value`
-expressions. Relationship match `side` is `from` or `both`; cardinality is
+accept native loaded fields/relationships or their explicit `ms.ref` declaration
+selectors. Anonymous arithmetic and routed or anchored fields are rejected. Relationship match `side` is `from` or `both`; cardinality is
 `one_to_one`, `many_to_one`, `one_to_many` or `many_to_many` in the declared
 from-Entity to to-Entity direction. Results report
 that actual scope and remain ephemeral. Analysis trusts declared identity,

@@ -56,12 +56,12 @@ def test_project_handoff_separates_static_and_physical_evidence(
 ) -> None:
     _extend_authoring_project(authoring_evidence_project)
     catalog = ms.load(workspace_dir=authoring_evidence_project)
-    revenue = ms.ref.metric("sales.revenue")
-    amount = ms.ref.measure("sales.orders.amount")
-    calendar = ms.ref.period_calendar("sales.fiscal")
-    revenue_identity = catalog.get(as_ref(revenue).key).ref
+    revenue = catalog.get("metric:sales.revenue")
+    amount = catalog.get("measure:sales.orders.amount")
+    calendar = catalog.get("period_calendar:sales.fiscal")
+    revenue_identity = catalog.get(revenue.id)
     assert revenue_identity is not None and as_ref(revenue_identity) == as_ref(revenue)
-    assert as_ref(catalog.get("period_calendar:sales.fiscal").ref) == as_ref(calendar)
+    assert as_ref(catalog.get("period_calendar:sales.fiscal")) == as_ref(calendar)
 
     baseline = catalog.readiness(refs=[amount])
     assert baseline._analysis_ready_inputs == (as_ref(amount),)
@@ -84,7 +84,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert preview.coverage.scopes == (("sales.orders", scope),)
 
     health = catalog.validate(
-        [ms.ref.entity("sales.orders")],
+        [catalog.get("entity:sales.orders")],
         checks=[
             ms.source_check.allowed_values(
                 ms.ref.dimension("sales.orders.region"), values=("moon-base",)

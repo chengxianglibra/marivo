@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Literal, NoReturn, TypeAlias
 
 from ibis.common.deferred import (
@@ -22,12 +23,15 @@ from marivo._definition import population_builders as build
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     DeclarationResolver,
+    NamedResolver,
     PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
     RescaleResolver,
     _FrozenResolver,
     _RelationshipValue,
+    inspect_capture,
+    relationship_carrier,
     resolver_of,
 )
 from marivo._definition.expressions import PredicateExpression
@@ -40,12 +44,15 @@ from marivo._definition.relations import (
     PopulationProgram,
 )
 from marivo._definition.types import (
+    AxisBinding,
     CoordinateValue,
     ExactRef,
     FieldRead,
+    InputContext,
     IntervalCoordinate,
     check_literal,
     invalid,
+    merge_input_contexts,
 )
 from marivo._grouping import Grouping
 from marivo._symbolic import SymbolResolver, native_symbol_ref
@@ -68,6 +75,7 @@ FactorValue: TypeAlias = Deferred | PopulationParameter | CalendarAxis | TimeSco
 class IdentityParameter:
     target: Deferred | ExactRef | tuple[PathValue, ...]
     at: InstantAnchor | None
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -75,22 +83,29 @@ class MembershipParameter:
     fields: tuple[Deferred, ...]
     paths: tuple[tuple[PathValue, ...], ...]
     unmatched: Literal["exclude", "null"]
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class CoordinatesParameter:
     by: tuple[AxisValue, ...]
     keys: tuple[tuple[CoordinateValue, ...], ...]
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
+    _identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = dataclass_field(
+        default=(), kw_only=True
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ProductParameter:
     factors: tuple[FactorValue, ...]
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ContainsParameter:
     population: Deferred
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
 Parameter: TypeAlias = (
@@ -216,9 +231,13 @@ def validate_parameter_call(recipe: Resolver, path: tuple[str, ...] = ()) -> Non
 def _validate_relationship_recipe(recipe: Resolver, path: tuple[str, ...]) -> None:
     if type(recipe) is SymbolResolver and recipe.reference.kind is SemanticKind.RELATIONSHIP:
         return
+    if isinstance(recipe, NamedResolver) and recipe.reference.ref.kind is SemanticKind.RELATIONSHIP:
+        return
     if isinstance(recipe, Just) and isinstance(
         recipe.value, (RelationshipParameter, _RelationshipValue)
     ):
+        return
+    if relationship_carrier(recipe) is not None:
         return
     invalid(
         "via requires native Relationship symbols or closed Relationship values; expressions and literals cannot form a relationship path",
@@ -282,6 +301,41 @@ class ParameterResolver(_FrozenResolver):
 
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Symbolic grouping and Population parameters require loader binding.")
+
+
+def _contexts(*values: object) -> InputContext:
+    contexts: list[InputContext] = []
+    for value in values:
+        if isinstance(value, _RelationshipValue):
+            contexts.append(value._context)
+        elif isinstance(value, (Deferred, Resolver, Grouping, PopulationParameter)):
+            contexts.append(
+                value._context
+                if isinstance(value, (Grouping, PopulationParameter))
+                else inspect_capture(
+                    value if isinstance(value, Deferred) else Deferred(value)
+                ).context
+            )
+        elif isinstance(value, tuple):
+            contexts.append(_contexts(*value))
+    return merge_input_contexts(*contexts)
+
+
+def _keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    result: dict[str, tuple[str, ...]] = {}
+    for value in values:
+        items = (
+            value._identity_keys
+            if isinstance(value, (Grouping, PopulationParameter))
+            else _keys(*value)
+            if isinstance(value, tuple)
+            else ()
+        )
+        for identity, keys in items:
+            if identity in result and result[identity] != keys:
+                invalid("Population axes have incompatible complete primary keys")
+            result[identity] = keys
+    return tuple(result.items())
 
 
 def parameter_inputs(recipe: ParameterResolver) -> tuple[Deferred, ...]:
@@ -362,9 +416,7 @@ def _validate_paths(paths: tuple[tuple[PathValue, ...], ...], path: tuple[str, .
             invalid("relationship paths must be nonempty", path=path)
         for step in steps:
             if isinstance(step, Deferred):
-                reference = native_symbol_ref(step)
-                if reference is None or reference.kind is not SemanticKind.RELATIONSHIP:
-                    invalid("paths require native Relationship symbols", path=path)
+                _validate_relationship_recipe(resolver_of(step), path)
             elif not isinstance(step, RelationshipParameter):
                 invalid("paths require closed relationship facts", path=path)
 
@@ -393,7 +445,11 @@ def interval(scope: TimeScope) -> PopulationParameter:
 
 def _literal(value: Deferred) -> object:
     recipe = resolver_of(value)
-    return recipe.value if isinstance(recipe, Just) else value
+    if isinstance(recipe, Just):
+        return recipe.value
+    if relationship_carrier(recipe) is not None:
+        return recipe.value
+    return value
 
 
 def _entity(value: object) -> ExactRef:
@@ -408,9 +464,8 @@ def _entity(value: object) -> ExactRef:
 def _relationship(value: object) -> RelationshipParameter:
     if isinstance(value, RelationshipParameter):
         return value
-    facts = getattr(value, "_parameter", None)
-    if isinstance(facts, RelationshipParameter):
-        return facts
+    if isinstance(value, _RelationshipValue):
+        return value._parameter
     invalid("symbolic path binding requires closed Relationship facts")
 
 
@@ -425,12 +480,18 @@ def bind_parameter(
     value = recipe.parameter
 
     def path(steps: tuple[PathValue, ...]) -> tuple[RelationshipParameter, ...]:
-        return tuple(
-            _relationship(resolve(reference))
-            if isinstance(step, Deferred) and (reference := native_symbol_ref(step)) is not None
-            else _relationship(step)
-            for step in steps
-        )
+        values: list[RelationshipParameter] = []
+        for step in steps:
+            if isinstance(step, Deferred):
+                reference = native_symbol_ref(step)
+                values.append(
+                    _relationship(resolve(reference))
+                    if reference is not None
+                    else _relationship(_literal(bind(step)))
+                )
+            else:
+                values.append(_relationship(step))
+        return tuple(values)
 
     def by(items: tuple[AxisValue, ...]) -> tuple[ComparisonAxis, ...]:
         result: list[ComparisonAxis] = []
@@ -453,20 +514,25 @@ def bind_parameter(
             assert reference is not None
             target = _entity(resolve(reference))
         elif isinstance(value.target, tuple):
-            return _CoordinateGrouping(build.identity(path(value.target), value.at))
+            return _CoordinateGrouping(build.identity(path(value.target), value.at), value._context)
         else:
             target = value.target
-        return _CoordinateGrouping(build.identity(target, value.at))
+        return _CoordinateGrouping(build.identity(target, value.at), value._context)
     if isinstance(value, MembershipParameter):
         return _MembershipGrouping(
             build.membership(
                 tuple(field(bind(item)) for item in value.fields),
                 tuple(path(steps) for steps in value.paths),
                 value.unmatched,
-            )
+            ),
+            value._context,
         )
     if isinstance(value, CoordinatesParameter):
-        return PopulationParameter(build.coordinates(by(value.by), value.keys))
+        return PopulationParameter(
+            build.coordinates(by(value.by), value.keys),
+            _context=value._context,
+            _identity_keys=value._identity_keys,
+        )
     if isinstance(value, ProductParameter):
         factors: list[PopulationParameter] = []
         for item in value.factors:
@@ -484,7 +550,11 @@ def bind_parameter(
                 factors.append(current)
             else:
                 invalid("product requires Population, CalendarAxis or TimeScope factors")
-        return PopulationParameter(build.product(tuple(item._definition for item in factors)))
+        return PopulationParameter(
+            build.product(tuple(item._definition for item in factors)),
+            _context=merge_input_contexts(value._context, _contexts(tuple(factors))),
+            _identity_keys=_keys(tuple(factors)),
+        )
     current = _literal(bind(value.population))
     if not isinstance(current, PopulationParameter):
         invalid("in_population requires a bound Population parameter")
@@ -505,6 +575,9 @@ def bind_parameter_call(
         current = resolver_of(bind(Deferred(item)))
         if isinstance(current, Just):
             return current.value
+        carrier = relationship_carrier(current)
+        if carrier is not None:
+            return carrier
         if isinstance(current, Sequence):
             return tuple(bound(child) for child in current.values)
         return Deferred(current)
@@ -516,7 +589,22 @@ def bind_parameter_call(
             and isinstance(recipe.name, Just)
             and recipe.name.value == "axes"
         ):
-            return Just(tuple(_CoordinateGrouping(axis) for axis in receiver._definition.axes))
+            return Just(
+                tuple(
+                    _CoordinateGrouping(
+                        axis,
+                        InputContext(receiver._context.project_root),
+                        tuple(
+                            (identity, keys)
+                            for identity, keys in receiver._identity_keys
+                            if isinstance(axis, AxisBinding)
+                            and axis.role == "identity"
+                            and axis.entity.ref.key == identity
+                        ),
+                    )
+                    for axis in receiver._definition.axes
+                )
+            )
         return None
     if isinstance(recipe, Item):
         indexer: object = recipe.indexer
@@ -600,4 +688,12 @@ def bind_parameter_call(
             definition = build.preimage(receiver._definition, args[0]._definition, tuple(path))
     else:
         invalid(f"Unsupported symbolic Population operation {method!r}")
-    return Just(PopulationParameter(definition))
+    return Just(
+        PopulationParameter(
+            definition,
+            _context=merge_input_contexts(
+                receiver._context, _contexts(args, tuple(kwargs.values()))
+            ),
+            _identity_keys=_keys(receiver, args, tuple(kwargs.values())),
+        )
+    )

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
+from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate, Owner
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
@@ -35,7 +36,6 @@ from marivo.analysis.dsl.population import (
 )
 from marivo.analysis.dsl.source_capture import (
     ValueRow,
-    _metric_inputs,
     _MetricInputs,
     capture_metrics,
     capture_population,
@@ -45,6 +45,19 @@ from marivo.analysis.dsl.source_capture import (
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.datasource.runtime import DatasourceConnectionConfig
 from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic._consumption import (
+    bind_field_in_state,
+    bind_metric_in_state,
+    bind_predicate_in_state,
+    validate_context,
+)
+from marivo.semantic._expression_values import (
+    FieldExpression,
+    MetricExpression,
+    NumericMetric,
+    RowExpression,
+    RowPredicate,
+)
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -161,25 +174,78 @@ def _capture(
     )
 
 
+def _source_by(
+    by: tuple[Deferred | FieldExpression | Grouping | TimeScope | Population, ...] | Population,
+    state: CompiledSemanticState,
+    *,
+    project_root: Path,
+    owner: Owner,
+) -> tuple[Deferred | Grouping | TimeScope | Population, ...] | Population:
+    """Adapt typed public values only inside a source boundary with explicit scope."""
+    values = (by,) if isinstance(by, Population) else by
+    result: list[Deferred | Grouping | TimeScope | Population] = []
+    for value in values:
+        if isinstance(value, RowExpression):
+            result.append(bind_field_in_state(value, state, project_root=project_root, owner=owner))
+        else:
+            if isinstance(value, (Grouping, Population)):
+                validate_context(value._context, project_root=project_root, owner=owner)
+                for identity, keys in value._identity_keys:
+                    entity = state.registry.entities.get(identity.removeprefix("entity:"))
+                    if entity is None or tuple(entity.primary_key) != keys:
+                        reject(
+                            "the captured complete primary-key interpretation",
+                            identity,
+                            "Rebuild the coordinate domain with the receiving scope's complete identity.",
+                            "source capture",
+                        )
+            result.append(value)
+    return by if isinstance(by, Population) else tuple(result)
+
+
 def observe(
     local: LocalFrameServices,
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
-    metrics: Mapping[str, Deferred] | _MetricInputs,
+    metrics: Mapping[str, Deferred | NumericMetric] | _MetricInputs,
     *,
-    by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
-    where: Deferred | None = None,
+    by: tuple[Deferred | FieldExpression | Grouping | TimeScope | Population, ...]
+    | Population = (),
+    where: Deferred | RowPredicate | None = None,
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     _parent_filter: Deferred | None = None,
     _complete_calendar: bool = True,
     _endpoint_scope: TimeScope | None = None,
+    _captured_frame_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
-    inputs = _metric_inputs(metrics) if isinstance(metrics, Mapping) else metrics
+    selected = tuple(metrics.items()) if isinstance(metrics, Mapping) else metrics
+    original_frame_inputs = collect_frame_key_inputs(
+        *(value for _, value in selected), where, owner=local.owner
+    )
+    inputs = tuple(
+        (
+            name,
+            bind_metric_in_state(
+                value, state, project_root=connection.project_root, owner=local.owner
+            )
+            if isinstance(value, MetricExpression)
+            else value,
+        )
+        for name, value in selected
+    )
+    bound_by = _source_by(by, state, project_root=connection.project_root, owner=local.owner)
+    bound_where = (
+        bind_predicate_in_state(
+            where, state, project_root=connection.project_root, owner=local.owner
+        )
+        if isinstance(where, RowExpression)
+        else where
+    )
     frame_inputs = collect_frame_key_inputs(
         *(metric for _, metric in inputs),
         _parent_filter,
-        where,
+        bound_where,
         *(
             (by,)
             if isinstance(by, Population)
@@ -192,8 +258,8 @@ def observe(
     graph = capture_metrics(
         inputs,
         local.owner,
-        by=by,
-        where=where,
+        by=bound_by,
+        where=bound_where,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
@@ -201,7 +267,15 @@ def observe(
         _complete_calendar=_complete_calendar,
         _endpoint_scope=_endpoint_scope,
     )
-    return _capture(local, graph, state, connection, frame_inputs)
+    return _capture(
+        local,
+        graph,
+        state,
+        connection,
+        merge_frame_key_inputs(
+            _captured_frame_inputs, original_frame_inputs, frame_inputs, owner=local.owner
+        ),
+    )
 
 
 def read(
@@ -209,9 +283,18 @@ def read(
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
     population: Population,
-    fields: Mapping[str, Deferred],
+    fields: Mapping[str, Deferred | FieldExpression],
 ) -> AnalysisFrame:
-    graph = capture_read(population, fields, local.owner, state)
+    validate_context(population._context, project_root=connection.project_root, owner=local.owner)
+    bound_fields = {
+        name: bind_field_in_state(
+            value, state, project_root=connection.project_root, owner=local.owner
+        )
+        if isinstance(value, RowExpression)
+        else value
+        for name, value in fields.items()
+    }
+    graph = capture_read(population, bound_fields, local.owner, state)
     for name in fields:
         value_name(name, location="frame.read")
     return _capture(
@@ -236,6 +319,7 @@ def frame(
     connection: DatasourceConnectionConfig,
     population: Population,
 ) -> AnalysisFrame:
+    validate_context(population._context, project_root=connection.project_root, owner=local.owner)
     if state is None:
         from marivo.semantic._compiled_state import build_compiled_state
         from marivo.semantic._expression_binding import CompiledExpressionSidecar

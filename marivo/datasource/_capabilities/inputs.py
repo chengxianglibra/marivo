@@ -14,11 +14,15 @@ _FACTS: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         _links("connections"),
     ),
     "DatasourceSymbol": (
-        "Use a loaded spec's .ref or ms.ref.datasource(name); default is available without credentials.",
-        (*_links("load"), LiveHelpTarget(surface="semantic", canonical_id="ref.datasource")),
+        "Use a loaded semantic Datasource object, a spec's .ref or ms.ref.datasource(name); default is available without credentials.",
+        (
+            *_links("load"),
+            LiveHelpTarget(surface="semantic", canonical_id="datasource_object"),
+            LiveHelpTarget(surface="semantic", canonical_id="ref.datasource"),
+        ),
     ),
     "DatasourceReferenceInput": (
-        "Choose an exact datasource name or its typed ref from the loaded catalog.",
+        "Choose an exact datasource name, a loaded semantic Datasource object or its explicit declaration selector.",
         _links("datasource_catalog.list"),
     ),
     "DatasourceCatalog": ("Load the intended workspace's connection declarations.", _links("load")),

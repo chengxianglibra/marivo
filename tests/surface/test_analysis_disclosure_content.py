@@ -146,7 +146,7 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
             comparison_rows = result.compute().to_pandas()
             assert comparison_rows["reference.relative.value"].tolist() == [2]
     observation = render_help_text("analysis.session.observe")[0]
-    for fact in ("nonempty tuple", "root DeclaredMetricRef", "business identity"):
+    for fact in ("nonempty list/tuple/Mapping", "published root Metric", "business identity"):
         assert fact in observation
     assert "conflicts" in observation or "duplicate" in observation.lower()
     for fact in (
@@ -333,7 +333,7 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
     assert "on/outer cannot repair ownership" in compare
     assert "partition_by" not in render_help_text("analysis.analysis_frame.top")[0]
     assert (
-        "Native Deferred predicates belong to source"
+        "Semantic row predicates belong to source"
         in render_help_text("analysis.analysis_frame.where")[0]
     )
 

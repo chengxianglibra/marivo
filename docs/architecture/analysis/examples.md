@@ -26,16 +26,16 @@ session = mv.session.get_or_create("architecture-examples", timezone="UTC")
 catalog = session.catalog
 orders_entry = catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-orders = orders_entry.value
+orders = orders_entry
 region_entry = catalog.get("dimension:sales.orders.region")
 assert region_entry.kind == "dimension"
-region = region_entry.value
+region = region_entry
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 

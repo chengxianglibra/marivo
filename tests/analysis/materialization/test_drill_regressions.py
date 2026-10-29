@@ -78,13 +78,9 @@ def test_drill_after_original_operations_prepares_related_fields(
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     tag = catalog_value(session.catalog, "sales.orders.tag", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    members = (
-        session.members(session.catalog.get("entity:sales.orders").value) if member_count else None
-    )
+    members = session.members(session.catalog.get("entity:sales.orders")) if member_count else None
     if operation == "rollup" and member_count:
-        members = session.members(
-            session.catalog.get("entity:sales.orders").value, where=tag == "keep"
-        )
+        members = session.members(session.catalog.get("entity:sales.orders"), where=tag == "keep")
     if members is not None:
         members = members.classify(by=(members.axes[0], channel))
     metric = members.count() if members is not None else amount.sum()
@@ -105,21 +101,19 @@ def test_drill_after_original_operations_prepares_related_fields(
     if explicit_path:
         added = catalog_value(session.catalog, "sales.countries.name", kind="field").via(
             (
-                session.catalog.get("relationship:sales.buyer").value,
-                session.catalog.get("relationship:sales.home").value,
+                session.catalog.get("relationship:sales.buyer"),
+                session.catalog.get("relationship:sales.home"),
             )
         )
     fixed = parent.compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], channel),))
     where = mv.in_population(keys)
     if member_count:
-        entity = session.catalog.get("entity:sales.orders").value
+        entity = session.catalog.get("entity:sales.orders")
         selected_members = (
-            session.members(session.catalog.get("entity:sales.orders").value, where=where)
+            session.members(session.catalog.get("entity:sales.orders"), where=where)
             if operation != "rollup"
-            else session.members(
-                session.catalog.get("entity:sales.orders").value, where=tag == "keep"
-            )
+            else session.members(session.catalog.get("entity:sales.orders"), where=tag == "keep")
         )
         selected_ids = session.frame(selected_members).compute()
         expected_ids = (

@@ -44,7 +44,7 @@ def test_complete_keys_source_and_fixed(
             selected_values = source.where(source["value"] > 0).compute()
             selected = session.population_from(
                 selected_values,
-                on=((selected_values.axes[0], session.catalog.get("entity:sales.facts").value),),
+                on=((selected_values.axes[0], session.catalog.get("entity:sales.facts")),),
             )
             keys = session.frame(selected).compute().to_pandas().iloc[:, 0]
             assert set(keys) == {

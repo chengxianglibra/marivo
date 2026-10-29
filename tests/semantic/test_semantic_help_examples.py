@@ -20,9 +20,8 @@ from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
 from marivo.preview import PreviewResult
 from marivo.refs import ref as ref_factory
-from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import ErrorKind
-from marivo.semantic.expressions import Entity
+from marivo.semantic.catalog import Entity, SemanticCatalog
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import patch_semantic_connections
@@ -44,14 +43,9 @@ def test_modeling_tutorial_capture_sequence(
     source = documentation_example(edition, "semantic-model", page="modeling/semantic-layer")
     project = semantic_project_factory({"sales/_domain.py": source})
     catalog = SemanticCatalog(project)
-    from marivo.semantic._deferred_semantics import consume_field
-
     entry = catalog.get("dimension:sales.orders.normalized_region")
     assert entry.kind == "dimension"
-    value = entry.value
-    assert consume_field(value).reference.ref == ref_factory.dimension(
-        "sales.orders.normalized_region"
-    )
+    assert entry.id == "dimension:sales.orders.normalized_region"
     normalized = catalog._state.sidecar.bodies[
         ref_factory.dimension("sales.orders.normalized_region")
     ]
@@ -121,7 +115,8 @@ def test_metric_help_executes_the_declared_computed_measure(
     assert orders_backend.table("orders").amount.sum().execute() == 2997
     with patch_semantic_connections(project, lambda _datasource: orders_backend):
         assert SemanticCatalog(project).preview(
-            ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+            SemanticCatalog(project).get("metric:sales.revenue"),
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
         ).rows == ({"value": 46},)
     parents = SemanticCatalog(project)._state.dependencies[ref_factory.metric("sales.revenue")]
     assert ref_factory.measure("sales.orders.quantity") in parents
@@ -178,12 +173,12 @@ def test_freshness_help_distinguishes_lookup_symbols_from_closed_fields(
     entry = SemanticCatalog(project).get("time_dimension:sales.orders.created_at")
     assert entry.kind == "time_dimension"
     page = _help_text("semantic.source_check.freshness", capsys)
-    assert "entry's .ref" in page
-    assert "closed .value expressions are not accepted" in page
-    check = ms.source_check.freshness(entry.ref, max_age=timedelta(days=1))
+    assert "native loaded fields/relationships" in page
+    assert "anonymous and routed expressions are not accepted" in page
+    check = ms.source_check.freshness(entry, max_age=timedelta(days=1))
     assert check.kind == "freshness"
-    with pytest.raises(TypeError, match="native lookup symbol"):
-        ms.source_check.freshness(entry.value, max_age=timedelta(days=1))
+    with pytest.raises(SemanticRuntimeError, match="native named"):
+        ms.source_check.freshness(entry.isnull(), max_age=timedelta(days=1))
 
 
 def test_relationship_check_docstring_example_uses_the_public_method() -> None:
@@ -342,7 +337,8 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
     assert project.is_ready(), project.errors()
     with patch_semantic_connections(project, lambda _datasource: orders_backend):
         assert SemanticCatalog(project).preview(
-            ms.ref.metric(f"sales.{metric}"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+            SemanticCatalog(project).get(f"metric:sales.{metric}"),
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
         ).rows == ({"value": expected},)
 
 
@@ -407,7 +403,7 @@ def test_preview_help_example_executes_with_its_linked_scope_constructor(
     catalog = SemanticCatalog(project)
     namespace: dict[str, object] = {
         "catalog": catalog,
-        "revenue": ms.ref.metric("sales.revenue"),
+        "revenue": catalog.get("metric:sales.revenue"),
         "md": md,
     }
     example = _example("semantic.preview", capsys)
@@ -603,12 +599,14 @@ def test_authoring_help_examples_publish_a_cross_file_metric_from_empty_project(
     entry = catalog.get("metric:sales.revenue")
     assert entry.kind == "metric"
     assert catalog.search("sales.revenue", kind="metric").items[0].id == entry.id
-    assert catalog.readiness(refs=[ms.ref.measure("sales.orders.amount")]).analysis_ready_inputs
+    assert catalog.readiness(
+        refs=[catalog.get("measure:sales.orders.amount")]
+    ).analysis_ready_inputs
     with patch_semantic_connections(catalog._project, lambda _datasource: orders_backend):
         assert catalog.preview(entry, scope=md.unpruned(max_rows=10, timeout_seconds=30)).rows == (
             {"value": 46},
         )
     # Question-scoped composition of closed values leaves the loaded directory fixed.
-    doubled = entry.value * 2
-    assert doubled is not entry.value
+    doubled = entry * 2
+    assert doubled is not entry
     assert [item.id for item in catalog.search(kind="metric").items] == ["metric:sales.revenue"]

@@ -1,4 +1,4 @@
-"""Static contracts for Deferred observations, coordinate domains and terminal reads."""
+"""Static contracts for typed observations, coordinate domains and terminal reads."""
 
 from datetime import date
 from decimal import Decimal
@@ -8,7 +8,8 @@ from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
 
 import marivo.analysis as mv
-from marivo.semantic.expressions import Entity, Relationship
+import marivo.semantic as ms
+from marivo.semantic import Entity, Relationship
 
 if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", timezone="UTC")
@@ -42,7 +43,9 @@ if TYPE_CHECKING:
                         else:
                             assert_type(method.kind, Literal["additive", "level_additive"])
 
-    def ordinary_observation(metric: Deferred, region: Deferred) -> mv.AnalysisFrame:
+    def ordinary_observation(
+        metric: ms.MetricExpression[Literal["numeric"]], region: ms.Dimension
+    ) -> mv.AnalysisFrame:
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
         assert_type(scope.start, mv.InstantAnchor)
         assert_type(scope.end, mv.InstantAnchor)
@@ -54,11 +57,11 @@ if TYPE_CHECKING:
         return query
 
     def population_contract(
-        entity: Entity, region: Deferred, relation: Relationship
+        entity: Entity, region: ms.Dimension, relation: Relationship
     ) -> mv.AnalysisFrame:
         customer = session.catalog.get("entity:sales.customer")
         assert customer.kind == "entity"
-        members = session.members(customer.value)
+        members = session.members(customer)
         assert_type(members, mv.Population)
         assert_type(members.axes, tuple[mv.Grouping, ...])
         assert_type(
@@ -66,12 +69,12 @@ if TYPE_CHECKING:
         )
         assert_type(session.frame(members), mv.AnalysisFrame)
         fixed = mv.coordinates(by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)))
-        assert_type(fixed, mv.Population | Deferred)
+        assert_type(fixed, mv.Population)
         assert isinstance(fixed, mv.Population)
         complete = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
-        assert_type(complete, mv.Population | Deferred)
+        assert_type(complete, mv.Population)
         assert isinstance(complete, mv.Population)
-        assert_type(mv.in_population(complete), Deferred)
+        assert_type(mv.in_population(complete), ms.RowExpression[Literal["boolean"]])
         assert_type(complete.where(~mv.in_population(complete)), mv.Population | Deferred)
         assert_type(fixed.union(members), mv.Population | Deferred)
         assert_type(fixed.intersection(members), mv.Population | Deferred)
@@ -81,16 +84,15 @@ if TYPE_CHECKING:
         assert_type(fixed.image(via=(relation,)), mv.Population | Deferred)
         assert_type(fixed.preimage(members, via=(relation,)), mv.Population | Deferred)
         descriptor = mv.membership(region, via=((relation,),), unmatched="exclude")
-        assert_type(descriptor, mv.Grouping | Deferred)
+        assert_type(descriptor, mv.Grouping)
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
         assert_type(mv.product(complete, members), mv.Population)
         assert_type(mv.product(scope, complete), mv.Population)
         assert_type(mv.product(complete, scope.by(mv.grain("day"))), mv.Population)
-        assert_type(mv.product(complete, region), mv.Population | Deferred)
         revenue_entry = session.catalog.get("metric:sales.revenue")
         assert revenue_entry.kind == "metric"
-        revenue = revenue_entry.value
-        assert_type(revenue, Deferred)
+        revenue = revenue_entry
+        assert_type(revenue, ms.Metric)
         assert_type(
             session.observe({"value": revenue}, by=(descriptor,)),
             mv.AnalysisFrame,
@@ -121,7 +123,7 @@ if TYPE_CHECKING:
         return digest
 
     def result_algebra(
-        query: mv.AnalysisFrame, other: mv.AnalysisFrame, axis: mv.FrameAxis, field: Deferred
+        query: mv.AnalysisFrame, other: mv.AnalysisFrame, axis: mv.FrameAxis, field: ms.Dimension
     ) -> mv.AnalysisFrame:
         value = query["value"]
         assert_type(value, mv.Column)
@@ -177,18 +179,18 @@ if TYPE_CHECKING:
         return query.select({"ratio": value / 2})
 
     def explicit_identity(
-        metric: Deferred, field: Deferred, relation: Relationship
+        metric: ms.MetricExpression[Literal["numeric"]], field: ms.Dimension, relation: Relationship
     ) -> mv.AnalysisFrame:
         customer = session.catalog.get("entity:sales.customer")
         assert customer.kind == "entity"
-        people = session.members(customer.value)
-        assert_type(mv.identity(customer.value), mv.Grouping | Deferred)
+        people = session.members(customer)
+        assert_type(mv.identity(customer), mv.Grouping)
         assert_type(people.classify(by=(people.axes[0], field)), mv.Population | Deferred)
         assert_type(people.project(by=(people.axes[0],)), mv.Population | Deferred)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(
             session.members(
-                customer.value,
+                customer,
                 where=mv.in_population(people),
             ),
             mv.Population,
@@ -217,7 +219,7 @@ if TYPE_CHECKING:
 if TYPE_CHECKING:
 
     def explain_targets(
-        frame: mv.AnalysisFrame, field: Deferred, population: mv.Population
+        frame: mv.AnalysisFrame, field: ms.Dimension, population: mv.Population
     ) -> None:
         assert_type(frame.attribute(by=(field,)), mv.AnalysisFrame)
         assert_type(frame.attribute(by=population), mv.AnalysisFrame)

@@ -92,10 +92,9 @@ CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 
 
 if TYPE_CHECKING:
-    from ibis.common.deferred import Deferred
-
     from marivo._grouping import Grouping
     from marivo.analysis.dsl.population import Population
+    from marivo.semantic._expression_values import FieldExpression
 
 
 @dataclass(frozen=True, init=False, repr=False, eq=False)
@@ -700,7 +699,7 @@ class AnalysisFrame:
     def attribute(
         self,
         *,
-        by: tuple[Deferred | Grouping, ...] | Population,
+        by: tuple[FieldExpression | Grouping, ...] | Population,
         permutations: int = 1024,
         seed: int = 0,
     ) -> AnalysisFrame:

@@ -6,11 +6,18 @@ import inspect
 import re
 from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
+from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 
-from marivo._symbolic import DatasourceSymbol, native_symbol_ref, symbol_factory
+from marivo._symbolic import (
+    DatasourceSymbol,
+    datasource_identity,
+    native_symbol_ref,
+    symbol_factory,
+)
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
+    DatasourceObservedEffects,
     DatasourceSecretInPlaintextError,
     repair,
 )
@@ -552,6 +559,27 @@ class ClickHouseSpec(_SpecBase):
 
 
 DatasourceSpec: TypeAlias = DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec
+
+
+def _loaded_datasource_ref(value: object, *, project_root: Path) -> Ref[DatasourceKind] | None:
+    """Validate a loaded object's project before exposing its neutral identity."""
+    identity = datasource_identity(value)
+    if identity is None:
+        return None
+    if identity.project_root.resolve() != project_root.resolve():
+        raise DatasourceFieldInvalidError(
+            message="The datasource object belongs to another project.",
+            expected=f"a datasource from project {project_root.resolve()}",
+            received=f"{identity.reference.key} from project {identity.project_root}",
+            location="datasource",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="inspect",
+                canonical_id="load",
+                action="Select the datasource explicitly from the receiving project.",
+            ),
+        )
+    return identity.reference
 
 
 def _storage_name(value: str | Ref[DatasourceKind] | DatasourceSymbol) -> str:

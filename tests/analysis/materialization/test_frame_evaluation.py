@@ -108,7 +108,7 @@ def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
 def test_literal_joint_identity_coordinates_preserve_complete_tuples(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -178,7 +178,7 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     item = catalog_value(session.catalog, "sales.facts.item", kind="field")
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     if entry == "observe":
         pending = session.observe({"q": numerator.sum()})
     elif entry == "read":
@@ -479,7 +479,7 @@ def test_pending_source_show_discloses_captured_scope_without_execution(
 def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_without_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     first = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("missing", 999),)))
     second = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 2),),))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai")
@@ -519,10 +519,10 @@ def test_pending_count_scope_distinguishes_literal_entities_with_the_same_keys(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     customers = mv.coordinates(
-        by=(mv.identity(case.catalog.get("entity:sales.customer").value),), keys=((("same",),),)
+        by=(mv.identity(case.catalog.get("entity:sales.customer")),), keys=((("same",),),)
     )
     orders = mv.coordinates(
-        by=(mv.identity(case.catalog.get("entity:sales.order").value),), keys=((("same",),),)
+        by=(mv.identity(case.catalog.get("entity:sales.order")),), keys=((("same",),),)
     )
     pending = case.session.observe({"customers": customers.count(), "orders": orders.count()})
 
@@ -547,7 +547,7 @@ def test_pending_count_scope_distinguishes_fixed_frame_inputs_without_reading_ro
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    entity = case.catalog.get("entity:sales.customer").value
+    entity = case.catalog.get("entity:sales.customer")
     first = case.session.frame(
         mv.coordinates(by=(mv.identity(entity),), keys=((("first",),),))
     ).compute()
@@ -592,7 +592,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     serialized = str(tuple(fact.values for fact in facts))
     assert long_value in serialized and candidates[-3] in serialized
     assert "... omitted" not in serialized
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     selected = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("t2", 1),)))
     key_fact = source_scope(selected._definition)
     assert '"t1"' in key_fact and '"t2"' in key_fact and '"0x1"' in key_fact
@@ -606,7 +606,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
 
 
 def test_general_population_composite_identity_frame(session: Session) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     population = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 1),), (("t1", 1),)))
     result = frame_sources.frame(
         session._runtime.local,
@@ -619,7 +619,7 @@ def test_general_population_composite_identity_frame(session: Session) -> None:
 
 
 def test_read_retains_complete_population_scope_without_producer_formula(session: Session) -> None:
-    entity = session.catalog.get("entity:sales.facts").value
+    entity = session.catalog.get("entity:sales.facts")
     population = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 1),), (("t1", 2),)))
     result = frame_sources.read(
         session._runtime.local,
@@ -644,7 +644,7 @@ def test_general_population_zero_axis_preserves_empty_or_singleton(
     if empty:
         with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
             connection.execute("DELETE FROM facts")
-    population = session.members(session.catalog.get("entity:sales.facts").value).project(by=())
+    population = session.members(session.catalog.get("entity:sales.facts")).project(by=())
     result = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -676,7 +676,7 @@ def test_complete_memory_releases_source_scope_and_runtime(session: Session) -> 
 def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) -> None:
     from marivo.analysis.errors import AnalysisError
 
-    population = session.members(session.catalog.get("entity:sales.facts").value)
+    population = session.members(session.catalog.get("entity:sales.facts"))
     source = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -761,7 +761,7 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"sales": session.catalog.get("metric:sales.revenue").value},
+        {"sales": session.catalog.get("metric:sales.revenue")},
         by=(calendar,),
     )
 
@@ -790,7 +790,7 @@ def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
 ) -> None:
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("UPDATE facts SET numerator=NULL WHERE tenant='t1' AND id=2")
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     pending = session.read(members, {"score": numerator})
     trace = capture_source(monkeypatch, measure_cost=True)
@@ -829,7 +829,7 @@ def test_pending_read_top_is_bounded_with_complete_key_ties_and_na_last(
 def test_fixed_and_reopened_read_top_are_source_free(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     fixed = session.read(members, {"score": numerator}).compute()
     stored = fixed.persist()
@@ -847,7 +847,7 @@ def test_fixed_and_reopened_read_top_are_source_free(
 def test_pending_read_top_does_not_truncate_another_consumer(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     pending = session.read(members, {"score": numerator})
     top = pending.top(1, by=pending["score"])
@@ -866,7 +866,7 @@ def test_pending_read_top_preserves_an_empty_source(
 ) -> None:
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     pending = session.read(members, {"score": numerator})
     trace = capture_source(monkeypatch)
@@ -883,7 +883,7 @@ def test_pending_read_top_preserves_native_infinite_values(
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER numerator TYPE DOUBLE")
         connection.execute("UPDATE facts SET numerator='Infinity' WHERE tenant='t2' AND id=2")
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="field")
     pending = session.read(members, {"score": denominator, "invalid": numerator})
@@ -908,7 +908,7 @@ def test_pending_read_top_preserves_full_output_key_integrity(
     }[invalid]
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("INSERT INTO facts VALUES " + extra)
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     pending = session.read(members, {"score": numerator})
     trace = capture_source(monkeypatch)
@@ -931,7 +931,7 @@ def test_pending_read_top_transport_does_not_grow_with_source(
     with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
         connection.execute(f"INSERT INTO facts SELECT 't1',i,'Web',i,1,i FROM range({size}) t(i)")
-    members = session.members(session.catalog.get("entity:sales.facts").value)
+    members = session.members(session.catalog.get("entity:sales.facts"))
     numerator = catalog_value(session.catalog, "sales.facts.numerator", kind="field")
     pending = session.read(members, {"score": numerator})
     trace = capture_source(monkeypatch, measure_cost=True)
@@ -965,8 +965,8 @@ def test_membership_scope_encodes_only_the_complete_closed_binding(
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     channel = catalog_value(session.catalog, "sales.tags.channel", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     public = mv.membership((label, channel), via=(path,), unmatched=unmatched)
     base = public._binding
@@ -1004,11 +1004,11 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     session = membership_session(semantic_project_factory, tmp_path, monkeypatch)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
         connection.execute("UPDATE orders SET amount=10 WHERE id=2")
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     label = catalog_value(session.catalog, "sales.tags.label", kind="field")
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     domain = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))

@@ -47,14 +47,14 @@ def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
 
 
 def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     return session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
@@ -246,9 +246,9 @@ def test_original_metric_standardization_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     trace = capture_source(monkeypatch)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    base = session.catalog.get("metric:sales.revenue").value
+    base = session.catalog.get("metric:sales.revenue")
     groups = session.observe(
         {"sum": base, "ratio": base / base},
         by=mv.product(
@@ -318,7 +318,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     amount, time = (
         catalog_value(session.catalog, "sales.order." + name, kind="field")
@@ -326,7 +326,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     )
     groups = session.observe(
         {
-            "count": session.catalog.get("metric:sales.order_count").value,
+            "count": session.catalog.get("metric:sales.order_count"),
             "mean": amount.mean(time=time),
         },
         by=mv.product(
@@ -422,7 +422,7 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     read = session.read(
         members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
     )
@@ -551,11 +551,11 @@ def test_reference_preparation_captures_independent_source_origins(
 
     case = analysis_dsl_case_factory("j3")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    counts = session.catalog.get("metric:sales.order_count").value
-    lines = session.catalog.get("metric:sales.line_revenue").value
-    revenue = session.catalog.get("metric:sales.revenue").value
+    counts = session.catalog.get("metric:sales.order_count")
+    lines = session.catalog.get("metric:sales.line_revenue")
+    revenue = session.catalog.get("metric:sales.revenue")
     q = session.observe(
         {"count": counts, "lines": lines, "average": lines / counts, "linear": revenue + lines},
         by=mv.product(

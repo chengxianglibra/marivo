@@ -64,7 +64,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
                 certified_calendar=True,
             )
             catalog = ms.load(workspace_dir=tmp_path)
-            calendar = ms.ref.period_calendar("sales.fiscal")
+            calendar = catalog.get("period_calendar:sales.fiscal")
             entry = catalog_entry(catalog, as_ref(calendar).path, kind="period_calendar")
             assert entry.definition.snapshot_status == "missing"
             source_session = DatasourceConnectionService.source_session
@@ -172,7 +172,7 @@ def test_certified_capture_error_keeps_prior_snapshot_and_submission_facts(
     catalog = certified_project(
         tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
     )
-    calendar = ms.ref.period_calendar("sales.fiscal")
+    calendar = catalog.get("period_calendar:sales.fiscal")
     catalog.preview(calendar, scope=default_scope(max_rows=4))
     entry = catalog_entry(catalog, as_ref(calendar).path, kind="period_calendar")
     previous = entry.definition

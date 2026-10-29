@@ -66,7 +66,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
         if kind == "ratio"
         else value.weighted_mean(weight=weight, time=time)
     )
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     logical = session.observe(
@@ -126,7 +126,7 @@ def test_decimal_fold_retains_widened_sample_type(
         {"value": folded},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-08-03"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
     fixed = logical.persist()
@@ -135,9 +135,7 @@ def test_decimal_fold_retains_widened_sample_type(
         session.observe(
             {"value": folded},
             by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
-            where=mv.in_population(
-                session.members(session.catalog.get("entity:sales.customer").value)
-            ),
+            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [Decimal(1800)]
@@ -180,15 +178,13 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     )
     logical = session.observe(
         {"value": metric},
-        by=session.members(session.catalog.get("entity:sales.customer").value),
+        by=session.members(session.catalog.get("entity:sales.customer")),
     )
     fixed = logical.persist()
     for result in (
         session.observe(
             {"value": metric},
-            where=mv.in_population(
-                session.members(session.catalog.get("entity:sales.customer").value)
-            ),
+            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [value]
@@ -223,7 +219,7 @@ def test_numeric_raw_order_and_exchange_batches(
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
     logical = session.observe(
         {"value": amount_field.sum(time=time)},
-        by=session.members(session.catalog.get("entity:sales.customer").value),
+        by=session.members(session.catalog.get("entity:sales.customer")),
     )
     fixed = logical.persist()
     assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
@@ -232,9 +228,7 @@ def test_numeric_raw_order_and_exchange_batches(
     for result in (
         session.observe(
             {"value": amount_field.sum(time=time)},
-            where=mv.in_population(
-                session.members(session.catalog.get("entity:sales.customer").value)
-            ),
+            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
         ).compute(),
     ):
         assert abs(result.to_pandas()["value"].iloc[0] - float(exact)) <= bound

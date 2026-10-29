@@ -20,7 +20,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 amount_entry = catalog.get("measure:sales.orders.amount")
 assert amount_entry.kind == "measure"
-amount = amount_entry.value
+amount = amount_entry
 catalog.readiness(refs=[amount]).show()
 catalog.validate([amount_entry]).show()
 ```
@@ -44,7 +44,7 @@ HTTP JSON 在源准备阶段获取响应行，用于推断物理类型。
 用于估计全量指标。通过 `preview.coverage.entity_rows`、`entity_row_limits`
 和 `execution_limits` 查看实际输入及原生超时支持。输出上限不限制物理扫描；
 预览没有请求扫描行数或字节数上限，扫描统计保持 unknown。
-`catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。`checks` 为空时必须省略 `scope`。检查规则使用 `ms.ref` 或条目的 `.ref` 原生查找符号构造，不接受闭合的 `.value` 表达式。
+`catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。`checks` 为空时必须省略 `scope`。检查规则直接使用原生命名字段或关系，也接受显式 `ms.ref` 声明选择器；不接受匿名或路径表达式。
 [加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和在线校验示例。
 
 ## 不可用的物理类型与字符串计数

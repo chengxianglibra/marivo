@@ -41,7 +41,7 @@ def observation(session: Session, metric: str) -> mv.AnalysisFrame:
         {"value": catalog_value(session.catalog, metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer").value),
+            session.members(session.catalog.get("entity:sales.customer")),
         ),
     )
 

@@ -136,7 +136,7 @@ def test_source_execution_cost(
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
     if scenario == "numeric_top":
         parent = session.read(
-            session.members(session.catalog.get("entity:sales.orders").value),
+            session.members(session.catalog.get("entity:sales.orders")),
             {"metric": amount},
         )
         eligible = parent.where(parent["metric"] >= 5)
@@ -188,10 +188,10 @@ def test_population_source_execution_cost(
         db.execute(f"INSERT INTO orders SELECT i,i%10,1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i,i,i%2+1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i+{facts},i,i%2+1 FROM range({facts}) t(i)")
-    orders = session.members(session.catalog.get("entity:sales.orders").value)
+    orders = session.members(session.catalog.get("entity:sales.orders"))
     path = (
-        session.catalog.get("relationship:sales.order_links").value,
-        session.catalog.get("relationship:sales.link_tags").value,
+        session.catalog.get("relationship:sales.order_links"),
+        session.catalog.get("relationship:sales.link_tags"),
     )
     if scenario == "image_count":
         query = session.observe(
@@ -204,15 +204,15 @@ def test_population_source_execution_cost(
         expected = 2
     else:
         fields = session.read(
-            session.members(session.catalog.get("entity:sales.tags").value),
+            session.members(session.catalog.get("entity:sales.tags")),
             {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")},
         )
         fixed = fields.where(fields["label"] == "A").compute()
         targets = session.population_from(
-            fixed, on=((fixed.axes[0], session.catalog.get("entity:sales.tags").value),)
+            fixed, on=((fixed.axes[0], session.catalog.get("entity:sales.tags")),)
         )
         query = session.observe(
-            {"metric": session.catalog.get("metric:sales.revenue").value},
+            {"metric": session.catalog.get("metric:sales.revenue")},
             where=mv.in_population(orders.preimage(targets, via=path)),
         )
         expected = facts // 2

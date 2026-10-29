@@ -280,15 +280,13 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
 
     case = analysis_dsl_case_factory("j2")
     scope = case.session.time_scope(start="2026-08-01", end="2026-08-03")
-    interval = case.session.observe(
-        {"x": case.catalog.get("metric:sales.revenue").value}, by=(scope,)
-    )
+    interval = case.session.observe({"x": case.catalog.get("metric:sales.revenue")}, by=(scope,))
     assert isinstance(interval._schema.axes[0], IntervalDataAxis)
     grouped = interval.select({"rows": interval.over(mv.row_count(), by=interval.axes)})
     assert grouped._schema.axes == interval._schema.axes
     assert grouped.compute().to_pandas()["rows"].tolist() == [1]
     daily = case.session.observe(
-        {"x": case.catalog.get("metric:sales.revenue").value}, by=(scope.by(mv.grain("day")),)
+        {"x": case.catalog.get("metric:sales.revenue")}, by=(scope.by(mv.grain("day")),)
     )
     paired = daily.align(daily, match=CalendarCorrespondence("ordinal"))
     assert isinstance(paired._schema.axes[0], PairedDataAxis)
@@ -371,7 +369,7 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     observed = session.observe(
-        {"revenue": case.catalog.get("metric:sales.revenue").value},
+        {"revenue": case.catalog.get("metric:sales.revenue")},
         by=(
             session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month")),
             catalog_value(case.catalog, "sales.customer.region", kind="field"),

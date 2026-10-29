@@ -19,7 +19,7 @@ def test_public_analysis_and_deviation_typing_contracts(tmp_path: Path) -> None:
 import marivo.analysis as mv
 import marivo.semantic as ms
 from ibis.common.deferred import Deferred
-from marivo.semantic.expressions import Relationship
+from marivo.semantic import Relationship
 
 mv.LogicalNumericRelation  # invalid: retired logical type
 mv.MaterializedNumericRelation  # invalid: retired materialized type
@@ -28,11 +28,13 @@ mv.time_grid  # invalid: retired graph time grid
 mv.time_scope  # invalid: retired module-level time constructor
 mv.instant  # invalid: Session-only instant constructor
 session = mv.session.get_or_create('static', timezone='UTC')
-population = session.members(session.catalog.entities.get('sales.customer'))
+resolved_entity = session.catalog.get('entity:sales.customer')
+assert resolved_entity.kind == 'entity'
+population = session.members(resolved_entity)
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
 
-def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
+def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: ms.Dimension, metric: ms.Metric, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
     session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
     session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
@@ -116,19 +118,22 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: Deferred,
 import marivo.analysis as mv
 import marivo.semantic as ms
 from ibis.common.deferred import Deferred
-from marivo.semantic.expressions import Entity
+from marivo.semantic import Entity
 from typing_extensions import assert_type
 
 session = mv.session.get_or_create('static', timezone='UTC')
-population = session.members(session.catalog.entities.get('sales.customer'))
+resolved_entity = session.catalog.get('entity:sales.customer')
+assert resolved_entity.kind == 'entity'
+population = session.members(resolved_entity)
 assert_type(population, mv.Population)
-resolved_entity = session.catalog.entities.get('sales.customer')
+resolved_entity = session.catalog.get('entity:sales.customer')
+assert resolved_entity.kind == 'entity'
 assert_type(resolved_entity, Entity)
-assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population | Deferred)
+assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population)
 assert_type(mv.identity(ms.ref.entity('sales.customer')), mv.Grouping | Deferred)
 assert_type(mv.coordinates(by=(ms.ref.dimension('sales.customer.region'),), keys=(('east',),)), mv.Population | Deferred)
-amount: Deferred
-region: Deferred
+amount: ms.Measure
+region: ms.Dimension
 query = session.observe({'revenue': amount.sum()}, by=(region,))
 assert_type(query, mv.AnalysisFrame)
 assert_type(session.frame(population), mv.AnalysisFrame)
@@ -138,7 +143,7 @@ assert_type(population.project(by=()), mv.Population | Deferred)
 assert_type(population.where(mv.in_population(population)), mv.Population | Deferred)
 assert_type(session.observe({'revenue': amount.sum()}, by=()), mv.AnalysisFrame)
 
-def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: Deferred) -> None:
+def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: ms.Dimension) -> None:
     assert_type(session.population_from(query, on=((query.axes[0], field),)), mv.Population)
     assert_type(query['revenue'], mv.Column)
     assert_type(query.select({'net': query['revenue'] - 1}), mv.AnalysisFrame)
@@ -160,12 +165,13 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
 
     statistics_source = tmp_path / f"statistics_contracts_{probe_id}.py"
     statistics_body = """import marivo.analysis as mv
+import marivo.semantic as ms
 import pandas as pd
 from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
 
-def positive(session: mv.Session, members: mv.Population, field: Deferred, other: mv.AnalysisFrame, artifact: mv.AnalysisFrame) -> None:
-    query = session.observe({"value": field.mean()}, by=members)
+def positive(session: mv.Session, members: mv.Population, field: ms.Dimension, other: mv.AnalysisFrame, artifact: mv.AnalysisFrame, metric: ms.Metric) -> None:
+    query = session.observe({"value": metric}, by=members)
     assert_type(query, mv.AnalysisFrame)
     assert_type(query["value"], mv.Column)
     assert_type(query.where(query["value"] > 0), mv.AnalysisFrame)
@@ -183,7 +189,7 @@ def positive(session: mv.Session, members: mv.Population, field: Deferred, other
     assert_type(frame.corr(method="kendall", numeric_only=True), pd.DataFrame)
     assert_type(frame.describe(), pd.DataFrame)
 
-def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: Deferred) -> None:
+def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: ms.Dimension) -> None:
 """
     calls = (
         "query.deviation(method='zscore')",

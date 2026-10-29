@@ -95,7 +95,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     calendar = session.catalog.get("period_calendar:sales.fiscal")
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
-    metric = session.catalog.get("metric:sales.gmv").value
+    metric = session.catalog.get("metric:sales.gmv")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction reread the certified calendar")

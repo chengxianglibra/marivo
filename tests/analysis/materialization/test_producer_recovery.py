@@ -69,8 +69,8 @@ def producer_recovery(
             author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-producer", timezone="UTC")
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value},
-            by=session.members(session.catalog.get("entity:sales.facts").value),
+            {"value": session.catalog.get("metric:sales.total")},
+            by=session.members(session.catalog.get("entity:sales.facts")),
         )
         captures = [values.persist(), values.persist()]
         assert captures[0].artifact_id != captures[1].artifact_id
@@ -198,9 +198,7 @@ def test_http_source_supports_fixed_continuation(
     ) as case:
         author_http_case(case, semantic_project_factory)
         session = mv.session.get_or_create("http-producer", timezone="UTC")
-        fixed = session.observe(
-            {"value": session.catalog.get("metric:sales.total").value}
-        ).compute()
+        fixed = session.observe({"value": session.catalog.get("metric:sales.total")}).compute()
         assert fixed.to_pandas()["value"].tolist() == [6]
         saved = fixed.persist()
 

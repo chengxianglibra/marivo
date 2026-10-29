@@ -129,8 +129,8 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("required-output", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
-        metric = session.catalog.get("metric:sales.total").value
+        members = session.members(session.catalog.get("entity:sales.facts"))
+        metric = session.catalog.get("metric:sales.total")
         current = session.observe(
             {"value": metric},
             by=mv.product(
@@ -234,7 +234,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             }
         )
         session = mv.session.get_or_create("r94-cross-datasource", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects").value)
+        members = session.members(session.catalog.get("entity:sales.subjects"))
         previous = session.read(
             members,
             {
@@ -258,7 +258,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         monkeypatch.setattr(terminal_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             session.observe(
-                {"value": session.catalog.get("metric:sales.total").value}, by=members
+                {"value": session.catalog.get("metric:sales.total")}, by=members
             ).persist()
         error = caught.value
         assert error.expected == "scalar relationship endpoints on one datasource"

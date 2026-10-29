@@ -145,7 +145,7 @@ def _receiver_candidates(target: str, owner: HelpSurface) -> tuple[str, ...]:
         return ()
     parent_target = native_route_target(route)
     for type_obj, type_name in _native_surface(owner).type_index.items():
-        if canonical_target(type_name) != parent:
+        if _native_surface(owner).type_targets.get(type_obj, canonical_target(type_name)) != parent:
             continue
         methods, type_page_methods = _owned_methods(owner, type_obj)
         if member in methods and member not in type_page_methods:
@@ -184,6 +184,16 @@ def native_route_target(route: NativeHelpRoute) -> str:
     if identity is None:
         raise RuntimeError("native Help route has no registered identity")
     target = canonical_target(identity)
+    if resolved.type_name is not None:
+        surface = _native_surface(route.owner)
+        target = next(
+            (
+                surface.type_targets.get(type_obj, canonical_target(name))
+                for type_obj, name in surface.type_index.items()
+                if name == resolved.type_name
+            ),
+            target,
+        )
     if resolved.kind == "attribute":
         target += f".{resolved.attribute_name}"
     return f"{route.owner}.{target}"

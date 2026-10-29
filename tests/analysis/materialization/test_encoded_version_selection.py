@@ -64,10 +64,10 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("encoded-version", timezone="UTC")
-    profiles = session.catalog.get("entity:sales.profiles").value
-    links_entity = session.catalog.get("entity:sales.links").value
-    relation = session.catalog.get("relationship:sales.profile").value
-    scalar_relation = session.catalog.get("relationship:sales.scalar_profile").value
+    profiles = session.catalog.get("entity:sales.profiles")
+    links_entity = session.catalog.get("entity:sales.links")
+    relation = session.catalog.get("relationship:sales.profile")
+    scalar_relation = session.catalog.get("relationship:sales.scalar_profile")
     label = catalog_value(session.catalog, "sales.profiles.label", kind="field")
     for hour in (0, 12):
         anchor = session.instant(datetime(2026, 8, 2, hour, tzinfo=ZoneInfo("Asia/Shanghai")))

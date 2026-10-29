@@ -36,9 +36,9 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
             "INSERT INTO order_line VALUES ('a1','j1_a',100),('a2','j1_a',200),('b1','j1_b',300),('c1','j1_c',400)"
         )
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     values = session.observe(
-        {"value": session.catalog.get("metric:sales.line_revenue").value},
+        {"value": session.catalog.get("metric:sales.line_revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     frame = values.persist().to_pandas()
@@ -49,13 +49,13 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         "D": 0,
     }
     assert session.observe(
-        {"value": session.catalog.get("metric:sales.line_revenue").value},
+        {"value": session.catalog.get("metric:sales.line_revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
         where=mv.in_population(members),
     ).persist().to_pandas()["value"].tolist() == [1000]
-    route = session.catalog.get("relationship:sales.order_buyer").value
+    route = session.catalog.get("relationship:sales.order_buyer")
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    orders = session.members(session.catalog.get("entity:sales.order").value)
+    orders = session.members(session.catalog.get("entity:sales.order"))
     inferred = session.read(orders, {"region": region}).persist().to_pandas()
     explicit = session.read(orders, {"region": region.via((route,))}).persist().to_pandas()
     assert inferred.equals(explicit)
@@ -68,9 +68,9 @@ def test_related_field_null_is_counted_and_missing_owner_remains_null(
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("UPDATE customer SET region=NULL WHERE customer_id='B'")
     session = case.session
-    orders = session.members(session.catalog.get("entity:sales.order").value)
+    orders = session.members(session.catalog.get("entity:sales.order"))
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    buyer = session.catalog.get("relationship:sales.order_buyer").value
+    buyer = session.catalog.get("relationship:sales.order_buyer")
     values = session.read(orders, {"value": region.via((buyer,))})
     reads = _reads(monkeypatch)
     result = values.persist()
@@ -110,7 +110,7 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
         values = session.read(
-            session.members(session.catalog.get("entity:cost.facts").value),
+            session.members(session.catalog.get("entity:cost.facts")),
             {"value": catalog_value(session.catalog, "cost.facts.y", kind="field")},
         )
         left = values.where(values["value"] > 20)
@@ -137,9 +137,9 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
-        members = session.members(session.catalog.get("entity:cost.facts").value)
+        members = session.members(session.catalog.get("entity:cost.facts"))
         field = catalog_value(session.catalog, "cost.subjects.sid", kind="field")
-        relation = session.catalog.get("relationship:cost.facts_subject").value
+        relation = session.catalog.get("relationship:cost.facts_subject")
         values = session.read(members, {"value": field.via((relation,))})
         trusted = values.persist()
         frame = trusted.to_pandas()
@@ -178,7 +178,7 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         session = work.session
         values = session.read(
-            session.members(session.catalog.get("entity:cost.facts").value),
+            session.members(session.catalog.get("entity:cost.facts")),
             {"value": catalog_value(session.catalog, "cost.facts.y", kind="field")},
         )
         left, right = values.where(values["value"] > 20), values.where(values["value"] > 20)

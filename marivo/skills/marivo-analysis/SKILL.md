@@ -109,7 +109,7 @@ framing proportional to the task; it does not require a separate document.
 
 Distinguish missing reusable meaning, a missing computation, incomplete
 coverage, and an interpretation that the available evidence cannot support.
-Reuse exact semantic refs, a current analysis-ready handoff, and relevant
+Reuse exact semantic objects, a current analysis-ready handoff, and relevant
 committed results. Readiness checks physical dependencies, not published
 expressions or method execution support; repeat it only for a missing input.
 
@@ -128,9 +128,10 @@ Choose disclosure for the current gap:
   evaluating a pending Frame can still execute its captured source dependencies.
 - Unknown identity: search or browse bounded Catalog candidates and compare their
   complete business definitions and restrictions. Preserve canonical identities
-  across calls; inspect entry kind before taking a native closed value. Native
-  lookup selectors belong only
-  to explicitly supported metadata/readiness operations, not ordinary analysis.
+  across calls; inspect kind and use the named object directly. Declaration
+  selectors belong to explicitly supported authoring, checks and physical datasource
+  operations. The receiving Catalog or Session owns resolution; captured Frames
+  retain their bound inputs when definitions later change.
 - Missing syntax or precondition: read the exact callable Help.
 - Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`
   for complete names. Type Help lists operations when the next method is unknown.

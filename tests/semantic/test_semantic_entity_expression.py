@@ -518,12 +518,12 @@ def test_entity_body_hash_resolves_alias_identity_within_compile() -> None:
     )
 
 
-def test_entity_card_discloses_expression_form_with_normalized_body(
+def test_entity_card_discloses_captured_expression_body(
     semantic_project_factory: Any,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """An expression Entity card shows the form and normalized body text.
+    """An expression Entity card shows the captured authored body text.
 
     Reading the card never executes the body; details render from captured
     display syntax only.
@@ -553,15 +553,14 @@ def test_entity_card_discloses_expression_form_with_normalized_body(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entity = catalog.get("entity:sales.daily_totals").value
-    facts = dict(entity.contract().facts)
-    assert facts["definition_form"] == "expression"
-    text = facts["expression"]
-    assert "t1.group_by" in text
+    entity = catalog.get("entity:sales.daily_totals")
+    assert isinstance(entity, ms.Entity)
+    text = entity.definition.expression
+    assert "raw.group_by" in text
     assert "'day'" in text
-    rendered = entity.contract().render()
-    assert "definition_form: expression" in rendered
-    assert "t1.group_by" in rendered
+    rendered = entity.render()
+    assert "expression:" in rendered
+    assert "raw.group_by" in rendered
 
 
 def test_direct_entity_card_keeps_direct_form_disclosure(
@@ -591,11 +590,12 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entity = catalog.get("entity:sales.orders").value
-    facts = dict(entity.contract().facts)
-    assert facts["definition_form"] == "direct"
-    assert "expression" not in facts
-    assert "definition_form: direct" in entity.contract().render()
+    entity = catalog.get("entity:sales.orders")
+    assert isinstance(entity, ms.Entity)
+    assert entity.definition.expression.startswith("source(")
+    assert entity.definition.source.table == "orders"
+    rendered = entity.render()
+    assert "source(" in rendered and "orders" in rendered
 
 
 def _cast_string(raw: ibis.Table) -> ibis.Table:

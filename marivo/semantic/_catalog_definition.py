@@ -287,7 +287,7 @@ def _source_null_rule(node: SourceAggregate | SourceWeightedMean | EntityCount) 
 
 def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> EntryDefinition:
     """Project complete captured facts without execution or authored-function replay."""
-    from marivo.semantic.catalog import PeriodCalendarEntry, TemporalSetEntry
+    from marivo.semantic.catalog import PeriodCalendar, TemporalSet
 
     registry = catalog._reg
     context = context_for(catalog, ref)
@@ -324,7 +324,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         )
     if ref.kind is SemanticKind.PERIOD_CALENDAR:
         calendar = catalog._index.entry(ref)
-        assert isinstance(calendar, PeriodCalendarEntry)
+        assert isinstance(calendar, PeriodCalendar)
         calendar_details = calendar._temporal_details()
         return PeriodCalendarDefinition(
             context,
@@ -338,7 +338,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         )
     if ref.kind is SemanticKind.TEMPORAL_SET:
         temporal_set = catalog._index.entry(ref)
-        assert isinstance(temporal_set, TemporalSetEntry)
+        assert isinstance(temporal_set, TemporalSet)
         set_details = temporal_set._temporal_details()
         return TemporalSetDefinition(
             context,
@@ -374,7 +374,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             cardinality,
             tuple(item.key for item in catalog._entry_dependencies(ref)),
         )
-    contract = catalog._describe(catalog._entry_ref_symbol(ref))
+    contract = catalog._describe(ref)
     if isinstance(captured, EntityIR):
         body = catalog._state.sidecar.bodies.get(ref)
         entity_expression = (
@@ -439,7 +439,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
                 continue
             time = consumed.node.time
             root = consumed.roots[0]
-            entity_contract = catalog._describe(catalog._entry_ref_symbol(root.ref))
+            entity_contract = catalog._describe(root.ref)
             default = (
                 entity_contract._default_time.ref.key
                 if entity_contract._default_time is not None

@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 import marivo
-import marivo.semantic as ms
 from marivo._temporal import certify_temporal_set
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog, _normalize_occurrence_filters
@@ -25,7 +24,7 @@ def temporal_catalog(
     catalog = certified_project(
         tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
     )
-    catalog.preview(ms.ref.temporal_set("sales.named_campaigns"), scope=default_scope())
+    catalog.preview(catalog.get("temporal_set:sales.named_campaigns"), scope=default_scope())
     return catalog
 
 

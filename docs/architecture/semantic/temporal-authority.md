@@ -174,7 +174,7 @@ snapshot and filters. Changing either requires a fresh first page. Lookups read
 certified local data, never a datasource. Missing/stale/out-of-coverage authority
 fails with concrete semantic repairs.
 
-Entry details expose snapshot_status and definition/dependency facts. Derived
+Object definition metadata exposes snapshot_status and definition/dependency facts. Derived
 period counts/graphs or occurrence counts are available only with a current
 certificate; unavailable and an empty certified graph remain distinct.
 Exact members are discoverable through native type Help.
@@ -188,3 +188,14 @@ dispatch and entries. Normalized snapshots and validation live with shared scope
 [_temporal_grid.py](../../../marivo/_temporal_grid.py). Analysis freezes the consumed
 coordinates through [core/time_authority.py](../../../marivo/analysis/core/time_authority.py)
 and [core/frozen_calendar.py](../../../marivo/analysis/core/frozen_calendar.py).
+
+## Captured reverse identities
+
+Semantic Grain and calendar-period TimeScope values expose `calendar_id`;
+temporal-occurrence TimeScope values expose `temporal_set_id`. These canonical
+strings are identity metadata. A built-in Grain has no `calendar_id` property.
+Explicit `catalog.get(value.calendar_id)` or `catalog.get(scope.temporal_set_id)`
+gets that Catalog's current object; it does not restore or replace the existing
+time value. The original snapshot digest, timezone, ordinal and half-open bounds
+remain fixed. Authoring `ms.calendar_grain(...)` remains uncertified until its
+existing binding/certification boundary.

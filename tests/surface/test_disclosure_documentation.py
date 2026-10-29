@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -67,7 +67,7 @@ def test_public_attribute_help_example_uses_real_source(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
-    assert isinstance(revenue, Deferred)
+    assert isinstance(revenue, ms.Metric)
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     source_frame = session.observe({"revenue": revenue})
     descriptor = REGISTRY.by_canonical_id("analysis_frame.attribute")
@@ -103,7 +103,7 @@ def test_execution_help_examples_continue_in_a_new_process_without_sources(
         "from marivo.datasource.adapters import SourceSession\n"
         "from tests.shared_fixtures import terminal_runs\n"
         "session = mv.session.resume(sys.argv[1])\n"
-        "metric = session.catalog.get('metric:sales.revenue').value\n"
+        "metric = session.catalog.get('metric:sales.revenue')\n"
         "frame = session.observe({'value': metric})\n"
         + examples["analysis_frame.compute"]
         + "\nassert result.to_pandas()['scaled'].tolist() == [1320]\n"
@@ -169,7 +169,7 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
-    assert isinstance(region, Deferred)
+    assert isinstance(region, ms.Dimension)
     frame = case.session.values(
         by=(region,),
         columns={"value": None},
@@ -361,8 +361,8 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     assert isinstance(session, mv.Session)
     nonlinear_metric = namespace["nonlinear"]
     selected_region = namespace["region"]
-    assert isinstance(nonlinear_metric, Deferred)
-    assert isinstance(selected_region, Deferred)
+    assert isinstance(nonlinear_metric, ms.MetricExpression)
+    assert isinstance(selected_region, ms.Dimension)
     source = session.observe({"squared": nonlinear_metric})
     with pytest.raises(AnalysisError) as captured:
         source.attribute(by=(selected_region,))
@@ -495,7 +495,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         "check_metrics.py",
         "import marivo.analysis as mv\n"
         'session = mv.session.get_or_create("extended-model")\n'
-        'result = session.observe({name: session.catalog.get("metric:sales." + name).value for name in '
+        'result = session.observe({name: session.catalog.get("metric:sales." + name) for name in '
         '("revenue", "average_order_value", "gross_margin_rate")}).compute().to_pandas()\n'
         'assert result["revenue"].iloc[0] == 1800\n'
         'assert result["average_order_value"].iloc[0] == 300\n'

@@ -373,7 +373,7 @@ def test_wall_membership_calendar_windows_and_population_agree(
     ]
     selected_scope = session.time_scope(start=clipped[0], end=clipped[1])
     members = session.members(
-        session.catalog.get("entity:sales.orders").value, where=at.within(selected_scope)
+        session.catalog.get("entity:sales.orders"), where=at.within(selected_scope)
     )
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == selected_ids
     total = sum(2 ** (index - 1) for index in selected_ids)
@@ -517,7 +517,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         ("2021-01-04", "south", "shop"),
     ]
     assert explicit["total"].to_dict() == {0: 10, 1: 30, 2: 50, 3: 0}
-    orders = session.catalog.get("entity:sales.orders").value
+    orders = session.catalog.get("entity:sales.orders")
     selected = mv.coordinates(by=(mv.identity(orders),), keys=(((2,),), ((5,),)))
     filtered = (
         session.observe(
@@ -552,7 +552,7 @@ def test_window_recomputes_history_ratio_and_distinct(
         connection.execute(
             "INSERT INTO orders (id, customer, ordered_at, amount) VALUES (1,7,'2026-09-20 00:00:00+00',100), (2,7,'2026-10-07 00:00:00+00',10), (3,7,'2026-10-07 12:00:00+00',30), (4,7,'2026-10-08 00:00:00+00',60)"
         )
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
@@ -588,7 +588,7 @@ def test_window_recomputes_history_ratio_and_distinct(
 
 def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     metric = revenue.window(mv.to_date(grain=mv.grain("month")))
     for start in ("2026-09-01", "2026-10-01"):
         result = (
@@ -610,7 +610,7 @@ def test_partial_month_windows_stop_at_actual_endpoint(
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1, '2026-10-01 00:00:00+00', 1), (2, '2026-10-14 11:00:00+00', 10), (3, '2026-10-14 12:00:00+00', 20), (4, '2026-10-15 11:00:00+00', 30), (5, '2026-10-15 12:00:00+00', 1000), (6, '2026-10-31 00:00:00+00', 10000)"
         )
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     scope = session.time_scope(start="2026-10-01", end="2026-10-15T12:00Z")
     values = (
         session.observe(
@@ -664,7 +664,7 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 05:30:00+00',10), (2,'2026-11-01 06:30:00+00',30)"
         )
-    revenue = window_session.catalog.get("metric:sales.revenue").value
+    revenue = window_session.catalog.get("metric:sales.revenue")
     hours = window_session.time_scope(
         start="2026-11-01T04:00Z", end="2026-11-01T07:00Z", timezone="America/New_York"
     ).by(mv.grain("hour"))
@@ -682,7 +682,7 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
 @pytest.mark.parametrize("calendar_first", [False, True])
 def test_calendar_population_axis_order(window_session: Session, calendar_first: bool) -> None:
     session = window_session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
@@ -714,7 +714,7 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
 
 def test_per_calendar_population_retains_empty_samples(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
@@ -734,11 +734,9 @@ def test_per_calendar_population_retains_empty_samples(window_session: Session) 
 
 def test_source_population_calendar_product(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
-    customers = session.members(session.catalog.get("entity:sales.orders").value).classify(
-        by=(customer,)
-    )
+    customers = session.members(session.catalog.get("entity:sales.orders")).classify(by=(customer,))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)
     result = session.observe({"revenue": revenue}, by=samples).compute().to_pandas()
@@ -749,7 +747,7 @@ def test_source_population_calendar_product(window_session: Session) -> None:
 
 def test_population_calendar_supplies_explicit_window_endpoints(window_session: Session) -> None:
     session = window_session
-    revenue = session.catalog.get("metric:sales.revenue").value
+    revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     customers = mv.coordinates(by=(customer,), keys=((7,),))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
@@ -801,7 +799,7 @@ def test_explicit_count_repeats_time_and_rejects_ineffective_window(
     from marivo.analysis.errors import AnalysisError
 
     session = window_session
-    entity = session.catalog.get("entity:sales.orders").value
+    entity = session.catalog.get("entity:sales.orders")
     people = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),), ((999,),)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     rows = session.observe({"people": people.count()}, by=(calendar,)).compute().to_pandas()
@@ -837,7 +835,7 @@ def test_time_product_reuses_checked_domain_with_direct_count(
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = window_session
-    people = session.members(session.catalog.get("entity:sales.orders").value)
+    people = session.members(session.catalog.get("entity:sales.orders"))
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     frame = session.observe(
@@ -915,7 +913,6 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
     window_session: Session,
     tmp_path: Path,
 ) -> None:
-    import ibis
 
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
@@ -932,14 +929,12 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
     assert session.observe({"nested": nested}, by=(scope,)).compute().to_pandas()[
         "nested"
     ].tolist() == [29.0]
-    guarded = ibis.ifelse(amount.sum(time=point) < 0, nested, 0)
+    guarded = (amount.sum(time=point) < 0).ifelse(nested, 0)
     assert session.observe({"guarded": guarded}, by=(scope,)).compute().to_pandas()[
         "guarded"
     ].tolist() == [0.0]
     rows = (
-        session.observe(
-            {"guarded": ibis.ifelse(amount.sum(time=point) > 0, nested, 0)}, by=(scope,)
-        )
+        session.observe({"guarded": (amount.sum(time=point) > 0).ifelse(nested, 0)}, by=(scope,))
         .compute()
         .to_pandas()
     )
@@ -960,7 +955,7 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
         session.observe(
             {
                 "arithmetic": plain * 2 + plain,
-                "conditional": ibis.ifelse(amount.sum(time=point) > 0, plain, 0),
+                "conditional": (amount.sum(time=point) > 0).ifelse(plain, 0),
             },
             by=(scope,),
         )

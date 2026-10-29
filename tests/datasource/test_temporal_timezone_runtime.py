@@ -95,7 +95,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
         report = catalog.validate([ms.ref.metric("sales.total")])
         assert all(not check.user_data_queried for check in report.checks)
         session = mv.session.get_or_create("native-physical-validation", timezone="UTC")
-        metric = session.catalog.get("metric:sales.total").value
+        metric = session.catalog.get("metric:sales.total")
         period = session.time_scope(start="2026-08-01", end="2026-08-02")
         scope = md.unpruned(max_rows=5, timeout_seconds=10)
         if valid:

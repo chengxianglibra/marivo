@@ -123,7 +123,7 @@ def test_unresolved_json_parameters_are_refused_before_source_open(
 
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        query = session.observe({"value": session.catalog.get("metric:sales.total").value})
+        query = session.observe({"value": session.catalog.get("metric:sales.total")})
         with pytest.raises(AnalysisError) as caught:
             query.persist()
         error = caught.value

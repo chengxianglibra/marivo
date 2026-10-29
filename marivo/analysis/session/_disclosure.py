@@ -234,7 +234,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "Closed Metric or nonempty tuple/Mapping. Only root DeclaredMetricRef supplies local names; expressions need Mapping. Names exclude dots, backslashes, controls and left_present/right_present. Names/order remain fixed.",
+        "metrics": "Named Metric object or nonempty list/tuple/Mapping. Only a published root Metric supplies local names; anonymous expressions need Mapping. Names exclude dots, backslashes, controls and left_present/right_present. Names/order remain fixed.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -498,9 +498,9 @@ def provider() -> DisclosureProvider:
             "Find governed inputs, retrieve an exact path or explain a definition.",
             (),
             guidance=(
-                "Acquire catalog = session.catalog. Discover entries with search; copy canonical kind:path identities and retrieve with get.",
+                "Acquire catalog = session.catalog. Discover objects with search; copy canonical kind:path identities and retrieve with get.",
                 "Use page.show() for bounded candidates and entry.show() for captured definitions. Explicit filters constrain discovery; related navigation uses the full loaded Catalog scope.",
-                "Check entry.kind before accessing entry.value. Native closed execution values retain expression semantics; the consuming AnalysisFrame.show() explains captured scope and operations.",
+                "Check object.kind and use the typed object directly in its allowed operations; the consuming AnalysisFrame.show() explains captured scope and operations.",
             ),
             related=(
                 "semantic.semantic_catalog.search",

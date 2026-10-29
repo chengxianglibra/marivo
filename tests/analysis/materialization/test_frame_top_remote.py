@@ -70,7 +70,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         score = catalog_value(session.catalog, "sales.facts.big", kind="field")
         pending = session.read(members, {"score": score})
         raw = pending.compute().to_pandas()
@@ -156,7 +156,7 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("filtered-native-read-top", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts").value
+        entity = session.catalog.get("entity:sales.facts")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         score = catalog_value(session.catalog, "sales.facts.big", kind="field")
         trace = capture_source(monkeypatch)
@@ -203,7 +203,7 @@ def test_native_read_top_preserves_full_input_key_errors(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-integrity", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts").value,
+            session.catalog.get("entity:sales.facts"),
             where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
         )
         pending = session.read(
@@ -247,7 +247,7 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-nonfinite", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts").value,
+            session.catalog.get("entity:sales.facts"),
             where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
         )
         pending = session.read(
@@ -293,7 +293,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-byte-identity", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts").value,
+            session.catalog.get("entity:sales.facts"),
             where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
         )
         pending = session.read(
@@ -307,7 +307,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         assert top.iloc[0].tolist() == [("A", 1), 2**53 + 1]
         assert trace.returned_rows == [2, 1] and trace.uploaded_key_rows == []
         requested = mv.coordinates(
-            by=(mv.identity(session.catalog.get("entity:sales.facts").value),),
+            by=(mv.identity(session.catalog.get("entity:sales.facts")),),
             keys=((("a", 1),), (("missing", 99),)),
         )
         selected = (
@@ -320,8 +320,8 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         )
         assert selected.iloc[:, 0].tolist() == [("a", 1), ("missing", 99)]
         assert selected["score"].tolist() == [2**53 + 1, pd.NA]
-        entity = session.catalog.get("entity:sales.facts").value
-        total = session.catalog.get("metric:sales.total").value
+        entity = session.catalog.get("entity:sales.facts")
+        total = session.catalog.get("metric:sales.total")
         for domain, expected in (
             (session.members(entity), 30),
             (mv.coordinates(by=(mv.identity(entity),), keys=((("A", 1),),)), 10),

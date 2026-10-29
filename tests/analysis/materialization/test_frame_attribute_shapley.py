@@ -8,7 +8,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import duckdb
-import ibis
 import pytest
 
 import marivo.analysis as mv
@@ -190,7 +189,7 @@ def test_domain_proof_covers_unsampled_empty_mixed_minimum(
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
-    minimum = ibis.coalesce(x.min(), 0) if fill else x.min()
+    minimum = (x.min()).coalesce(0) if fill else x.min()
     report = _comparison(game_session, {"q": minimum * y.sum()}).attribute(
         by=(player,), permutations=2, seed=3
     )
@@ -288,12 +287,12 @@ def test_strict_null_source_checks_preserve_ordinary_owner_policy(
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     strict = x.min(nulls="error")
-    inactive = ibis.ifelse(y.sum() < 0, strict, 0)
+    inactive = (y.sum() < 0).ifelse(strict, 0)
     with pytest.raises(AnalysisError):
         game_session.observe({"q": inactive}).compute()
     with pytest.raises(AnalysisError):
         _comparison(game_session, {"q": inactive}).attribute(by=(player,), permutations=2).compute()
-    active = ibis.ifelse(y.sum() > 0, strict, 0)
+    active = (y.sum() > 0).ifelse(strict, 0)
     with pytest.raises(AnalysisError):
         _comparison(game_session, {"q": active}).attribute(by=(player,), permutations=2).compute()
 
@@ -326,7 +325,7 @@ def test_empty_sum_and_present_all_null_are_distinct_in_coalition_states(
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
-    metric = ibis.coalesce(x.sum(), 99) * y.sum()
+    metric = (x.sum()).coalesce(99) * y.sum()
     rows = (
         _comparison(game_session, {"q": metric})
         .attribute(by=(player,), permutations=8)
@@ -436,7 +435,7 @@ def test_conditional_nonzero_guard_is_proved_for_dynamic_denominator(
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     value = x.sum()
-    metric = ibis.ifelse(value != 0, 1 / value, 0)
+    metric = (value != 0).ifelse(1 / value, 0)
     rows = (
         _comparison(game_session, {"q": metric})
         .attribute(by=(player,), permutations=8)
@@ -609,8 +608,8 @@ def test_unused_and_coalesced_zero_weight_state_respect_metric_demand(
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     weighted = x.weighted_mean(weight=y)
     metrics = {
-        "unused": ibis.ifelse(y.sum() > 0, weighted, 0),
-        "filled": ibis.coalesce(weighted, 0) * x.sum(),
+        "unused": (y.sum() > 0).ifelse(weighted, 0),
+        "filled": (weighted).coalesce(0) * x.sum(),
     }
     report = _comparison(game_session, metrics).attribute(by=(player,), permutations=4).compute()
     rows = report.to_pandas()

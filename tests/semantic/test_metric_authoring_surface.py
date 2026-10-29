@@ -7,7 +7,6 @@ from typing import TypeAlias
 
 import ibis
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -98,7 +97,7 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
-    assert type(amount) is Deferred
+    assert isinstance(amount, ms.Measure)
     amount = consume_field(amount)
     assert amount.reference.ref == ref_factory.measure("sales.orders.amount")
     assert amount.reference.version.startswith("sha256:")
@@ -123,10 +122,12 @@ def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
         "measure:sales.orders.margin",
         "time_dimension:sales.orders.order_date",
     ]
-    assert type(catalog_value(catalog, "sales.orders.region", kind="field")) is Deferred
-    assert type(catalog_value(catalog, "sales.orders.amount", kind="field")) is Deferred
-    assert type(catalog_value(catalog, "sales.orders.order_date", kind="field")) is Deferred
-    assert type(catalog_value(catalog, "sales.orders.margin", kind="field")) is Deferred
+    assert isinstance(catalog_value(catalog, "sales.orders.region", kind="field"), ms.Dimension)
+    assert isinstance(catalog_value(catalog, "sales.orders.amount", kind="field"), ms.Measure)
+    assert isinstance(
+        catalog_value(catalog, "sales.orders.order_date", kind="field"), ms.TimeDimension
+    )
+    assert isinstance(catalog_value(catalog, "sales.orders.margin", kind="field"), ms.Measure)
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.get("measure:sales.orders.missing")
@@ -146,12 +147,11 @@ def test_domain_and_catalog_collections_agree_on_metric_membership(
     ]
     scoped = catalog_value(domain, "sales.orders.amount", kind="field")
     global_amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    assert type(scoped) is Deferred and type(global_amount) is Deferred
+    assert isinstance(scoped, ms.Measure) and isinstance(global_amount, ms.Measure)
     assert consume_field(scoped) == consume_field(global_amount)
-    assert (
-        catalog_value(catalog, "revenue", kind="metric")
-        is catalog.get("metric:sales.revenue").value
-    )
+    selected_metric = catalog_value(catalog, "revenue", kind="metric")
+    assert isinstance(selected_metric, ms.Metric)
+    assert selected_metric.id == catalog.get("metric:sales.revenue").id
 
 
 def test_metric_value_carries_roots_unit_and_business_context(
@@ -159,10 +159,10 @@ def test_metric_value_carries_roots_unit_and_business_context(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
-    revenue = catalog.get("metric:sales.revenue").value
+    revenue = catalog.get("metric:sales.revenue")
     contract = catalog.get("metric:sales.revenue")
 
-    assert type(revenue) is Deferred
+    assert isinstance(revenue, ms.Metric)
     revenue = consume_metric(revenue)
     assert isinstance(revenue.node, DeclaredMetricRef)
     assert revenue.roots == (entity_exact(orders),)
@@ -246,9 +246,7 @@ def test_published_metric_and_declared_measure_have_no_physical_preview(
         columns=("order_id", "amount", "region", "order_date"),
     )
 
-    preview = catalog.preview(
-        catalog.get("metric:sales.revenue").value, scope=snapshot.scope, limit=1
-    )
+    preview = catalog.preview(catalog.get("metric:sales.revenue"), scope=snapshot.scope, limit=1)
     assert preview.kind == "semantic_metric"
     assert preview.returned_row_count == 1
     with pytest.raises(SemanticRuntimeError, match="requires physical inputs") as exc_info:

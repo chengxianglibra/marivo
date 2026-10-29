@@ -14,9 +14,9 @@ from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.errors import AnalysisError
-from marivo.semantic.catalog import PeriodCalendarEntry, SemanticCatalog
+from marivo.semantic import Entity
+from marivo.semantic.catalog import PeriodCalendar, SemanticCatalog
 from marivo.semantic.errors import SemanticError
-from marivo.semantic.expressions import Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     DslCaseFactory,
@@ -145,7 +145,7 @@ def test_read_help_requires_one_complete_identity_axis(
     case = analysis_dsl_case_factory("j2")
     entity = catalog_value(case.catalog, "sales.customer", kind="entity")
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
-    assert isinstance(entity, Entity) and isinstance(region, Deferred)
+    assert isinstance(entity, Entity) and isinstance(region, ms.Dimension)
     members = case.session.members(entity)
     classified = members.classify(by=(*members.axes, region))
     assert isinstance(classified, mv.Population)
@@ -208,7 +208,7 @@ def test_window_help_discloses_consuming_restrictions(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     metric = catalog_value(case.catalog, "sales.revenue", kind="metric")
-    assert isinstance(metric, Deferred)
+    assert isinstance(metric, ms.Metric)
     rule = (
         mv.trailing_periods(count=1)
         if rule_name == "trailing_periods"
@@ -243,7 +243,7 @@ def test_calendar_grain_help_distinguishes_missing_and_current_certification(
     session = mv.session.get_or_create("help-calendar", timezone="UTC")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-    assert isinstance(calendar, PeriodCalendarEntry)
+    assert isinstance(calendar, PeriodCalendar)
     unbound = calendar.grain("fiscal_week")
     with pytest.raises(ValueError, match="captured semantic Grain"):
         scope.by(unbound)
@@ -263,7 +263,7 @@ def test_calendar_periods_help_discloses_page_bounds_and_cursor_ownership(
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_catalog)
     calendar = catalog_entry(calendar_catalog, "sales.fiscal", kind="period_calendar")
-    assert isinstance(calendar, PeriodCalendarEntry)
+    assert isinstance(calendar, PeriodCalendar)
     for invalid_limit in (0, 101, True):
         with pytest.raises(SemanticError, match="integer in"):
             calendar.periods("fiscal_week", limit=invalid_limit)

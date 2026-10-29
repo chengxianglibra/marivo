@@ -178,7 +178,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
         native = case.session._backend.execute(table.order_by("id"))
         assert isinstance(native, pd.DataFrame)
         session = mv.session.get_or_create("mysql_utc_read", timezone="America/New_York")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         artifact = session.read(
             members,
             {"happened": catalog_value(session.catalog, "sales.facts.happened", kind="field")},
@@ -305,7 +305,7 @@ def test_public_native_numeric_query(
             .all()
         )
         assert frame.equals(session.persisted_frame(artifact.artifact_id).to_pandas())
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         direct_query = session.read(
             members, {"big": catalog_value(session.catalog, "sales.facts.big", kind="field")}
         )
@@ -348,7 +348,7 @@ def test_public_native_numeric_methods(
             | (
                 {"q": (amount / 1).quantile(0.5)}
                 if backend == "clickhouse"
-                else {"q": session.catalog.get("metric:sales.quantile").value}
+                else {"q": session.catalog.get("metric:sales.quantile")}
                 if backend not in ("mysql", "trino")
                 else {}
             )
@@ -665,7 +665,7 @@ def test_native_time_dependencies_and_drill(
         tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         identity_axis = members.axes[0]
         assert identity_axis.kind == "identity"
         chosen_values = session.values(
@@ -673,7 +673,7 @@ def test_native_time_dependencies_and_drill(
             columns={"flag": None},
             rows=(((("a", 1), "x"), {"flag": True}), ((("b", 4), None), {"flag": True})),
         ).compute()
-        entity = session.catalog.get("entity:sales.facts").value
+        entity = session.catalog.get("entity:sales.facts")
         chosen = session.population_from(
             chosen_values, on=((chosen_values.axes[0], entity), (chosen_values.axes[1], category))
         )
@@ -691,18 +691,16 @@ def test_native_time_dependencies_and_drill(
         )
         assert [float(value) for value in drilled["total"]] == [1.25, 2.75]
         scope = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
-        window = session.catalog.get("metric:sales.total").value.window(mv.all_history())
+        window = session.catalog.get("metric:sales.total").window(mv.all_history())
         cumulative = session.observe({"total": window}, by=(scope,)).compute().to_pandas()
         assert [float(value) for value in cumulative["total"]] == [4.0, 4.0]
-        empty = session.observe(
-            {"empty": session.catalog.get("metric:sales.empty").value}
-        ).compute()
+        empty = session.observe({"empty": session.catalog.get("metric:sales.empty")}).compute()
         assert empty.to_pandas()["empty"].tolist() == [Decimal("0.00")]
         from tests.analysis.materialization.publication_fixtures import publication_counts
 
         before = publication_counts(session)
         result = session.observe(
-            {"zero": session.catalog.get("metric:sales.zero_weight").value}
+            {"zero": session.catalog.get("metric:sales.zero_weight")}
         ).compute()
         assert result.to_pandas()["zero"].isna().all()
         assert publication_counts(session) == before
@@ -720,7 +718,7 @@ def test_mixed_predicate_keeps_null_rows_and_complete_identity_membership(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote_mixed_predicate", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts").value
+        entity = session.catalog.get("entity:sales.facts")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         captured = session.values(
@@ -810,7 +808,7 @@ def test_same_source_read_filter_population_consumer(
         session = mv.session.get_or_create("same_source_population", timezone="UTC")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         attributes = session.read(members, {"category": category})
         predicate = (
             attributes["category"].is_null()
@@ -820,7 +818,7 @@ def test_same_source_read_filter_population_consumer(
         selection_values = attributes.where(predicate).compute()
         selected = session.population_from(
             selection_values,
-            on=((selection_values.axes[0], session.catalog.get("entity:sales.facts").value),),
+            on=((selection_values.axes[0], session.catalog.get("entity:sales.facts")),),
         )
         consumer = session.observe(
             {"weight": weight.sum()},
@@ -866,7 +864,7 @@ def test_same_source_read_filter_population_consumer(
             empty_values = attributes.where(attributes["category"] == "absent").compute()
             empty = session.population_from(
                 empty_values,
-                on=((empty_values.axes[0], session.catalog.get("entity:sales.facts").value),),
+                on=((empty_values.axes[0], session.catalog.get("entity:sales.facts")),),
             )
             for condition, expected in (
                 (~mv.in_population(selected), 126),
@@ -912,12 +910,12 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
         session = mv.session.get_or_create("source_char_selection", timezone="UTC")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "e").compute()
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.facts").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.facts")),),
         )
         statements: list[str] = []
         execute = SourceSession.execute
@@ -968,12 +966,12 @@ def test_empty_source_selection_retains_original_identity_check(
         session = mv.session.get_or_create("source_check_selection", timezone="UTC")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        members = session.members(session.catalog.get("entity:sales.facts").value)
+        members = session.members(session.catalog.get("entity:sales.facts"))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "absent")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.facts").value),),
+            on=((selected_values.axes[0], session.catalog.get("entity:sales.facts")),),
         )
         statements: list[str] = []
         execute = SourceSession.execute
@@ -1011,7 +1009,7 @@ def test_remote_saved_values_cold_read_without_sources(
         session = mv.session.get_or_create("remote_cold", timezone="UTC")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
         saved = session.observe(
-            {"total": session.catalog.get("metric:sales.total").value}, by=(category,)
+            {"total": session.catalog.get("metric:sales.total")}, by=(category,)
         ).persist()
         saved.to_pandas().to_pickle(tmp_path / "saved-oracle.pkl")
         artifact_id = saved.artifact_id

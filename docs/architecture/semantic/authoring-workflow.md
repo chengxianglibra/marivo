@@ -138,17 +138,17 @@ evaluates the current project and fails closed on invalid organization,
 duplicate identity, unresolved refs, type mismatches, illegal expression
 bindings, invalid expression dependencies, and cycles.
 
-After a successful load, select each authored root through its owning collection:
+After a successful load, select each authored root by its canonical Catalog identity:
 
 ```python
 catalog = ms.load(workspace_dir=project_root)
 
 orders_entry = catalog.get("entity:sales.orders")
 assert orders_entry.kind == "entity"
-orders = orders_entry.value
+orders = orders_entry
 revenue_entry = catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
-revenue = revenue_entry.value
+revenue = revenue_entry
 ```
 
 Repair all structural failures for the slice and reload. Do not insert a
@@ -156,11 +156,10 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 ### 6. Scoped readiness and targeted runtime checks
 
-Run `catalog.readiness(refs=[...])` on the selected current entries, closed values
-or exact lookup symbols. Declared Measures and Metrics automatically expand to
+Run `catalog.readiness(refs=[...])` on the selected named objects. Declared Measures and Metrics automatically expand to
 their physical dependency closures; the report separates requested and checked
 identities. `analysis_ready_inputs` contains only directly requested ready physical
-refs, so select those explicitly when a physical handoff is needed. Inspect
+objects, so select those explicitly when a physical handoff is needed. Inspect
 captured definitions through `catalog.get("kind:path").definition`.
 Readiness does not consume DiscoverySnapshot evidence: it evaluates
 the current semantic project, the requested closure, and dedicated certified

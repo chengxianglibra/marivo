@@ -174,7 +174,7 @@ def test_long_path_sum_and_count(
         )
         trace = capture_source(monkeypatch)
         session = mv.session.get_or_create("long-path", timezone="UTC")
-        population = session.members(session.catalog.get("entity:sales.subjects").value)
+        population = session.members(session.catalog.get("entity:sales.subjects"))
         expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
             expression = catalog_value(session.catalog, "sales." + metric, kind="metric")

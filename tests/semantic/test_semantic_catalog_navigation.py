@@ -9,16 +9,14 @@ from pathlib import Path
 
 import pytest
 
-import marivo.semantic as ms
 from marivo.refs import SemanticKind
 from marivo.semantic.catalog import (
-    DomainEntry,
+    Domain,
     SemanticCatalog,
     _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.shared_fixtures import catalog_entry, catalog_value
-from tests.support.refs import as_ref
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -112,60 +110,31 @@ def _catalog(
     return SemanticCatalog(project)
 
 
-def test_relationship_endpoints_disclose_exact_entity_refs(semantic_project_factory) -> None:
+def test_relationship_endpoints_navigate_captured_entity_objects(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    relationship = catalog_value(catalog, "orders_to_users", kind="relationship")
-    assert relationship._parameter.from_entity.ref.key == "entity:sales.orders"
-    assert relationship._parameter.to_entity.ref.key == "entity:sales.users"
-    assert (
-        relationship._parameter.from_entity
-        == catalog_value(catalog, "sales.orders", kind="entity")._exact_ref
-    )
-    assert (
-        relationship._parameter.to_entity
-        == catalog_value(catalog, "sales.users", kind="entity")._exact_ref
-    )
-    assert relationship._parameter.from_entity.version.startswith("sha256:")
-    assert relationship.contract().facts[:2] == (
-        ("from", "entity:sales.orders"),
-        ("to", "entity:sales.users"),
-    )
+    relationship = catalog.get("relationship:sales.orders_to_users")
+    assert relationship.kind == "relationship"
+    assert relationship.from_entity.id == "entity:sales.orders"
+    assert relationship.to_entity.id == "entity:sales.users"
+    assert relationship.from_entity.primary_key == ("order_id",)
+    assert relationship.definition.cardinality == "many_to_one"
+    assert not hasattr(relationship, "value") and not hasattr(relationship, "ref")
 
 
-# ---------------------------------------------------------------------------
-# Teaching lookup error contracts
-# ---------------------------------------------------------------------------
-
-
-def test_semantic_input_normalization_accepts_values_like_their_refs(
+def test_semantic_input_normalization_accepts_direct_named_objects(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    for value, exact_ref, kind in (
-        (
-            catalog_value(catalog, "sales.orders", kind="entity"),
-            ms.ref.entity("sales.orders"),
-            SemanticKind.ENTITY,
-        ),
-        (
-            catalog_value(catalog, "sales.orders.region", kind="field"),
-            ms.ref.dimension("sales.orders.region"),
-            SemanticKind.DIMENSION,
-        ),
-        (
-            catalog_value(catalog, "orders_to_users", kind="relationship"),
-            ms.ref.relationship("sales.orders_to_users"),
-            SemanticKind.RELATIONSHIP,
-        ),
+    for identity in (
+        "entity:sales.orders",
+        "dimension:sales.orders.region",
+        "relationship:sales.orders_to_users",
     ):
-        by_value = _normalize_semantic_input(
-            catalog, value, allowed_kinds=frozenset({kind}), location="test.input"
+        value = catalog.get(identity)
+        normalized = _normalize_semantic_input(
+            catalog, value, allowed_kinds=frozenset({value._ref.kind}), location="test.input"
         )
-        by_ref = _normalize_semantic_input(
-            catalog, exact_ref, allowed_kinds=frozenset({kind}), location="test.input"
-        )
-        assert by_value == by_ref
-        assert by_value == as_ref(exact_ref)
+        assert normalized == value._ref
 
 
 def test_semantic_input_rejects_published_metric_as_a_physical_input(
@@ -185,18 +154,16 @@ def test_semantic_input_rejects_published_metric_as_a_physical_input(
     assert exc_info.value.repair.snippet is None
 
 
-def test_semantic_input_normalization_accepts_entries_like_their_refs(
+def test_semantic_input_normalization_accepts_reloaded_same_project(
     semantic_project_factory,
 ) -> None:
-    catalog = _catalog(semantic_project_factory)
-    sales = catalog_entry(catalog, "sales", kind="domain")
-    by_entry = _normalize_semantic_input(
-        catalog, sales, allowed_kinds=frozenset({SemanticKind.DOMAIN}), location="test.input"
+    original = _catalog(semantic_project_factory)
+    sales = original.get("domain:sales")
+    receiving = _catalog(semantic_project_factory)
+    normalized = _normalize_semantic_input(
+        receiving, sales, allowed_kinds=frozenset({SemanticKind.DOMAIN}), location="test.input"
     )
-    by_ref = _normalize_semantic_input(
-        catalog, sales.ref, allowed_kinds=frozenset({SemanticKind.DOMAIN}), location="test.input"
-    )
-    assert by_entry == by_ref == sales._ref
+    assert normalized == sales._ref
 
 
 def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
@@ -205,20 +172,20 @@ def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
     catalog = _catalog(semantic_project_factory)
     sales = catalog_entry(catalog, "sales", kind="domain")
 
-    class UnregisteredDomainEntry(DomainEntry):
+    class UnregisteredDomain(Domain):
         pass
 
-    forged = UnregisteredDomainEntry(_ref=sales._ref, _details=sales._details, _catalog=catalog)
-    with pytest.raises(SemanticRuntimeError, match="not a registered concrete") as subclass:
+    forged = UnregisteredDomain(_ref=sales._ref, _details=sales._details, _catalog=catalog)
+    with pytest.raises(SemanticRuntimeError, match="concrete named semantic object") as subclass:
         _normalize_semantic_input(
             catalog, forged, allowed_kinds=frozenset({SemanticKind.DOMAIN}), location="test.domain"
         )
-    assert subclass.value.received == "UnregisteredDomainEntry(domain:sales)"
+    assert subclass.value.received == "UnregisteredDomain(domain:sales)"
 
     class DuckDomain:
-        ref = sales.ref
+        id = sales.id
 
-    with pytest.raises(SemanticRuntimeError, match="duck-typed") as duck:
+    with pytest.raises(SemanticRuntimeError, match="named semantic object") as duck:
         _normalize_semantic_input(
             catalog,
             DuckDomain(),
@@ -233,7 +200,7 @@ def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    with pytest.raises(SemanticRuntimeError, match="bare strings") as bare:
+    with pytest.raises(SemanticRuntimeError, match="named semantic object") as bare:
         _normalize_semantic_input(
             catalog,
             "sales.revenue",  # type: ignore[arg-type]
@@ -248,7 +215,7 @@ def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
     with pytest.raises(SemanticRuntimeError, match="received semantic kind entity") as wrong:
         _normalize_semantic_input(
             catalog,
-            ms.ref.entity("sales.orders"),  # type: ignore[arg-type]
+            catalog.get("entity:sales.orders"),
             allowed_kinds=frozenset({SemanticKind.METRIC}),
             location="test.metric",
         )
@@ -266,7 +233,7 @@ def test_semantic_input_rejects_cross_catalog_entry_without_retry(
     other_workspace.mkdir()
     other_catalog = _catalog(semantic_project_factory, workspace_dir=other_workspace)
     foreign_domain = catalog_entry(other_catalog, "sales", kind="domain")
-    with pytest.raises(SemanticRuntimeError, match="another catalog") as exc_info:
+    with pytest.raises(SemanticRuntimeError, match="belongs to project") as exc_info:
         _normalize_semantic_input(
             catalog,
             foreign_domain,
@@ -275,29 +242,21 @@ def test_semantic_input_rejects_cross_catalog_entry_without_retry(
         )
     assert exc_info.value.repair is not None
     assert exc_info.value.repair.kind == "inspect"
-    assert exc_info.value.repair.snippet is None
+    assert exc_info.value.repair.snippet == "subject = catalog.get('domain:sales')"
 
 
-def test_semantic_input_stale_entry_has_executable_exact_reacquisition(
-    semantic_project_factory,
-) -> None:
-    old_catalog = _catalog(semantic_project_factory)
-    stale_domain = catalog_entry(old_catalog, "sales", kind="domain")
-    current_catalog = _catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError, match="earlier catalog instance") as exc_info:
+def test_original_object_navigation_keeps_captured_catalog(semantic_project_factory) -> None:
+    original = _catalog(semantic_project_factory)
+    sales = original.get("domain:sales")
+    receiving = _catalog(semantic_project_factory)
+    assert sales._catalog is original
+    assert (
         _normalize_semantic_input(
-            current_catalog,
-            stale_domain,
-            allowed_kinds=frozenset({SemanticKind.DOMAIN}),
-            location="test.domain",
+            receiving, sales, allowed_kinds=frozenset({SemanticKind.DOMAIN}), location="test.domain"
         )
-    error = exc_info.value
-    assert error.repair is not None
-    assert error.repair.kind == "reacquire"
-    assert error.repair.snippet == "entry = catalog.get('domain:sales')"
-    namespace: dict[str, object] = {"catalog": current_catalog}
-    exec(error.repair.snippet, namespace)
-    assert namespace["entry"] is catalog_entry(current_catalog, "sales", kind="domain")
+        == sales._ref
+    )
+    assert sales.related("members").scope == original.search().scope
 
 
 def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
@@ -313,7 +272,9 @@ def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
         }
     )
     current_catalog = SemanticCatalog(current_project)
-    with pytest.raises(SemanticRuntimeError, match="stale catalog instance") as exc_info:
+    with pytest.raises(
+        SemanticRuntimeError, match="outside the receiving Catalog scope"
+    ) as exc_info:
         _normalize_semantic_input(
             current_catalog,
             stale_domain,
@@ -331,11 +292,11 @@ def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
 # ---------------------------------------------------------------------------
 
 
-def test_relationship_contract_discloses_typed_endpoints_and_cardinality(
+def test_relationship_definition_discloses_endpoints_and_cardinality(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    rendered = catalog_value(catalog, "orders_to_users", kind="relationship").contract().render()
-    assert "from: entity:sales.orders" in rendered
-    assert "to: entity:sales.users" in rendered
+    relationship = catalog.get("relationship:sales.orders_to_users")
+    rendered = relationship.render()
+    assert "entity:sales.orders -> entity:sales.users" in rendered
     assert "cardinality: many_to_one" in rendered

@@ -243,6 +243,7 @@ class SemanticTypeContract:
     guidance: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     example: str | None = None
+    target: str | None = None
 
 
 @dataclass(frozen=True)

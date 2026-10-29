@@ -84,6 +84,7 @@ from marivo.semantic.validator import Registry, normalize_target_relationship
 
 if TYPE_CHECKING:
     from marivo.datasource.ir import AiContextIR
+    from marivo.semantic._expression_values import NumericMetric
     from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -267,7 +268,7 @@ class _ExpressionDisplay:
 
 
 @dataclass(frozen=True, slots=True)
-class Entity(_ExpressionDisplay):
+class _Entity(_ExpressionDisplay):
     """Resolved Entity: one contribution root with its complete primary key."""
 
     _exact_ref: ExactRef
@@ -306,15 +307,16 @@ class Entity(_ExpressionDisplay):
         return f"Entity {self._exact_ref.ref.path}@{self._exact_ref.version[:19]} (use .show())"
 
 
-def entity_exact(value: Entity) -> ExactRef:
+def entity_exact(value: _Entity) -> ExactRef:
     """Consume the closed Entity identity without entering Deferred navigation."""
     return value._exact_ref
 
 
 @dataclass(frozen=True, slots=True)
-class Relationship(_RelationshipValue, _ExpressionDisplay):
+class _Relationship(_RelationshipValue, _ExpressionDisplay):
     """Resolved directed relationship, keeping its closed parameter private."""
 
+    _parameter: RelationshipParameter
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     @property
@@ -342,7 +344,7 @@ class Relationship(_RelationshipValue, _ExpressionDisplay):
         return f"Relationship {exact.ref.path}@{exact.version[:19]} (use .show())"
 
 
-def relationship_parameter(value: Relationship) -> RelationshipParameter:
+def relationship_parameter(value: _Relationship) -> RelationshipParameter:
     """Consume the immutable internal relationship facts."""
     return value._parameter
 
@@ -350,7 +352,7 @@ def relationship_parameter(value: Relationship) -> RelationshipParameter:
 class _FieldMetadata(_ExpressionDisplay):
     """Private physical facts; author-facing inputs use native Deferred."""
 
-    path: tuple[Relationship, ...]
+    path: tuple[_Relationship, ...]
     anchor: InstantAnchor | None
 
     def _require_native(self, *, operation: str) -> None:
@@ -371,7 +373,7 @@ class Dimension(_FieldMetadata):
     default_time: ExactRef | None
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
-    path: tuple[Relationship, ...] = field(default=(), kw_only=True)
+    path: tuple[_Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
 
@@ -380,7 +382,7 @@ class TimeField(_FieldMetadata):
     ref: ExactRef
     root: ExactRef
     default_time: ExactRef | None
-    path: tuple[Relationship, ...] = ()
+    path: tuple[_Relationship, ...] = ()
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
@@ -396,12 +398,12 @@ class Measure(_FieldMetadata):
     coordinates: tuple[ExactRef, ...] = ()
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
-    path: tuple[Relationship, ...] = field(default=(), kw_only=True)
+    path: tuple[_Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
 
 Field: TypeAlias = Dimension | TimeField | Measure
-ResolvedValue: TypeAlias = Entity | Field | Relationship | Deferred
+ResolvedValue: TypeAlias = _Entity | Field | _Relationship | Deferred
 
 
 def declare_measure(
@@ -738,9 +740,9 @@ class _Resolver:
             details=tuple(details),
         )
 
-    def entity(self, path: str) -> Entity:
+    def entity(self, path: str) -> _Entity:
         target = ref_factory.entity(path)
-        return Entity(
+        return _Entity(
             _exact_ref=self.entity_ref(path),
             primary_key=self._registry.entities[path].primary_key,
             _default_time=self.default_time(path),
@@ -840,9 +842,9 @@ class _Resolver:
             case _:
                 return self.field(path)
 
-    def relationship(self, path: str) -> Relationship:
+    def relationship(self, path: str) -> _Relationship:
         contract: TargetRelationshipContract = normalize_target_relationship(self._registry, path)
-        return Relationship(
+        return _Relationship(
             _parameter=RelationshipParameter(
                 ref=self.exact(ref_factory.relationship(path)),
                 from_entity=self.entity_ref(contract.from_entity_ref.path),
@@ -854,7 +856,7 @@ class _Resolver:
 
 
 @overload
-def resolve(catalog: SemanticCatalog, target: Ref[EntityKind]) -> Entity: ...
+def resolve(catalog: SemanticCatalog, target: Ref[EntityKind]) -> _Entity: ...
 
 
 @overload
@@ -874,7 +876,7 @@ def resolve(catalog: SemanticCatalog, target: Ref[MetricKind]) -> Deferred: ...
 
 
 @overload
-def resolve(catalog: SemanticCatalog, target: Ref[RelationshipKind]) -> Relationship: ...
+def resolve(catalog: SemanticCatalog, target: Ref[RelationshipKind]) -> _Relationship: ...
 
 
 @overload
@@ -1035,7 +1037,7 @@ def _rebind_declared(
     return cast("_RebindT", result)  # rebinding preserves each value's type
 
 
-def catalog_closure(catalog: SemanticCatalog, value: Deferred) -> DefinitionClosure:
+def catalog_closure(catalog: SemanticCatalog, value: Deferred | NumericMetric) -> DefinitionClosure:
     """Expand ``value`` through the published Metrics of ``catalog`` into one graph.
 
     Declared Metric references resolve by kind and path in this scope; a
@@ -1051,9 +1053,12 @@ def catalog_closure(catalog: SemanticCatalog, value: Deferred) -> DefinitionClos
     def expand(target: ExactRef) -> MetricNode | None:
         return catalog_metric_definition(catalog, target)
 
+    from marivo.semantic._consumption import bind_metric
     from marivo.semantic._deferred_semantics import consume_metric_in_state
+    from marivo.semantic._expression_values import MetricExpression
 
-    root = consume_metric_in_state(value, state).node
+    bound = bind_metric(value, catalog) if isinstance(value, MetricExpression) else value
+    root = consume_metric_in_state(bound, state).node
     try:
         closure = walk((root,), resolve=expand)
     except DefinitionGraphError as error:
@@ -1063,14 +1068,14 @@ def catalog_closure(catalog: SemanticCatalog, value: Deferred) -> DefinitionClos
 
 def _expression_contract(value: object) -> ExpressionContract:
     """Bounded metadata disclosure; numerical definitions belong to Catalog/Query."""
-    if not isinstance(value, (Entity, Relationship, Dimension, TimeField, Measure)):
+    if not isinstance(value, (_Entity, _Relationship, Dimension, TimeField, Measure)):
         raise TypeError(f"no physical definition contract for {type(value).__name__}")
     facts = value._facts
-    if isinstance(value, Entity):
+    if isinstance(value, _Entity):
         stage: ExpressionStage = "entity"
         roots: tuple[ExactRef, ...] = (value._exact_ref,)
         operations: tuple[str, ...] = ("count",)
-    elif isinstance(value, Relationship):
+    elif isinstance(value, _Relationship):
         stage, roots, operations = (
             "relationship",
             (value._parameter.from_entity, value._parameter.to_entity),
@@ -1086,7 +1091,7 @@ def _expression_contract(value: object) -> ExpressionContract:
         )
         roots, operations = (value.root,), ()
     details = facts.details if facts else ()
-    if isinstance(value, Relationship):
+    if isinstance(value, _Relationship):
         details = (
             ("from", value._parameter.from_entity.ref.key),
             ("to", value._parameter.to_entity.ref.key),
@@ -1096,17 +1101,17 @@ def _expression_contract(value: object) -> ExpressionContract:
     return ExpressionContract(
         stage=stage,
         _ref=value._exact_ref
-        if isinstance(value, Entity)
+        if isinstance(value, _Entity)
         else value._parameter.ref
-        if isinstance(value, Relationship)
+        if isinstance(value, _Relationship)
         else value.ref,
         _roots=roots,
         unit=value.unit if isinstance(value, Measure) else None,
         sum_permission=value.permission if isinstance(value, Measure) else None,
         _default_time=value._default_time
-        if isinstance(value, Entity)
+        if isinstance(value, _Entity)
         else value.default_time
-        if not isinstance(value, Relationship)
+        if not isinstance(value, _Relationship)
         else None,
         computation=None,
         _reads=facts.reads if facts else (),
@@ -1114,9 +1119,9 @@ def _expression_contract(value: object) -> ExpressionContract:
         if facts
         else (
             value._exact_ref
-            if isinstance(value, Entity)
+            if isinstance(value, _Entity)
             else value._parameter.ref
-            if isinstance(value, Relationship)
+            if isinstance(value, _Relationship)
             else value.ref
         ).ref.name,
         business_definition=getattr(facts.ai_context, "business_definition", None)

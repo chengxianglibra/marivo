@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
-from marivo._symbolic import EntitySymbol, native_symbol_ref
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
@@ -18,11 +17,12 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repa
 
 if TYPE_CHECKING:
     from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.semantic.catalog import Entity, SemanticCatalog
     from marivo.semantic.validator import Registry
 
-PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple[EntitySymbol, AuthoringScope]]
+PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple["Entity", AuthoringScope]]
 PreviewSourceBindings: TypeAlias = Sequence[
-    tuple[EntitySymbol, Mapping[str, QueryParamScalar | QueryParamScalarList]]
+    tuple["Entity", Mapping[str, QueryParamScalar | QueryParamScalarList]]
 ]
 
 
@@ -180,15 +180,21 @@ def dependency_entities_for_ref(ref: str, *, registry: Registry) -> tuple[str, .
     return dependency_entities(ref, _semantic_kind(ref, registry), registry)
 
 
-def _normalize_entity_key(key: object, *, preview_ref: str, parameter: str) -> str:
-    reference = native_symbol_ref(key)
-    if reference is not None and reference.kind is SemanticKind.ENTITY:
-        return reference.path
-    _blocked(
-        preview_ref,
-        f"{parameter} requires native Entity lookup symbols.",
-        details={"received_type": type(key).__name__},
-    )
+def _normalize_entity_key(
+    key: Entity,
+    *,
+    preview_ref: str,
+    parameter: str,
+    catalog: SemanticCatalog,
+) -> str:
+    from marivo.semantic.catalog import _normalize_semantic_input
+
+    return _normalize_semantic_input(
+        catalog,
+        key,
+        allowed_kinds=frozenset({SemanticKind.ENTITY}),
+        location=parameter,
+    ).path
 
 
 def _validate_scope(
@@ -253,6 +259,7 @@ def _normalize_scopes(
     *,
     preview_ref: str,
     operation: str = "catalog.preview",
+    catalog: SemanticCatalog,
 ) -> tuple[tuple[str, AuthoringScope], ...]:
     operation_label = "preview" if operation == "catalog.preview" else "online validation"
     if len(entity_ids) == 1:
@@ -271,7 +278,7 @@ def _normalize_scopes(
     if not isinstance(scope, Sequence) or isinstance(scope, str | bytes):
         _blocked(
             preview_ref,
-            f"A multi-entity {operation_label} requires an Entity symbol/scope pair sequence.",
+            f"A multi-entity {operation_label} requires an Entity object/scope pair sequence.",
             details={"received_type": type(scope).__name__},
         )
     by_entity: dict[str, AuthoringScope] = {}
@@ -279,7 +286,7 @@ def _normalize_scopes(
         if not isinstance(pair, tuple) or len(pair) != 2:
             _blocked(
                 preview_ref,
-                "Scope entries must be (Entity symbol, AuthoringScope) pairs.",
+                "Scope entries must be (Entity object, AuthoringScope) pairs.",
                 details={},
             )
         key, value = pair
@@ -287,6 +294,7 @@ def _normalize_scopes(
             key,
             preview_ref=preview_ref,
             parameter=f"{operation}(..., scope=...) pairs",
+            catalog=catalog,
         )
         if entity_id in by_entity:
             _blocked(
@@ -326,13 +334,14 @@ def _normalize_source_bindings(
     *,
     preview_ref: str,
     registry: Registry,
+    catalog: SemanticCatalog,
 ) -> Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]:
     if source_bindings is not None and (
         not isinstance(source_bindings, Sequence) or isinstance(source_bindings, str | bytes)
     ):
         _blocked(
             preview_ref,
-            "catalog.preview(..., source_bindings=...) requires an Entity symbol/parameter mapping pair sequence.",
+            "catalog.preview(..., source_bindings=...) requires an Entity object/parameter mapping pair sequence.",
             details={"received_type": type(source_bindings).__name__},
         )
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
@@ -340,7 +349,7 @@ def _normalize_source_bindings(
         if not isinstance(pair, tuple) or len(pair) != 2:
             _blocked(
                 preview_ref,
-                "Source binding entries must be (Entity symbol, parameter mapping) pairs.",
+                "Source binding entries must be (Entity object, parameter mapping) pairs.",
                 details={},
             )
         key, value = pair
@@ -348,6 +357,7 @@ def _normalize_source_bindings(
             key,
             preview_ref=preview_ref,
             parameter="catalog.preview(..., source_bindings=...) pairs",
+            catalog=catalog,
         )
         if entity_id in supplied:
             _blocked(preview_ref, f"Source bindings repeat entity {entity_id!r}.", details={})
@@ -397,6 +407,7 @@ def normalize_preview_scope(
     scope: PreviewScope,
     source_bindings: PreviewSourceBindings | None,
     registry: Registry,
+    catalog: SemanticCatalog,
 ) -> NormalizedPreviewScope:
     """Validate one preview's explicit execution inputs without connecting."""
     entity_ids = dependency_entities(ref, kind, registry)
@@ -406,12 +417,13 @@ def normalize_preview_scope(
             f"catalog.preview() does not support {kind} refs.",
             details={"kind": str(kind)},
         )
-    scopes = _normalize_scopes(entity_ids, scope, preview_ref=ref)
+    scopes = _normalize_scopes(entity_ids, scope, preview_ref=ref, catalog=catalog)
     normalized_source_bindings = _normalize_source_bindings(
         entity_ids,
         source_bindings,
         preview_ref=ref,
         registry=registry,
+        catalog=catalog,
     )
     return _normalized_preview_scope(
         ref=ref,
@@ -457,6 +469,7 @@ def normalize_preview_batch_scopes(
     scope: PreviewScope,
     source_bindings: PreviewSourceBindings | None,
     registry: Registry,
+    catalog: SemanticCatalog,
 ) -> tuple[NormalizedPreviewScope, ...]:
     """Validate one complete explicit scope set for a semantic ref batch."""
     batch_refs = tuple(ref for ref, _kind in refs)
@@ -475,12 +488,15 @@ def normalize_preview_batch_scopes(
             refs=batch_refs,
             details={"query_executed": False},
         )
-    normalized_scopes = dict(_normalize_scopes(entity_ids, scope, preview_ref=batch_refs[0]))
+    normalized_scopes = dict(
+        _normalize_scopes(entity_ids, scope, preview_ref=batch_refs[0], catalog=catalog)
+    )
     normalized_bindings = _normalize_source_bindings(
         entity_ids,
         source_bindings,
         preview_ref=batch_refs[0],
         registry=registry,
+        catalog=catalog,
     )
     normalized: list[NormalizedPreviewScope] = []
     for ref, kind in refs:

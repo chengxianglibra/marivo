@@ -17,7 +17,7 @@ from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer").value)
+    members = session.members(session.catalog.get("entity:sales.customer"))
     return session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(session.time_scope(start=start, end=end), members),
