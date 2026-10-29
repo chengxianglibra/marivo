@@ -7,6 +7,7 @@ from decimal import Decimal
 from math import isnan
 from pathlib import Path
 from typing import Literal
+from unittest.mock import Mock
 
 import ibis
 import ibis.expr.operations as ops
@@ -116,6 +117,7 @@ def mean_session(
     sample_count: int | None = None,
     alternate_clock: bool = False,
     nullable_amount: bool = True,
+    sample_points: tuple[str, ...] | None = None,
 ) -> Iterator[tuple[Session, Case]]:
     times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
@@ -124,12 +126,13 @@ def mean_session(
             for i in range(sample_count)
         )
         values = tuple(float(i % 11) for i in range(sample_count))
+    timestamps = sample_points or tuple("2026-10-01 " + point for point in times)
     rows: list[dict[str, object]] = [
         {
             "id": i,
-            "point": datetime.fromisoformat("2026-10-01 " + times[i]).replace(tzinfo=timezone.utc)
+            "point": datetime.fromisoformat(timestamps[i]).replace(tzinfo=timezone.utc)
             if aware
-            else "2026-10-01 " + times[i],
+            else timestamps[i],
             "category": "A",
             "amount": Decimal(str(value))
             if amount_type == "DECIMAL(18,2)" and value is not None
@@ -146,10 +149,7 @@ def mean_session(
         for value in values
     ]
     point_type = "TIMESTAMP WITH TIME ZONE" if aware else "VARCHAR(32)"
-    points = [
-        f"TIMESTAMP '2026-10-01 {point} UTC'" if aware else f"'2026-10-01 {point}'"
-        for point in times
-    ]
+    points = [f"TIMESTAMP '{point} UTC'" if aware else f"'{point}'" for point in timestamps]
     physical_amount = (
         "DOUBLE PRECISION" if backend == "postgres" and amount_type == "DOUBLE" else amount_type
     )
@@ -1328,3 +1328,199 @@ def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
             .to_pandas()
         )
         assert observed["strict"].tolist() == [35.0]
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
+)
+@pytest.mark.parametrize("grain", ["day", "hour"])
+def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    grain: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 10, 10, 100, 300, None),
+        sample_points=(
+            "2026-10-01 23:00:00",
+            "2026-10-01 23:30:00",
+            "2026-10-01 23:30:00",
+            "2026-10-02 00:00:00",
+            "2026-10-02 00:30:00",
+            "2026-10-02 00:45:00",
+        ),
+        cadence=False,
+        aware=True,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        samples = amount.sum(time=point).per(point)
+        mean, p95 = samples.mean(), samples.quantile(0.95)
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        for days in (1, 2, 3):
+            calendar = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}").by(
+                mv.grain(grain)
+            )
+            reducer.reset_mock()
+            rows = (
+                session.observe(
+                    {"mean": mean, "p95": p95, "ratio": p95 / mean, "count": samples.count()},
+                    by=(calendar, category) if grain == "day" else (category, calendar),
+                )
+                .compute()
+                .to_pandas()
+            )
+            # Spatial sums finish first: [0, 20] and [100, 300, NULL].
+            present = rows.loc[rows["mean"].notna()]
+            expected = 1 if days == 1 else 2
+            assert present["mean"].tolist() == [10.0, 200.0][:expected]
+            assert present["p95"].tolist() == pytest.approx([19.0, 290.0][:expected])
+            assert present["ratio"].tolist() == pytest.approx([1.9, 1.45][:expected])
+            assert present["count"].tolist() == [2] * expected
+            absent = rows.loc[rows["mean"].isna()]
+            assert absent[["p95", "ratio"]].isna().all().all()
+            assert absent["count"].tolist() == [0] * len(absent)
+            assert len(rows) == days * (24 if grain == "hour" else 1)
+            assert reducer.call_args_list
+            assert {len(call.args[1]) for call in reducer.call_args_list} == {2 if days == 1 else 5}
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
+)
+def test_calendar_sample_domains_keep_coverage_explicit_keys_and_window_occurrences(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 20, 100, 300),
+        sample_points=(
+            "2026-10-01 23:00:00",
+            "2026-10-01 23:30:00",
+            "2026-10-02 00:00:00",
+            "2026-10-02 00:30:00",
+        ),
+        aware=True,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
+            mv.grain("day")
+        )
+        total = amount.sum(time=point)
+        rows = (
+            session.observe({"p95": total.per(point).quantile(0.95)}, by=(calendar, category))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["p95"].tolist() == pytest.approx([19.0, 290.0])
+        with pytest.raises(MaterializationError, match="complete fixed-cadence") as captured:
+            session.observe(
+                {"p95": total.where(amount > 0).per(point).quantile(0.95)},
+                by=(calendar, category),
+            ).compute()
+        context = captured.value.sampling_context
+        assert context is not None
+        assert context.groups[0].missing_points == (datetime(2026, 10, 1, 23, tzinfo=timezone.utc),)
+        explicit = mv.coordinates(
+            by=(point,),
+            keys=tuple(
+                (datetime(2026, 10, day, hour, 30, tzinfo=timezone.utc),)
+                for day, hour in ((1, 23), (2, 0))
+            ),
+        )
+        rows = (
+            session.observe({"mean": total.per(explicit).mean()}, by=(calendar, category))
+            .compute()
+            .to_pandas()
+        )
+        # Explicit tuples retain absent samples as sum zero in each output bucket.
+        assert rows["mean"].tolist() == [10.0, 150.0]
+        rows = (
+            session.observe(
+                {
+                    "nested": total.per(point).mean().per(category).mean(),
+                    "history": total.per(point).mean().window(mv.all_history()),
+                },
+                by=(calendar,),
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert rows["nested"].tolist() == [10.0, 200.0]
+        assert rows["history"].tolist() == [10.0, 105.0]
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
+)
+@pytest.mark.parametrize("aware", [False, True])
+@pytest.mark.parametrize("grain", ["day", "hour"])
+def test_calendar_sample_coverage_rejects_entirely_missing_bucket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    aware: bool,
+    grain: str,
+) -> None:
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 20),
+        sample_points=("2026-10-01 23:00:00", "2026-10-01 23:30:00"),
+        aware=aware,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
+            mv.grain(grain)
+        )
+        total = amount.sum(time=point)
+        rows = (
+            session.observe({"mean": total.per(point).mean()}, by=(category, calendar))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["mean"].iloc[0] == 10.0
+        assert pd.isna(rows["mean"].iloc[1])
+        for nested in (False, True):
+            metric = total.per(point).quantile(0.95)
+            metric = metric.per(category).mean() if nested else metric
+            with pytest.raises(MaterializationError, match="complete fixed-cadence") as captured:
+                session.observe(
+                    {"p95": metric}, by=(calendar,) if nested else (category, calendar)
+                ).compute()
+            context = captured.value.sampling_context
+            assert context is not None and context.metric == "p95"
+            assert len(context.groups) == 1
+            group = context.groups[0]
+            assert (group.expected_count, group.observed_count) == (1, 0)
+            assert group.missing_points == (datetime(2026, 10, 2, tzinfo=timezone.utc),)
+            assert group.coordinates == (("sales.facts.category", "A"),)

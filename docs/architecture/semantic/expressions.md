@@ -223,7 +223,9 @@ path. field.at(anchor) captures a versioned attribute instant. Neither reads
 attributes or proves a matching version exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the
-observation endpoint needed by a window or time-sample reduction.
+observation endpoint needed by a window or an endpoint-requiring time-sample
+reduction. Time-sample mean and weighted_mean can use represented samples without
+an observation endpoint.
 Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows

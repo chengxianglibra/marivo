@@ -336,6 +336,7 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
             .compute()
             .to_pandas()
         )
-        assert result["value"].tolist() == [102]
+        # Selected store: A=300+7, B=C=0; integer samples retain a fractional mean.
+        assert result["value"].tolist() == pytest.approx([(300 + 7) / 3])
         assert fixed.to_pandas().iloc[:, 0].tolist() == ["store"]
         assert trace.returned_rows

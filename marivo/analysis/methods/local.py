@@ -106,6 +106,7 @@ def _combine_program(
     forced_domain: pd.DataFrame | None = None,
     attribute: AttributeFormulaContext | None = None,
     sampling: dict[str, SamplingWitness] | None = None,
+    coverage_domain: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -288,6 +289,20 @@ def _combine_program(
                 continue
             remaining_keys = [key for key in keys if key != coverage.key]
             coordinates = domain.loc[:, remaining_keys].drop_duplicates()
+            if coverage_domain is not None and coverage.output_key is not None:
+                # Coverage retains complete output buckets even when their samples are absent.
+                parent_keys = [key for key in remaining_keys if key in coverage_domain.columns]
+                parents = coverage_domain.loc[:, parent_keys].drop_duplicates()
+                if any(key not in parent_keys for key in remaining_keys):
+                    shared = [key for key in parent_keys if key != coverage.output_slot]
+                    samples = coordinates.drop(columns=coverage.output_slot).drop_duplicates()
+                    coordinates = (
+                        parents.merge(samples, on=shared)
+                        if shared
+                        else parents.merge(samples, how="cross")
+                    )
+                else:
+                    coordinates = parents
             if coverage.output_key is not None:
                 coordinates = coordinates.loc[
                     coordinates[coverage.output_slot] == coverage.output_key
@@ -459,6 +474,7 @@ def _combine_program(
     }
 
     def materialize_samples(node: MetricNode, occurrence: tuple[int, ...]) -> None:
+        nonlocal domain
         if isinstance(node, MemberCount):
             if any(binding.occurrence == occurrence for binding in bindings):
                 return
@@ -560,7 +576,8 @@ def _combine_program(
                 axes=(*program.axes, *sample_axes),
                 parent_scope=program.parent_scope,
                 parent_slots=program.parent_slots,
-                complete_calendar=program.complete_calendar,
+                # Output buckets are complete; internal samples keep their joint keys.
+                complete_calendar=False,
             )
             complete_domain = None
             sample_population_definition = sample_population(node.samples)
@@ -577,7 +594,15 @@ def _combine_program(
                 child_outputs,
                 complete_domain,
                 sampling=sampling,
+                coverage_domain=domain if coverage_domain is None else coverage_domain,
             )
+            if key_slots and any(binding.coverage for binding in selected_bindings):
+                # Required coverage coordinates must survive enclosing sample reductions.
+                domain = (
+                    pd.concat([domain, child_frame.loc[:, keys]], ignore_index=True)
+                    .drop_duplicates()
+                    .reset_index(drop=True)
+                )
             for child_column in child_outputs:
                 if isinstance(child_column.dtype, DurationDataType):
                     child_frame[child_column.slot_id] = pd.Series(

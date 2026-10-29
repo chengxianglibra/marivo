@@ -85,10 +85,13 @@ produces a zero-axis observation. CalendarAxis contributes its selected buckets.
 Ordinary reductions may omit a time axis and then receive no additional time
 constraint. A time role alone does not require a period.
 
-Windows and time-sample reductions require an explicit observation endpoint in
-by. TimeField.within(scope) is a source predicate and field.at(anchor) selects
-an attribute representation; neither supplies that endpoint. Membership time,
-attribute time, Metric observation time and output coordinates stay independent.
+Windows and time-sample reductions other than mean and weighted_mean require an
+explicit observation endpoint in by. Time-sample mean and weighted_mean can use
+represented samples without a time axis; nested sample layers retain their own
+endpoint and coverage requirements. TimeField.within(scope) is a source predicate
+and field.at(anchor) selects an attribute representation; neither supplies an
+observation endpoint. Membership time, attribute time, Metric observation time
+and output coordinates stay independent.
 
 Versioned membership requires an exact instant anchor. Field.at selects the
 exact attribute instant, including a change at an excluded scope end. Internal

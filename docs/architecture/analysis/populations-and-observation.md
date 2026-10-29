@@ -196,7 +196,11 @@ data without rechecking their original sources.
 
 `Metric.per(samples)` completes the entire child Metric within each external and
 internal key pair before applying the sample reducer. An average of per-customer
-ratios is not an overall ratio. A complete explicit internal domain retains empty
+ratios is not an overall ratio. Implicit field samples retain observed joint
+external/internal keys: completing output calendar buckets does not cross every
+bucket with every sample in the observation window. Declared sample coverage
+still completes and checks its required points within each contribution interval.
+A complete explicit internal domain retains empty
 samples under the child's empty policy; it may deliberately select a subset.
 Use a membership directly, an ordered nonempty tuple, P, or `(P, rule, ...)`.
 Each nested layer independently selects and completes samples. Even empty or
