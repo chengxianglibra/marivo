@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import replace
+from hashlib import sha256
+from json import dumps
 from uuid import uuid4
 
 from marivo.analysis.core.artifact_data import (
@@ -178,13 +181,19 @@ def publish_completed(
                 method_attachment = SavedAttachment(attachment.name, attachment.schema, handle)
                 saved_methods.append(saved_method_facts(facts, method_attachment))
                 _event("terminal_method_written")
+            assert result.metadata.lineage is not None
+            identity = dumps((store.store_id, session, artifact), separators=(",", ":"))
+            stored_lineage = replace(
+                result.metadata.lineage, input_id="stored_" + sha256(identity.encode()).hexdigest()
+            )
+            metadata = replace(result.metadata, lineage=stored_lineage)
             value = ArtifactManifest(
                 store.store_id,
                 artifact,
                 session,
                 run_ref,
                 ArtifactData(data.schema, primary, tuple(attachments)),
-                terminal_store.describe(result.metadata),
+                terminal_store.describe(metadata),
                 tuple(saved_methods),
                 description=description,
             )
@@ -197,7 +206,7 @@ def publish_completed(
             _event("terminal_files_published")
             phase = "publication"
             committing = True
-            terminal_store.publish(store, value, result.metadata, resources, _event)
+            terminal_store.publish(store, value, metadata, resources, _event)
             return StoredFrameBacking(
                 value.artifact_id, value.data, value.metadata, value.method_facts, value.description
             )

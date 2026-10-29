@@ -883,6 +883,12 @@ def report_schema(
     parent_diagnostics: tuple[tuple[tuple[str, ...], DataColumn], ...] = (),
 ) -> DataSchema | PendingDataSchema:
     """Map one closed target to its report directory without parsing display names."""
+    from marivo.analysis.core.frame_interpretation import (
+        FrameDecompositionField,
+        FrameDecompositionRole,
+        decomposition_facts,
+    )
+
     target = operation.target
     assert target is not None
     directory: dict[tuple[str, ...], DataColumn | PendingDataColumn] = dict(
@@ -899,6 +905,7 @@ def report_schema(
         (("observed_total", *path), parent.values[target.observed]),
         (("contribution_share", *path), directory[("contribution_share", "target")]),
     ]
+    roles: list[FrameDecompositionRole] = ["contribution", "total", "observed_total", "share"]
     for prefix, role in (
         ((("detail", "value"), "left"),)
         if level
@@ -909,6 +916,11 @@ def report_schema(
         )
     ):
         entries.append(((*prefix, *path), directory[(role, "target")]))
+        roles.append(
+            {"left": "value" if level else "current", "right": "baseline", "absolute": "absolute"}[
+                role
+            ]
+        )
     for side, role in (
         (("left", "value"),) if level else (("left", "current"), ("right", "baseline"))
     ):
@@ -916,9 +928,28 @@ def report_schema(
             column = directory.get((component + "_" + side, "target"))
             if column is not None:
                 entries.append((("component", role, component, *path), column))
+                component_roles: dict[tuple[str, str], FrameDecompositionRole] = {
+                    ("value", "numerator"): "numerator",
+                    ("value", "denominator"): "denominator",
+                    ("value", "valid_count"): "valid_count",
+                    ("current", "numerator"): "numerator_current",
+                    ("current", "denominator"): "denominator_current",
+                    ("current", "valid_count"): "valid_count_current",
+                    ("baseline", "numerator"): "numerator_baseline",
+                    ("baseline", "denominator"): "denominator_baseline",
+                    ("baseline", "valid_count"): "valid_count_baseline",
+                }
+                roles.append(component_roles[(role, component)])
     if not level:
         for effect in rule_effects(operation.rules[0][0][1]):
             entries.append((("effect", effect, *path), directory[("effect_" + effect, "target")]))
+            effect_roles: dict[str, FrameDecompositionRole] = {
+                "within": "effect_within",
+                "mix": "effect_mix",
+                "entry_exit": "effect_entry_exit",
+                "additive": "effect_additive",
+            }
+            roles.append(effect_roles[effect])
     common: DataType | None = None
     observed = parent.values[target.observed]
     if (
@@ -970,20 +1001,41 @@ def report_schema(
         replace(c, slot_id=f"attribute.report.present.{i}", name=".".join(p))
         for i, (c, p) in enumerate(zip(presence, presence_paths, strict=True))
     )
-    if isinstance(legacy, PendingDataSchema):
-        return replace(
-            legacy,
-            values=tuple(c for c in values if isinstance(c, PendingDataColumn)),
-            value_paths=tuple(paths),
-            presence=tuple(c for c in presence if isinstance(c, PendingDataColumn)),
-            presence_paths=presence_paths,
+    fields = tuple(
+        FrameDecompositionField("value", role, ".".join(p))
+        for role, p in zip(roles, paths, strict=True)
+    ) + tuple(
+        FrameDecompositionField(
+            "presence",
+            "value_present" if level else "current_present" if i == 0 else "baseline_present",
+            ".".join(p),
         )
-    return replace(
-        legacy,
-        values=tuple(c for c in values if isinstance(c, DataColumn)),
-        value_paths=tuple(paths),
-        presence=tuple(c for c in presence if isinstance(c, DataColumn)),
-        presence_paths=presence_paths,
+        for i, p in enumerate(presence_paths)
+    )
+    if isinstance(legacy, PendingDataSchema):
+        return decomposition_facts(
+            replace(
+                legacy,
+                values=tuple(c for c in values if isinstance(c, PendingDataColumn)),
+                value_paths=tuple(paths),
+                presence=tuple(c for c in presence if isinstance(c, PendingDataColumn)),
+                presence_paths=presence_paths,
+            ),
+            parent,
+            target,
+            fields,
+        )
+    return decomposition_facts(
+        replace(
+            legacy,
+            values=tuple(c for c in values if isinstance(c, DataColumn)),
+            value_paths=tuple(paths),
+            presence=tuple(c for c in presence if isinstance(c, DataColumn)),
+            presence_paths=presence_paths,
+        ),
+        parent,
+        target,
+        fields,
     )
 
 

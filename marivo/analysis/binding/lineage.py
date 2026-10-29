@@ -34,7 +34,10 @@ from marivo.semantic.expressions import _Resolver
 if TYPE_CHECKING:
     from marivo.analysis.core.data_schema import DataSchema
     from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
-    from marivo.analysis.core.frame_structure import PendingDataSchema
+    from marivo.analysis.core.frame_interpretation import FrameValueContext
+    from marivo.analysis.core.frame_structure import PendingDataSchema, PendingFrameAxis
+    from marivo.analysis.core.graph import BoundGraph
+    from marivo.semantic._compiled_state import CompiledSemanticState
 
 
 def _capture(
@@ -233,3 +236,98 @@ def source_lineage(
     else:
         values = [ColumnLineage() for _ in schema.values]
     return directory(schema, tuple(values), axes, domain=domain)
+
+
+def observation_contexts(
+    graph: BoundGraph,
+    axes: tuple[PendingFrameAxis, ...],
+    state: CompiledSemanticState | None,
+) -> tuple[tuple[str, FrameValueContext], ...]:
+    """Capture direct subjects and explicit outer windows before declaration expansion."""
+    from datetime import datetime, timezone
+
+    from marivo._definition.expressions import MetricWindow
+    from marivo._definition.windows import (
+        AllHistory,
+        Since,
+        ToDate,
+        TrailingDuration,
+        TrailingPeriods,
+    )
+    from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAllHistoryWindow,
+        FrameAxisTime,
+        FrameBuiltinGrain,
+        FrameFixedTime,
+        FrameNamedGrain,
+        FrameObservationContext,
+        FrameObservationWindow,
+        FrameSinceWindow,
+        FrameToDateWindow,
+        FrameTrailingDurationWindow,
+        FrameTrailingPeriodsWindow,
+    )
+
+    if not isinstance(graph.root, ObserveQuery):
+        return ()
+    time_axes = tuple(a for a in axes if isinstance(a, (CalendarDataAxis, IntervalDataAxis)))
+    observation = graph.signature.observation
+    time: FrameAxisTime | FrameFixedTime | None = None
+    if len(time_axes) == 1:
+        time = FrameAxisTime(time_axes[0].token)
+    elif observation is not None and observation.period is not None:
+        period = observation.period
+        if period.start is not None:
+            time = FrameFixedTime(
+                datetime.fromisoformat(period.start.astimezone(timezone.utc).isoformat()),
+                datetime.fromisoformat(period.end.astimezone(timezone.utc).isoformat()),
+                period.timezone,
+            )
+    result: list[tuple[str, FrameValueContext]] = []
+    for quantity in graph.signature.quantities:
+        if not isinstance(quantity, BoundQuantity):
+            continue
+        node = quantity.definition
+        rule = node.rule if isinstance(node, MetricWindow) else None
+        direct = node.operand if isinstance(node, MetricWindow) else node
+        subject = (
+            SemanticObjectIdentity(
+                direct.ref.ref.kind.value, direct.ref.ref.path, direct.ref.version
+            )
+            if isinstance(direct, DeclaredMetricRef)
+            else None
+        )
+        window: FrameObservationWindow | None = None
+        if time is not None:
+            if isinstance(rule, AllHistory):
+                window = FrameAllHistoryWindow()
+            elif isinstance(rule, Since):
+                window = FrameSinceWindow(
+                    datetime.fromisoformat(rule.start.astimezone(timezone.utc).isoformat())
+                )
+            elif isinstance(rule, TrailingDuration):
+                window = FrameTrailingDurationWindow(rule.duration)
+            elif isinstance(rule, TrailingPeriods):
+                window = FrameTrailingPeriodsWindow(rule.count)
+            elif isinstance(rule, ToDate):
+                grain = rule.grain
+                if grain.kind == "semantic":
+                    assert grain._calendar is not None and grain.level is not None
+                    if state is not None:
+                        exact = _Resolver(state).exact(grain._calendar)
+                        window = FrameToDateWindow(
+                            FrameNamedGrain(
+                                SemanticObjectIdentity(
+                                    exact.ref.kind.value, exact.ref.path, exact.version
+                                ),
+                                grain.level,
+                            )
+                        )
+                else:
+                    from marivo.analysis.core.frame_calendar import _UNITS
+
+                    assert grain.unit is not None and grain.count is not None
+                    window = FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
+        result.append((quantity.name, FrameObservationContext(subject, time, window)))
+    return tuple(result)

@@ -146,8 +146,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 22 is under `<project_root>/.marivo/analysis/generations/v22/`. One closed
-`marivo.frame_output/v11` protocol stores values, complete axes, independent presence, typed
+Store 23 is under `<project_root>/.marivo/analysis/generations/v23/`. One closed
+`marivo.frame_output/v12` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and audit directly.
@@ -296,6 +296,19 @@ scan whole files, so bounded memory does not imply bounded total I/O. Captured
 read_stats records actual decoded/checked data rows, coordinate rows and receipt
 hash bytes. It does not measure peak memory or all disk I/O.
 
+`read_periods(target, limit=1000, cursor=None)` reads frozen calendar/interval periods,
+paired endpoints or consumed time-comparison correspondences from a complete memory or stored
+Frame. The target is a current time `FrameAxis` or `FrameComparison` from the exact input; ordinary
+targets reject. `FramePeriodPage` retains only the selected immutable records and the endpoint
+records those items consume. Period keys use the complete ordered key of the target axis and can be
+joined to that axis's schema key slots in `read_page().coordinates`. The directory is not reduced
+to rows still present after filtering. Calendar records return only saved typed labels, bounds and
+civil facts; interval records do not infer missing civil bounds; paired missing endpoints do not
+carry an invented reason. Comparison periods preserve their stored missing reason separately from
+row presence. Cursors bind the exact input, target, result version and limit. Statistics count
+decoded coordinate records and receipt-hash bytes; receipt checks and endpoint lookup can scan
+files, so page size is not a total-I/O bound.
+
 Persisted descriptors include structure, lineage, evaluation/input/operation facts,
 collection counts/digests and owned payload descriptors, without audit bodies.
 Opening and show(n=0) check commit ownership/version, bounded descriptors, receipt
@@ -329,8 +342,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v11`, `frame.v11` and `frame-output-v11` under
-`.marivo/analysis/generations/v22/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v12`, `frame.v12` and `frame-output-v12` under
+`.marivo/analysis/generations/v23/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -412,9 +425,10 @@ owns isolated export.
 ## Captured semantic lineage
 
 Completed result metadata includes immutable, non-executable semantic column
-lineage. Pending Frames derive it from explicit inputs at construction; compute,
-publication and cold recovery preserve it. Store 22 / output v11 requires the
-complete value/axis/presence directories and their captured identities. Missing or
+lineage and current-result interpretation. Pending Frames derive facts from explicit inputs and
+operation bindings; compute, publication and cold recovery preserve them. Store 23 / output v12
+requires the complete value/axis/presence directories, fixed selections, typed value contexts,
+comparison/decomposition relations and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved
 derivative owns its complete lineage without requiring ancestor artifacts or the
 original model. Reading frame.lineage does not consume rows, coordinate attachments,

@@ -68,9 +68,10 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_schema,
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
+from marivo.analysis.core.frame_interpretation import FrameComparison
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
-from marivo.analysis.core.frame_page import FramePage
-from marivo.analysis.core.frame_schema import FrameSchema, capture_schema
+from marivo.analysis.core.frame_page import FramePage, FramePeriodPage
+from marivo.analysis.core.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
     axis_role,
@@ -184,6 +185,10 @@ class AnalysisFrame:
         input_id: str,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
+        from marivo.analysis.core.frame_interpretation import share_contexts, validate_current_facts
+
+        schema = share_contexts(schema)
+        validate_current_facts(schema)
         result = object.__new__(cls)
         object.__setattr__(result, "_local", local)
         object.__setattr__(result, "_input_id", input_id)
@@ -202,6 +207,9 @@ class AnalysisFrame:
         else:
             assert backing.metadata.lineage is not None
             lineage = backing.metadata.lineage
+        from dataclasses import replace
+
+        lineage = replace(lineage, input_id=input_id)
         validate_lineage(lineage, schema)
         object.__setattr__(result, "_lineage", lineage)
         return result
@@ -495,7 +503,13 @@ class AnalysisFrame:
                 canonical_id="analysis_frame.fix",
             )
         keys = key if isinstance(key, tuple) else (key,)
-        return self._derive(FixFrameValues(position, keys))
+        from marivo.analysis.core.lineage import all_origins
+
+        return self._derive(
+            FixFrameValues(
+                position, keys, all_origins(self.lineage.axes[self._schema.axes[position].token])
+            )
+        )
 
     def select(self, values: Mapping[str, Column | LiteralValue]) -> AnalysisFrame:
         """Name current Columns or non-null supported literals, preserving the row domain.
@@ -1188,7 +1202,7 @@ class AnalysisFrame:
             )
             for name, declaration in declarations
         )
-        operation = CompareFrameValues(bindings)
+        operation = CompareFrameValues(bindings, unnamed=isinstance(baselines, AnalysisFrame))
         inputs = (self, *(declaration.frame for _, declaration in declarations))
         schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
         return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
@@ -1518,6 +1532,62 @@ class AnalysisFrame:
             cursor=cursor,
             axis_names=names,
             time_details=time_details,
+        )
+
+    def read_periods(
+        self,
+        target: FrameAxis | FrameComparison,
+        *,
+        limit: int = 1000,
+        cursor: str | None = None,
+    ) -> FramePeriodPage:
+        """Read one bounded page of captured time periods or consumed correspondences.
+
+        Args:
+            target: A time axis handle or current time comparison from this exact Frame.
+            limit: Integer 1..10000, excluding bool; default 1000.
+            cursor: Previous period-page cursor or None; repeat the same target and limit.
+        Returns: Immutable FramePeriodPage with complete keys, saved endpoints and read stats.
+        Example: ``fixed = time_frame.compute(); page = fixed.read_periods(fixed.axes[0])``.
+        Constraints: Requires complete memory or stored data; does not execute or persist. Ordinary axes and comparisons reject. Period records need not have current rows; use complete keys to join them to ``read_page().coordinates``. No source, Catalog, method-file or whole attachment buffer is retained or reconstructed.
+        """
+        from marivo.analysis.materialization.frame_paging import read_frame_periods
+
+        if isinstance(self._backing, ExpressionFrameBacking):
+            reject(
+                "a complete memory or stored Frame",
+                "expression",
+                "Call compute() or persist() and read the returned Frame.",
+                "frame.read_periods",
+                canonical_id="analysis_frame.read_periods",
+            )
+        if isinstance(target, FrameAxis):
+            selected: FrameAxisSchema | FrameComparison = self.schema.axes[
+                self._axis_index(
+                    target,
+                    location="frame.read_periods",
+                    canonical_id="analysis_frame.read_periods",
+                )
+            ]
+        elif isinstance(target, FrameComparison):
+            selected = target
+        else:
+            reject(
+                "a time FrameAxis or current FrameComparison from this exact Frame",
+                type(target).__name__,
+                "Choose a time axis or comparison from this Frame's schema.",
+                "frame.read_periods",
+                canonical_id="analysis_frame.read_periods",
+            )
+        assert isinstance(self._schema, DataSchema)
+        return read_frame_periods(
+            input_id=self._input_id,
+            schema=self._schema,
+            backing=self._backing,
+            local=self._local,
+            target=selected,
+            limit=limit,
+            cursor=cursor,
         )
 
     def to_pandas(

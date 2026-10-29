@@ -52,6 +52,25 @@ def run_local(
 
         stage = effective_frame(stage, inputs)
         required = required_attachments(stage.program.output_schema)
+
+        def retained_input_attachments() -> tuple[OutputAttachment, ...]:
+            retained: dict[str, OutputAttachment] = {}
+            for source in inputs:
+                for attachment in source.frame_attachments:
+                    if attachment.name not in required:
+                        continue
+                    previous = retained.get(attachment.name)
+                    if previous is None:
+                        retained[attachment.name] = attachment
+            if set(retained) != set(required):
+                raise MaterializationError(
+                    expected="all required frozen coordinate attachments",
+                    received=repr(tuple(retained)),
+                    repair="Retain required complete coordinate data.",
+                    stage="frame_compute",
+                )
+            return tuple(retained[name] for name in required)
+
         from marivo.analysis.core.attribute import (
             AttributeContributionProgram,
             AttributeInputProgram,
@@ -72,11 +91,7 @@ def run_local(
             from marivo.analysis.methods.frame_attribute_shapley import attribute_game_data
 
             frame, payload = attribute_game_data(stage.program, inputs)
-            attachments = tuple(
-                attachment
-                for attachment in inputs[0].frame_attachments
-                if attachment.name in required
-            )
+            attachments = retained_input_attachments()
             attribute_methods = (payload,)
         elif isinstance(stage.program, AttributeMergeProgram):
             from marivo.analysis.methods.frame_attribute_merge import merge_attribute_data
@@ -88,7 +103,7 @@ def run_local(
             )
 
             frame, payload = attribute_contribution_data(stage.program, inputs)
-            attachments = inputs[0].frame_attachments
+            attachments = retained_input_attachments()
             attribute_methods = (payload,)
         elif isinstance(stage.program, AttributeProjectProgram):
             frame = project_attribute_parents(

@@ -65,7 +65,13 @@ def test_source_columns_context_and_fixed_lifecycle(
     assert "sales.order_count" in paths(reduced.lineage.values["rows"].context_origins)
     fixed = reduced.compute()
     saved = fixed.persist()
-    assert fixed.lineage == saved.lineage == reduced.lineage
+    assert (
+        replace(fixed.lineage, input_id="")
+        == replace(saved.lineage, input_id="")
+        == replace(reduced.lineage, input_id="")
+    )
+    for current in (reduced, fixed, saved):
+        assert current.lineage.input_id == current.schema.input_id
     reopened = session.persisted_frame(saved.artifact_id)
     assert reopened.lineage == saved.lineage
 
@@ -175,7 +181,9 @@ def positive_count():
     assert aliases <= paths(both.value_origins)
     assert aliases <= paths(both.context_origins)
     saved = common.persist()
-    assert session.persisted_frame(saved.artifact_id).lineage == common.lineage
+    assert replace(session.persisted_frame(saved.artifact_id).lineage, input_id="") == replace(
+        common.lineage, input_id=""
+    )
 
     from marivo._definition.graph import computation_fingerprint, direct_refs
     from marivo.semantic._deferred_semantics import consume_metric, consume_predicate
@@ -246,7 +254,9 @@ def weight_total():
         assert valid.value_origins == ()
         assert measures <= paths(valid.context_origins)
     saved = report.persist()
-    assert session.persisted_frame(saved.artifact_id).lineage == report.lineage
+    assert replace(session.persisted_frame(saved.artifact_id).lineage, input_id="") == replace(
+        report.lineage, input_id=""
+    )
 
 
 def test_compare_attribute_and_key_bridge_keep_output_roles(
@@ -273,7 +283,7 @@ def test_compare_attribute_and_key_bridge_keep_output_roles(
     assert "sales.customer.region" in paths(
         report.lineage.values["contribution.revenue"].context_origins
     )
-    assert report.compute().lineage == report.lineage
+    assert replace(report.compute().lineage, input_id="") == replace(report.lineage, input_id="")
     groups = session.observe({"revenue": metric}, by=(region,))
     selected = groups.where(groups["revenue"] > 0)
     keys = session.population_from(selected, on=((selected.axes[0], region),))
@@ -281,24 +291,47 @@ def test_compare_attribute_and_key_bridge_keep_output_roles(
         {"twice": metric * 2}, by=(region, channel), where=mv.in_population(keys)
     )
     assert "sales.revenue" in paths(bridged.lineage.values["twice"].context_origins)
-    assert bridged.compute().lineage == bridged.lineage
+    assert replace(bridged.compute().lineage, input_id="") == replace(bridged.lineage, input_id="")
 
 
 def test_cold_lineage_has_no_model_or_source_dependency(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    saved = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue")}).persist()
+    calendar = case.session.time_scope(start="2026-08-15", end="2026-08-16").by(mv.grain("day"))
+    observed = case.session.observe(
+        {"revenue": case.catalog.get("metric:sales.revenue")}, by=(calendar,)
+    )
+    saved = observed.persist()
     (case.root / "models").rename(case.root / "hidden_models")
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     script = """
 import sys
 import marivo.analysis as mv
+from marivo.analysis.core.frame_interpretation import FrameAxisTime
 session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2])
 assert 'sales.revenue' in {o.path for o in frame.lineage.values['revenue'].value_origins}
+assert frame.schema.input_id == frame.lineage.input_id
+context = frame.schema.value_contexts['revenue']
+assert isinstance(context.time, FrameAxisTime)
+axis = frame.axes[0]
+assert context.time.axis_token == axis.token
+periods = frame.read_periods(axis, limit=10)
+assert len(periods.items) == periods.total_count == 1
+data = frame.read_page(limit=10)
+key_fields = frame.schema.axes[0].keys
+coordinate_keys = tuple(
+    tuple(data.coordinates[field.slot_id][row] for field in key_fields)
+    for row in range(len(data))
+)
+assert coordinate_keys
+assert set(coordinate_keys) <= {item.key for item in periods.items}
+derived = frame.select({'copy': frame['revenue']})
+assert derived.schema.input_id == derived.lineage.input_id
+assert derived.schema.value_contexts['copy'] == context
 assert frame.select({'copy': frame['revenue']}).lineage.values['copy'] == frame.lineage.values['revenue']
-print('cold lineage ok')
+print('cold interpretation ok')
 """
     result = subprocess.run(
         [sys.executable, "-c", script, saved.session_id, saved.artifact_id],
@@ -310,7 +343,7 @@ print('cold lineage ok')
         timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "cold lineage ok" in result.stdout
+    assert "cold interpretation ok" in result.stdout
 
 
 def test_identity_versions_and_literal_counts_are_explicit(

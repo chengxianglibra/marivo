@@ -222,7 +222,7 @@ class ArtifactManifest:
     metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
     description: str | None = None
-    semantics_version: Literal["frame.v11"] = "frame.v11"
+    semantics_version: Literal["frame.v12"] = "frame.v12"
 
     @property
     def result_id(self) -> str:
@@ -239,13 +239,16 @@ class ArtifactManifest:
                 "frame.lineage",
             )
         validate(self.metadata.lineage, self.data.schema)
+        from marivo.analysis.core.frame_interpretation import validate_current_facts
+
+        validate_current_facts(self.data.schema)
         for name in ("store_id", "artifact_id", "session_id", "run_id"):
             require_data_text(getattr(self, name), f"artifact.{name}")
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not StoredFrameMetadata
             or (self.description is not None and type(self.description) is not str)
-            or self.semantics_version != "frame.v11"
+            or self.semantics_version != "frame.v12"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

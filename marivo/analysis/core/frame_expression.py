@@ -91,6 +91,7 @@ class NamedFrameComparison:
 @dataclass(frozen=True, slots=True)
 class CompareFrameValues:
     baselines: tuple[NamedFrameComparison, ...]
+    unnamed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +118,7 @@ class FrameAttributeTarget:
     path: tuple[str, ...]
     mode: Literal["level", "absolute", "relative"]
     observed: int
+    comparison: DataComparison | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,14 +469,14 @@ def _validate_pair_statistic(
 
 
 @overload
-def infer_frame_schema(schema: DataSchema, operation: FrameUnaryOperationKind) -> DataSchema: ...
+def _infer_frame_schema(schema: DataSchema, operation: FrameUnaryOperationKind) -> DataSchema: ...
 @overload
-def infer_frame_schema(
+def _infer_frame_schema(
     schema: PendingDataSchema, operation: FrameUnaryOperationKind
 ) -> PendingDataSchema: ...
 
 
-def infer_frame_schema(
+def _infer_frame_schema(
     schema: DataSchema | PendingDataSchema, operation: FrameUnaryOperationKind
 ) -> DataSchema | PendingDataSchema:
     if isinstance(operation, FixFrameValues):
@@ -606,6 +608,22 @@ def infer_frame_schema(
     )
 
 
+@overload
+def infer_frame_schema(schema: DataSchema, operation: FrameUnaryOperationKind) -> DataSchema: ...
+@overload
+def infer_frame_schema(
+    schema: PendingDataSchema, operation: FrameUnaryOperationKind
+) -> PendingDataSchema: ...
+
+
+def infer_frame_schema(
+    schema: DataSchema | PendingDataSchema, operation: FrameUnaryOperationKind
+) -> DataSchema | PendingDataSchema:
+    from marivo.analysis.core.frame_interpretation import unary_facts
+
+    return unary_facts(schema, _infer_frame_schema(schema, operation), operation)
+
+
 def _decimal_column_type(
     left: DataType, right: DataType, *, multiply: bool = False
 ) -> DecimalDataType:
@@ -713,18 +731,18 @@ def _paired_axis(
 
 
 @overload
-def infer_frame_combine_schema(
+def _infer_frame_combine_schema(
     left: DataSchema, right: DataSchema, operation: AlignFrameValues
 ) -> DataSchema: ...
 @overload
-def infer_frame_combine_schema(
+def _infer_frame_combine_schema(
     left: DataSchema | PendingDataSchema,
     right: DataSchema | PendingDataSchema,
     operation: AlignFrameValues,
 ) -> DataSchema | PendingDataSchema: ...
 
 
-def infer_frame_combine_schema(
+def _infer_frame_combine_schema(
     left: DataSchema | PendingDataSchema,
     right: DataSchema | PendingDataSchema,
     operation: AlignFrameValues,
@@ -986,16 +1004,16 @@ def infer_frame_combine_schema(
 
 
 @overload
-def infer_frame_compare_schema(
+def _infer_frame_compare_schema(
     inputs: tuple[DataSchema, ...], operation: CompareFrameValues
 ) -> DataSchema: ...
 @overload
-def infer_frame_compare_schema(
+def _infer_frame_compare_schema(
     inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
 ) -> DataSchema | PendingDataSchema: ...
 
 
-def infer_frame_compare_schema(
+def _infer_frame_compare_schema(
     inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
 ) -> DataSchema | PendingDataSchema:
     """Infer one current layout and all named baseline value groups together."""
@@ -1335,6 +1353,15 @@ def transport_comparisons(
             tuple((*presence_prefix, *path) for path in record.inherited_paths),
         )
 
+    from marivo.analysis.core.frame_interpretation import remap_context
+    from marivo.analysis.core.frame_schema import comparison_id
+
+    context_tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {
+        schema.axes[a].token: (output_axes[b].token, "self") for a, b in axis_pairs
+    }
+    context_ids = {
+        comparison_id(f): ".".join((namespace, comparison_id(f))) for f in schema.comparisons
+    }
     result: list[DataComparison] = []
     for fact in schema.comparisons:
         scoped = (namespace, *fact.namespace)
@@ -1392,14 +1419,65 @@ def transport_comparisons(
                 fact.alias,
                 values,
                 binding,
-                endpoint(fact.current_presence),
-                endpoint(fact.baseline_presence),
+                endpoint(fact.current_presence) if fact.current_presence is not None else None,
+                endpoint(fact.baseline_presence) if fact.baseline_presence is not None else None,
                 tuple(
                     dict.fromkeys(
                         (*tuple(endpoint(record) for record in fact.enclosing_presence), wrapper)
                     )
                 ),
                 scoped,
+                tuple(
+                    (
+                        path,
+                        remap_context(a, context_tokens, context_ids),
+                        remap_context(b, context_tokens, context_ids),
+                    )
+                    for path, a, b in fact.contexts
+                ),
+                fact.current_fixed_axes,
+                fact.baseline_fixed_axes,
+                fact.named,
             )
         )
     return tuple(result)
+
+
+@overload
+def infer_frame_combine_schema(
+    left: DataSchema, right: DataSchema, operation: AlignFrameValues
+) -> DataSchema: ...
+@overload
+def infer_frame_combine_schema(
+    left: DataSchema | PendingDataSchema,
+    right: DataSchema | PendingDataSchema,
+    operation: AlignFrameValues,
+) -> DataSchema | PendingDataSchema: ...
+
+
+def infer_frame_combine_schema(
+    left: DataSchema | PendingDataSchema,
+    right: DataSchema | PendingDataSchema,
+    operation: AlignFrameValues,
+) -> DataSchema | PendingDataSchema:
+    from marivo.analysis.core.frame_interpretation import align_facts
+
+    return align_facts(left, right, _infer_frame_combine_schema(left, right, operation), operation)
+
+
+@overload
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema, ...], operation: CompareFrameValues
+) -> DataSchema: ...
+@overload
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
+) -> DataSchema | PendingDataSchema: ...
+
+
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
+) -> DataSchema | PendingDataSchema:
+    from marivo.analysis.core.frame_interpretation import comparison_facts
+
+    return comparison_facts(inputs, _infer_frame_compare_schema(inputs, operation), operation)

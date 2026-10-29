@@ -55,6 +55,28 @@ session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅�
 `None` 与无量纲 `"1"` 不同。待执行类型使用 `UnresolvedDataType(kind)`，只有待执行
 字段允许 nullable 未知。具体类型保留 Decimal precision/scale 及时间 unit/timezone。
 
+当前轴使用封闭变体：普通 field/identity 轴记录完整键；calendar 轴另含捕获时区和
+builtin(unit, step) 或 named(ref, level) 粒度；interval 轴记录公共导出时区；paired
+轴记录左右两个时间端点。named.ref 使用绑定时解析到的真实 `SemanticObjectIdentity`，
+不从快照摘要、字段名或当前 Catalog 推测。轴的 `at` 是已捕获锚点，不代表新鲜度。
+
+`FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`comparisons` 和 `decompositions`。
+fixed_axes 记录 `fix` 移除的普通轴、精确有序键与该轴的语义 origins；固定键不进入活动
+`slots`。value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
+显式窗口，或当前行统计种类、父分组和 complete/restricted 行范围。无条目表示未提供
+额外说明，不能解释为“无筛选”“无窗口”“全量”或数值无效。
+
+comparisons 记录当前 Frame 中真实存在的比较量、当前值角色、两端上下文、当前 presence
+和实际 calendar/interval 对应；不推断同比/环比，也不把显示在本期坐标上的基期值当作
+本期观察。decompositions 记录当前 level/change 目标、父组、输出角色及 complete/
+restricted 范围。所有字段名、轴 token、比较 ID、目标和输出引用必须属于同一精确输入。
+固定事实不悬挂活动 slot，分解需要的比较量即使对应值列删除也可保留；这不会保存隐藏值、
+补读历史或从贡献重新计算分母。无关关系随列裁剪而移除。
+
+这些是当前结果的只读局部事实，不是业务定义或完整公式。语义身份仍只包含
+`kind/path/definition_id`；需要定义详情时显式使用 `catalog.get(f"{ref.kind}:{ref.path}")`。
+模型或 Catalog 当前不可用不妨碍读取固定结果，当前详情也不被当成历史定义的证明。
+
 `schema.layout` 仅由结构派生。字段变体携带 name/kind="field"/slot_id，坐标变体携带
 name/kind="coordinate"/axis_token/endpoint/part。endpoint 为 self/left/right；part 为
 key/label/start/end/nominal_start/nominal_end，组合由轴角色决定。复合身份只导出
@@ -85,11 +107,28 @@ FrameReadStats 仅提供 data_rows_read、coordinate_rows_read、receipt_bytes_h
 持久读取按列与范围分批解码，附件以固定批次扫描，只保留所需完整记录。收据哈希可能
 扫描全文件，坐标查找可能扫描全附件，因此页大小不保证字节、I/O 或延迟上限。
 
+`read_periods(target, limit=1000, cursor=None)` 在已完成的内存或持久 Frame 上读取一页
+冻结期间或实际使用的端点对应。target 必须是同一 Frame 的 calendar/interval/paired
+`FrameAxis`，或当前 calendar/interval `FrameComparison`；普通轴、普通比较和表达式拒绝。
+它不执行、不持久化、不读取 Catalog、来源、method facts 或整个附件到内存。页面游标
+绑定 input、target、存储结果版本及 limit，续读必须使用相同参数；limit 为 1..10000 的
+整数且不接受 bool。
+
+`FramePeriodPage` 提供同一 `input_id`、不可执行 target、items、分页状态和 `read_stats`。
+单轴期间返回 `FrameCalendarPeriod` 或 `FrameIntervalPeriod`；paired 轴返回带完整 owning
+key 和可缺侧的 `FramePairedPeriod`；时间比较返回 `FrameComparisonPeriod`，保留实际
+current/baseline 端点及保存的缺失原因。日历标签保留标量类型和已保存民用边界；interval
+不推测未保存的民用/nominal 边界或现行时区规则。paired 缺侧不臆造原因。期间 key 与
+`read_page().coordinates` 中目标轴各 key slot 的有序、完整值连接；它不是当前行域，选中
+期间不保证存在结果行。小页只保留本页期间和实际端点，不暴露通用附件浏览器或 shift 祖先链。
+
 ## 静态语义对象血缘
 
 `frame.lineage` 在表达式、完整内存和持久载体上返回同一不可变目录，读取不执行分析，
 不读取业务行、坐标附件、完整方法文件或当前 Catalog。`values` 按完整输出名查找，
 `axes` 按当前轴 token 查找，`presence` 按完整 presence 名查找；复合身份仍为完整轴。
+`lineage.input_id` 与同一 Frame 的 `schema.input_id` 相同；派生、fix、发布和独立恢复均
+绑定各自当前输入身份，而不沿用祖先 Frame 的 ID。
 
 每个 `ColumnLineage` 提供确定排序、去重的 `value_origins` 和 `context_origins`。
 前者记录值表达式及命名声明来源，后者记录分组、时间、关系、筛选、排名、行域和对应
@@ -318,7 +357,8 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 22 / marivo.frame_output/v11 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
+Store 23 / marivo.frame_output/v12 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching
 

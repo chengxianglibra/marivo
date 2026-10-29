@@ -12,6 +12,7 @@ from ibis.common.deferred import Deferred
 from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate, Owner
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
+from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
@@ -24,6 +25,7 @@ from marivo.analysis.core.frame_structure import (
     value_name,
 )
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import ResultQuantity, reject
 from marivo.analysis.dsl._frame_inputs import (
     FrameKeyInput,
@@ -58,6 +60,7 @@ from marivo.semantic._expression_values import (
     RowExpression,
     RowPredicate,
 )
+from marivo.semantic.expressions import _Resolver
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -97,6 +100,17 @@ def pending_schema(
                 token=f"axis.{index}",
                 name=name,
                 key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
+                calendar_ref=(
+                    SemanticObjectIdentity(
+                        "period_calendar",
+                        axis.grain_spec._calendar.path,
+                        _Resolver(state).exact(axis.grain_spec._calendar).version,
+                    )
+                    if state is not None
+                    and axis.grain_spec.kind == "semantic"
+                    and axis.grain_spec._calendar is not None
+                    else None
+                ),
             )
             calendars.append(frozen)
             axes.append(frozen.axis)
@@ -150,6 +164,7 @@ def pending_schema(
         tuple(axes),
         values,
         tuple(value_name(value.name, location="frame.source") for value in values),
+        value_contexts=observation_contexts(graph, tuple(axes), state),
     ), tuple(calendars)
 
 

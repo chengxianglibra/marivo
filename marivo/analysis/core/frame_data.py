@@ -13,6 +13,12 @@ from marivo.analysis.core.artifact_data import (
     OutputAttachment,
     SavedFrameMethodFacts,
 )
+from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.core.data_validation import normalize_complete_frame
 from marivo.analysis.core.frame_audit import FrameResultMetadata, StoredFrameMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceTime
@@ -96,6 +102,36 @@ def normalize_completed_data(
         schema,
         normalized_rows,
         tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in normalized_attachments),
+    )
+    # Calendar pages address the validated original ordinal by physical offset.
+    # Canonicalize once at the completed-data boundary, including directories
+    # used only by a saved endpoint, rather than sorting on every bounded read.
+    calendars: set[str] = set()
+
+    def collect(axis: DataAxis) -> None:
+        if isinstance(axis, CalendarDataAxis):
+            assert axis.frozen is not None
+            calendars.add(axis.frozen.directory_name)
+            if axis.frozen.direct is not None:
+                collect(axis.frozen.direct.axis)
+        elif isinstance(axis, PairedDataAxis):
+            collect(axis.left)
+            collect(axis.right)
+
+    for axis in schema.axes:
+        collect(axis)
+    for fact in schema.comparisons:
+        if isinstance(fact.binding, CalendarComparisonBinding):
+            collect(fact.binding.baseline)
+    normalized_attachments = tuple(
+        OutputAttachment(
+            attachment.name,
+            attachment.schema,
+            attachment.rows.sort_values("ordinal", kind="stable").reset_index(drop=True)
+            if attachment.name in calendars
+            else attachment.rows,
+        )
+        for attachment in normalized_attachments
     )
     return normalized_rows, normalized_attachments
 

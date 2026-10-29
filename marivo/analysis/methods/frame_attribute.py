@@ -18,6 +18,7 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataSchema,
     IntervalDataAxis,
+    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -157,6 +158,12 @@ def _calendar_keys(
             token="attribute.calendar",
             name="calendar",
             key=DataColumn("calendar", "calendar", ScalarDataType("int64"), False),
+            calendar_ref=(
+                endpoint.frozen.definition.ref
+                if endpoint.frozen is not None
+                and isinstance(endpoint.frozen.definition, NamedCalendarData)
+                else None
+            ),
         )
         require_compatible_calendar_axes(endpoint, target.axis)
         saved = read_calendar_directory(endpoint, original.schema, original.rows)

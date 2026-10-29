@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, is_dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from types import UnionType
 from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
+
+import pyarrow as pa
 
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
@@ -47,6 +49,36 @@ from marivo.analysis.core.frame_audit import (
     SourceInput,
     StoredFrameMetadata,
     StoredInput,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameAllHistoryWindow,
+    FrameAxisGroup,
+    FrameAxisSchema,
+    FrameAxisTime,
+    FrameBuiltinGrain,
+    FrameCalendarAxisSchema,
+    FrameCalendarEndpoint,
+    FrameChangeTarget,
+    FrameComparedTime,
+    FrameDecomposition,
+    FrameDecompositionField,
+    FrameField,
+    FrameFixedAxis,
+    FrameFixedGroup,
+    FrameFixedTime,
+    FrameIntervalAxisSchema,
+    FrameIntervalEndpoint,
+    FrameLevelTarget,
+    FrameNamedGrain,
+    FrameObservationContext,
+    FrameOrdinaryAxisSchema,
+    FramePairedAxisSchema,
+    FrameSinceWindow,
+    FrameStatisticContext,
+    FrameToDateWindow,
+    FrameTrailingDurationWindow,
+    FrameTrailingPeriodsWindow,
+    UnresolvedDataType,
 )
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
@@ -100,7 +132,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 22 Frame output v11 value",
+        expected="a complete Store 23 Frame output v12 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -120,6 +152,34 @@ class InvocationInput:
 
 
 _RECORDS = (
+    UnresolvedDataType,
+    FrameField,
+    FrameBuiltinGrain,
+    FrameNamedGrain,
+    FrameCalendarEndpoint,
+    FrameIntervalEndpoint,
+    FrameAxisSchema,
+    FrameOrdinaryAxisSchema,
+    FrameCalendarAxisSchema,
+    FrameIntervalAxisSchema,
+    FramePairedAxisSchema,
+    FrameFixedAxis,
+    FrameAxisTime,
+    FrameComparedTime,
+    FrameFixedTime,
+    FrameAllHistoryWindow,
+    FrameSinceWindow,
+    FrameToDateWindow,
+    FrameTrailingDurationWindow,
+    FrameTrailingPeriodsWindow,
+    FrameObservationContext,
+    FrameAxisGroup,
+    FrameFixedGroup,
+    FrameStatisticContext,
+    FrameLevelTarget,
+    FrameChangeTarget,
+    FrameDecompositionField,
+    FrameDecomposition,
     SemanticObjectIdentity,
     ColumnLineage,
     FrameLineage,
@@ -195,13 +255,41 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v11"
+FORMAT = "marivo.frame_output/v12"
 
-# One closed Store22 field inventory. No older field set or dataclass fallback.
+# One closed Store23 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
+    "UnresolvedDataType": ("kind",),
+    "FrameField": ("slot_id", "name", "dtype", "nullable", "unit"),
+    "FrameBuiltinGrain": ("unit", "step", "kind"),
+    "FrameNamedGrain": ("ref", "level", "kind"),
+    "FrameCalendarEndpoint": ("name", "at", "timezone", "grain", "kind"),
+    "FrameIntervalEndpoint": ("name", "at", "timezone", "kind"),
+    "FrameAxisSchema": ("token", "name", "role", "keys", "at"),
+    "FrameOrdinaryAxisSchema": ("token", "name", "role", "keys", "at"),
+    "FrameCalendarAxisSchema": ("token", "name", "role", "keys", "at", "timezone", "grain"),
+    "FrameIntervalAxisSchema": ("token", "name", "role", "keys", "at", "timezone"),
+    "FramePairedAxisSchema": ("token", "name", "role", "keys", "at", "left", "right"),
+    "FrameFixedAxis": ("axis", "key", "origins"),
+    "FrameAxisTime": ("axis_token", "endpoint", "kind"),
+    "FrameComparedTime": ("comparison_id", "endpoint", "kind"),
+    "FrameFixedTime": ("start", "end", "timezone", "kind"),
+    "FrameAllHistoryWindow": ("kind",),
+    "FrameSinceWindow": ("start", "kind"),
+    "FrameToDateWindow": ("grain", "kind"),
+    "FrameTrailingDurationWindow": ("duration", "kind"),
+    "FrameTrailingPeriodsWindow": ("count", "kind"),
+    "FrameObservationContext": ("subject", "time", "window", "kind"),
+    "FrameAxisGroup": ("axis_token", "kind"),
+    "FrameFixedGroup": ("fixed", "kind"),
+    "FrameStatisticContext": ("statistic", "groups", "row_scope", "kind"),
+    "FrameLevelTarget": ("name", "context", "kind"),
+    "FrameChangeTarget": ("kind", "comparison_id", "group_id"),
+    "FrameDecompositionField": ("field_kind", "role", "name"),
+    "FrameDecomposition": ("decomposition_id", "target", "groups", "row_scope", "outputs"),
     "SemanticObjectIdentity": ("kind", "path", "definition_id"),
     "ColumnLineage": ("value_origins", "context_origins"),
-    "FrameLineage": ("_values", "_axes", "_presence", "_domain"),
+    "FrameLineage": ("_values", "_axes", "_presence", "_domain", "input_id"),
     "ArtifactManifest": (
         "store_id",
         "artifact_id",
@@ -222,13 +310,16 @@ _FIELDS = {
         "value_paths",
         "presence_paths",
         "comparisons",
+        "fixed_axes",
+        "value_contexts",
+        "decompositions",
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
     "IntervalDataAxis": ("token", "columns", "kind", "name", "at", "frozen", "timezone"),
     "FrozenIntervalData": ("directory_name", "rule_version"),
     "BuiltinCalendarData": ("unit", "step"),
-    "NamedCalendarData": ("identity", "snapshot_digest", "level"),
+    "NamedCalendarData": ("identity", "snapshot_digest", "level", "ref"),
     "FrozenCalendarData": ("definition", "directory_name", "rule_version", "direct"),
     "FrozenCalendarOrigin": ("axis", "mapping_name", "kind", "by"),
     "ComparisonValueBinding": ("role", "source_path", "value_path"),
@@ -244,6 +335,10 @@ _FIELDS = {
         "baseline_presence",
         "enclosing_presence",
         "namespace",
+        "contexts",
+        "current_fixed_axes",
+        "baseline_fixed_axes",
+        "named",
     ),
     "PairedDataAxis": ("token", "columns", "kind", "name", "at", "left", "right", "mapping_name"),
     "DataColumn": ("slot_id", "name", "dtype", "nullable", "unit"),
@@ -475,7 +570,26 @@ def _wire_fields(record: type[object]) -> tuple[str, ...]:
     return _FIELDS[record.__name__]
 
 
-def _encode(value: object) -> object:
+def _encode(
+    value: object,
+    contexts: dict[FrameObservationContext | FrameStatisticContext, int] | None = None,
+) -> object:
+    if contexts is not None and isinstance(value, (FrameObservationContext, FrameStatisticContext)):
+        if value not in contexts:
+            contexts[value] = len(contexts)
+        return {"context": contexts[value]}
+    if isinstance(value, timedelta):
+        return {
+            "scalar": "timedelta",
+            "value": str((value.days * 86400 + value.seconds) * 1000000 + value.microseconds),
+        }
+    if isinstance(value, (pa.Date32Scalar, pa.TimestampScalar, pa.DurationScalar)):
+        dtype = value.type
+        if isinstance(dtype, pa.TimestampType):
+            return {"scalar": "arrow_timestamp", "value": [dtype.unit, dtype.tz, value.value]}
+        if isinstance(dtype, pa.DurationType):
+            return {"scalar": "arrow_duration", "value": [dtype.unit, value.value]}
+        return {"scalar": "arrow_date", "value": value.value}
     if value is None or type(value) in (str, int, float, bool):
         return value
     if isinstance(value, Decimal):
@@ -483,11 +597,13 @@ def _encode(value: object) -> object:
     if isinstance(value, (date, datetime)):
         return {"scalar": type(value).__name__, "value": value.isoformat()}
     if type(value) is tuple:
-        return [_encode(item) for item in value]
+        return [_encode(item, contexts) for item in value]
     if is_dataclass(value) and not isinstance(value, type) and type(value) in _RECORDS:
         return {
             "record": type(value).__name__,
-            "fields": {name: _encode(getattr(value, name)) for name in _wire_fields(type(value))},
+            "fields": {
+                name: _encode(getattr(value, name), contexts) for name in _wire_fields(type(value))
+            },
         }
     raise invalid("unsupported terminal output value")
 
@@ -517,16 +633,37 @@ def _construct(constructor: type[U], values: dict[str, object]) -> U:
     return constructor(**values)
 
 
-def _decode(value: object) -> object:
+def _decode(
+    value: object, contexts: tuple[FrameObservationContext | FrameStatisticContext, ...] = ()
+) -> object:
     if value is None or type(value) in (str, int, float, bool):
         return value
     if type(value) is list:
-        return tuple(_decode(item) for item in _array(value))
+        return tuple(_decode(item, contexts) for item in _array(value))
     if not isinstance(value, dict):
         raise invalid("invalid terminal output encoding")
+    if "context" in value:
+        obj = _obj(value, "context")
+        index = obj["context"]
+        if type(index) is not int or not 0 <= index < len(contexts):
+            raise invalid("invalid local context reference")
+        return contexts[index]
     if "scalar" in value:
         obj = _obj(value, "scalar value")
-        text = _text(obj["value"])
+        raw = obj["value"]
+        if obj["scalar"] == "arrow_date" and type(raw) is int:
+            return pa.scalar(raw, type=pa.date32())
+        if obj["scalar"] == "arrow_timestamp" and isinstance(raw, list) and len(raw) == 3:
+            unit, zone, integer = raw
+            if type(unit) is str and (zone is None or type(zone) is str) and type(integer) is int:
+                return pa.scalar(integer, type=pa.timestamp(unit, zone))
+        if obj["scalar"] == "arrow_duration" and isinstance(raw, list) and len(raw) == 2:
+            unit, integer = raw
+            if type(unit) is str and type(integer) is int:
+                return pa.scalar(integer, type=pa.duration(unit))
+        text = _text(raw)
+        if obj["scalar"] == "timedelta":
+            return timedelta(microseconds=int(text))
         try:
             if obj["scalar"] == "Decimal":
                 number = Decimal(text)
@@ -549,7 +686,7 @@ def _decode(value: object) -> object:
         raise invalid("unknown terminal record; graph formats are not supported")
     body = _obj(obj["fields"], " ".join(_wire_fields(record)))
     hints = get_type_hints(record)
-    decoded = {name: _decode(item) for name, item in body.items()}
+    decoded = {name: _decode(item, contexts) for name, item in body.items()}
     if any(not _matches(item, hints[name]) for name, item in decoded.items()):
         raise invalid("terminal record field differs from its exact type")
     return _construct(record, decoded)
@@ -558,17 +695,33 @@ def _decode(value: object) -> object:
 def encode(value: ArtifactManifest | OutputFinding | OutputEvidence | InvocationInput) -> str:
     if type(value) not in (ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput):
         raise invalid("expected a terminal manifest, finding, evidence or invocation root")
-    return canonical_json({"format": FORMAT, "value": _encode(value)})
+    contexts: dict[FrameObservationContext | FrameStatisticContext, int] = {}
+    body = _encode(value, contexts)
+    return canonical_json(
+        {"format": FORMAT, "contexts": [_encode(c) for c in contexts], "value": body}
+    )
 
 
 def decode(text: str, expected: type[T]) -> T:
     if expected not in (ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput):
         raise invalid("method facts are readable only through their owned payload")
     try:
-        envelope = _obj(parse_json(text), "format value")
+        raw_envelope = parse_json(text)
+        if isinstance(raw_envelope, dict) and raw_envelope.get("format") != FORMAT:
+            raise invalid("expected Frame output v12; obsolete output format received")
+        envelope = _obj(raw_envelope, "format contexts value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v11; obsolete output format received")
-        value = _decode(envelope["value"])
+            raise invalid("expected Frame output v12; obsolete output format received")
+        contexts: list[FrameObservationContext | FrameStatisticContext] = []
+        for item in _array(envelope["contexts"]):
+            context = _decode(item)
+            if (
+                not isinstance(context, (FrameObservationContext, FrameStatisticContext))
+                or context in contexts
+            ):
+                raise invalid("expected unique closed current contexts")
+            contexts.append(context)
+        value = _decode(envelope["value"], tuple(contexts))
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
         return value
@@ -593,7 +746,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v11 method record")
+            raise invalid("expected Frame output v12 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

@@ -39,6 +39,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.frame_interpretation import FrameKeyScalar
 from marivo.analysis.core.frame_structure import coordinate_attachments
 from marivo.analysis.core.model import reject
 
@@ -567,6 +568,28 @@ def frozen_key_table(
     return pd.DataFrame(result, index=pd.RangeIndex(len(keys)))
 
 
+def frozen_key_values(key: FrozenKey) -> tuple[FrameKeyScalar, ...]:
+    """Detach one complete key with the same exact scalar types used by FramePage."""
+    result: list[FrameKeyScalar] = []
+    for dtype, value in key:
+        if value is None:
+            result.append(None)
+        elif isinstance(dtype, (TimestampDataType, DurationDataType)):
+            assert isinstance(value, int)
+            scalar = pa.scalar(value, type=pa.int64()).cast(_arrow_type(dtype))
+            assert isinstance(scalar, (pa.TimestampScalar, pa.DurationScalar))
+            result.append(scalar)
+        elif dtype == ScalarDataType("date"):
+            assert isinstance(value, int)
+            scalar = pa.scalar(value, type=pa.int32()).cast(pa.date32())
+            assert isinstance(scalar, pa.Date32Scalar)
+            result.append(scalar)
+        else:
+            assert isinstance(value, (bool, str, int, float, Decimal))
+            result.append(value)
+    return tuple(result)
+
+
 def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
     """Encode immutable directory records using the shared calendar.v2 layout."""
     rows = frozen_key_table(
@@ -818,6 +841,8 @@ def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
             fact.baseline_presence,
             *fact.enclosing_presence,
         ):
+            if endpoint is None:
+                continue
             for path in endpoint.inherited_paths:
                 if pc.any(pc.and_(arrays[path], pc.invert(arrays[endpoint.path]))).as_py():
                     _fail(
@@ -906,6 +931,8 @@ def validate_frozen_coordinates(
             absent = {
                 entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
             }
+            if fact.baseline_presence is None:
+                continue
             present = _array(
                 rows,
                 schema.presence[schema.presence_paths.index(fact.baseline_presence.path)],

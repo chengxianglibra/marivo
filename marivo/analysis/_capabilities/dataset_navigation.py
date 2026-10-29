@@ -222,17 +222,18 @@ _PAGES = (
     ),
     NavigationInput(
         "results.inspect",
-        "Inspect Frame structure, read pages or export complete fixed values.",
+        "Inspect Frame structure, read data or period pages, or export complete fixed values.",
         (),
         related=("analysis_frame.schema",),
         guidance=(
-            "schema exposes captured types, complete keys and layout without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, and to_pandas exports complete fixed data with isolated axis metadata. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys, result contexts, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(
             ("analysis_frame.show", "Inspect captured facts or a bounded fixed-data prefix."),
             ("analysis_frame.schema", "Inspect captured fields, exact types, keys and layout."),
             ("analysis_frame.read_page", "Read a projected page of fixed data and complete keys."),
+            ("analysis_frame.read_periods", "Read saved periods or consumed time correspondences."),
             ("analysis_frame.to_pandas", "Export complete fixed data as an isolated DataFrame."),
         ),
     ),

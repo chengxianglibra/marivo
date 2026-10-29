@@ -241,6 +241,20 @@ class OutputRead:
         frame = table.to_pandas(types_mapper=pd.ArrowDtype)
         return normalize_complete_frame(frame, schema.columns, schema.key_fields)
 
+    def coordinate_range(
+        self, layout: ReadLayout, start: int, limit: int, *, ordinal: bool
+    ) -> pd.DataFrame:
+        """Retain one attachment page, ordered by saved ordinal or mapping position."""
+        before = self.data_rows_read
+        rows = self.range(layout, start, limit, layout.schema.columns)
+        self.coordinate_rows_read += self.data_rows_read - before
+        self.data_rows_read = before
+        if ordinal:
+            end = min(start + limit, layout.handle.receipt.realized_row_count)
+            if rows["ordinal"].tolist() != list(range(start, end)):
+                raise invalid("selected calendar ordinal differs from its saved physical position")
+        return rows
+
     def select(self, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:
         """Scan key columns, then materialize selected records only into pandas.
 
@@ -435,6 +449,34 @@ class FrameReader:
         preview, _ = self.range(backing, 0, request.n, backing.data.schema.columns)
         return preview
 
+    def attachment_range(
+        self, backing: StoredFrameBacking, name: str, start: int, limit: int, *, ordinal: bool
+    ) -> tuple[OutputAttachment, FrameReadStats]:
+        """Read a bounded saved coordinate page without consuming primary or audit payloads."""
+        value = self.manifest(backing)
+        part = next((part for part in value.data.attachments if part.name == name), None)
+        if part is None:
+            raise invalid("required frozen coordinate attachment is missing")
+        with _frame_read_boundary():
+            reader = OutputRead(self.store.project_root)
+            rows = reader.coordinate_range(
+                ReadLayout(part.schema, part.rows), start, limit, ordinal=ordinal
+            )
+            return OutputAttachment(name, part.schema, rows), reader.stats
+
+    def attachment_select(
+        self, backing: StoredFrameBacking, name: str, keys: set[FrozenKey]
+    ) -> tuple[OutputAttachment, FrameReadStats]:
+        """Resolve one batch of required endpoint keys and detach its selected records."""
+        value = self.manifest(backing)
+        part = next((part for part in value.data.attachments if part.name == name), None)
+        if part is None:
+            raise invalid("required frozen coordinate attachment is missing")
+        with _frame_read_boundary():
+            reader = OutputRead(self.store.project_root)
+            rows = reader.select(ReadLayout(part.schema, part.rows), keys)
+            return OutputAttachment(name, part.schema, rows), reader.stats
+
 
 def selected_coordinates(
     schema: DataSchema,
@@ -568,6 +610,8 @@ def selected_coordinates(
         absent = {
             entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
         }
+        if fact.baseline_presence is None:
+            continue
         presence = schema.presence[schema.presence_paths.index(fact.baseline_presence.path)]
         flags = pa.array(rows[presence.slot_id], from_pandas=True)
         if any(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 from unicodedata import category
@@ -19,6 +19,11 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DurationDataType, ScalarDataType, TimestampDataType
+from marivo.analysis.core.frame_interpretation import (
+    FrameDecomposition,
+    FrameFixedAxis,
+    FrameValueContext,
+)
 from marivo.analysis.core.model import reject
 
 ValueKind: TypeAlias = Literal[
@@ -189,6 +194,9 @@ class PendingDataSchema:
     presence: tuple[PendingDataColumn, ...] = ()
     presence_paths: tuple[ValuePath, ...] = ()
     comparisons: tuple[DataComparison, ...] = ()
+    fixed_axes: tuple[FrameFixedAxis, ...] = ()
+    value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    decompositions: tuple[FrameDecomposition, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -291,7 +299,18 @@ class PendingDataSchema:
                     "Prepare a lossless physical column for the captured slot.",
                     "frame.pending.complete",
                 )
-        return schema
+        if (
+            schema.fixed_axes == self.fixed_axes
+            and schema.value_contexts == self.value_contexts
+            and schema.decompositions == self.decompositions
+        ):
+            return schema
+        return replace(
+            schema,
+            fixed_axes=self.fixed_axes,
+            value_contexts=self.value_contexts,
+            decompositions=self.decompositions,
+        )
 
 
 def column_kind(column: DataColumn | PendingDataColumn) -> ValueKind:
@@ -435,7 +454,7 @@ def validate_comparisons(schema: DataSchema | PendingDataSchema) -> None:
             fact.baseline_presence,
             *fact.enclosing_presence,
         ):
-            if any(
+            if endpoint is not None and any(
                 path not in schema.presence_paths
                 for path in (endpoint.path, *endpoint.inherited_paths)
             ):

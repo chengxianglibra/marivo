@@ -88,6 +88,7 @@ lineage = saved.lineage
 lineage.show()
 lineage.values["reference.absolute.revenue"].show()
 origins = lineage.values["reference.absolute.revenue"].value_origins
+assert lineage.input_id == saved.schema.input_id
 for origin in origins:
     print(origin.kind, origin.path, origin.definition_id)
 ```
@@ -101,6 +102,14 @@ for origin in origins:
 直接比值的分子与分母分别保留各自的命名 Metric 来源。
 这些是静态逻辑依赖，包含所有声明的条件分支，不证明逐行实际贡献、已成功读取或
 因果关系。显示有界，typed mappings 和 origins tuple 保留完整捕获事实。
+Frame 保存的是语义 ref，而不是定义正文。需要当前定义详情时，再通过 Catalog 显式查询；
+若定义已移除或不在当前加载范围，查询可能不可用：
+
+```python
+ref = origins[0]
+entry = session.catalog.get(f"{ref.kind}:{ref.path}")
+entry.show()
+```
 
 ## 查看结构并分页读取
 
@@ -117,6 +126,59 @@ if page.has_more:
         columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
     )
 ```
+
+schema 还会说明当前输入中已捕获的解释事实：
+
+```python
+schema = saved.schema
+assert schema.input_id == saved.lineage.input_id
+print(schema.fixed_axes)
+for name, context in schema.value_contexts.items():
+    print(name, context.kind)
+for relation in schema.comparisons:
+    print(relation.alias, relation.binding.kind)
+    for group in relation.groups:
+        print([(value.role, value.name) for value in group.values])
+for decomposition in schema.decompositions:
+    print(type(decomposition.target).__name__, decomposition.row_scope)
+    print([(field.role, field.name) for field in decomposition.outputs])
+```
+
+这些事实只描述当前捕获的角色与关系。没有 value context 不代表结果没有筛选或窗口。
+基期列即使显示在本期时间坐标上，comparison 仍保留其基期时间依据。ref 不复制业务
+说明，也不授予来源读取能力。
+
+期间页和数据页分别读取；comparison 页保留实际消费的端点对应：
+
+```python
+time_axis = next(axis for axis in saved.axes if axis.role in ("calendar", "interval", "paired"))
+time_schema = next(axis for axis in schema.axes if axis.token == time_axis.token)
+periods = saved.read_periods(time_axis, limit=1000)
+data_page = saved.read_page(limit=1000)
+row_period_keys = {
+    tuple(data_page.coordinates[key.slot_id][row] for key in time_schema.keys)
+    for row in range(len(data_page))
+}
+assert row_period_keys <= {period.key for period in periods.items}
+
+time_comparison = next(
+    (
+        relation
+        for relation in schema.comparisons
+        if relation.binding.kind in ("calendar", "interval")
+    ),
+    None,
+)
+if time_comparison is not None:
+    correspondences = saved.read_periods(time_comparison, limit=1000)
+    assert correspondences.input_id == schema.input_id
+    for item in correspondences.items:
+        print(item.key, item.current, item.baseline, item.absent_reason)
+```
+
+期间 key 是目标轴的完整有序键，可与 `read_page().coordinates` 中该轴的 schema slot
+值关联。已选期间不一定有当前结果行。calendar 记录保留已保存标签和民用边界；interval
+记录不推测未保存的民用信息。paired 缺端点与 comparison 保存的缺失原因是不同事实。
 
 页面在 `coordinates` 中按 schema slot ID 保留每个完整轴键，可读坐标位于所选字段之前。
 使用完整 value/presence 名；`columns=()` 只读坐标。limit 是 1..10000 的整数，不接受

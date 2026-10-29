@@ -18,6 +18,22 @@ actual read/evaluation evidence. They do not grant source execution or original
 Metric authority. Lineage does not reconstruct a producer graph or use method
 facts as a current-column lineage index. Metadata access reads no result rows or
 complete method payloads. See [Frame lineage](analysis-frame.md#静态语义对象血缘).
+`lineage.input_id` binds those directories to `schema.input_id` for the exact
+current Frame; derivation and cold reopen bind the facts to their own current
+input. `schema` also projects captured fixed ordinary keys, known observation or
+statistic contexts, current comparison roles/endpoints, and current decomposition
+targets/output roles. Missing optional context means no additional statement was
+captured; it does not certify an unfiltered or complete population. Semantic refs
+remain locators; query details only through an explicit Catalog lookup.
+
+`frame.read_periods(target, limit=1000, cursor=None)` reads a bounded page of
+saved period records for a current calendar/interval/paired axis or time comparison.
+`FramePeriodPage` is owned by the same input and its typed period keys join to the
+target axis's complete key slots in `read_page().coordinates`. Comparison items
+include actual saved endpoint mappings and absence reasons; a paired absent side
+does not acquire an inferred reason. The period directory can contain selected
+periods with no current result rows. Read stats do not bound total receipt-check
+or file-scan I/O.
 
 ## Saved audit access
 
@@ -167,8 +183,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 22 uses marivo.frame_output/v11,
-frame.v11 and frame-output-v11. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+Memory roots retain the complete records. Store 23 uses marivo.frame_output/v12,
+frame.v12 and frame-output-v12. Stored manifests carry structure, interpretation, lineage, result/evaluation/input/operation facts,
 source/check/Finding counts, internal collection digests and owned-payload
 descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
 opening a manifest never loads either collection. Atomic publication writes both

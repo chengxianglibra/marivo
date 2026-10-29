@@ -6,14 +6,16 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from marivo.config import ANALYSIS_STORE_GENERATION
+
 
 @dataclass(frozen=True, slots=True)
 class MaterializationLayout:
     project_root: Path
 
     @property
-    def generation(self) -> Literal[22]:
-        return 22
+    def generation(self) -> Literal[23]:
+        return ANALYSIS_STORE_GENERATION
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_root", self.project_root.resolve())

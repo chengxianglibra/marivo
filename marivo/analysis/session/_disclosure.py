@@ -17,7 +17,15 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis.core.frame_page import FramePage, FrameReadStats
+from marivo.analysis.core.frame_page import (
+    FrameCalendarPeriod,
+    FrameComparisonPeriod,
+    FrameIntervalPeriod,
+    FramePage,
+    FramePairedPeriod,
+    FramePeriodPage,
+    FrameReadStats,
+)
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
@@ -426,6 +434,11 @@ def provider() -> DisclosureProvider:
                 *READ_TYPES,
                 FramePage,
                 FrameReadStats,
+                FramePeriodPage,
+                FrameCalendarPeriod,
+                FrameIntervalPeriod,
+                FramePairedPeriod,
+                FrameComparisonPeriod,
                 r.SessionSummaryPage,
                 r.SessionSummary,
                 r.PersistedFrameSummaryPage,

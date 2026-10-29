@@ -9,6 +9,7 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
     DataColumn,
+    DataComparison,
     DataSchema,
     IntervalDataAxis,
     PairedDataAxis,
@@ -88,6 +89,24 @@ def infer_attribute_merge_schema(
             "frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
+    from marivo.analysis.core.frame_schema import comparison_id
+
+    comparison_map: dict[str, DataComparison] = {}
+    for schema in schemas:
+        for fact in schema.comparisons:
+            key = comparison_id(fact)
+            prior = comparison_map.get(key)
+            if prior is None:
+                comparison_map[key] = fact
+            else:
+                comparison_map[key] = replace(
+                    prior,
+                    values=tuple(dict.fromkeys((*prior.values, *fact.values))),
+                    contexts=tuple(dict.fromkeys((*prior.contexts, *fact.contexts))),
+                )
+    comparisons = tuple(comparison_map.values())
+    fixed_axes = tuple(f for f in first.fixed_axes if all(f in s.fixed_axes for s in schemas[1:]))
+    decompositions = tuple(d for schema in schemas for d in schema.decompositions)
     values = tuple(
         replace(column, slot_id=f"attribute.merge.value.{i}", nullable=True)
         for i, column in enumerate(column for schema in schemas for column in schema.values)
@@ -117,6 +136,9 @@ def infer_attribute_merge_schema(
             tuple(c for c in presence if isinstance(c, DataColumn)),
             value_paths=paths,
             presence_paths=presence_paths,
+            comparisons=comparisons,
+            fixed_axes=fixed_axes,
+            decompositions=decompositions,
         )
     axes: list[PendingFrameAxis] = []
     for axis in first.axes:
@@ -153,4 +175,7 @@ def infer_attribute_merge_schema(
             for c in presence
         ),
         presence_paths,
+        comparisons=comparisons,
+        fixed_axes=fixed_axes,
+        decompositions=decompositions,
     )

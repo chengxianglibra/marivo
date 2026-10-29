@@ -64,12 +64,25 @@ Identity attributes perform no Store reads. There is no public Artifact wrapper.
 whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
 ``max_output_bytes=None`` removes the byte limit while preserving the row limit.
 ``schema`` returns captured immutable fields, exact types, complete axis keys and
-export layout without Store or payload I/O. ``read_page(columns=None, limit=1000,
+export layout without Store or payload I/O. Its ``fixed_axes``, ``value_contexts``,
+``comparisons`` and ``decompositions`` expose only current result facts that were
+captured and remain bound to that input. Missing optional context is unspecified;
+it does not mean unfiltered, complete or valid data. Axis variants retain their
+captured time grain, timezone and paired endpoints. Semantic refs are locators;
+read details separately through the Session Catalog. ``read_page(columns=None, limit=1000,
 cursor=None, axis_names=None, time_details=False)`` reads complete fixed data in ordered projected
 pages, retaining complete coordinate keys. Limits are integers 1..10000, excluding
 bool. FramePage exposes input_id, layout, coordinates, limit, total_count,
 has_more, next_cursor and read_stats; its ``to_pandas()`` copies only this page
 and has empty attrs. Repeat the same selection, aliases and limit when continuing.
+``read_periods(target, limit=1000, cursor=None)`` reads saved calendar/interval
+periods, paired endpoints or time-comparison correspondences for one current time
+axis or comparison. ``FramePeriodPage`` carries the exact ``input_id``, immutable
+items and read statistics. Period keys use the target's complete ordered axis key
+and join to its coordinate slot values in ``read_page().coordinates``. Periods
+are independent of the current row domain; missing paired endpoints and saved
+comparison absence have their own distinct meanings. Limits and cursor bindings
+match the bounded ``read_page`` contract.
 ``findings(limit=20, cursor=None)`` and ``evidence(limit=20, cursor=None)`` read
 independent saved audit collections with limits 1..100. Both return exact input,
 Session and Artifact identity, collection count and continuation state. No public
@@ -401,7 +414,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 22 writer transaction. Memory persist never reevaluates. Stored
+single Store 23 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -431,10 +444,10 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 22 uses ``marivo.frame_output/v11``, ``frame.v11`` and ``frame-output-v11`` for
-all Frames, under ``.marivo/analysis/generations/v22/``. Owned method files share
+Store 23 uses ``marivo.frame_output/v12``, ``frame.v12`` and ``frame-output-v12`` for
+all Frames, under ``.marivo/analysis/generations/v23/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 22 refuses older-generation Session/result/audit data unchanged, without
+Store 23 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
@@ -470,8 +483,45 @@ Canonical public exports
    FrameSchema
    FrameField
    FrameAxisSchema
+   FrameOrdinaryAxisSchema
+   FrameCalendarAxisSchema
+   FrameIntervalAxisSchema
+   FramePairedAxisSchema
+   FrameBuiltinGrain
+   FrameNamedGrain
+   FrameCalendarEndpoint
+   FrameIntervalEndpoint
+   FrameFixedAxis
+   FrameAxisTime
+   FrameComparedTime
+   FrameFixedTime
+   FrameAllHistoryWindow
+   FrameSinceWindow
+   FrameToDateWindow
+   FrameTrailingDurationWindow
+   FrameTrailingPeriodsWindow
+   FrameObservationContext
+   FrameAxisGroup
+   FrameFixedGroup
+   FrameStatisticContext
+   FrameComparison
+   FrameComparisonGroup
+   FrameComparisonValue
+   FrameComparisonPresence
+   FrameOrdinaryComparisonBinding
+   FrameCalendarComparisonBinding
+   FrameIntervalComparisonBinding
+   FrameLevelTarget
+   FrameChangeTarget
+   FrameDecomposition
+   FrameDecompositionField
    FramePage
    FrameReadStats
+   FramePeriodPage
+   FrameCalendarPeriod
+   FrameIntervalPeriod
+   FramePairedPeriod
+   FrameComparisonPeriod
    ArtifactRef
    Finding
    FindingPage
@@ -557,7 +607,9 @@ Semantic column origins
 -----------------------
 
 ``frame.lineage`` returns immutable ``values``, ``axes`` and ``presence`` mappings
-on every carrier without evaluation or row reads. Values use complete output
+on every carrier without evaluation or row reads. Its ``input_id`` equals the
+same Frame's ``schema.input_id``; derived and reopened Frames rebind the metadata
+to their exact current input. Values use complete output
 names; axes use local tokens. Each ``ColumnLineage`` separates ``value_origins``
 from ``context_origins``. Origins retain kind, path and consumed definition_id.
 They preserve naming-only Measures, filtering context and independent recovery,

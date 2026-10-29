@@ -92,6 +92,7 @@ lineage = saved.lineage
 lineage.show()
 lineage.values["reference.absolute.revenue"].show()
 origins = lineage.values["reference.absolute.revenue"].value_origins
+assert lineage.input_id == saved.schema.input_id
 for origin in origins:
     print(origin.kind, origin.path, origin.definition_id)
 ```
@@ -108,6 +109,15 @@ For direct ratios, each component retains its own named Metric origins.
 These are static logical dependencies, including all declared conditional branches;
 they do not prove row-level contribution, successful reads, or causation. Display
 is bounded; typed mappings and origin tuples retain the complete captured facts.
+The Frame stores semantic references, not definitions. If you need current
+definition details, request them explicitly through the Catalog; this lookup may
+be unavailable when the definition was removed or is outside the loaded scope:
+
+```python
+ref = origins[0]
+entry = session.catalog.get(f"{ref.kind}:{ref.path}")
+entry.show()
+```
 
 ## Inspect structure and read pages
 
@@ -125,6 +135,63 @@ if page.has_more:
         columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
     )
 ```
+
+The schema also explains captured interpretation facts for the exact input:
+
+```python
+schema = saved.schema
+assert schema.input_id == saved.lineage.input_id
+print(schema.fixed_axes)
+for name, context in schema.value_contexts.items():
+    print(name, context.kind)
+for relation in schema.comparisons:
+    print(relation.alias, relation.binding.kind)
+    for group in relation.groups:
+        print([(value.role, value.name) for value in group.values])
+for decomposition in schema.decompositions:
+    print(type(decomposition.target).__name__, decomposition.row_scope)
+    print([(field.role, field.name) for field in decomposition.outputs])
+```
+
+These facts describe only captured current roles and relationships. An absent
+value context does not mean that a result was unfiltered or had no window. A
+baseline column displayed on current time coordinates retains its baseline time
+basis in the comparison record. A ref does not copy business prose or grant
+source access.
+
+Read saved periods or consumed comparison endpoints separately from data pages:
+
+```python
+time_axis = next(axis for axis in saved.axes if axis.role in ("calendar", "interval", "paired"))
+time_schema = next(axis for axis in schema.axes if axis.token == time_axis.token)
+periods = saved.read_periods(time_axis, limit=1000)
+data_page = saved.read_page(limit=1000)
+row_period_keys = {
+    tuple(data_page.coordinates[key.slot_id][row] for key in time_schema.keys)
+    for row in range(len(data_page))
+}
+assert row_period_keys <= {period.key for period in periods.items}
+
+time_comparison = next(
+    (
+        relation
+        for relation in schema.comparisons
+        if relation.binding.kind in ("calendar", "interval")
+    ),
+    None,
+)
+if time_comparison is not None:
+    correspondences = saved.read_periods(time_comparison, limit=1000)
+    assert correspondences.input_id == schema.input_id
+    for item in correspondences.items:
+        print(item.key, item.current, item.baseline, item.absent_reason)
+```
+
+Period keys contain the target axis's complete ordered key and match that axis's
+schema slots in `read_page().coordinates`. A selected period need not have a
+current row. Calendar records retain saved labels and civil bounds; interval
+records do not infer unsaved civil information. A missing paired endpoint and a
+saved comparison absence reason are distinct facts.
 
 Pages keep every complete axis key in `coordinates`, keyed by schema slot ID,
 and readable coordinates before selected fields. Use full value/presence names;

@@ -7,8 +7,109 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
+from marivo.analysis.core.frame_interpretation import (
+    FrameAllHistoryWindow as FrameAllHistoryWindow,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameAxisGroup as FrameAxisGroup,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameAxisTime as FrameAxisTime,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameBuiltinGrain as FrameBuiltinGrain,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarAxisSchema as FrameCalendarAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarComparisonBinding as FrameCalendarComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarEndpoint as FrameCalendarEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameChangeTarget as FrameChangeTarget,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparedTime as FrameComparedTime,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparison as FrameComparison,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonGroup as FrameComparisonGroup,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonPresence as FrameComparisonPresence,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonValue as FrameComparisonValue,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameDecomposition as FrameDecomposition,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameDecompositionField as FrameDecompositionField,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameFixedAxis as FrameFixedAxis,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameFixedGroup as FrameFixedGroup,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameFixedTime as FrameFixedTime,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalAxisSchema as FrameIntervalAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalComparisonBinding as FrameIntervalComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalEndpoint as FrameIntervalEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameLevelTarget as FrameLevelTarget,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameNamedGrain as FrameNamedGrain,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameObservationContext as FrameObservationContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameOrdinaryAxisSchema as FrameOrdinaryAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameOrdinaryComparisonBinding as FrameOrdinaryComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FramePairedAxisSchema as FramePairedAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameSinceWindow as FrameSinceWindow,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameStatisticContext as FrameStatisticContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameToDateWindow as FrameToDateWindow,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameTrailingDurationWindow as FrameTrailingDurationWindow,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameTrailingPeriodsWindow as FrameTrailingPeriodsWindow,
+)
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
+from marivo.analysis.core.frame_page import FrameCalendarPeriod as FrameCalendarPeriod
+from marivo.analysis.core.frame_page import FrameComparisonPeriod as FrameComparisonPeriod
+from marivo.analysis.core.frame_page import FrameIntervalPeriod as FrameIntervalPeriod
 from marivo.analysis.core.frame_page import FramePage as FramePage
+from marivo.analysis.core.frame_page import FramePairedPeriod as FramePairedPeriod
+from marivo.analysis.core.frame_page import FramePeriodPage as FramePeriodPage
 from marivo.analysis.core.frame_page import FrameReadStats as FrameReadStats
 from marivo.analysis.core.frame_schema import FrameAxisSchema as FrameAxisSchema
 from marivo.analysis.core.frame_schema import FrameField as FrameField
@@ -76,8 +177,45 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameSchema",
     "FrameField",
     "FrameAxisSchema",
+    "FrameOrdinaryAxisSchema",
+    "FrameCalendarAxisSchema",
+    "FrameIntervalAxisSchema",
+    "FramePairedAxisSchema",
+    "FrameBuiltinGrain",
+    "FrameNamedGrain",
+    "FrameCalendarEndpoint",
+    "FrameIntervalEndpoint",
+    "FrameFixedAxis",
+    "FrameAxisTime",
+    "FrameComparedTime",
+    "FrameFixedTime",
+    "FrameAllHistoryWindow",
+    "FrameSinceWindow",
+    "FrameToDateWindow",
+    "FrameTrailingDurationWindow",
+    "FrameTrailingPeriodsWindow",
+    "FrameObservationContext",
+    "FrameAxisGroup",
+    "FrameFixedGroup",
+    "FrameStatisticContext",
+    "FrameComparison",
+    "FrameComparisonGroup",
+    "FrameComparisonValue",
+    "FrameComparisonPresence",
+    "FrameOrdinaryComparisonBinding",
+    "FrameCalendarComparisonBinding",
+    "FrameIntervalComparisonBinding",
+    "FrameLevelTarget",
+    "FrameChangeTarget",
+    "FrameDecomposition",
+    "FrameDecompositionField",
     "FramePage",
     "FrameReadStats",
+    "FramePeriodPage",
+    "FrameCalendarPeriod",
+    "FrameIntervalPeriod",
+    "FramePairedPeriod",
+    "FrameComparisonPeriod",
     "EvidencePage",
     "ArtifactRef",
     "Finding",

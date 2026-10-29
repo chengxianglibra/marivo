@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import ExitStack
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -196,7 +197,12 @@ def main() -> None:
         copied = fixed.persist()
         assert isinstance(copied._backing, StoredFrameBacking)
         assert isinstance(fixed._backing, MemoryFrameBacking)
-        assert copied._backing.metadata == describe(fixed._backing.metadata)
+        expected = describe(fixed._backing.metadata)
+        expected = replace(
+            expected,
+            lineage=replace(expected.lineage, input_id=copied._input_id),
+        )
+        assert copied._backing.metadata == expected
         assert len(terminal_runs(session)) == before + 1
         print("public-cold-ok")
 

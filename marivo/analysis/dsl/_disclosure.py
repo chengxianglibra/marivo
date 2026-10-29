@@ -80,6 +80,7 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.evidence",
                 "analysis_frame.schema",
                 "analysis_frame.read_page",
+                "analysis_frame.read_periods",
             ),
             constraints=(
                 "Ordinary operations consume current data. An instance may retain a source declaration for explicit attribute rereads; independent reopen has no declaration.",

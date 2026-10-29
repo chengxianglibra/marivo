@@ -5,6 +5,7 @@ import json
 import weakref
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -1050,14 +1051,27 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert terminal_runs(session) == ()
     saved = fixed.persist()
     assert isinstance(saved._backing, StoredFrameBacking)
-    assert saved._backing.metadata == describe(metadata)
+    expected_saved = describe(metadata)
+    assert expected_saved.lineage is not None
+    expected_saved = replace(
+        expected_saved,
+        lineage=replace(expected_saved.lineage, input_id=saved._input_id),
+    )
+    assert saved._backing.metadata == expected_saved
+    assert saved._backing.metadata.lineage.input_id == saved._input_id
     assert len(terminal_runs(session)) == 1
     reopened = session.persisted_frame(saved._backing.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
-    assert reopened._backing.metadata == describe(metadata)
+    expected_reopened = describe(metadata)
+    assert expected_reopened.lineage is not None
+    expected_reopened = replace(
+        expected_reopened,
+        lineage=replace(expected_reopened.lineage, input_id=reopened._input_id),
+    )
+    assert reopened._backing.metadata == expected_reopened
     loaded = reopened.compute()
     # Complete consumption reconstructs the original source/check partition and Findings.
-    assert _memory(loaded).metadata == metadata
     assert _memory(loaded).metadata.audit == metadata.audit
+    assert loaded.lineage.input_id == loaded.schema.input_id == loaded._input_id
     assert loaded.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert len(terminal_runs(session)) == 1

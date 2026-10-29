@@ -616,6 +616,38 @@ def test_construction_type_families_and_retired_surface() -> None:
         "frame_schema",
         "frame_field",
         "frame_axis_schema",
+        "frame_ordinary_axis_schema",
+        "frame_calendar_axis_schema",
+        "frame_interval_axis_schema",
+        "frame_paired_axis_schema",
+        "frame_builtin_grain",
+        "frame_named_grain",
+        "frame_calendar_endpoint",
+        "frame_interval_endpoint",
+        "frame_fixed_axis",
+        "frame_axis_time",
+        "frame_compared_time",
+        "frame_fixed_time",
+        "frame_all_history_window",
+        "frame_since_window",
+        "frame_to_date_window",
+        "frame_trailing_duration_window",
+        "frame_trailing_periods_window",
+        "frame_observation_context",
+        "frame_axis_group",
+        "frame_fixed_group",
+        "frame_statistic_context",
+        "frame_comparison_value",
+        "frame_comparison_group",
+        "frame_comparison_presence",
+        "frame_ordinary_comparison_binding",
+        "frame_calendar_comparison_binding",
+        "frame_interval_comparison_binding",
+        "frame_comparison",
+        "frame_level_target",
+        "frame_change_target",
+        "frame_decomposition_field",
+        "frame_decomposition",
         "field_export_column",
         "coordinate_export_column",
         "scalar_data_type",
@@ -625,6 +657,11 @@ def test_construction_type_families_and_retired_surface() -> None:
         "unresolved_data_type",
         "frame_page",
         "frame_read_stats",
+        "frame_period_page",
+        "frame_calendar_period",
+        "frame_interval_period",
+        "frame_paired_period",
+        "frame_comparison_period",
         "artifact_ref",
         "finding",
         "finding_page",
@@ -676,7 +713,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 25
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 62
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -758,6 +795,7 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
     targets = (
         "analysis_frame.schema",
         "analysis_frame.read_page",
+        "analysis_frame.read_periods",
         "analysis_frame.findings",
         "analysis_frame.evidence",
         "frame_schema.input_id",
@@ -765,9 +803,25 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "frame_schema.presence",
         "frame_schema.slots",
         "frame_schema.axes",
+        "frame_schema.fixed_axes",
+        "frame_schema.value_contexts",
+        "frame_schema.comparisons",
+        "frame_schema.decompositions",
         "frame_schema.layout",
         "frame_field.dtype",
         "frame_axis_schema.keys",
+        "frame_calendar_axis_schema.timezone",
+        "frame_calendar_axis_schema.grain",
+        "frame_interval_axis_schema.timezone",
+        "frame_paired_axis_schema.left",
+        "frame_paired_axis_schema.right",
+        "frame_named_grain.ref",
+        "frame_fixed_axis.key",
+        "frame_observation_context.window",
+        "frame_statistic_context.groups",
+        "frame_comparison.groups",
+        "frame_comparison.binding",
+        "frame_decomposition.outputs",
         "field_export_column.slot_id",
         "coordinate_export_column.endpoint",
         "frame_page.coordinates",
@@ -775,6 +829,16 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "frame_page.read_stats",
         "frame_page.total_count",
         "frame_page.to_pandas",
+        "frame_period_page.target",
+        "frame_period_page.items",
+        "frame_period_page.read_stats",
+        "frame_calendar_period.key",
+        "frame_calendar_period.actual_start_civil",
+        "frame_interval_period.key",
+        "frame_paired_period.left",
+        "frame_paired_period.right",
+        "frame_comparison_period.baseline",
+        "frame_comparison_period.absent_reason",
         "finding_page.total_count",
         "finding_page.input_id",
         "evidence_page.total_count",
@@ -799,4 +863,27 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
     inspect = render_help_text("analysis.results.inspect")[0]
     assert "analysis.analysis_frame.schema" in inspect
     assert "analysis.analysis_frame.read_page" in inspect
+    assert "analysis.analysis_frame.read_periods" in inspect
     assert "same limit" in render_help_text("analysis.analysis_frame.evidence")[0]
+
+
+def test_interpretation_facts_and_periods_share_canonical_display_contracts() -> None:
+    registry = prepare()
+    for owner, method, target in (
+        (mv.FrameObservationContext, "show", "runtime.values.show"),
+        (mv.FrameStatisticContext, "render", "runtime.values.render"),
+        (mv.FrameCalendarAxisSchema, "show", "frame_axis_schema.show"),
+        (mv.FramePairedAxisSchema, "render", "frame_axis_schema.render"),
+        (mv.FramePeriodPage, "show", "runtime.values.show"),
+        (mv.FrameComparisonPeriod, "render", "runtime.values.render"),
+    ):
+        assert registry.by_callable(getattr(owner, method)).canonical_id == target
+        assert "analysis." + target in render_help_text(owner)[0]
+
+    descriptor = registry.by_canonical_id("analysis_frame.read_periods")
+    assert isinstance(descriptor, CallableInput)
+    assert descriptor.bindings[0].implementation is mv.AnalysisFrame.read_periods
+    assert descriptor.output == "FramePeriodPage"
+    assert "No execution, automatic persistence, Catalog or source reads" in " ".join(
+        descriptor.constraints
+    )

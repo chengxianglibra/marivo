@@ -2146,3 +2146,67 @@ def test_component_budget_overflow_keeps_numeric_owner_and_fiber(
     assert context.fiber.parent == ()
     assert isinstance(context.witness, AttributeNumericWitness)
     assert {use.metric for use in context.uses} == {"q"}
+
+
+def test_current_decomposition_roles_keep_restricted_denominator_and_fixed_groups(
+    session: Session,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameChangeTarget, FrameFixedGroup
+
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    current = session.observe({"q": amount.mean()}, by=(region,), where=phase == "current")
+    baseline = session.observe({"q": amount.mean()}, by=(region,), where=phase == "base")
+    compared = current.compare({"prior": mv.baseline(baseline)})
+    selected = compared.select({"change": compared["prior.absolute.q"]})
+    report = selected.attribute(by=(channel,)).compute()
+    # Manual oracle: current mean 120 minus baseline mean 100; contributions +30/-10.
+    assert report.to_pandas()["contribution.change"].tolist() == [30, -10]
+    assert report.to_pandas()["total.change"].tolist() == [20, 20]
+    decomposition = report.schema.decompositions[0]
+    assert isinstance(decomposition.target, FrameChangeTarget)
+    comparison = report.schema.comparisons[0]
+    assert comparison.comparison_id == decomposition.target.comparison_id
+    assert comparison.groups[0].group_id == decomposition.target.group_id
+    assert comparison.groups[0].values == ()
+    assert comparison.presence is None
+    assert {f.role for f in decomposition.outputs} >= {
+        "contribution",
+        "total",
+        "observed_total",
+        "share",
+        "current",
+        "baseline",
+    }
+    restricted = report.where(report["contribution.change"] > 0).compute()
+    assert restricted.to_pandas()["total.change"].tolist() == [20]
+    assert restricted.to_pandas()["contribution_share.change"].tolist() == [1.5]
+    assert restricted.schema.decompositions[0].row_scope == "restricted"
+    projected = restricted.select(
+        {
+            "piece": restricted["contribution.change"],
+            "copy": restricted["contribution.change"],
+            "share": restricted["contribution_share.change"],
+            "arithmetic": restricted["contribution.change"] + 1,
+        }
+    )
+    roles = [
+        (f.role, f.name)
+        for f in projected.schema.decompositions[0].outputs
+        if f.field_kind == "value"
+    ]
+    assert roles == [("contribution", "piece"), ("contribution", "copy"), ("share", "share")]
+    assert all(f.role != "total" for f in projected.schema.decompositions[0].outputs)
+    assert "total.change" not in projected.schema.values
+    parent_fixed = report.fix(report.axis("sales.facts.region"), "east")
+    assert parent_fixed.schema.decompositions[0].row_scope == "complete"
+    assert isinstance(parent_fixed.schema.decompositions[0].groups[0], FrameFixedGroup)
+    fine_fixed = report.fix(report.axis("sales.facts.channel"), "A")
+    assert fine_fixed.schema.decompositions[0].row_scope == "restricted"
+    saved = projected.persist()
+    reopened = session.persisted_frame(saved.artifact_id)
+    assert reopened.schema.decompositions == projected.schema.decompositions
+    assert reopened.schema.comparisons[0].groups == projected.schema.comparisons[0].groups
+    assert reopened.lineage.input_id == reopened.schema.input_id

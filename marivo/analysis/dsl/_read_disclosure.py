@@ -18,7 +18,49 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_page import FramePage, FrameReadStats
+from marivo.analysis.core.frame_interpretation import (
+    FrameAllHistoryWindow,
+    FrameAxisGroup,
+    FrameAxisTime,
+    FrameBuiltinGrain,
+    FrameCalendarAxisSchema,
+    FrameCalendarComparisonBinding,
+    FrameCalendarEndpoint,
+    FrameChangeTarget,
+    FrameComparedTime,
+    FrameComparison,
+    FrameComparisonGroup,
+    FrameComparisonPresence,
+    FrameComparisonValue,
+    FrameDecomposition,
+    FrameDecompositionField,
+    FrameFixedAxis,
+    FrameFixedGroup,
+    FrameFixedTime,
+    FrameIntervalAxisSchema,
+    FrameIntervalComparisonBinding,
+    FrameIntervalEndpoint,
+    FrameLevelTarget,
+    FrameNamedGrain,
+    FrameObservationContext,
+    FrameOrdinaryAxisSchema,
+    FrameOrdinaryComparisonBinding,
+    FramePairedAxisSchema,
+    FrameSinceWindow,
+    FrameStatisticContext,
+    FrameToDateWindow,
+    FrameTrailingDurationWindow,
+    FrameTrailingPeriodsWindow,
+)
+from marivo.analysis.core.frame_page import (
+    FrameCalendarPeriod,
+    FrameComparisonPeriod,
+    FrameIntervalPeriod,
+    FramePage,
+    FramePairedPeriod,
+    FramePeriodPage,
+    FrameReadStats,
+)
 from marivo.analysis.core.frame_schema import (
     CoordinateExportColumn,
     FieldExportColumn,
@@ -28,6 +70,7 @@ from marivo.analysis.core.frame_schema import (
     UnresolvedDataType,
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.render import RenderableResult
 
 
 def provider() -> DisclosureProvider:
@@ -37,7 +80,17 @@ def provider() -> DisclosureProvider:
             FrameSchema,
             "frame_schema",
             ("analysis_frame.schema", "runtime.persisted_frame_summary.schema"),
-            ("frame_field", "frame_axis_schema", "field_export_column", "coordinate_export_column"),
+            (
+                "frame_field",
+                "frame_axis_schema",
+                "field_export_column",
+                "coordinate_export_column",
+                "frame_fixed_axis",
+                "frame_observation_context",
+                "frame_statistic_context",
+                "frame_comparison",
+                "frame_decomposition",
+            ),
         ),
         (
             FrameField,
@@ -56,7 +109,193 @@ def provider() -> DisclosureProvider:
                 "unresolved_data_type",
             ),
         ),
-        (FrameAxisSchema, "frame_axis_schema", ("frame_schema.axes",), ("frame_field",)),
+        (
+            FrameAxisSchema,
+            "frame_axis_schema",
+            ("frame_schema.axes",),
+            (
+                "frame_field",
+                "frame_ordinary_axis_schema",
+                "frame_calendar_axis_schema",
+                "frame_interval_axis_schema",
+                "frame_paired_axis_schema",
+            ),
+        ),
+        (
+            FrameOrdinaryAxisSchema,
+            "frame_ordinary_axis_schema",
+            ("frame_schema.axes",),
+            ("frame_fixed_axis",),
+        ),
+        (
+            FrameCalendarAxisSchema,
+            "frame_calendar_axis_schema",
+            ("frame_schema.axes",),
+            ("frame_period_page",),
+        ),
+        (
+            FrameIntervalAxisSchema,
+            "frame_interval_axis_schema",
+            ("frame_schema.axes",),
+            ("frame_period_page",),
+        ),
+        (
+            FramePairedAxisSchema,
+            "frame_paired_axis_schema",
+            ("frame_schema.axes",),
+            ("frame_period_page",),
+        ),
+        (
+            FrameBuiltinGrain,
+            "frame_builtin_grain",
+            ("frame_calendar_axis_schema.grain", "frame_to_date_window.grain"),
+            (),
+        ),
+        (
+            FrameNamedGrain,
+            "frame_named_grain",
+            ("frame_calendar_axis_schema.grain", "frame_to_date_window.grain"),
+            ("semantic_object_identity",),
+        ),
+        (
+            FrameCalendarEndpoint,
+            "frame_calendar_endpoint",
+            (
+                "frame_paired_axis_schema.left",
+                "frame_paired_axis_schema.right",
+                "frame_calendar_comparison_binding.baseline",
+            ),
+            ("frame_period_page",),
+        ),
+        (
+            FrameIntervalEndpoint,
+            "frame_interval_endpoint",
+            (
+                "frame_paired_axis_schema.left",
+                "frame_paired_axis_schema.right",
+                "frame_interval_comparison_binding.baseline",
+            ),
+            ("frame_period_page",),
+        ),
+        (FrameFixedAxis, "frame_fixed_axis", ("frame_schema.fixed_axes",), ("frame_fixed_group",)),
+        (FrameAxisTime, "frame_axis_time", ("frame_observation_context.time",), ()),
+        (
+            FrameComparedTime,
+            "frame_compared_time",
+            ("frame_observation_context.time",),
+            ("frame_comparison",),
+        ),
+        (FrameFixedTime, "frame_fixed_time", ("frame_observation_context.time",), ()),
+        (
+            FrameAllHistoryWindow,
+            "frame_all_history_window",
+            ("frame_observation_context.window",),
+            (),
+        ),
+        (FrameSinceWindow, "frame_since_window", ("frame_observation_context.window",), ()),
+        (FrameToDateWindow, "frame_to_date_window", ("frame_observation_context.window",), ()),
+        (
+            FrameTrailingDurationWindow,
+            "frame_trailing_duration_window",
+            ("frame_observation_context.window",),
+            (),
+        ),
+        (
+            FrameTrailingPeriodsWindow,
+            "frame_trailing_periods_window",
+            ("frame_observation_context.window",),
+            (),
+        ),
+        (
+            FrameObservationContext,
+            "frame_observation_context",
+            ("frame_schema.value_contexts",),
+            ("frame_comparison_group", "frame_level_target"),
+        ),
+        (
+            FrameAxisGroup,
+            "frame_axis_group",
+            ("frame_statistic_context.groups", "frame_decomposition.groups"),
+            ("frame_schema.axes",),
+        ),
+        (
+            FrameFixedGroup,
+            "frame_fixed_group",
+            ("frame_statistic_context.groups", "frame_decomposition.groups"),
+            ("frame_fixed_axis",),
+        ),
+        (
+            FrameStatisticContext,
+            "frame_statistic_context",
+            ("frame_schema.value_contexts",),
+            ("frame_comparison_group", "frame_level_target"),
+        ),
+        (
+            FrameComparisonValue,
+            "frame_comparison_value",
+            ("frame_comparison_group.values",),
+            ("frame_schema.values",),
+        ),
+        (
+            FrameComparisonGroup,
+            "frame_comparison_group",
+            ("frame_comparison.groups",),
+            ("frame_comparison_value",),
+        ),
+        (
+            FrameComparisonPresence,
+            "frame_comparison_presence",
+            ("frame_comparison.presence",),
+            ("frame_schema.presence",),
+        ),
+        (
+            FrameOrdinaryComparisonBinding,
+            "frame_ordinary_comparison_binding",
+            ("frame_comparison.binding",),
+            (),
+        ),
+        (
+            FrameCalendarComparisonBinding,
+            "frame_calendar_comparison_binding",
+            ("frame_comparison.binding",),
+            ("frame_calendar_endpoint",),
+        ),
+        (
+            FrameIntervalComparisonBinding,
+            "frame_interval_comparison_binding",
+            ("frame_comparison.binding",),
+            ("frame_interval_endpoint",),
+        ),
+        (
+            FrameComparison,
+            "frame_comparison",
+            ("frame_schema.comparisons",),
+            ("analysis_frame.read_periods", "frame_period_page.target"),
+        ),
+        (
+            FrameLevelTarget,
+            "frame_level_target",
+            ("frame_decomposition.target",),
+            ("frame_observation_context", "frame_statistic_context"),
+        ),
+        (
+            FrameChangeTarget,
+            "frame_change_target",
+            ("frame_decomposition.target",),
+            ("frame_comparison",),
+        ),
+        (
+            FrameDecompositionField,
+            "frame_decomposition_field",
+            ("frame_decomposition.outputs",),
+            ("frame_schema.values", "frame_schema.presence"),
+        ),
+        (
+            FrameDecomposition,
+            "frame_decomposition",
+            ("frame_schema.decompositions",),
+            ("frame_decomposition_field", "frame_level_target", "frame_change_target"),
+        ),
         (
             FieldExportColumn,
             "field_export_column",
@@ -86,8 +325,68 @@ def provider() -> DisclosureProvider:
             ),
         ),
         (FrameReadStats, "frame_read_stats", ("frame_page.read_stats",), ()),
+        (
+            FramePeriodPage,
+            "frame_period_page",
+            ("analysis_frame.read_periods",),
+            (
+                "frame_calendar_period",
+                "frame_interval_period",
+                "frame_paired_period",
+                "frame_comparison_period",
+                "frame_read_stats",
+            ),
+        ),
+        (
+            FrameCalendarPeriod,
+            "frame_calendar_period",
+            ("frame_period_page.items",),
+            ("frame_period_page",),
+        ),
+        (
+            FrameIntervalPeriod,
+            "frame_interval_period",
+            ("frame_period_page.items",),
+            ("frame_period_page",),
+        ),
+        (
+            FramePairedPeriod,
+            "frame_paired_period",
+            ("frame_period_page.items",),
+            ("frame_calendar_period", "frame_interval_period"),
+        ),
+        (
+            FrameComparisonPeriod,
+            "frame_comparison_period",
+            ("frame_period_page.items",),
+            ("frame_calendar_period", "frame_interval_period"),
+        ),
     )
+    method_owners = {
+        (name, getattr(owner, name)): tuple(
+            candidate
+            for candidate, _, _, _ in types
+            if getattr(candidate, name, None) is getattr(owner, name)
+        )
+        for owner, _, _, _ in types
+        for name in ("show", "render")
+        if getattr(owner, name, None) is not None
+    }
+
+    def method_target(owner: type[object], target: str, name: str) -> str:
+        method = getattr(owner, name, None)
+        if method is getattr(RenderableResult, name, None):
+            return "runtime.values." + name
+        if issubclass(owner, FrameAxisSchema):
+            return "frame_axis_schema." + name
+        return target + "." + name
+
     for owner, target, producers, consumers in types:
+        method_targets = tuple(
+            method_target(owner, target, name)
+            for name in ("show", "render")
+            if getattr(owner, name, None) is not None
+        )
         descriptors.append(
             value_type(
                 target,
@@ -97,33 +396,36 @@ def provider() -> DisclosureProvider:
                 producers=producers,
                 consumers=(
                     *consumers,
-                    "runtime.values.show"
-                    if owner in (FramePage, FrameReadStats)
-                    else target + ".show",
+                    *method_targets,
                 ),
                 constraints=(
                     "Identities apply within one exact input. No source execution, Store lookup or data authority.",
                 ),
             )
         )
-        if owner in (FramePage, FrameReadStats):
-            continue
         for method_name in ("show", "render"):
             method = getattr(owner, method_name, None)
-            if method is None:
+            if method is None or method is getattr(RenderableResult, method_name, None):
+                continue
+            method_id = (method_name, method)
+            owners = method_owners[method_id]
+            if owner is not owners[0]:
                 continue
             parameters = tuple(
                 P(name, "Positive UTF-8 display budget or None.")
-                for name in signature(method).parameters
+                for name in signature(getattr(owner, method_name)).parameters
                 if name != "self"
             )
             output = "None" if method_name == "show" else "str"
+            shared_target = method_target(owner, target, method_name)
             descriptors.append(
                 operation(
-                    target + "." + method_name,
+                    shared_target,
                     "value." + method_name,
                     method,
-                    bindings=(bind(method, owner),),
+                    bindings=tuple(
+                        bind(getattr(candidate, method_name), candidate) for candidate in owners
+                    ),
                     summary="Display bounded captured read metadata.",
                     parameters=parameters,
                     output=output,
@@ -187,6 +489,49 @@ def provider() -> DisclosureProvider:
     )
     descriptors.append(
         operation(
+            "analysis_frame.read_periods",
+            "frame.read_periods",
+            AnalysisFrame.read_periods,
+            bindings=(bind(AnalysisFrame.read_periods, AnalysisFrame),),
+            summary="Read a bounded page of saved calendar or interval periods and their consumed endpoint mappings.",
+            parameters=(
+                P(
+                    "target",
+                    "A time FrameAxis or a current time FrameComparison from this exact Frame.",
+                    ("analysis_frame.axes", "frame_schema.comparisons"),
+                ),
+                P("limit", "Integer 1..10000 excluding bool; default 1000."),
+                P(
+                    "cursor",
+                    "Previous period cursor; repeat the same target and limit, or use None to start.",
+                ),
+            ),
+            output="FramePeriodPage",
+            constraints=(
+                "Requires complete memory or stored data; compute/persist first. No execution, automatic persistence, Catalog or source reads.",
+                "Accepts current calendar/interval/paired axes and current calendar/interval comparisons; ordinary axes and comparisons reject.",
+                "Returns saved period definitions and consumed correspondences, not the current row domain. Join complete keys to read_page coordinates.",
+                "Named labels retain their scalar types; interval records do not infer unsaved civil bounds or current timezone rules.",
+                "A paired endpoint can be absent without a saved reason; time comparison absence uses its saved reason, independently of row presence.",
+                "Cursors bind input, target, result version and limit. Stored reopen in the same Runtime version may continue.",
+                "Stats report decoded coordinate records and receipt-hash bytes, not total I/O or latency; receipt validation and endpoint lookup may scan files.",
+            ),
+            effects="Decode one selected period/map page and its endpoint records; page objects retain no reader or whole attachment.",
+            failures=(
+                "AnalysisError: follow expected/received facts and choose a time target from this Frame. Invalid requests fail before payload reads.",
+            ),
+            example=ExampleInput(
+                "fixed = time_frame.compute()\naxis = next(axis for axis in fixed.axes if axis.role in ('calendar', 'interval', 'paired'))\nresult = fixed.read_periods(axis, limit=100)",
+                ("time_frame",),
+                "result",
+                "FramePeriodPage",
+            ),
+            related=("analysis_frame.schema", "analysis_frame.read_page"),
+            discovery_group="results.inspect",
+        )
+    )
+    descriptors.append(
+        operation(
             "frame_page.to_pandas",
             "page.to_pandas",
             FramePage.to_pandas,
@@ -204,7 +549,50 @@ def provider() -> DisclosureProvider:
             ),
         )
     )
-    exported = (FrameSchema, FrameField, FrameAxisSchema, FramePage, FrameReadStats)
+    exported = {
+        FrameSchema,
+        FrameField,
+        FrameAxisSchema,
+        FrameOrdinaryAxisSchema,
+        FrameCalendarAxisSchema,
+        FrameIntervalAxisSchema,
+        FramePairedAxisSchema,
+        FrameBuiltinGrain,
+        FrameNamedGrain,
+        FrameCalendarEndpoint,
+        FrameIntervalEndpoint,
+        FrameFixedAxis,
+        FrameAxisTime,
+        FrameComparedTime,
+        FrameFixedTime,
+        FrameAllHistoryWindow,
+        FrameSinceWindow,
+        FrameToDateWindow,
+        FrameTrailingDurationWindow,
+        FrameTrailingPeriodsWindow,
+        FrameObservationContext,
+        FrameAxisGroup,
+        FrameFixedGroup,
+        FrameStatisticContext,
+        FrameComparisonValue,
+        FrameComparisonGroup,
+        FrameComparisonPresence,
+        FrameOrdinaryComparisonBinding,
+        FrameCalendarComparisonBinding,
+        FrameIntervalComparisonBinding,
+        FrameComparison,
+        FrameLevelTarget,
+        FrameChangeTarget,
+        FrameDecompositionField,
+        FrameDecomposition,
+        FramePage,
+        FrameReadStats,
+        FramePeriodPage,
+        FrameCalendarPeriod,
+        FrameIntervalPeriod,
+        FramePairedPeriod,
+        FrameComparisonPeriod,
+    }
     return DisclosureProvider(
         "analysis.dsl.reads",
         tuple(descriptors),

@@ -40,7 +40,12 @@ from marivo.analysis.binding.frame_attribute_sources import (
     source_group_key,
 )
 from marivo.analysis.binding.observe import bind_observation
-from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis, PairedDataAxis
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataComparison,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     OperationFrameBinding,
@@ -308,7 +313,7 @@ def source_inputs(
                             )
                             else fact.current_presence
                         )
-                        presence = endpoint.path
+                        presence = endpoint.path if endpoint is not None else None
             if isinstance(target.target.pairing, AlignFrameValues):
                 presence = (f"{projection_side}_present",)
         keys = AttributeKeys(
@@ -613,7 +618,10 @@ def _single(
             request.operation,
             request.games,
             FrameAttributeTarget(
-                target.path, target.target.mode, parent._schema.value_paths.index(target.path)
+                target.path,
+                target.target.mode,
+                parent._schema.value_paths.index(target.path),
+                _target_comparison(parent, target),
             ),
             permutations,
             seed,
@@ -636,6 +644,7 @@ def _single(
             target.path,
             target.target.mode,
             parent._schema.value_paths.index(target.path),
+            _target_comparison(parent, target),
         ),
         target.target.mode == "level",
         request.source_rules,
@@ -830,3 +839,72 @@ def attribute(
     from marivo.analysis.dsl.frame_attribute_merge import merge_attribute_reports
 
     return merge_attribute_reports(reports)
+
+
+def _target_comparison(parent: AnalysisFrame, target: DerivedOutput) -> DataComparison | None:
+    """Capture align-derived change endpoints at their actual source binding boundary."""
+    from dataclasses import replace
+
+    from marivo.analysis.binding.lineage import source_lineage
+    from marivo.analysis.core.data_schema import (
+        ComparisonValueBinding,
+        DataComparison,
+        OrdinaryComparisonBinding,
+        PairedDataAxis,
+    )
+    from marivo.analysis.core.frame_fix import FixFrameValues
+    from marivo.analysis.core.frame_interpretation import (
+        FrameValueContext,
+        remap_context,
+        unary_facts,
+    )
+    from marivo.analysis.core.lineage import all_origins
+    from marivo.analysis.dsl.frame_sources import pending_schema
+
+    if target.target.mode == "level" or any(
+        v.value_path == target.path and v.role == target.target.mode
+        for fact in parent._schema.comparisons
+        for v in fact.values
+    ):
+        return None
+    baseline = target.target.baseline
+    assert baseline is not None
+    contexts: list[FrameValueContext | None] = []
+    fixed = []
+    for side, metric in (("left", target.target.current), ("right", baseline)):
+        schema, _ = pending_schema(metric.binding.graph, metric.binding.state)
+        tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {}
+        for before, after in metric.axis_positions:
+            axis = parent._schema.axes[after]
+            endpoint: Literal["self", "left", "right"] = "left" if side == "left" else "right"
+            tokens[schema.axes[before].token] = (
+                axis.token,
+                endpoint if isinstance(axis, PairedDataAxis) else "self",
+            )
+        contexts.append(
+            remap_context(dict(schema.value_contexts).get(".".join(metric.path)), tokens)
+        )
+        lineage = source_lineage(schema, metric.binding)
+        selections = []
+        for position, key in metric.fixed_axes:
+            axis = schema.axes[position]
+            operation = FixFrameValues(position, key, all_origins(lineage.axes[axis.token]))
+            restricted = replace(
+                schema,
+                axes=tuple(a for i, a in enumerate(schema.axes) if i != position),
+                value_contexts=(),
+            )
+            selections.append(unary_facts(schema, restricted, operation).fixed_axes[-1])
+        fixed.append(tuple(selections))
+    return DataComparison(
+        "endpoints",
+        (ComparisonValueBinding(target.target.mode, target.path, target.path),),
+        OrdinaryComparisonBinding(),
+        None,
+        None,
+        namespace=("attribute", *target.path),
+        contexts=((target.path, contexts[0], contexts[1]),),
+        current_fixed_axes=fixed[0],
+        baseline_fixed_axes=fixed[1],
+        named=False,
+    )

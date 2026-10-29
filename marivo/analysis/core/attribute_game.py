@@ -152,26 +152,61 @@ def game_schema(
         if isinstance(base, PendingDataSchema) and isinstance(value, DataColumn):
             value = _pending_column(value)
         values.append(value)
+    from marivo.analysis.core.frame_interpretation import (
+        FrameDecompositionField,
+        FrameDecompositionRole,
+        decomposition_facts,
+    )
+
+    roles: tuple[FrameDecompositionRole, ...] = (
+        "contribution",
+        "total",
+        "observed_total",
+        "share",
+        "contribution_std_error",
+        "current",
+        "baseline",
+        "absolute",
+    )
     paths = tuple((*prefix, *path) for prefix in prefixes)
     presence_paths = tuple(("detail", side, "present", *path) for side in ("current", "baseline"))
+    fields = tuple(
+        FrameDecompositionField("value", role, ".".join(p))
+        for role, p in zip(roles, paths, strict=True)
+    ) + tuple(
+        FrameDecompositionField(
+            "presence", "current_present" if i == 0 else "baseline_present", ".".join(p)
+        )
+        for i, p in enumerate(presence_paths)
+    )
     if isinstance(base, DataSchema):
-        return replace(
+        return decomposition_facts(
+            replace(
+                base,
+                values=tuple(v for v in values if isinstance(v, DataColumn)),
+                value_paths=paths,
+                presence=tuple(
+                    replace(column, name=".".join(p))
+                    for column, p in zip(base.presence, presence_paths, strict=True)
+                ),
+                presence_paths=presence_paths,
+            ),
+            parent,
+            operation.target,
+            fields,
+        )
+    return decomposition_facts(
+        replace(
             base,
-            values=tuple(v for v in values if isinstance(v, DataColumn)),
+            values=tuple(v for v in values if isinstance(v, PendingDataColumn)),
             value_paths=paths,
             presence=tuple(
                 replace(column, name=".".join(p))
                 for column, p in zip(base.presence, presence_paths, strict=True)
             ),
             presence_paths=presence_paths,
-        )
-    return replace(
-        base,
-        values=tuple(v for v in values if isinstance(v, PendingDataColumn)),
-        value_paths=paths,
-        presence=tuple(
-            replace(column, name=".".join(p))
-            for column, p in zip(base.presence, presence_paths, strict=True)
         ),
-        presence_paths=presence_paths,
+        parent,
+        operation.target,
+        fields,
     )

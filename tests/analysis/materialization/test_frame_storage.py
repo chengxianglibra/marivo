@@ -1,4 +1,4 @@
-"""Store22 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store23 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -34,7 +34,12 @@ from marivo.analysis.core.artifact_data import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
+from marivo.analysis.core.frame_audit import (
+    EvaluationRecord,
+    FrameAudit,
+    FrameResultMetadata,
+    StoredFrameMetadata,
+)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -43,6 +48,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_page import FramePeriodPage
 from marivo.analysis.core.frozen_calendar import (
     FrozenKey,
     calendar_directory_schema,
@@ -208,6 +214,11 @@ def _stored_backing(frame: AnalysisFrame) -> StoredFrameBacking:
     return frame._backing
 
 
+def _stored_description(metadata: FrameResultMetadata, input_id: str) -> StoredFrameMetadata:
+    described = terminal_store.describe(metadata)
+    return replace(described, lineage=replace(described.lineage, input_id=input_id))
+
+
 def _complete_schema(frame: AnalysisFrame) -> DataSchema:
     assert isinstance(frame._schema, DataSchema)
     return frame._schema
@@ -265,7 +276,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
     current, baseline = period_endpoints(local)
     report = current.compare({"base": mv.baseline(baseline)}).compute()
     literal = report.select({"constant": 1}).compute()
-    assert literal._schema.comparisons[0].values == ()
+    assert literal.schema.comparisons == ()
     nested = report.align(report).compute()
     assert all(fact.namespace for fact in nested._schema.comparisons)
     for memory in (baseline, report, literal, nested):
@@ -342,7 +353,18 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
             (encode(corrupt), value.artifact_id),
         )
     backing = local.open_frame(value.artifact_id)
-    for consume in (lambda: local.read_complete(backing), lambda: local.preview(backing, 1)):
+    reopened = AnalysisFrame._from_stored(
+        local,
+        backing.data,
+        artifact_id=backing.artifact_id,
+        metadata=backing.metadata,
+        method_facts=backing.method_facts,
+    )
+    for consume in (
+        lambda: local.read_complete(backing),
+        lambda: local.preview(backing, 1),
+        lambda: _period_page(reopened, limit=1, comparison=True),
+    ):
         with pytest.raises(AnalysisError, match="resolv"):
             consume()
     assert local.preview(backing, 0).attachments == ()
@@ -460,8 +482,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v11"
-    assert local.store.layout.generation == 22
+    assert FORMAT == "marivo.frame_output/v12"
+    assert local.store.layout.generation == 23
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     with local.store._read() as conn:
@@ -508,11 +530,13 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     saved = memory.persist()
     second = memory.persist()
     assert _stored_backing(saved).artifact_id != _stored_backing(second).artifact_id
-    assert (
-        _stored_backing(saved).metadata
-        == _stored_backing(second).metadata
-        == terminal_store.describe(_memory_backing(memory).metadata)
+    source_metadata = _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == _stored_description(source_metadata, saved._input_id)
+    assert _stored_backing(second).metadata == _stored_description(
+        source_metadata, second._input_id
     )
+    assert _stored_backing(saved).metadata.lineage.input_id == saved._input_id
+    assert _stored_backing(second).metadata.lineage.input_id == second._input_id
     assert saved.persist() is saved
     reopened = AnalysisFrame._from_stored(
         local,
@@ -524,8 +548,8 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     loaded = saved.compute()
     assert loaded._input_id != saved._input_id
     assert isinstance(loaded._backing, MemoryFrameBacking)
-    assert (
-        terminal_store.describe(_memory_backing(loaded).metadata) == _stored_backing(saved).metadata
+    assert _stored_description(_memory_backing(loaded).metadata, saved._input_id) == (
+        _stored_backing(saved).metadata
     )
     pd.testing.assert_frame_equal(saved.to_pandas(), loaded.to_pandas())
     old = manifest(saved)
@@ -801,8 +825,8 @@ def test_lost_commit_ack_returns_original_without_evaluation(
     assert saved.description == "Original purpose despite lost acknowledgement"
     assert local.open_frame(saved.artifact_id).description == saved.description
     assert counts(local) == (1, 1)
-    assert _stored_backing(saved).metadata == terminal_store.describe(
-        _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == _stored_description(
+        _memory_backing(memory).metadata, saved._input_id
     )
     assert local.store.resources(local.session_ref) == ()
 
@@ -848,8 +872,8 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
     assert store.resources(local.session_ref) == ()
     saved = memory.persist()
     assert counts(local) == (2, committed_before + 1)
-    assert _stored_backing(saved).metadata == terminal_store.describe(
-        _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == _stored_description(
+        _memory_backing(memory).metadata, saved._input_id
     )
     pd.testing.assert_frame_equal(saved.to_pandas(), memory.to_pandas())
 
@@ -880,7 +904,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v22").exists()
+    assert not (old.parent.parent / "v23").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -1003,6 +1027,7 @@ def test_temporal_cold_reader_keeps_physical_ticks_nulls_and_detaches(
     ]
     script = """
 import json, sys
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 import pyarrow as pa
@@ -1031,7 +1056,9 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         assert array.cast(pa.int64()).to_pylist() == [-(2**63), None]
     (store.project_root / backing.data.rows.receipt.project_relative_path / "data.parquet").unlink()
     copied = local.publish(result)
-    assert copied.metadata == terminal_store.describe(result.metadata)
+    expected = terminal_store.describe(result.metadata)
+    expected = replace(expected, lineage=replace(expected.lineage, input_id=copied.metadata.lineage.input_id))
+    assert copied.metadata == expected
     copied_rows = local.read_complete(copied).data.copy_rows()
     for name, timestamp, unit in specs:
         physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
@@ -1149,7 +1176,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v22").exists()
+    assert (old.parent.parent / "v23").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1234,7 +1261,11 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
         _memory_backing(loaded).data.copy_attachments()[0].rows,
         _memory_backing(fixed).data.copy_attachments()[0].rows,
     )
-    assert _memory_backing(loaded).metadata == _memory_backing(fixed).metadata
+    loaded_metadata = _memory_backing(loaded).metadata
+    fixed_metadata = _memory_backing(fixed).metadata
+    assert replace(loaded_metadata, lineage=fixed_metadata.lineage) == fixed_metadata
+    assert replace(loaded.lineage, input_id=fixed.lineage.input_id) == fixed.lineage
+    assert loaded.lineage.input_id == loaded._input_id
     assert local.preview(_stored_backing(saved), 1).attachments[0].rows[
         "nominal_label"
     ].tolist() == ['"P3"']
@@ -1691,7 +1722,8 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     before = counts(local)
     loaded = saved.compute()
     assert (
-        terminal_store.describe(_memory_backing(loaded).metadata) == _stored_backing(saved).metadata
+        _stored_description(_memory_backing(loaded).metadata, saved._input_id)
+        == _stored_backing(saved).metadata
     )
     read_calls = 0
     row_references: list[weakref.ReferenceType[pd.DataFrame]] = []
@@ -1782,10 +1814,12 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
 
     script = """
 import os, sys
+from dataclasses import replace
 from unittest.mock import patch
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from marivo.analysis.core import frame_calendar
+from marivo.analysis.materialization import terminal_store
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
@@ -1805,7 +1839,9 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     assert len(compared.to_pandas()) == 3
     assert len(terminal_runs(session)) == before
     copied = result.persist()
-    assert copied._backing.metadata == terminal_store.describe(result._backing.metadata)
+    expected = terminal_store.describe(result._backing.metadata)
+    expected = replace(expected, lineage=replace(expected.lineage, input_id=copied._input_id))
+    assert copied._backing.metadata == expected
     assert copied.to_pandas()["amount"].tolist() == [2, 1]
     assert len(terminal_runs(session)) == before + 1
 """
@@ -1827,8 +1863,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     after_cold = counts(local)
     assert after_cold == (before[0] + 1, before[1] + 1)
     copied = result.persist()
-    assert _stored_backing(copied).metadata == terminal_store.describe(
-        _memory_backing(result).metadata
+    assert _stored_backing(copied).metadata == _stored_description(
+        _memory_backing(result).metadata, copied._input_id
     )
     pd.testing.assert_frame_equal(copied.to_pandas(), result.to_pandas())
     old = manifest(saved)
@@ -1836,8 +1872,9 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         local.store.project_root / old.data.rows.receipt.project_relative_path / "data.parquet"
     ).unlink()
     assert saved.persist() is saved
-    assert _stored_backing(result.persist()).metadata == terminal_store.describe(
-        _memory_backing(result).metadata
+    saved_again = result.persist()
+    assert _stored_backing(saved_again).metadata == _stored_description(
+        _memory_backing(result).metadata, saved_again._input_id
     )
     with pytest.raises(AnalysisError):
         saved.where(saved["amount"] > 0).compute()
@@ -2426,8 +2463,8 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     saved = memory.persist()
     assert saved.method_facts == original
     assert saved.compute().method_facts == original
-    assert _stored_backing(saved).metadata == terminal_store.describe(
-        _memory_backing(memory).metadata
+    assert _stored_backing(saved).metadata == _stored_description(
+        _memory_backing(memory).metadata, saved._input_id
     )
     before = counts(memory._local)
     for fixed in (memory, saved):
@@ -3462,3 +3499,342 @@ def test_exported_coordinate_tables_keep_exact_carriers_and_nulls() -> None:
     assert table["stamp"].type == pa.timestamp("us", tz="UTC")
     assert table["stamp"].cast(pa.int64()).to_pylist() == [2**53 + 1, None]
     assert rows.attrs == rows.copy(deep=True).attrs
+
+
+def _period_page(
+    frame: AnalysisFrame,
+    *,
+    limit: int = 1000,
+    cursor: str | None = None,
+    comparison: bool = False,
+) -> FramePeriodPage:
+    target = frame.schema.comparisons[0] if comparison else frame.axes[0]
+    return frame.read_periods(target, limit=limit, cursor=cursor)
+
+
+def test_period_pages_keep_sparse_partial_directory_and_original_order(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.frame_page import FrameCalendarPeriod
+
+    original = calendar(local, 4)
+    backing = _memory_backing(original)
+    part = backing.data.copy_attachments()[0]
+    directory = part.rows.copy()
+    directory.loc[0, "actual_start"] = datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
+    directory.loc[0, "actual_start_civil"] = "2024-01-01T12:00:00.000000+00:00"
+    # Valid input attachment order is canonicalized once at completion.
+    directory = directory.iloc[[2, 0, 3, 1]].reset_index(drop=True)
+    sparse = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                backing.data.schema,
+                backing.data.copy_rows().iloc[:1],
+                (replace(part, rows=directory),),
+            ),
+            backing.metadata,
+        ),
+    )
+    assert _memory_backing(sparse).data._attachments[0].rows["ordinal"].tolist() == [0, 1, 2, 3]
+    stored = sparse.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("period page consumed primary data or method payloads")
+
+    monkeypatch.setattr(FrameReader, "data", forbidden)
+    monkeypatch.setattr(FrameReader, "method_facts", forbidden)
+    for frame in (sparse, stored):
+        page = _period_page(frame, limit=2)
+        assert page.input_id == frame.schema.input_id
+        assert page.target == frame.schema.axes[0]
+        assert len(page) == 2 and page.total_count == 4 and page.has_more
+        assert [item.key for item in page.items] == [(900_000,), (900_017,)]
+        first = page.items[0]
+        assert isinstance(first, FrameCalendarPeriod)
+        assert first.label == "2024-01-01" and first.ordinal == 0
+        assert first.start == datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
+        assert first.nominal_start == datetime(2024, 1, 1, tzinfo=timezone.utc)
+        assert first.actual_start_civil == "2024-01-01T12:00:00.000000+00:00"
+        assert "FrameCalendarPeriod key=(900000)" in repr(first)
+        assert ".show()" in repr(first) and "\n" not in repr(first)
+        assert page.read_stats.data_rows_read == 0
+        tail = _period_page(frame, limit=2, cursor=page.next_cursor)
+        assert [item.key for item in tail.items] == [(900_034,), (900_051,)]
+        assert not tail.has_more and tail.next_cursor is None
+        # The sole represented row joins to the last frozen period, not page-local row 0.
+        row_key = frame.read_page(limit=1).coordinates["bucket"][0]
+        assert row_key == tail.items[1].key[0] == 900_051
+
+
+def test_period_pages_preserve_complete_typed_keys(local: LocalFrameServices) -> None:
+    from decimal import Decimal
+
+    from marivo.analysis.core.data_types import DecimalDataType
+
+    original = calendar(local, 2)
+    source = _memory_backing(original).data
+    axis = source.schema.axes[0]
+    assert isinstance(axis, CalendarDataAxis)
+    columns = (
+        DataColumn("stamp", "stamp", TimestampDataType("ns", "UTC"), False),
+        DataColumn("day", "day", ScalarDataType("date"), False),
+        DataColumn("elapsed", "elapsed", DurationDataType("ns"), False),
+        DataColumn("part", "part", DecimalDataType(20, 2), False),
+    )
+    keys = pd.DataFrame(
+        {
+            "stamp": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([2**53 + 1, -(2**63)], type=pa.int64()).cast(pa.timestamp("ns", "UTC"))
+                )
+            ),
+            "day": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([-(2**31), 1], type=pa.int32()).cast(pa.date32())
+                )
+            ),
+            "elapsed": pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array([-(2**63), 2**53 + 1], type=pa.int64()).cast(pa.duration("ns"))
+                )
+            ),
+            "part": pd.Series(
+                [Decimal("123456789012345678.91"), Decimal("-0.01")],
+                dtype=pd.ArrowDtype(pa.decimal128(20, 2)),
+            ),
+        }
+    )
+    directory = pd.concat([keys, source.copy_attachments()[0].rows.drop(columns="bucket")], axis=1)
+    target_axis = replace(axis, columns=columns)
+    rows = keys.iloc[::-1].reset_index(drop=True)
+    rows["amount"] = source.copy_rows()["amount"]
+    memory = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                replace(source.schema, axes=(target_axis,)),
+                rows,
+                (
+                    OutputAttachment(
+                        "calendar.period", calendar_directory_schema(target_axis), directory
+                    ),
+                ),
+            ),
+            metadata(),
+        ),
+    )
+    for frame in (memory, memory.persist()):
+        period = _period_page(frame, limit=1).items[0]
+        stamp, day, elapsed, part = period.key
+        assert isinstance(stamp, pa.TimestampScalar) and stamp.value == 2**53 + 1
+        assert stamp.type == pa.timestamp("ns", "UTC")
+        assert isinstance(day, pa.Date32Scalar) and day.value == -(2**31)
+        assert isinstance(elapsed, pa.DurationScalar) and elapsed.value == -(2**63)
+        assert part == Decimal("123456789012345678.91")
+        assert "date32[day]:-2147483648" in repr(period)
+        assert len(repr(period)) < 320
+        data = frame.read_page(limit=2)
+        joined = tuple(data.coordinates[c.slot_id][1] for c in columns)
+        assert period.key == joined
+
+
+def test_period_pages_return_paired_endpoints_and_saved_comparison_absence(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.frame_page import FrameComparisonPeriod, FramePairedPeriod
+
+    current, baseline = calendar(local, 4), calendar(local, 3)
+    paired = current.align(baseline, match=CalendarCorrespondence("ordinal")).compute()
+    compared = current.compare(
+        {"base": mv.baseline(baseline, match=CalendarCorrespondence("ordinal"))}
+    ).compute()
+    for memory, comparison in ((paired, False), (compared, True)):
+        for frame in (memory, memory.persist()):
+            page = _period_page(frame, limit=3, comparison=comparison)
+            assert page.total_count == 4 and page.read_stats.data_rows_read == 0
+            tail = _period_page(frame, limit=3, cursor=page.next_cursor, comparison=comparison)
+            assert len(tail) == 1
+            item = tail.items[0]
+            if comparison:
+                assert isinstance(item, FrameComparisonPeriod)
+                assert item.key == (900_051,) and item.current.key == (900_051,)
+                assert item.baseline is None and item.absent_reason == "unmatched"
+            else:
+                assert isinstance(item, FramePairedPeriod)
+                assert item.key == (3,)
+                assert item.left is not None and item.left.key == (900_051,)
+                assert item.right is None
+            assert not tail.has_more
+
+
+def test_period_pages_keep_endpoint_timezones_without_reconstruction(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo import _timezones
+    from marivo.analysis.core.frame_page import FrameIntervalPeriod, FramePairedPeriod
+
+    left = interval(local, 1, 2, zone="Asia/Shanghai")
+    right = interval(local, 3, 4, zone="America/New_York")
+    # Equality alignment retains two distinct interval identities in saved order.
+    memory = left.align(right).compute()
+    stored = memory.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("saved period reader resolved current timezone rules")
+
+    monkeypatch.setattr(_timezones, "ZoneInfo", forbidden)
+    for frame in (memory, stored):
+        page = _period_page(frame)
+        assert [item.timezone for item in page.items if isinstance(item, FrameIntervalPeriod)] == [
+            "Asia/Shanghai",
+            "America/New_York",
+        ]
+        assert [item.start for item in page.items if isinstance(item, FrameIntervalPeriod)] == [
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 3, tzinfo=timezone.utc),
+        ]
+        assert all(not isinstance(item, FramePairedPeriod) for item in page.items)
+
+
+def test_interval_period_pages_keep_saved_pairs_and_comparison_endpoints(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.frame_page import FrameComparisonPeriod, FramePairedPeriod
+
+    current, baseline = interval(local, 1, 4), interval(local, 2, 5)
+    paired = current.align(baseline, match=CalendarCorrespondence("ordinal")).compute()
+    compared = current.compare(
+        {"base": mv.baseline(baseline, match=CalendarCorrespondence("ordinal"))}
+    ).compute()
+    for memory, comparison in ((paired, False), (compared, True)):
+        for frame in (memory, memory.persist()):
+            page = _period_page(frame, comparison=comparison)
+            assert page.total_count == len(page) == 1 and not page.has_more
+            item = page.items[0]
+            assert item.key == (0,)
+            if isinstance(item, FrameComparisonPeriod):
+                assert comparison and item.baseline is not None
+                assert item.current.start == datetime(2024, 1, 1, tzinfo=timezone.utc)
+                assert item.baseline.start == datetime(2024, 1, 2, tzinfo=timezone.utc)
+                assert item.absent_reason is None
+            else:
+                assert isinstance(item, FramePairedPeriod) and not comparison
+                assert item.left is not None and item.right is not None
+                assert item.left.start == datetime(2024, 1, 1, tzinfo=timezone.utc)
+                assert item.right.end == datetime(2024, 1, 5, tzinfo=timezone.utc)
+
+
+def test_named_period_pages_decode_captured_labels_and_keep_identity(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.data_schema import NamedCalendarData
+    from marivo.analysis.core.frame_page import FrameCalendarPeriod
+    from marivo.analysis.core.lineage import SemanticObjectIdentity
+
+    original = calendar(local, 3)
+    source = _memory_backing(original).data
+    axis = source.schema.axes[0]
+    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+    ref = SemanticObjectIdentity("period_calendar", "business", "definition-exact")
+    named = replace(
+        axis,
+        frozen=replace(
+            axis.frozen, definition=NamedCalendarData("business", "snapshot", "period", ref)
+        ),
+    )
+    part = source.copy_attachments()[0]
+    directory = part.rows.copy()
+    directory["nominal_label"] = pd.Series(['"P1"', "true", "1"], dtype="string[pyarrow]")
+    memory = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                replace(source.schema, axes=(named,)),
+                source.copy_rows(),
+                (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
+            ),
+            metadata(),
+        ),
+    )
+    for frame in (memory, memory.persist()):
+        page = _period_page(frame)
+        labels = [item.label for item in page.items if isinstance(item, FrameCalendarPeriod)]
+        assert labels == ["P1", True, 1]
+        assert [type(label) for label in labels] == [str, bool, int]
+        assert page.target == frame.schema.axes[0]
+        assert page.items[2].key == (900_034,)
+
+
+def test_period_page_retains_only_selected_records_and_uses_bounded_batches(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization import graph_reading
+
+    memory = calendar(local, 1001)
+    stored = memory.persist()
+    monkeypatch.setattr(graph_reading, "POLICY", replace(POLICY, batch_rows=7))
+    selected = _period_page(stored, limit=1)
+    assert len(selected.items) == 1 and selected.items[0].key == (900_000,)
+    assert selected.total_count == 1001
+    assert selected.read_stats.data_rows_read == 0
+    assert selected.read_stats.coordinate_rows_read == 7
+    assert not any(
+        isinstance(getattr(selected, item.name), (pd.DataFrame, FrameReader, AnalysisFrame))
+        for item in fields(selected)
+    )
+    directory = _memory_backing(memory).data._attachments[0].rows
+    reference = weakref.ref(directory)
+    detached = _period_page(memory, limit=1)
+    del directory, memory
+    gc.collect()
+    assert reference() is None
+    assert detached.items[0].key == (900_000,)
+
+
+@pytest.mark.parametrize("case", ["bool", "zero", "large", "cursor", "limit", "other", "ordinary"])
+def test_period_page_request_rejection_precedes_payload_reads(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    from marivo.analysis.materialization.frame_paging import read_frame_periods
+
+    frame = calendar(local, 3).persist()
+    page = _period_page(frame, limit=1)
+    target = frame.schema.axes[0]
+    limit: int = 1
+    cursor = None
+    if case == "bool":
+        limit = True
+    elif case == "zero":
+        limit = 0
+    elif case == "large":
+        limit = 10001
+    elif case == "cursor":
+        cursor = "invalid"
+    elif case == "limit":
+        limit, cursor = 2, page.next_cursor
+    elif case == "other":
+        frame = calendar(local, 3).persist()
+        target, cursor = frame.schema.axes[0], page.next_cursor
+    else:
+        frame = ordinary(local).persist()
+        target = frame.schema.axes[0]
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("invalid period request opened a payload")
+
+    monkeypatch.setattr(OutputRead, "_open", forbidden)
+    with pytest.raises(AnalysisError):
+        read_frame_periods(
+            input_id=frame._input_id,
+            schema=_complete_schema(frame),
+            backing=_stored_backing(frame),
+            local=local,
+            target=target,
+            limit=limit,
+            cursor=cursor,
+        )

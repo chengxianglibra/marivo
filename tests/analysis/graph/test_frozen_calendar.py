@@ -38,11 +38,13 @@ from marivo.analysis.core.frozen_calendar import (
     FrozenComparisonMatch,
     FrozenIntervalBucket,
     FrozenIntervalDirectory,
+    FrozenKey,
     build_partial_calendar_map,
     calendar_directory_rows,
     calendar_directory_schema,
     comparison_mapping_schema,
     coordinate_attachment_schemas,
+    frozen_key_values,
     interval_directory_rows,
     interval_directory_schema,
     merge_equal_calendar_directories,
@@ -1035,3 +1037,25 @@ def test_interval_comparison_retains_current_coordinate_and_consumed_endpoint_ma
         validate_frozen_coordinates(structure, rows, absent_attachments)
     rows["presence.0"] = False
     validate_frozen_coordinates(structure, rows, absent_attachments)
+
+
+def test_detached_period_keys_keep_order_null_decimal_and_exact_temporal_ticks() -> None:
+    from decimal import Decimal
+
+    from marivo.analysis.core.data_types import DecimalDataType
+
+    key: FrozenKey = (
+        (ScalarDataType("string"), None),
+        (DecimalDataType(20, 2), Decimal("123456789012345678.91")),
+        (ScalarDataType("date"), -(2**31)),
+        (TimestampDataType("us", "UTC"), -(2**63)),
+        (DurationDataType("ns"), 2**53 + 1),
+    )
+    values = frozen_key_values(key)
+    assert values[:2] == (None, Decimal("123456789012345678.91"))
+    day, stamp, duration = values[2:]
+    assert isinstance(day, pa.Date32Scalar) and day.value == -(2**31)
+    assert isinstance(stamp, pa.TimestampScalar) and stamp.value == -(2**63)
+    assert stamp.type == pa.timestamp("us", "UTC")
+    assert isinstance(duration, pa.DurationScalar) and duration.value == 2**53 + 1
+    assert duration.type == pa.duration("ns")

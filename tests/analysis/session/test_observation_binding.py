@@ -555,3 +555,160 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     assert terminal_runs(session) == ()
     with pytest.raises(AnalysisError, match="at most one output time axis"):
         session.observe({"p": p.count()}, by=(scope, scope.by(mv.grain("day"))))
+
+
+def test_observation_context_captures_direct_subject_and_only_explicit_window(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAxisTime,
+        FrameObservationContext,
+        FrameTrailingPeriodsWindow,
+    )
+
+    session = bound_catalog()
+    revenue = session.catalog.get("metric:sales.revenue")
+    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+    frame = session.observe(
+        {
+            "daily": revenue,
+            "weekly": revenue.window(mv.trailing_periods(count=7)),
+            "anonymous": revenue + 0,
+        },
+        by=(scope.by(mv.grain("day")),),
+    )
+    daily, weekly, anonymous = (
+        frame.schema.value_contexts[name] for name in ("daily", "weekly", "anonymous")
+    )
+    assert isinstance(daily, FrameObservationContext) and isinstance(
+        weekly, FrameObservationContext
+    )
+    assert daily.subject is not None and daily.subject.path == "sales.revenue"
+    assert weekly.subject == daily.subject
+    assert daily.window is None
+    assert weekly.window == FrameTrailingPeriodsWindow(7)
+    assert daily.time == weekly.time == FrameAxisTime(frame.axes[0].token)
+    assert anonymous.subject is None
+    selected = frame.select(
+        {"copy": frame["weekly"], "again": frame["weekly"], "arithmetic": frame["weekly"] + 1}
+    )
+    assert tuple(selected.schema.value_contexts) == ("copy", "again")
+    assert selected.schema.value_contexts["copy"] is selected.schema.value_contexts["again"]
+    assert (
+        selected.where(selected["copy"] > 0).schema.value_contexts == selected.schema.value_contexts
+    )
+    assert terminal_runs(session) == ()
+
+
+@pytest.mark.parametrize(
+    "variant", ["all_history", "since", "to_date", "trailing_duration", "trailing_periods"]
+)
+def test_explicit_window_fact_variants_are_closed(
+    bound_catalog: BoundCatalogFactory, variant: str
+) -> None:
+    session = bound_catalog()
+    metric = session.catalog.get("metric:sales.revenue")
+    rules = {
+        "all_history": mv.all_history(),
+        "since": mv.since(start=datetime(2025, 1, 1, tzinfo=timezone.utc)),
+        "to_date": mv.to_date(grain=mv.grain("month")),
+        "trailing_duration": mv.trailing_duration(duration=timedelta(days=7)),
+        "trailing_periods": mv.trailing_periods(count=7),
+    }
+    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
+    frame = session.observe({"value": metric.window(rules[variant])}, by=(axis,))
+    assert frame.schema.value_contexts["value"].window.kind == variant
+
+
+def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameComparedTime, FrameObservationContext
+
+    session = bound_catalog()
+    revenue = session.catalog.get("metric:sales.revenue")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
+    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
+    current = session.observe({"q": revenue}, by=(axis, region))
+    current = current.fix(current.axes[1], "east")
+    baseline = session.observe(
+        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis, region)
+    )
+    baseline = baseline.fix(baseline.axes[1], "west")
+    compared = current.compare({"prior": mv.baseline(baseline)})
+    relation = compared.schema.comparisons[0]
+    assert relation.alias == "prior" and relation.binding.kind == "calendar"
+    assert compared.schema.fixed_axes == ()
+    assert relation.current_fixed_axes[0].key == ("east",)
+    assert relation.baseline_fixed_axes[0].key == ("west",)
+    group = relation.groups[0]
+    assert group.current_context == compared.schema.value_contexts["q"]
+    assert group.baseline_context == compared.schema.value_contexts["prior.baseline.q"]
+    assert isinstance(group.current_context, FrameObservationContext)
+    assert isinstance(group.baseline_context, FrameObservationContext)
+    assert group.current_context.time == FrameComparedTime(relation.comparison_id, "current")
+    assert group.baseline_context.time == FrameComparedTime(relation.comparison_id, "baseline")
+    assert group.current_context.window is None
+    assert group.baseline_context.window.count == 7
+    projected = compared.select(
+        {
+            "old": compared["prior.baseline.q"],
+            "copy": compared["prior.baseline.q"],
+            "delta": compared["prior.absolute.q"],
+            "arithmetic": compared["prior.absolute.q"] + 1,
+        }
+    )
+    assert [(v.role, v.name) for v in projected.schema.comparisons[0].groups[0].values] == [
+        ("baseline", "old"),
+        ("baseline", "copy"),
+        ("absolute", "delta"),
+    ]
+    assert tuple(projected.schema.value_contexts) == ("old", "copy")
+    assert current.compare(baseline).schema.comparisons[0].alias is None
+
+
+def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameComparedTime, FrameObservationContext
+
+    session = bound_catalog()
+    revenue = session.catalog.get("metric:sales.revenue")
+    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
+    current = session.observe({"q": revenue}, by=(axis,))
+    baseline = session.observe({"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis,))
+    compared = current.compare({"prior": mv.baseline(baseline)})
+
+    aligned = compared.align(
+        compared,
+        on=((compared.axes[0], compared.axes[0]),),
+        match=mv.ordinal(),
+    )
+
+    assert aligned.schema.comparisons == ()
+    assert all(
+        not isinstance(context.time, FrameComparedTime)
+        for context in aligned.schema.value_contexts.values()
+        if isinstance(context, FrameObservationContext)
+    )
+
+
+def test_nested_comparison_rebinds_existing_endpoint_contexts_without_changing_time(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameComparedTime
+
+    session = bound_catalog()
+    revenue = session.catalog.get("metric:sales.revenue")
+    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
+    current = session.observe({"q": revenue}, by=(axis,))
+    baseline = session.observe({"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis,))
+    first = current.compare({"prior": mv.baseline(baseline)})
+    second = first.compare({"next": mv.baseline(first)})
+    context = second.schema.value_contexts["prior.baseline.q"]
+    assert context.time == FrameComparedTime("current.prior", "baseline")
+    assert context.window.count == 7
+    assert second.schema.value_contexts["next.baseline.prior.baseline.q"].time == FrameComparedTime(
+        "next.prior", "baseline"
+    )
+    assert {c.comparison_id for c in second.schema.comparisons} >= {"current.prior", "next.prior"}

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
@@ -926,6 +926,42 @@ def _resolve_comparison_facts(
                 )
             additions.append(OutputAttachment(new.mapping_name, map_schema, mapping))
     resolved = replace(output, comparisons=tuple(retained))
+    from marivo.analysis.core.frame_interpretation import FrameValueContext, remap_context
+    from marivo.analysis.core.frame_schema import comparison_id
+
+    # Compare/combine outputs have no decompositions; only value-bearing relations
+    # produce a public comparison group in this completed schema.
+    public_comparisons = {comparison_id(fact) for fact in resolved.comparisons if fact.values}
+    comparison_ids = {
+        comparison_id(fact): comparison_id(fact)
+        for fact in resolved.comparisons
+        if comparison_id(fact) in public_comparisons
+    }
+    context_tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {
+        axis.token: (axis.token, "self") for axis in resolved.axes
+    }
+
+    def current_context(context: FrameValueContext | None) -> FrameValueContext | None:
+        return remap_context(context, context_tokens, comparison_ids)
+
+    resolved = replace(
+        resolved,
+        comparisons=tuple(
+            replace(
+                fact,
+                contexts=tuple(
+                    (path, current_context(current), current_context(baseline))
+                    for path, current, baseline in fact.contexts
+                ),
+            )
+            for fact in resolved.comparisons
+        ),
+        value_contexts=tuple(
+            (name, rebound)
+            for name, context in resolved.value_contexts
+            if (rebound := current_context(context)) is not None
+        ),
+    )
     required = coordinate_attachments(resolved)
     owned: dict[str, OutputAttachment] = {}
     for attachment in (*produced, *additions):

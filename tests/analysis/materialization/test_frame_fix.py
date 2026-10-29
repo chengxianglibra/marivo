@@ -76,6 +76,9 @@ def test_fix_preserves_order_cells_and_complete_other_coordinates(
     fixed = frame.fix(frame.axis("cluster"), "bi1").compute()
     assert [a.name for a in fixed.axes] == ["region", "item"]
     assert fixed._schema.values == frame._schema.values
+    assert fixed.schema.fixed_axes[0].axis.name == "cluster"
+    assert fixed.schema.fixed_axes[0].key == ("bi1",)
+    assert "cluster" not in fixed.schema.slots
     rows = fixed.to_pandas()
     assert rows["region"].tolist() == ["west", "east"]
     assert rows["item"].tolist() == [2, 1]
@@ -157,7 +160,9 @@ def test_fix_preserves_nanosecond_keys_and_rejects_lossy_narrowing(
     )
     frame = memory(local, (axis("key", dtype),), pd.DataFrame({"key": keys, "v": [7, 11, 19]}))
     for key, expected in zip(keys, (7, 11, 19), strict=True):
-        rows = frame.fix(frame.axes[0], key).compute().to_pandas()
+        fixed = frame.fix(frame.axes[0], key).compute()
+        assert fixed.schema.fixed_axes[0].key[0].value == key.value
+        rows = fixed.to_pandas()
         assert rows["value"].tolist() == [expected]
 
     coarse_dtype = (
@@ -221,6 +226,9 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     assert saved._derivation is None
+    assert saved.lineage.input_id == saved.schema.input_id
+    assert saved.schema.fixed_axes[0].axis.name == "cluster"
+    assert saved.schema.fixed_axes[0].key == ("bi1",)
     fixed = saved.fix(saved.axis('region'), 'east').compute()
     assert fixed.axes == ()
     assert fixed.to_pandas()['value'].tolist() == [120]

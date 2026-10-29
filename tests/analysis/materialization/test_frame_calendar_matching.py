@@ -721,6 +721,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
 ) -> None:
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
+    from marivo.analysis.core.lineage import SemanticObjectIdentity
     from marivo.analysis.dsl import frame_sources
 
     session = analysis_dsl_case_factory("j2").session
@@ -729,11 +730,16 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
     from marivo.analysis.core.frame_calendar import freeze_calendar as original
 
     def freeze(
-        coordinate: CalendarCoordinate, *, token: str, name: str, key: DataColumn
+        coordinate: CalendarCoordinate,
+        *,
+        token: str,
+        name: str,
+        key: DataColumn,
+        calendar_ref: SemanticObjectIdentity | None = None,
     ) -> FrozenSourceCalendar:
         nonlocal frozen
         frozen += 1
-        return original(coordinate, token=token, name=name, key=key)
+        return original(coordinate, token=token, name=name, key=key, calendar_ref=calendar_ref)
 
     monkeypatch.setattr(frame_sources, "freeze_calendar", freeze)
 
@@ -1137,7 +1143,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
         scalar = paired.select({"constant": 1}).compute()
         scalar_rows = scalar.to_pandas()
         assert scalar_rows["constant"].tolist() == [1]
-        assert scalar._schema.comparisons == fixed._schema.comparisons
+        assert scalar._schema.comparisons == ()
 
     explicit_chain(selected)
     computed = selected.compute()
@@ -1152,7 +1158,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
     assert len(_memory_backing(expected_same).data.copy_attachments()) == 7
     expected_same_rows = expected_same.to_pandas()
     assert expected_same_rows["again.absolute.delta"].tolist() == [0]
-    assert len(expected_displaced._schema.comparisons) == 3
+    assert len(expected_displaced._schema.comparisons) == 1
     assert all(
         isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
         for fact in expected_displaced._schema.comparisons[1:]
@@ -1219,6 +1225,39 @@ def test_pending_source_comparison_continuations_match_completed_authority(
             actual = chain(fixed, displaced=displaced).compute()
             assert actual._schema == expected._schema
             pd.testing.assert_frame_equal(actual.to_pandas(), expected.to_pandas())
+
+
+def test_completed_align_prunes_comparison_contexts_after_calendar_domain_expands(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameComparedTime, FrameObservationContext
+    from marivo.analysis.dsl import frame_sources
+
+    session = analysis_dsl_case_factory("j2").session
+    source = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
+        by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
+    )
+    compared = source.compare({"prior": mv.baseline(source)})
+    extra = memory(session._runtime.local, ("2026-08-01", "2026-08-03"), (0, 1), (3, 4))
+    aligned = compared.align(extra, on=((compared.axes[0], extra.axes[0]),))
+
+    pending_contexts = aligned.schema.value_contexts.values()
+    assert any(
+        isinstance(context, FrameObservationContext) and isinstance(context.time, FrameComparedTime)
+        for context in pending_contexts
+    )
+    completed = aligned.compute()
+
+    assert completed.schema.comparisons == ()
+    assert all(
+        not isinstance(context.time, FrameComparedTime)
+        for context in completed.schema.value_contexts.values()
+        if isinstance(context, FrameObservationContext)
+    )
 
 
 def test_pending_shifted_self_align_owns_only_paired_endpoint_facts(

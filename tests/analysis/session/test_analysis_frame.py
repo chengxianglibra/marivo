@@ -597,3 +597,88 @@ def test_ordinary_time_coordinate_exports_one_value_with_aliases(local: LocalFra
             .tolist()
             == times.tolist()
         )
+
+
+def test_current_row_contexts_are_local_and_restrict_without_recalculation(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAxisGroup,
+        FrameFixedGroup,
+        FrameStatisticContext,
+    )
+
+    root = _memory(local)
+    summary = root.reduce(
+        {"sum": root["value"].sum(), "mean": root["value"].mean(), "rows": row_count()}
+    )
+    assert {
+        name: c.statistic
+        for name, c in summary.schema.value_contexts.items()
+        if isinstance(c, FrameStatisticContext)
+    } == {"sum": "sum", "mean": "mean", "rows": "row_count"}
+    assert summary.compute().to_pandas().iloc[0].tolist() == [110, 55, 2]
+    for method in ("pearson", "spearman"):
+        result = root.correlate(root["value"], root["value"] * 2, method=method)
+        assert result.schema.value_contexts["coefficient"].statistic == method
+        assert result.schema.value_contexts["n_pairs"].statistic == "pair_count"
+    broadcast = root.select({"value": root["value"], "total": root.over(root["value"].sum())})
+    assert broadcast.compute().to_pandas()["total"].tolist() == [110, 110]
+    restricted = broadcast.where(broadcast["value"] > 50).compute()
+    assert restricted.to_pandas()["total"].tolist() == [110]
+    assert restricted.schema.value_contexts["total"] == FrameStatisticContext(
+        "sum", (), "restricted"
+    )
+    renamed = restricted.select(
+        {
+            "copy": restricted["total"],
+            "again": restricted["total"],
+            "derived": restricted["total"] + 1,
+        }
+    )
+    assert tuple(renamed.schema.value_contexts) == ("copy", "again")
+    assert renamed.schema.value_contexts["copy"] is renamed.schema.value_contexts["again"]
+    grouped = root.reduce({"total": root["value"].sum()}, by=root.axes)
+    assert grouped.schema.value_contexts["total"].groups == (FrameAxisGroup(root.axes[0].token),)
+    fixed = grouped.fix(grouped.axes[0], "A")
+    assert isinstance(fixed.schema.value_contexts["total"].groups[0], FrameFixedGroup)
+    assert fixed.schema.value_contexts["total"].row_scope == "complete"
+    assert fixed.schema.fixed_axes[0].key == ("A",)
+    assert fixed.schema.fixed_axes[0].axis.keys[0].slot_id not in fixed.schema.slots
+
+
+def test_comparison_keeps_distinct_fixed_statistics_on_their_endpoints(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameFixedGroup, FrameStatisticContext
+
+    root = _memory(local)
+    grouped = root.reduce({"total": root["value"].sum()}, by=root.axes)
+    left = grouped.fix(grouped.axes[0], "A")
+    right = grouped.fix(grouped.axes[0], "B")
+
+    compared = left.compare(right)
+
+    assert compared.schema.fixed_axes == ()
+    assert compared.schema.value_contexts == {}
+    comparison = compared.schema.comparisons[0]
+    assert comparison.current_fixed_axes[0].key == ("A",)
+    assert comparison.baseline_fixed_axes[0].key == ("B",)
+    current, baseline = comparison.groups[0].current_context, comparison.groups[0].baseline_context
+    assert isinstance(current, FrameStatisticContext)
+    assert isinstance(baseline, FrameStatisticContext)
+    assert isinstance(current.groups[0], FrameFixedGroup)
+    assert isinstance(baseline.groups[0], FrameFixedGroup)
+    assert current.groups[0].fixed.key == ("A",)
+    assert baseline.groups[0].fixed.key == ("B",)
+
+
+def test_align_drops_statistics_whose_fixed_groups_are_not_common(
+    local: LocalFrameServices,
+) -> None:
+    root = _memory(local)
+    grouped = root.reduce({"total": root["value"].sum()}, by=root.axes)
+    left, right = grouped.fix(grouped.axes[0], "A"), grouped.fix(grouped.axes[0], "B")
+    aligned = left.align(right)
+    assert aligned.schema.fixed_axes == ()
+    assert aligned.schema.value_contexts == {}

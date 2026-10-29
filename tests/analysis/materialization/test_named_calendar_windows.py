@@ -398,3 +398,45 @@ def test_calendar_window_validates_consumed_authority(
             {"total": metric}, by=(scope.by(mv.grain("week")) if case == "containment" else scope,)
         )
     assert not terminal_runs(session)
+
+
+def test_current_named_axis_and_window_preserve_consumed_calendar_identity(
+    calendar_window_project: SemanticCatalog,
+) -> None:
+    from marivo.analysis.core.frame_interpretation import (
+        FrameCalendarAxisSchema,
+        FrameNamedGrain,
+        FrameObservationContext,
+        FrameToDateWindow,
+    )
+    from marivo.semantic.expressions import _Resolver
+
+    publish_fiscal_calendar_artifact(calendar_window_project)
+    session = mv.session.get_or_create("named-fact-identity", timezone="UTC")
+    calendar = _calendar(session.catalog)
+    metric = _metric(session.catalog, "sales.gmv")
+    scope = session.time_scope(start="2026-01-05", end="2026-01-27")
+    frame = session.observe(
+        {"daily": metric, "reset": metric.window(mv.to_date(grain=calendar.grain("fiscal_month")))},
+        by=(scope.by(calendar.grain("day")),),
+    )
+    axis = frame.schema.axes[0]
+    assert isinstance(axis, FrameCalendarAxisSchema) and isinstance(axis.grain, FrameNamedGrain)
+    ref = as_ref(calendar)
+    assert ref is not None
+    exact = _Resolver(session.catalog._state).exact(ref)
+    assert axis.grain.ref.definition_id == exact.version
+    snapshot = session._sources().period_calendar_snapshots[0]
+    assert axis.grain.ref.definition_id != snapshot.snapshot_digest
+    assert axis.grain.ref.path == "sales.fiscal" and axis.grain.level == "day"
+    context = frame.schema.value_contexts["reset"]
+    assert isinstance(context, FrameObservationContext) and isinstance(
+        context.window, FrameToDateWindow
+    )
+    assert isinstance(context.window.grain, FrameNamedGrain)
+    assert context.window.grain.ref == axis.grain.ref
+    assert context.window.grain.level == "fiscal_month"
+    saved = frame.persist()
+    reopened = session.persisted_frame(saved.artifact_id)
+    assert reopened.schema.axes == saved.schema.axes
+    assert reopened.schema.value_contexts == saved.schema.value_contexts

@@ -9,55 +9,109 @@ from types import MappingProxyType
 from typing import Literal, TypeAlias
 
 from marivo.analysis.core.data_schema import (
+    BuiltinCalendarData,
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
+    DataComparison,
     DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
+    NamedCalendarData,
     PairedDataAxis,
 )
-from marivo.analysis.core.data_types import DataColumn, DataType, require_data_text
+from marivo.analysis.core.data_types import DataColumn, require_data_text
+from marivo.analysis.core.frame_interpretation import (
+    FrameAxisSchema as FrameAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameBuiltinGrain as FrameBuiltinGrain,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarAxisSchema as FrameCalendarAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarComparisonBinding as FrameCalendarComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarEndpoint as FrameCalendarEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameChangeTarget as FrameChangeTarget,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparedTime as FrameComparedTime,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparison as FrameComparison,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonGroup as FrameComparisonGroup,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonPresence as FrameComparisonPresence,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameComparisonValue as FrameComparisonValue,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameDataType as FrameDataType,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameDecomposition as FrameDecomposition,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameField as FrameField,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameFixedAxis as FrameFixedAxis,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameGrain as FrameGrain,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalAxisSchema as FrameIntervalAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalComparisonBinding as FrameIntervalComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIntervalEndpoint as FrameIntervalEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameLevelTarget as FrameLevelTarget,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameNamedGrain as FrameNamedGrain,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameObservationContext as FrameObservationContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameOrdinaryAxisSchema as FrameOrdinaryAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameOrdinaryComparisonBinding as FrameOrdinaryComparisonBinding,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FramePairedAxisSchema as FramePairedAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameTimeEndpoint as FrameTimeEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameValueContext as FrameValueContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    UnresolvedDataType as UnresolvedDataType,
+)
 from marivo.analysis.core.frame_structure import (
-    AxisRole,
     PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
-    ValueKind,
     axis_role,
 )
 from marivo.analysis.core.model import reject
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class UnresolvedDataType:
-    """Captured value kind whose physical type is unresolved; acquired from pending schema."""
-
-    kind: ValueKind
-
-    def __post_init__(self) -> None:
-        if self.kind not in (
-            "numeric",
-            "boolean",
-            "string",
-            "date",
-            "timestamp",
-            "duration",
-            "unresolved",
-        ):
-            _invalid("an explicit pending value kind")
-
-    def __repr__(self) -> str:
-        return f"<UnresolvedDataType kind={self.kind}; use .show()>"
-
-    def show(self) -> None:
-        """Print the known kind. Args: None. Returns: None.
-
-        Example: ``frame.schema.values['revenue'].dtype.show()``.
-        Constraints: Does not execute or infer a type from data.
-        """
-        print(repr(self))
-
-
-FrameDataType: TypeAlias = DataType | UnresolvedDataType
 
 
 def _invalid(received: str) -> None:
@@ -68,73 +122,6 @@ def _invalid(received: str) -> None:
         "frame.schema",
         canonical_id="analysis_frame.schema",
     )
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameField:
-    """One exact-input slot, acquired from a FrameSchema directory or complete axis key."""
-
-    slot_id: str
-    name: str
-    dtype: FrameDataType
-    nullable: bool | None
-    unit: str | None
-
-    def __post_init__(self) -> None:
-        require_data_text(self.slot_id, "frame.schema.slot_id")
-        require_data_text(self.name, "frame.schema.name")
-        if self.nullable is not None and type(self.nullable) is not bool:
-            _invalid("nullability must be a boolean or explicitly unresolved")
-        if self.nullable is None and not isinstance(self.dtype, UnresolvedDataType):
-            _invalid("only unresolved pending fields may have unknown nullability")
-        if self.unit is not None:
-            require_data_text(self.unit, "frame.schema.unit")
-
-    def __repr__(self) -> str:
-        return f"<FrameField slot={self.slot_id[:64]!r} name={self.name[:64]!r}; use .show()>"
-
-    def show(self) -> None:
-        """Print captured slot facts. Args: None. Returns: None.
-
-        Example: ``frame.schema.values['revenue'].show()``.
-        Constraints: Names and slots belong only to this exact input.
-        """
-        print(repr(self))
-        unit = None if self.unit is None else self.unit[:160]
-        print(f"dtype={self.dtype!r} nullable={self.nullable} unit={unit!r}")
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameAxisSchema:
-    """A complete logical axis, acquired from FrameSchema.axes; no operation authority."""
-
-    token: str
-    name: str
-    role: AxisRole
-    keys: tuple[FrameField, ...]
-
-    def __post_init__(self) -> None:
-        require_data_text(self.token, "frame.schema.axis.token")
-        require_data_text(self.name, "frame.schema.axis.name")
-        if self.role not in ("field", "identity", "calendar", "interval", "paired"):
-            _invalid("an axis role from the closed logical role set")
-        if type(self.keys) is not tuple or not self.keys:
-            _invalid("the complete immutable axis key")
-
-    def __repr__(self) -> str:
-        return f"<FrameAxisSchema token={self.token[:64]!r} role={self.role} keys={len(self.keys)}; use .show()>"
-
-    def show(self) -> None:
-        """Print bounded complete-key facts. Args: None. Returns: None.
-
-        Example: ``frame.schema.axes[0].show()``.
-        Constraints: At most 20 key fields; read keys for the complete tuple.
-        """
-        print(repr(self))
-        for key in self.keys[:20]:
-            print(repr(key))
-        if len(self.keys) > 20:
-            print(f"{len(self.keys) - 20} keys omitted; read .keys")
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -301,12 +288,25 @@ class FrameSchema:
     _presence: tuple[FrameField, ...]
     axes: tuple[FrameAxisSchema, ...]
     layout: tuple[FrameExportColumn, ...]
+    fixed_axes: tuple[FrameFixedAxis, ...] = ()
+    _value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    comparisons: tuple[FrameComparison, ...] = ()
+    decompositions: tuple[FrameDecomposition, ...] = ()
 
     def __post_init__(self) -> None:
         require_data_text(self.input_id, "frame.schema.input_id")
         fields = (*self._values, *self._presence, *(key for axis in self.axes for key in axis.keys))
         if len({item.slot_id for item in fields}) != len(fields):
             _invalid("unique slots within this exact Frame input")
+
+    @property
+    def value_contexts(self) -> Mapping[str, FrameValueContext]:
+        """Return captured current value explanations by complete name; missing means unspecified.
+
+        Args: None. Returns: Read-only mapping. Example: ``frame.schema.value_contexts``.
+        Constraints: Captured facts only; never reads definitions or source rows.
+        """
+        return MappingProxyType(dict(self._value_contexts))
 
     @property
     def values(self) -> Mapping[str, FrameField]:
@@ -347,19 +347,46 @@ class FrameSchema:
         return f"<FrameSchema input={self.input_id[:64]!r} axes={len(self.axes)} values={len(self._values)} presence={len(self._presence)}; use .show()>"
 
     def show(self) -> None:
-        """Print bounded captured structure. Args: None. Returns: None.
+        """Print bounded current structure and interpretation facts.
 
-        Example: ``frame.schema.show()``.
-        Constraints: At most 20 axes and 20 fields; typed directories remain complete.
+        Args: None. Returns: None. Example: ``frame.schema.show()``.
+        Constraints: Metadata only, with an 8192-byte budget and representative
+        entries; typed directories retain every captured fact.
         """
-        print(repr(self))
-        for axis in self.axes[:20]:
-            print(repr(axis))
-        for item in (*self._values, *self._presence)[:20]:
-            print(repr(item))
-        omitted = max(len(self.axes) - 20, 0) + max(len(self._values) + len(self._presence) - 20, 0)
-        if omitted:
-            print(f"{omitted} entries omitted; read typed directories")
+        from marivo.render import Card
+
+        card = Card(
+            identity=repr(self),
+            available=(
+                ".axes",
+                ".values",
+                ".presence",
+                ".fixed_axes",
+                ".value_contexts",
+                ".comparisons",
+                ".decompositions",
+            ),
+        )
+        for name, entries in (
+            ("axes", self.axes),
+            ("values", self._values),
+            ("presence", self._presence),
+            ("fixed_axes", self.fixed_axes),
+            ("value_contexts", self._value_contexts),
+            ("comparisons", self.comparisons),
+            ("decompositions", self.decompositions),
+        ):
+            card.field(name + ".count", str(len(entries)))
+            for index, item in enumerate(entries[:3]):
+                if name == "value_contexts":
+                    column, context = self._value_contexts[index]
+                    summary = f"{column[:120]}: {context!r}"
+                else:
+                    summary = repr(item)
+                card.field(f"{name}[{index}]", summary[:320])
+            if len(entries) > 3:
+                card.field(name + ".more", f"{len(entries) - 3} omitted; read .{name}")
+        print(card.render(max_output_bytes=8192))
 
 
 def _capture_field(column: DataColumn | PendingDataColumn) -> FrameField:
@@ -375,14 +402,147 @@ def capture_schema(input_id: str, schema: LogicalSchema) -> FrameSchema:
         input_id,
         tuple(_capture_field(column) for column in schema.values),
         tuple(_capture_field(column) for column in schema.presence),
-        tuple(
-            FrameAxisSchema(
-                axis.token,
-                axis.name,
-                axis_role(axis),
-                tuple(_capture_field(column) for column in axis.columns),
-            )
-            for axis in schema.axes
-        ),
+        tuple(capture_axis(axis) for axis in schema.axes),
         export_layout(schema),
+        schema.fixed_axes,
+        schema.value_contexts,
+        capture_comparisons(input_id, schema),
+        schema.decompositions,
     )
+
+
+def capture_grain(definition: BuiltinCalendarData | NamedCalendarData) -> FrameGrain:
+    """Project only a captured nominal definition; never perform a Catalog lookup."""
+    if isinstance(definition, BuiltinCalendarData):
+        return FrameBuiltinGrain(definition.unit, definition.step)
+    if definition.ref is None:
+        _invalid("a named calendar requires its consumed semantic definition identity")
+    assert definition.ref is not None
+    return FrameNamedGrain(definition.ref, definition.level)
+
+
+def capture_endpoint(axis: CalendarDataAxis | IntervalDataAxis) -> FrameTimeEndpoint:
+    if isinstance(axis, CalendarDataAxis):
+        assert axis.frozen is not None
+        return FrameCalendarEndpoint(
+            axis.name, axis.at, axis.timezone, capture_grain(axis.frozen.definition)
+        )
+    return FrameIntervalEndpoint(axis.name, axis.at, axis.timezone)
+
+
+def capture_axis(axis: DataAxis | PendingDataAxis) -> FrameAxisSchema:
+    keys = tuple(_capture_field(c) for c in axis.columns)
+    if isinstance(axis, CalendarDataAxis):
+        assert axis.frozen is not None
+        return FrameCalendarAxisSchema(
+            axis.token,
+            axis.name,
+            "calendar",
+            keys,
+            axis.timezone,
+            capture_grain(axis.frozen.definition),
+            at=axis.at,
+        )
+    if isinstance(axis, IntervalDataAxis):
+        return FrameIntervalAxisSchema(
+            axis.token, axis.name, "interval", keys, axis.timezone, at=axis.at
+        )
+    if isinstance(axis, PairedDataAxis):
+        return FramePairedAxisSchema(
+            axis.token,
+            axis.name,
+            "paired",
+            keys,
+            capture_endpoint(axis.left),
+            capture_endpoint(axis.right),
+            at=axis.at,
+        )
+    return FrameOrdinaryAxisSchema(axis.token, axis.name, axis_role(axis), keys, at=axis.at)
+
+
+def comparison_id(fact: DataComparison) -> str:
+    return ".".join((*fact.namespace, fact.alias))
+
+
+def capture_comparisons(input_id: str, schema: LogicalSchema) -> tuple[FrameComparison, ...]:
+    result: list[FrameComparison] = []
+    for fact in schema.comparisons:
+        binding = fact.binding
+        public_binding: (
+            FrameOrdinaryComparisonBinding
+            | FrameCalendarComparisonBinding
+            | FrameIntervalComparisonBinding
+        )
+        if isinstance(binding, CalendarComparisonBinding):
+            endpoint = capture_endpoint(binding.baseline)
+            assert isinstance(endpoint, FrameCalendarEndpoint)
+            public_binding = FrameCalendarComparisonBinding(
+                binding.current_axis_token, "self", endpoint
+            )
+        elif isinstance(binding, IntervalComparisonBinding):
+            endpoint = capture_endpoint(binding.baseline)
+            assert isinstance(endpoint, FrameIntervalEndpoint)
+            public_binding = FrameIntervalComparisonBinding(
+                binding.current_axis_token, "self", endpoint
+            )
+        else:
+            public_binding = FrameOrdinaryComparisonBinding()
+        sources = tuple(
+            dict.fromkeys(
+                (*tuple(v.source_path for v in fact.values), *tuple(p for p, _, _ in fact.contexts))
+            )
+        )
+        contexts = {p: (c, b) for p, c, b in fact.contexts}
+        required = {
+            d.target.group_id
+            for d in schema.decompositions
+            if isinstance(d.target, FrameChangeTarget)
+            and d.target.comparison_id == comparison_id(fact)
+        }
+        for decomposition in schema.decompositions:
+            target = decomposition.target
+            if (
+                isinstance(target, FrameLevelTarget)
+                and isinstance(target.context, FrameObservationContext)
+                and isinstance(target.context.time, FrameComparedTime)
+                and target.context.time.comparison_id == comparison_id(fact)
+            ):
+                required.update(".".join(path) for path, _, _ in fact.contexts)
+        groups = tuple(
+            FrameComparisonGroup(
+                ".".join(path),
+                ".".join(path),
+                tuple(
+                    FrameComparisonValue(v.role, ".".join(v.value_path))
+                    for v in fact.values
+                    if v.source_path == path
+                ),
+                *contexts.get(path, (None, None)),
+            )
+            for path in sources
+            if any(v.source_path == path for v in fact.values) or ".".join(path) in required
+        )
+        if not groups:
+            continue
+        presence = (
+            FrameComparisonPresence(
+                ".".join(fact.current_presence.path),
+                ".".join(fact.baseline_presence.path),
+                tuple(".".join(p.path) for p in fact.enclosing_presence),
+            )
+            if fact.current_presence is not None and fact.baseline_presence is not None
+            else None
+        )
+        result.append(
+            FrameComparison(
+                input_id,
+                comparison_id(fact),
+                fact.alias if fact.named else None,
+                groups,
+                public_binding,
+                presence,
+                fact.current_fixed_axes,
+                fact.baseline_fixed_axes,
+            )
+        )
+    return tuple(result)

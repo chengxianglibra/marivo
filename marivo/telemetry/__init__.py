@@ -23,7 +23,7 @@ from typing import Literal, ParamSpec, TypeVar, cast
 
 from marivo import __version__, _execution_log, _jsonl
 from marivo._compat import UTC
-from marivo.config import STATE_DIR, load_project_config
+from marivo.config import ANALYSIS_STORE_GENERATION, STATE_DIR, load_project_config
 from marivo.project import resolve_project_root
 
 TelemetryScalar = str | int | float | bool
@@ -413,7 +413,14 @@ def _session_creation_attributes(
     name = arguments.get("name")
     if not isinstance(name, str):
         return attrs
-    db_path = root / STATE_DIR / "analysis" / "generations" / "v22" / "session_store.db"
+    db_path = (
+        root
+        / STATE_DIR
+        / "analysis"
+        / "generations"
+        / f"v{ANALYSIS_STORE_GENERATION}"
+        / "session_store.db"
+    )
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
         return attrs

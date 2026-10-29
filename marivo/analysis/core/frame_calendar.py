@@ -22,6 +22,7 @@ from marivo.analysis.core.artifact_data import (
     OutputAttachment,
 )
 from marivo.analysis.core.data_schema import FrozenCalendarOrigin
+from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
 
 BuiltinUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -49,7 +50,12 @@ class FrozenSourceCalendar:
 
 
 def freeze_calendar(
-    coordinate: CalendarCoordinate, *, token: str, name: str, key: DataColumn
+    coordinate: CalendarCoordinate,
+    *,
+    token: str,
+    name: str,
+    key: DataColumn,
+    calendar_ref: SemanticObjectIdentity | None = None,
 ) -> FrozenSourceCalendar:
     grain = coordinate.grain_spec
     labels: list[str] = []
@@ -79,7 +85,9 @@ def freeze_calendar(
                 "Capture the complete certified calendar before source evaluation.",
                 "frame.calendar",
             )
-        definition = NamedCalendarData(grain._calendar.path, snapshot.snapshot_digest, grain.level)
+        definition = NamedCalendarData(
+            grain._calendar.path, snapshot.snapshot_digest, grain.level, calendar_ref
+        )
         for civil in coordinate.civil_bounds:
             start, end = (
                 datetime.fromisoformat(civil[0]).date(),
@@ -150,6 +158,7 @@ def freeze_calendar(
             token=f"{token}.origin",
             name=name,
             key=replace(key, slot_id=f"{key.slot_id}.origin"),
+            calendar_ref=calendar_ref,
         )
         assert axis.frozen is not None
         mapping_name = f"shift.{token}"

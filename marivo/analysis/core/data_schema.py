@@ -8,6 +8,12 @@ from typing import Literal
 
 from marivo.analysis.core.data_types import DataColumn as DataColumn
 from marivo.analysis.core.data_types import ScalarDataType, require_data_text
+from marivo.analysis.core.frame_interpretation import (
+    FrameDecomposition,
+    FrameFixedAxis,
+    FrameValueContext,
+)
+from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
 
 
@@ -73,6 +79,7 @@ class NamedCalendarData:
     identity: str
     snapshot_digest: str
     level: str
+    ref: SemanticObjectIdentity | None = None
 
     def __post_init__(self) -> None:
         require_data_text(self.identity, "data.calendar.identity")
@@ -321,10 +328,16 @@ class DataComparison:
     alias: str
     values: tuple[ComparisonValueBinding, ...]
     binding: OrdinaryComparisonBinding | CalendarComparisonBinding | IntervalComparisonBinding
-    current_presence: EndpointPresence
-    baseline_presence: EndpointPresence
+    current_presence: EndpointPresence | None
+    baseline_presence: EndpointPresence | None
     enclosing_presence: tuple[EndpointPresence, ...] = ()
     namespace: tuple[str, ...] = ()
+    contexts: tuple[
+        tuple[tuple[str, ...], FrameValueContext | None, FrameValueContext | None], ...
+    ] = ()
+    current_fixed_axes: tuple[FrameFixedAxis, ...] = ()
+    baseline_fixed_axes: tuple[FrameFixedAxis, ...] = ()
+    named: bool = True
 
     def __post_init__(self) -> None:
         from marivo.analysis.core.frame_structure import validate_paths
@@ -335,8 +348,14 @@ class DataComparison:
             or any(type(value) is not ComparisonValueBinding for value in self.values)
             or type(self.binding)
             not in (OrdinaryComparisonBinding, CalendarComparisonBinding, IntervalComparisonBinding)
-            or type(self.current_presence) is not EndpointPresence
-            or type(self.baseline_presence) is not EndpointPresence
+            or (
+                self.current_presence is not None
+                and type(self.current_presence) is not EndpointPresence
+            )
+            or (
+                self.baseline_presence is not None
+                and type(self.baseline_presence) is not EndpointPresence
+            )
             or type(self.enclosing_presence) is not tuple
             or any(type(endpoint) is not EndpointPresence for endpoint in self.enclosing_presence)
             or type(self.namespace) is not tuple
@@ -361,6 +380,9 @@ class DataSchema:
     value_paths: tuple[tuple[str, ...], ...] = ()
     presence_paths: tuple[tuple[str, ...], ...] = ()
     comparisons: tuple[DataComparison, ...] = ()
+    fixed_axes: tuple[FrameFixedAxis, ...] = ()
+    value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    decompositions: tuple[FrameDecomposition, ...] = ()
 
     def __post_init__(self) -> None:
         if (

@@ -12,6 +12,7 @@ from marivo.analysis.core.data_schema import DataAxis
 from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.frame_structure import PendingDataAxis, PendingDataColumn, axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, _arrow_type, frozen_key_rows
+from marivo.analysis.core.lineage import Origins
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.errors import AnalysisError
@@ -21,6 +22,7 @@ from marivo.analysis.errors import AnalysisError
 class FixFrameValues:
     position: int
     key: tuple[LiteralValue, ...]
+    origins: Origins = ()
 
 
 def validate_fixed_key(

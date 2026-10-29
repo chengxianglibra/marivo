@@ -135,6 +135,10 @@ def test_time_and_paired_export_layout_preserves_complete_axis_identity(
     pair = PairedDataAxis("pair", (key,), name="period", left=left, right=right, mapping_name="map")
     schema = capture_schema("paired-input", DataSchema((pair,), ()))
     assert schema.axes[0].role == "paired"
+    assert schema.axes[0].left.timezone == "UTC"
+    assert schema.axes[0].right.timezone == "UTC"
+    assert schema.axes[0].left.kind == kind
+    assert schema.axes[0].right.kind == kind
     assert tuple(field.slot_id for field in schema.axes[0].keys) == ("pair.key",)
     expected_parts = ("start", "end")
     assert tuple(column.part for column in schema.layout if column.kind == "coordinate") == (
@@ -271,6 +275,12 @@ def test_public_schema_uses_captured_facts_for_every_carrier_without_io(
     monkeypatch.setattr(terminal_store, "complete_metadata", forbidden)
     for frame, captured in zip(frames, expected, strict=True):
         assert frame.schema == captured
+        assert frame.lineage.input_id == captured.input_id
+        assert frame.schema.fixed_axes == ()
+        assert frame.schema.comparisons == ()
+        assert frame.schema.decompositions == ()
+        frame.schema.show()
+        frame.lineage.show()
         field = frame.schema.values["revenue"]
         assert frame.schema.slots[field.slot_id] == field
         assert field.unit == "USD"
@@ -360,3 +370,31 @@ def test_public_zero_axis_zero_value_page_retains_empty_or_unit_row(
         assert page.to_pandas().attrs == {}
         assert not page.has_more and page.next_cursor is None
         assert frame.schema.axes == () and frame.schema.slots == {}
+
+
+def test_interpretation_records_validate_closed_fields_and_bound_display(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAxisTime,
+        FrameObservationContext,
+        FrameStatisticContext,
+        FrameTrailingPeriodsWindow,
+    )
+    from marivo.analysis.core.lineage import SemanticObjectIdentity
+
+    subject = SemanticObjectIdentity("metric", "sales.revenue", "definition")
+    context = FrameObservationContext(subject, FrameAxisTime("day"), FrameTrailingPeriodsWindow(7))
+    assert "observation" in repr(context) and "sales.revenue" in repr(context)
+    assert ".show()" in repr(context) and len(repr(context)) < 300
+    context.show(max_output_bytes=300)
+    shown = capsys.readouterr().out
+    assert len(shown.encode()) <= 300
+    assert "observation" in shown
+    with pytest.raises(CoreRuleError, match="positive number"):
+        FrameTrailingPeriodsWindow(0)
+    with pytest.raises(CoreRuleError, match="captured output time basis"):
+        FrameObservationContext(subject, None, FrameTrailingPeriodsWindow(7))
+    assert "mean" in repr(FrameStatisticContext("mean", ()))
+    with pytest.raises(FrozenInstanceError):
+        context.subject = None

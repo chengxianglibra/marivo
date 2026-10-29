@@ -1131,7 +1131,7 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
     assert table[presence_only.axes[0].name.rsplit(".", 1)[-1]].tolist() == ["A", "B"]
     assert table["current.present"].tolist() == [True, False]
     assert table["reference.present"].tolist() == [False, True]
-    assert presence_only._schema.comparisons[0].values == ()
+    assert presence_only._schema.comparisons == ()
     presence_only = presence_only.select({"literal": 1}).compute()
     second = presence_only.compare(
         {
@@ -1142,8 +1142,6 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
     ).compute()
     assert tuple((fact.namespace, fact.alias) for fact in second._schema.comparisons) == (
         ((), "reference"),
-        (("current",), "reference"),
-        (("reference",), "reference"),
     )
     constant = second.select({"n": 1})
     filtered = constant.where(constant["n"] > 0)
@@ -1242,7 +1240,10 @@ def test_bare_compare_preserves_outer_values_presence_and_reference_order(
     assert table["current.present"].tolist() == [True, True, True, True, False]
     assert table["reference.present"].tolist() == [True, True, True, False, True]
     explicit = current.compare({"reference": mv.baseline(baseline, on=on)}).compute()
-    assert result._schema == explicit._schema
+    assert result.schema.comparisons[0].alias is None
+    assert explicit.schema.comparisons[0].alias == "reference"
+    assert replace(result._schema, comparisons=explicit._schema.comparisons) == explicit._schema
+    assert replace(result._schema.comparisons[0], named=True) == explicit._schema.comparisons[0]
     pd.testing.assert_frame_equal(table, explicit.to_pandas())
 
 

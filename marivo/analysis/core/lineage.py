@@ -117,6 +117,7 @@ class FrameLineage:
     _axes: tuple[tuple[str, ColumnLineage], ...] = ()
     _presence: tuple[tuple[str, ColumnLineage], ...] = ()
     _domain: Origins = ()
+    input_id: str = ""
 
     def __post_init__(self) -> None:
         for entries in (self._values, self._axes, self._presence):
@@ -163,7 +164,7 @@ class FrameLineage:
         return MappingProxyType(dict(self._presence))
 
     def __repr__(self) -> str:
-        return f"<FrameLineage values={len(self._values)} axes={len(self._axes)} presence={len(self._presence)}; use .show()>"
+        return f"<FrameLineage input={self.input_id[:64]!r} values={len(self._values)} axes={len(self._axes)} presence={len(self._presence)}; use .show()>"
 
     def show(self) -> None:
         """Print bounded column summaries. Args: None. Returns: None.

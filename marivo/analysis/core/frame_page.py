@@ -4,28 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import Decimal
+from datetime import datetime
 from types import MappingProxyType
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo.analysis.core.frame_interpretation import FrameAxisSchema, FrameComparison
+from marivo.analysis.core.frame_interpretation import FrameKeyScalar as FrameKeyScalar
 from marivo.analysis.core.frame_schema import FrameExportColumn
 from marivo.render import Card, RenderableResult
-
-FrameKeyScalar: TypeAlias = (
-    bool
-    | str
-    | int
-    | float
-    | Decimal
-    | pa.Date32Scalar
-    | pa.TimestampScalar
-    | pa.DurationScalar
-    | None
-)
 
 
 def detached_rows(rows: pd.DataFrame) -> pd.DataFrame:
@@ -129,6 +119,149 @@ class FramePage(RenderableResult):
         card = Card(
             identity=self._repr_identity(),
             available=(".layout", ".coordinates", ".read_stats", ".to_pandas()", ".show()"),
+        ).field("limit", str(self.limit))
+        if self.next_cursor is not None:
+            card.field("next_cursor", self.next_cursor)
+        return card
+
+
+class _PeriodRecord(RenderableResult):
+    key: tuple[FrameKeyScalar, ...]
+
+    def _key_identity(self) -> str:
+        values = (
+            f"{value.type}:{value.value}"
+            if isinstance(value, (pa.Date32Scalar, pa.TimestampScalar, pa.DurationScalar))
+            else repr(value)[:80]
+            for value in self.key[:4]
+        )
+        text = ", ".join(values)
+        return text[:200] + ("..." if len(text) > 200 or len(self.key) > 4 else "")
+
+    def _repr_identity(self) -> str:
+        return f"{type(self).__name__} key=({self._key_identity()})"
+
+    def _card(self) -> Card:
+        from dataclasses import fields, is_dataclass
+
+        assert is_dataclass(self)
+        card = Card(identity=self._repr_identity(), available=(".show()",))
+        for item in fields(self):
+            value = self._key_identity() if item.name == "key" else repr(getattr(self, item.name))
+            card.field(item.name, value[:240] + ("..." if len(value) > 240 else ""))
+        return card
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameCalendarPeriod(_PeriodRecord):
+    """One saved calendar period acquired from ``FramePeriodPage.items``.
+
+    Fields retain the complete key, actual/nominal UTC bounds, original ordinals,
+    timezone, label and saved civil boundaries. Example: ``page.items[0].show()``.
+    Constraints: No current timezone rules or shift history are reconstructed.
+    """
+
+    key: tuple[FrameKeyScalar, ...]
+    timezone: str
+    start: datetime
+    end: datetime
+    label: bool | str | int | float
+    ordinal: int
+    nominal_ordinal: int
+    nominal_start: datetime
+    nominal_end: datetime
+    nominal_start_civil: str
+    nominal_end_civil: str
+    actual_start_civil: str
+    actual_end_civil: str
+    kind: Literal["calendar"] = field(default="calendar", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameIntervalPeriod(_PeriodRecord):
+    """One saved interval acquired from ``FramePeriodPage.items``.
+
+    Fields retain its complete key, UTC bounds and boundary timezone.
+    Example: ``page.items[0].show()``.
+    Constraints: Unsaved nominal or civil boundaries are not inferred.
+    """
+
+    key: tuple[FrameKeyScalar, ...]
+    timezone: str
+    start: datetime
+    end: datetime
+    kind: Literal["interval"] = field(default="interval", init=False)
+
+
+FramePeriod: TypeAlias = FrameCalendarPeriod | FrameIntervalPeriod
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FramePairedPeriod(_PeriodRecord):
+    """A saved pair and its complete owning key, acquired from a period page.
+
+    Example: ``page.items[0].left``.
+    Constraints: One endpoint may be absent; the saved pair does not record why.
+    """
+
+    key: tuple[FrameKeyScalar, ...]
+    left: FramePeriod | None
+    right: FramePeriod | None
+    kind: Literal["paired"] = field(default="paired", init=False)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameComparisonPeriod(_PeriodRecord):
+    """One consumed correspondence acquired from a time-comparison period page.
+
+    Fields retain the owning axis key and actual current/baseline endpoints.
+    Example: ``page.items[0].baseline``.
+    Constraints: A missing baseline carries its saved reason, independently of row presence.
+    """
+
+    key: tuple[FrameKeyScalar, ...]
+    current: FramePeriod
+    baseline: FramePeriod | None
+    absent_reason: Literal["period_absent", "cutoff_absent", "unmatched"] | None
+    kind: Literal["comparison"] = field(default="comparison", init=False)
+
+
+FramePeriodItem: TypeAlias = FramePeriod | FramePairedPeriod | FrameComparisonPeriod
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FramePeriodPage(RenderableResult):
+    """One bounded immutable page acquired with ``frame.read_periods(target)``.
+
+    Fields capture the exact input, inert target, selected records and continuation.
+    Example: ``page = fixed.read_periods(fixed.axes[0], limit=100)``.
+    Constraints: Retains this page and its endpoints only; period keys join to
+    ``read_page().coordinates`` and selected periods need not have current rows.
+    """
+
+    input_id: str
+    target: FrameAxisSchema | FrameComparison
+    items: tuple[FramePeriodItem, ...]
+    limit: int
+    total_count: int
+    has_more: bool
+    next_cursor: str | None
+    read_stats: FrameReadStats
+
+    def __len__(self) -> int:
+        """Return this page's record count without reading data."""
+        return len(self.items)
+
+    def _repr_identity(self) -> str:
+        return (
+            f"FramePeriodPage input={self.input_id[:24]} items={len(self)} "
+            f"total={self.total_count} has_more={self.has_more}"
+        )
+
+    def _card(self) -> Card:
+        card = Card(
+            identity=self._repr_identity(),
+            available=(".target", ".items", ".read_stats", ".show()"),
         ).field("limit", str(self.limit))
         if self.next_cursor is not None:
             card.field("next_cursor", self.next_cursor)
