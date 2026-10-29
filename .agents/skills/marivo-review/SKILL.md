@@ -39,6 +39,12 @@ and public rendering as applicable.
   independently resolvable guidance matter beyond reflected signatures.
 - Check failure paths and xdist isolation. If a failure may predate the change,
   reproduce it against the exact base before attributing it to the diff.
+- Check added scans, materialization, repeated result reads, widening and retries
+  against the current contract and measured need. Preserve declared semantic trust
+  and native numeric behavior. Require concrete benefit before introducing a new
+  defensive pass, abstraction or compatibility path; verify necessary failure and
+  ownership boundaries before removing one. Test additions should detect a specific
+  incorrect implementation with independent expected results.
 
 Load specialized detail only when needed:
 
@@ -46,6 +52,8 @@ Load specialized detail only when needed:
   architecture, algebra, temporal policy, or public-constructor proposals.
 - [help-review.md](references/help-review.md) for Help roots, focused leaves,
   registries, disclosure budgets, or resolver equivalence.
+- [test-quality.md](references/test-quality.md) for test additions, deletions,
+  merges, oracles, fixtures, or marker routing.
 
 Committed specs establish intent. Distinguish implemented contracts from future
 proposals and historical text; missing implementation is not a defect in a

@@ -86,7 +86,12 @@ models/
 !.codex/skills/
 !.codex/skills/marivo-semantic/
 !.codex/skills/marivo-analysis/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/marivo-review/
+!.agents/skills/marivo-test-fixtures/
+!.agents/skills/marivo-skill-maintainer/
 
 # Plan
 plan/

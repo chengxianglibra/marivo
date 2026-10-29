@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marivo Review"
+  short_description: "Review Marivo changes against live contracts"
+  default_prompt: "Use $marivo-review to review the current Marivo diff and report evidence-backed findings."

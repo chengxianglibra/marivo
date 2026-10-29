@@ -221,10 +221,10 @@ nodes. Keep independent budget checks parametrized so xdist can distribute them.
 - 优先使用 pytest 测试函数与 fixtures；保留现有 `unittest.TestCase` 时，方法命名为 `test_*`。
   当前配置不收集普通 pytest 测试类，不因命名约定引入无法收集的测试。
 
-详细规范与覆盖责任保存在本地 `docs/testing/test-quality.md` 和
-`docs/testing/runtime-coverage.md`；fixture 操作指引位于本地
-`.agents/skills/marivo-test-fixtures/SKILL.md`。这些目录按仓库约定不由 Git 跟踪，
-干净 checkout 以本节及 `AGENTS.md` 中可用的规则为准。
+详细测试质量规范见已跟踪的 `.agents/skills/marivo-review/references/test-quality.md`。本地覆盖责任记录位于
+`docs/testing/runtime-coverage.md`，fixture 操作指引位于
+`.agents/skills/marivo-test-fixtures/SKILL.md`；后两者由 Git 忽略，
+干净 checkout 不依赖它们，以本节及 `AGENTS.md` 中可用的规则为准。
 
 ## 提交规范
 

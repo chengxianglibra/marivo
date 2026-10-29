@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marivo Skill Maintainer"
+  short_description: "Maintain packaged Marivo workflow skills."
+  default_prompt: "Use $marivo-skill-maintainer to update the packaged Marivo workflow skills against current contracts."
