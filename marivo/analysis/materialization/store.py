@@ -40,7 +40,7 @@ CREATE TABLE sessions (
  report_timezone_resolution TEXT NOT NULL CHECK(report_timezone_resolution IN ('iana','fixed_offset')),
  created_at TEXT NOT NULL CHECK(length(created_at)>0), updated_at TEXT NOT NULL CHECK(length(updated_at)>0),
  domains_payload TEXT
-) STRICT;
+);
 CREATE TABLE analysis_action_runs (
  run_ref TEXT PRIMARY KEY NOT NULL CHECK(length(run_ref)>0),
  session_ref TEXT NOT NULL REFERENCES sessions(session_ref) ON DELETE RESTRICT,
@@ -48,7 +48,7 @@ CREATE TABLE analysis_action_runs (
  admitted_at TEXT NOT NULL CHECK(length(admitted_at)>0),
  dataset_input_payload TEXT NOT NULL CHECK(length(dataset_input_payload)>0),
  UNIQUE(session_ref,run_ref)
-) STRICT;
+);
 CREATE TABLE dataset_artifacts (
  artifact_ref TEXT PRIMARY KEY NOT NULL CHECK(length(artifact_ref)>0),
  session_ref TEXT NOT NULL REFERENCES sessions(session_ref) ON DELETE RESTRICT,
@@ -56,7 +56,7 @@ CREATE TABLE dataset_artifacts (
  descriptor_payload TEXT NOT NULL CHECK(length(descriptor_payload)>0),
  committed_at TEXT NOT NULL CHECK(length(committed_at)>0),
  UNIQUE(session_ref,artifact_ref), UNIQUE(session_ref,invocation_id)
-) STRICT;
+);
 CREATE TABLE analysis_action_run_terminals (
  run_ref TEXT PRIMARY KEY NOT NULL CHECK(length(run_ref)>0),
  session_ref TEXT NOT NULL CHECK(length(session_ref)>0),
@@ -68,7 +68,7 @@ CREATE TABLE analysis_action_run_terminals (
  UNIQUE(session_ref,output_artifact_ref),
  CHECK((outcome='succeeded' AND output_artifact_ref IS NOT NULL AND failure_payload IS NULL)
     OR (outcome='failed' AND output_artifact_ref IS NULL AND failure_payload IS NOT NULL))
-) STRICT;
+);
 CREATE TABLE dataset_evidence (
  artifact_ref TEXT PRIMARY KEY NOT NULL REFERENCES dataset_artifacts(artifact_ref) ON DELETE RESTRICT,
  evidence_digest TEXT NOT NULL CHECK(length(evidence_digest)>0),
@@ -76,14 +76,14 @@ CREATE TABLE dataset_evidence (
  finding_count INTEGER NOT NULL CHECK(finding_count>=0),
  finding_set_digest TEXT NOT NULL CHECK(length(finding_set_digest)>0),
  evidence_format TEXT NOT NULL CHECK(evidence_format='frame-output-v11')
-) STRICT;
+);
 CREATE TABLE output_evidence (
  artifact_ref TEXT NOT NULL REFERENCES dataset_evidence(artifact_ref) ON DELETE RESTRICT,
  evidence_ordinal INTEGER NOT NULL CHECK(evidence_ordinal>=0),
  body_payload TEXT NOT NULL CHECK(length(body_payload)>0),
  body_digest TEXT NOT NULL CHECK(length(body_digest)>0),
  PRIMARY KEY(artifact_ref,evidence_ordinal)
-) STRICT;
+);
 CREATE TABLE findings (
  finding_ref TEXT NOT NULL CHECK(length(finding_ref)>0),
  artifact_ref TEXT NOT NULL REFERENCES dataset_evidence(artifact_ref) ON DELETE RESTRICT,
@@ -91,7 +91,7 @@ CREATE TABLE findings (
  finding_identity_digest TEXT NOT NULL CHECK(length(finding_identity_digest)>0),
  finding_body_payload TEXT NOT NULL CHECK(length(finding_body_payload)>0),
  PRIMARY KEY(artifact_ref,finding_ref), UNIQUE(artifact_ref,finding_ordinal), UNIQUE(artifact_ref,finding_identity_digest)
-) STRICT;
+);
 CREATE TABLE action_resource_journal (
  run_ref TEXT NOT NULL REFERENCES analysis_action_runs(run_ref) ON DELETE RESTRICT,
  resource_kind TEXT NOT NULL CHECK(resource_kind IN ('planner_temporary_relation','backend_execution','private_parquet_staging','local_storage_staging')),
@@ -100,7 +100,7 @@ CREATE TABLE action_resource_journal (
  cleanup_capability_id TEXT NOT NULL CHECK(length(cleanup_capability_id)>0),
  safe_locator TEXT NOT NULL CHECK(length(safe_locator)>0),
  PRIMARY KEY(run_ref,resource_kind,execution_domain_id,safe_locator)
-) STRICT;
+);
 CREATE INDEX sessions_recency ON sessions(updated_at,session_ref);
 CREATE INDEX run_admission_recency ON analysis_action_runs(session_ref,admitted_at,run_ref);
 CREATE INDEX terminal_recency ON analysis_action_run_terminals(outcome,terminal_at,run_ref);
@@ -267,9 +267,6 @@ class SessionStore:
                     }
                     if {row[0] for row in tables} != expected:
                         raise invalid(f"incomplete v{self.layout.generation} schema")
-                    strict = read.execute("PRAGMA table_list").fetchall()
-                    if any(row[5] != 1 for row in strict if row[1] in expected):
-                        raise invalid(f"non-STRICT v{self.layout.generation} relation")
                     if immutable:
                         # Immutable SQLite reports its local journal mode as delete.
                         # The durable header remains the authority for a clean WAL Store.
