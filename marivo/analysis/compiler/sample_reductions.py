@@ -73,7 +73,7 @@ def _null(value: ir.Value) -> ir.Value:
     return ibis.null().cast(value.type().copy(nullable=True))
 
 
-def _present(table: ir.Table, width: int) -> ir.BooleanValue:
+def _present(table: ir.Table, width: int) -> ir.BooleanValue | None:
     name = next(
         (
             name
@@ -82,7 +82,9 @@ def _present(table: ir.Table, width: int) -> ir.BooleanValue:
         ),
         None,
     )
-    value = table[name].fill_null(False) if name is not None else ibis.literal(True)
+    if name is None:
+        return None
+    value = table[name].fill_null(False)
     assert isinstance(value, ir.BooleanValue)
     return value
 
@@ -137,9 +139,12 @@ class SampleLowerer:
                 raise SampleReductionUnavailableError(
                     "sample inputs have different coordinate prefixes"
                 )
+            present = _present(table, len(keys))
+            if present is not None:
+                table = table.filter(present)
             tables.append(
                 distinct_returned_keys(
-                    table.filter(_present(table, len(keys))).select(
+                    table.select(
                         **{key: normalized_returned_key(table[key], self.provider) for key in keys}
                     ),
                     self.provider,
@@ -248,6 +253,7 @@ class SampleLowerer:
             tables = []
             for contribution_input in bindings:
                 source = self.relations[contribution_input.stage_id]
+                present = _present(source, len(keys))
                 table = source.select(
                     **{key: normalized_returned_key(source[key], self.provider) for key in keys},
                     **{value: source[contribution_input.column.slot_id]},
@@ -257,9 +263,9 @@ class SampleLowerer:
                             checks, contribution_input.checks, strict=True
                         )
                     },
-                    __sample_present=_present(source, len(keys)),
+                    __sample_present=ibis.literal(True) if present is None else present,
                 )
-                tables.append(table.filter(table["__sample_present"]))
+                tables.append(table if present is None else table.filter(table["__sample_present"]))
             table = tables[0]
             for other in tables[1:]:
                 table = table.union(other, distinct=False)

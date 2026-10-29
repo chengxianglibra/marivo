@@ -14,6 +14,8 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
+import sqlglot
+import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 from marivo.analysis.materialization import sample_fusion
@@ -28,11 +30,22 @@ from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
+def _assert_no_true_filters(sql: str, dialect: str) -> None:
+    query = sqlglot.parse_one(sql, read=dialect)
+    for clause in query.find_all(sge.Where):
+        assert not any(
+            isinstance(node, sge.Boolean) and node.this is True
+            for node in clause.this.walk(prune=lambda node: isinstance(node, sge.Query))
+        ), clause.sql(dialect=dialect)
+
+
 @pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 @pytest.mark.parametrize("reducer", ["mean", "min", "max"])
+@pytest.mark.parametrize("presence", [False, True])
 def test_sample_folds_compile_native_aggregates_without_clock_completion(
     backend: str,
     reducer: str,
+    presence: bool,
 ) -> None:
     from marivo._definition.expressions import RowField, SourceAggregate
     from marivo._definition.types import ExactRef, SumAll
@@ -47,6 +60,10 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         },
         name="samples",
     )
+    table = table.filter(
+        table.point >= ibis.literal("2026-10-01").cast(table.point.type()),
+        table.point < ibis.literal("2026-10-02").cast(table.point.type()),
+    )
     field = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),
         ExactRef(ref.entity("sales.facts"), "v1"),
@@ -58,7 +75,7 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         (("key.0", "category"), ("key.1", "point")),
         "value",
         provider=backend,
-        preserve_sample_presence=True,
+        preserve_sample_presence=presence,
     )
     relation, checks = lower_observation(
         prepared,
@@ -106,6 +123,74 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
     assert len(result.checks) == 1
     assert result.checks[0][1] == "non-NA internal samples"
     assert "key.1" not in result.table.columns
+    _assert_no_true_filters(sql, backend)
+    assert "2026-10-01" in sql and "2026-10-02" in sql
+
+
+@pytest.mark.parametrize(
+    "marker", [None, "__sample_scope_1", "__sample_present", "__numeric_present"]
+)
+def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: str | None) -> None:
+    from marivo._definition.expressions import RowField, SourceAggregate
+    from marivo._definition.types import ExactRef, SumAll
+    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.compiler.sample_reductions import SampleLowerer
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.refs import ref
+
+    table = ibis.memtable(
+        {"key.0": [1, 2, 3, 4], "value": [10.0, 1000.0, 2000.0, None]},
+        schema={"key.0": "int64", "value": "float64"},
+    )
+    if marker is not None:
+        table = ibis.memtable(
+            {
+                "key.0": [1, 2, 3, 4],
+                "value": [10.0, 1000.0, 2000.0, None],
+                marker: [True, False, None, True],
+            },
+            schema={"key.0": "int64", "value": "float64", marker: "boolean"},
+        )
+    field = RowField(
+        ExactRef(ref.measure("sales.facts.amount"), "v1"),
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        None,
+        SumAll(),
+    )
+    node = SourceAggregate(field, "mean", None)
+    binding = FormulaInput(
+        (0,),
+        "source",
+        DataColumn("value", "value", ScalarDataType("float64"), True),
+        False,
+        keys=("key.0",),
+        key_groups=(("key.0",),),
+    )
+
+    def unavailable(*args: object) -> ir.Table:
+        raise AssertionError("observed samples must not synthesize a domain")
+
+    lowerer = SampleLowerer(
+        FormulaProgram((("v", node),), (), (binding,)),
+        {"source": table},
+        ("key.0",),
+        "duckdb",
+        unavailable,
+        unavailable,
+    )
+    result = lowerer.lower(node, (0,), ("key.0",))
+    backend = ibis.duckdb.connect()
+    try:
+        domain = backend.execute(lowerer.domain(("key.0",), (0,)).order_by("key.0"))
+        rows = backend.execute(result.table.order_by("key.0"))
+    finally:
+        backend.disconnect()
+    expected = [1, 2, 3, 4] if marker is None else [1, 4]
+    assert domain["key.0"].tolist() == expected
+    assert rows["key.0"].tolist() == expected
+    assert rows[result.value].iloc[0] == 10.0
+    assert pd.isna(rows[result.value].iloc[-1])
+    assert rows["__sample_present"].tolist() == [True] * len(expected)
 
 
 @contextmanager
@@ -200,6 +285,53 @@ def mean_session(
             }
         )
         yield mv.session.get_or_create("sampled-mean", timezone="UTC"), case
+
+
+@pytest.mark.runtime
+def test_clickhouse_set_index_sample_mean_omits_true_filters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from tests.datasource.environment import clickhouse_analysis as ch
+
+    with mean_session(
+        "clickhouse",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        aware=True,
+        cadence=False,
+    ) as (session, case):
+        assert isinstance(case.source, TableSourceIR)
+        table = f"qualification.{case.source.table}"
+        with ch.connection(admin=True) as admin:
+            admin.command(
+                f"ALTER TABLE {table} ADD INDEX sample_clock point TYPE set(0) GRANULARITY 1"
+            )
+            admin.command(
+                f"ALTER TABLE {table} MATERIALIZE INDEX sample_clock SETTINGS mutations_sync=1"
+            )
+        assert case.session._backend.raw_sql(
+            "SELECT getSetting('readonly'), getSetting('use_skip_indexes')"
+        ).result_rows == [(1, 1)]
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        trace = capture_source(monkeypatch)
+        rows = (
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        # Completed timestamp means are [0, 100, 0], with equal sample weights.
+        assert rows["v"].tolist() == pytest.approx([100 / 3])
+        assert trace.native_sql
+        for sql in trace.native_sql:
+            _assert_no_true_filters(sql, "clickhouse")
+            assert "2026-10-01" in sql
+        assert trace.returned_rows == [1]
 
 
 @pytest.mark.parametrize(
